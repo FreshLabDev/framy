@@ -1,0 +1,108 @@
+# SPDX-License-Identifier: Apache-2.0
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  # Weekly, so a new advisory against a dependency or the standard library is
+  # noticed while nothing is being pushed.
+  schedule:
+    - cron: "23 5 * * 1"
+  # release.yml runs this before it publishes anything.
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build, vet, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify modules
+        run: |
+          go mod verify
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+      - name: Format
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "gofmt would change:"
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: Build
+        run: go build ./...
+      - name: Vet
+        run: |
+          go vet ./...
+          go vet -tags=integration ./...
+      - name: Test
+        run: go test -race ./...
+
+  database:
+    name: Database tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: framy
+          POSTGRES_PASSWORD: framy
+          POSTGRES_DB: framy_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U framy -d framy_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run database tests
+        env:
+          FRAMY_TEST_DATABASE_URL: postgres://framy:framy@localhost:5432/framy_test?sslmode=disable
+        run: go test -tags=integration -race -p 1 ./...
+
+  govulncheck:
+    name: Vulnerability scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+          "$(go env GOPATH)/bin/govulncheck" ./...
+
+  image:
+    name: Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build image
+        run: docker build -t framy:ci .
+      - name: Validate Compose
+        # The production manifest, deploy/ws04/compose.yaml, joins this check
+        # when the stack is written.
+        run: |
+          cp .env.example .env
+          mkdir -p secrets && touch secrets/bot-token
+          docker compose config >/dev/null

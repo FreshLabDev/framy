@@ -23,6 +23,11 @@ was written from, and the skeleton of the service.
   in `core` through `core.touch`. `Preflight` runs before polling starts.
   `/healthz` reports the version, the database and how fresh polling is.
   SIGTERM stops polling and the HTTP server within 20 seconds.
+- CI on every push and weekly: modules, gofmt, build, vet, race tests,
+  database tests on PostgreSQL 17, govulncheck, the image build and the local
+  Compose file. A tag publishes the image to GHCR and the GitHub Release only
+  after CI passed on the tagged commit. Dependabot opens grouped updates
+  against `dev`.
 
 - `docs/design.md`: what framy is, the surfaces (site, Mini App, groups, DMs),
   accounts through Telegram, providers and people's keys, the model catalog,
