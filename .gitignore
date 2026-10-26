@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+.env
+.env.*
+!.env.example
+*.exe
+/bin/
+/out/
+/tmp/
+/secrets/
+.DS_Store
+**/.DS_Store
+.idea/
+.vscode/
+*.log
+coverage.out
+
+# Promo cards and test runs made by hand; kept outside git
+/outputs/

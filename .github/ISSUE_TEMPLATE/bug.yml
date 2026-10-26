@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Bug
+description: Something does not work as it should
+labels: ["bug"]
+projects: ["FreshLabDev/3"]
+body:
+  - type: markdown
+    attributes:
+      value: If the bug exposes someone's API key, lets one person run on another person's key, or opens someone else's private result, do not file it here. See SECURITY.md. Never paste a key, even a revoked one.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you saw. The surface (site, Mini App, group, DM), the model, and the Telegram client and device.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce

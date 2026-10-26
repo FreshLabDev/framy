@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Task
+description: Something to build or change in framy
+projects: ["FreshLabDev/3"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What and why
+      description: What to do and why it is needed. Link the section of docs/design.md if there is one.
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Done when
+      description: The check after which this task can be closed.
+    validations:
+      required: true
