@@ -125,3 +125,46 @@ func TestTouchRecordsPersonAndGroup(t *testing.T) {
 		t.Fatalf("core has %d people and %d chats, want 1 and 1", people, chats)
 	}
 }
+
+// A pick is a manual claim in core; Follow Telegram withdraws framy's claim
+// and the client's language answers again.
+func TestLanguageGoesThroughCore(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+	user := tg.User{ID: 42, FirstName: "Ann", LanguageCode: "uk"}
+	if err := store.Touch(ctx, user, &tg.Chat{ID: 42, Type: "private"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetUserLang(ctx, 42, "pl"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := store.UserLang(ctx, 42); err != nil || got != "pl" {
+		t.Fatalf("after a pick: %q, %v", got, err)
+	}
+	if err := store.ClearUserLang(ctx, 42); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := store.UserLang(ctx, 42); err != nil || got != "uk" {
+		t.Fatalf("after Follow Telegram: %q, %v", got, err)
+	}
+
+	if got, err := store.ChatLang(ctx, -1001); err != nil || got != "" {
+		t.Fatalf("a group with no language: %q, %v", got, err)
+	}
+	if err := store.SetChatLang(ctx, -1001, "be"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := store.ChatLang(ctx, -1001); err != nil || got != "be" {
+		t.Fatalf("group language: %q, %v", got, err)
+	}
+	// The group's language is not the person's.
+	if got, _ := store.UserLang(ctx, 42); got != "uk" {
+		t.Fatalf("the group's pick changed the person's language to %q", got)
+	}
+	if err := store.ClearChatLang(ctx, -1001); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := store.ChatLang(ctx, -1001); err != nil || got != "" {
+		t.Fatalf("after Automatic: %q, %v", got, err)
+	}
+}

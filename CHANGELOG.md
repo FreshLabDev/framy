@@ -23,6 +23,16 @@ was written from, and the skeleton of the service.
   in `core` through `core.touch`. `Preflight` runs before polling starts.
   `/healthz` reports the version, the database and how fresh polling is.
   SIGTERM stops polling and the HTTP server within 20 seconds.
+- `/start` and the family's panels, in the sixteen languages of the family
+  and the shape every sibling bot uses (`core/docs/panels.md`): home, help,
+  about and the language picker in a direct chat; in a group `/start` is
+  ephemeral, so the panel reaches only the one who asked, with the group's
+  language for its admins. The language is core's, shared with the other bots:
+  a pick writes a manual observation and Follow Telegram withdraws it. The
+  command menu and the profile descriptions are published per language at
+  start, and a description is written only when it changed.
+- `/metrics` with framy's counters in the Prometheus text format, on its own
+  listener (`METRICS_ADDR`, `:9090` by default), apart from the public one.
 - CI on every push and weekly: modules, gofmt, build, vet, race tests,
   database tests on PostgreSQL 17, govulncheck, the image build and the local
   Compose file. A tag publishes the image to GHCR and the GitHub Release only

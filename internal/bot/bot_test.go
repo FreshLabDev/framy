@@ -3,8 +3,10 @@ package bot
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
+	"net/url"
 	"sync"
 	"testing"
 	"time"
@@ -18,9 +20,17 @@ type touch struct {
 }
 
 type fakeStore struct {
-	mu      sync.Mutex
-	offset  int64
-	touches []touch
+	mu       sync.Mutex
+	offset   int64
+	touches  []touch
+	userLang map[int64]string
+	chatLang map[int64]string
+	// fallback is what core answers for a person once framy's claim is gone.
+	fallback map[int64]string
+}
+
+func newStore() *fakeStore {
+	return &fakeStore{userLang: map[int64]string{}, chatLang: map[int64]string{}, fallback: map[int64]string{}}
 }
 
 func (f *fakeStore) Offset(context.Context) (int64, error) {
@@ -47,34 +57,201 @@ func (f *fakeStore) Touch(_ context.Context, user tg.User, chat *tg.Chat) error 
 	return nil
 }
 
-// fakeTelegram hands out one batch, then cancels the run on the next poll.
+func (f *fakeStore) UserLang(_ context.Context, id int64) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.userLang[id], nil
+}
+
+func (f *fakeStore) ChatLang(_ context.Context, id int64) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.chatLang[id], nil
+}
+
+func (f *fakeStore) SetUserLang(_ context.Context, id int64, lang string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.userLang[id] = lang
+	return nil
+}
+
+func (f *fakeStore) ClearUserLang(_ context.Context, id int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.userLang[id] = f.fallback[id]
+	return nil
+}
+
+func (f *fakeStore) SetChatLang(_ context.Context, id int64, lang string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.chatLang[id] = lang
+	return nil
+}
+
+func (f *fakeStore) ClearChatLang(_ context.Context, id int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.chatLang, id)
+	return nil
+}
+
+// sent is one call that changed something in a chat.
+type sent struct {
+	method   string
+	chatID   int64
+	receiver int64
+	id       int64
+	text     string
+	markup   *tg.InlineKeyboardMarkup
+}
+
+// fakeTelegram hands out one batch, then cancels the run on the next poll,
+// and records every call that writes.
 type fakeTelegram struct {
-	batch   []tg.Update
-	offsets []int64
-	cancel  context.CancelFunc
+	mu       sync.Mutex
+	batch    []tg.Update
+	offsets  []int64
+	cancel   context.CancelFunc
+	calls    []sent
+	answers  []string
+	alerts   []string
+	statuses map[int64]string
+	commands map[string][]tg.BotCommand
+	// profile is what Telegram holds for get/setMy(Short)Description, keyed
+	// by method field and language; writes counts the set calls.
+	profile map[string]string
+	writes  int
+}
+
+func newTelegram() *fakeTelegram {
+	return &fakeTelegram{statuses: map[int64]string{}, commands: map[string][]tg.BotCommand{}, profile: map[string]string{}}
+}
+
+func (f *fakeTelegram) record(s sent) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, s)
+}
+
+func (f *fakeTelegram) last() sent {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.calls) == 0 {
+		return sent{}
+	}
+	return f.calls[len(f.calls)-1]
 }
 
 func (f *fakeTelegram) DeleteWebhook(context.Context) error { return nil }
 
 func (f *fakeTelegram) GetUpdates(ctx context.Context, offset int64, _ int) ([]tg.Update, error) {
+	f.mu.Lock()
 	f.offsets = append(f.offsets, offset)
-	if len(f.offsets) == 1 {
+	first := len(f.offsets) == 1
+	f.mu.Unlock()
+	if first {
 		return f.batch, nil
 	}
 	f.cancel()
 	return nil, ctx.Err()
 }
 
+func (f *fakeTelegram) SendMessage(_ context.Context, chatID int64, text string, m *tg.InlineKeyboardMarkup) (tg.Message, error) {
+	f.record(sent{method: "sendMessage", chatID: chatID, text: text, markup: m})
+	return tg.Message{MessageID: 1}, nil
+}
+
+func (f *fakeTelegram) EditMessageText(_ context.Context, chatID, messageID int64, text string, m *tg.InlineKeyboardMarkup) error {
+	f.record(sent{method: "editMessageText", chatID: chatID, id: messageID, text: text, markup: m})
+	return nil
+}
+
+func (f *fakeTelegram) SendEphemeralMessage(_ context.Context, chatID, receiver, ephemeralID int64, text string, m *tg.InlineKeyboardMarkup) (tg.Message, error) {
+	f.record(sent{method: "sendEphemeral", chatID: chatID, receiver: receiver, id: ephemeralID, text: text, markup: m})
+	return tg.Message{}, nil
+}
+
+func (f *fakeTelegram) EditEphemeralMessageText(_ context.Context, chatID, receiver, ephemeralID int64, text string, m *tg.InlineKeyboardMarkup) error {
+	f.record(sent{method: "editEphemeral", chatID: chatID, receiver: receiver, id: ephemeralID, text: text, markup: m})
+	return nil
+}
+
+func (f *fakeTelegram) DeleteEphemeralMessage(_ context.Context, chatID, receiver, ephemeralID int64) error {
+	f.record(sent{method: "deleteEphemeral", chatID: chatID, receiver: receiver, id: ephemeralID})
+	return nil
+}
+
+func (f *fakeTelegram) AnswerCallbackQuery(_ context.Context, id, _ string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.answers = append(f.answers, id)
+	return nil
+}
+
+func (f *fakeTelegram) AnswerCallbackQueryAlert(_ context.Context, _, text string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.alerts = append(f.alerts, text)
+	return nil
+}
+
+func (f *fakeTelegram) GetChatMember(_ context.Context, _, userID int64) (tg.ChatMember, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	status := f.statuses[userID]
+	if status == "" {
+		status = "member"
+	}
+	return tg.ChatMember{Status: status}, nil
+}
+
+func (f *fakeTelegram) SetMyCommandsForScope(_ context.Context, cmds []tg.BotCommand, sc *tg.BotCommandScope) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.commands[sc.Type+"/"+sc.LanguageCode] = cmds
+	return nil
+}
+
+func (f *fakeTelegram) CallGet(_ context.Context, method string, values url.Values, out any) error {
+	field := map[string]string{"getMyDescription": "description", "getMyShortDescription": "short_description"}[method]
+	f.mu.Lock()
+	text := f.profile[field+"/"+values.Get("language_code")]
+	f.mu.Unlock()
+	body, _ := json.Marshal(map[string]any{"ok": true, "result": map[string]string{field: text}})
+	return json.Unmarshal(body, out)
+}
+
+func (f *fakeTelegram) Call(_ context.Context, _ string, req any, out any) error {
+	r := req.(map[string]any)
+	lang, _ := r["language_code"].(string)
+	f.mu.Lock()
+	for _, field := range []string{"description", "short_description"} {
+		if text, ok := r[field].(string); ok {
+			f.profile[field+"/"+lang] = text
+		}
+	}
+	f.writes++
+	f.mu.Unlock()
+	return json.Unmarshal([]byte(`{"ok":true,"result":true}`), out)
+}
+
+func quiet() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
+
 func TestRunTouchesSendersAndAdvancesOffset(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	store := &fakeStore{offset: 40}
-	client := &fakeTelegram{cancel: cancel, batch: []tg.Update{
+	store := newStore()
+	store.offset = 40
+	client := newTelegram()
+	client.cancel = cancel
+	client.batch = []tg.Update{
 		{UpdateID: 40, Message: &tg.Message{From: &tg.User{ID: 1}, Chat: tg.Chat{ID: -100, Type: "supergroup"}}},
 		{UpdateID: 41, Message: &tg.Message{Chat: tg.Chat{ID: -200, Type: "channel"}}},
 		{UpdateID: 42, MyChatMember: &tg.ChatMemberUpdated{From: tg.User{ID: 2}, Chat: tg.Chat{ID: -300, Type: "group"}}},
-	}}
-	b := New(store, client, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	}
+	b := New(store, client, quiet(), "framytest_bot", "v0.0.0")
 
 	if err := b.Run(ctx); err != nil {
 		t.Fatal(err)

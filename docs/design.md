@@ -596,7 +596,7 @@ Main tables of the `framy` schema, created by a core migration with its own `fra
 
 | Table | What it stores |
 |:--|:--|
-| `profile` | `user_id`, currency, interface language, default models, delivery to Telegram |
+| `profile` | `user_id`, currency, default models, delivery to Telegram (the interface language is core's, shared with the other bots) |
 | `connection` | provider, encrypted key, `last4`, status, last success, last error class |
 | `catalog_model`, `catalog_offer` | synced and hand-written models, offers, `pricing_spec`, flags, `fetched_at` |
 | `job` | requester, surface, chat and preview message, offer, prompt, settings, status, provider job id, estimate, actual, FX |

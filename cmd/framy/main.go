@@ -18,6 +18,7 @@ import (
 	"github.com/FreshLabDev/framy/internal/config"
 	"github.com/FreshLabDev/framy/internal/db"
 	"github.com/FreshLabDev/framy/internal/health"
+	"github.com/FreshLabDev/framy/internal/metrics"
 	"github.com/FreshLabDev/framy/migrations"
 )
 
@@ -65,13 +66,29 @@ func run(log *slog.Logger) error {
 		// it out of the default set, so it has to be asked for.
 		tg.WithAllowedUpdates("message", "callback_query", "my_chat_member"),
 		tg.WithLogger(log),
+		tg.WithObserver(func(e tg.Event) {
+			switch {
+			// A capability probe is answered with a parameter error on
+			// purpose; counting it would add a phantom incident per probed
+			// method to every start.
+			case e.Probe, e.Err == nil:
+			case e.Status == http.StatusTooManyRequests:
+				metrics.TelegramLimited.Inc(e.Method)
+			default:
+				metrics.TelegramErrors.Inc(e.Method)
+			}
+		}),
 	)
-	me, err := client.Preflight(ctx, tg.Needs{})
+	// In a group the panel is an ephemeral reply; a server without ephemeral
+	// messages would leave /start there unanswered.
+	me, err := client.Preflight(ctx, tg.Needs{
+		Methods: []string{"editEphemeralMessageText", "deleteEphemeralMessage"},
+	})
 	if err != nil {
 		return err
 	}
 	log.Info("telegram preflight passed", "username", me.Username, "bot_api", tg.BotAPI)
-	b := bot.New(store, client, log)
+	b := bot.New(store, client, log, me.Username, version)
 
 	started := time.Now()
 	mux := http.NewServeMux()
@@ -87,14 +104,29 @@ func run(log *slog.Logger) error {
 		IdleTimeout:       60 * time.Second,
 	}
 
-	errCh := make(chan error, 2)
+	servers := []*http.Server{srv}
+	if cfg.MetricsAddr != "" {
+		metricsMux := http.NewServeMux()
+		metricsMux.Handle("GET /metrics", metrics.Handler())
+		servers = append(servers, &http.Server{
+			Addr:              cfg.MetricsAddr,
+			Handler:           metricsMux,
+			ReadHeaderTimeout: 5 * time.Second,
+			ReadTimeout:       10 * time.Second,
+			WriteTimeout:      10 * time.Second,
+		})
+	}
+
+	errCh := make(chan error, len(servers)+1)
 	var workers sync.WaitGroup
-	workers.Go(func() {
-		log.Info("http listening", "addr", cfg.HTTPAddr, "version", version)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
-		}
-	})
+	for _, s := range servers {
+		workers.Go(func() {
+			log.Info("http listening", "addr", s.Addr, "version", version)
+			if err := s.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				errCh <- err
+			}
+		})
+	}
 	workers.Go(func() {
 		log.Info("telegram polling starting")
 		if err := b.Run(ctx); err != nil {
@@ -113,8 +145,10 @@ func run(log *slog.Logger) error {
 	// lets requests in flight finish. Both get the same deadline.
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil && runErr == nil {
-		runErr = err
+	for _, s := range servers {
+		if err := s.Shutdown(shutdownCtx); err != nil && runErr == nil {
+			runErr = err
+		}
 	}
 	done := make(chan struct{})
 	go func() { workers.Wait(); close(done) }()

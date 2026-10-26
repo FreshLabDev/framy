@@ -19,13 +19,17 @@ type Config struct {
 	DatabaseURL      string
 	AutoMigrate      bool
 	HTTPAddr         string
-	LogLevel         string
+	// MetricsAddr serves /metrics apart from HTTPAddr, which the tunnel makes
+	// public with the site. Empty turns it off.
+	MetricsAddr string
+	LogLevel    string
 }
 
 func Load() (Config, error) {
 	cfg := Config{
 		TelegramAPIBase: strings.TrimRight(valueOrDefault("TELEGRAM_API_BASE", DefaultTelegramAPIBase), "/"),
 		HTTPAddr:        valueOrDefault("HTTP_ADDR", ":8080"),
+		MetricsAddr:     valueOrDefault("METRICS_ADDR", ":9090"),
 		LogLevel:        valueOrDefault("LOG_LEVEL", "info"),
 	}
 	var err error
@@ -40,6 +44,12 @@ func Load() (Config, error) {
 	}
 	if !strings.HasPrefix(cfg.TelegramAPIBase, "http://") && !strings.HasPrefix(cfg.TelegramAPIBase, "https://") {
 		return Config{}, fmt.Errorf("TELEGRAM_API_BASE must be an http or https URL")
+	}
+	if cfg.MetricsAddr == "off" {
+		cfg.MetricsAddr = ""
+	}
+	if cfg.MetricsAddr != "" && cfg.MetricsAddr == cfg.HTTPAddr {
+		return Config{}, fmt.Errorf("METRICS_ADDR must differ from HTTP_ADDR: the metrics stay off the public listener")
 	}
 	if cfg.TelegramBotToken == "" {
 		return Config{}, fmt.Errorf("TELEGRAM_BOT_TOKEN or TELEGRAM_BOT_TOKEN_FILE is required")

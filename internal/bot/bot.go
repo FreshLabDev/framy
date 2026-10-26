@@ -4,33 +4,59 @@ package bot
 import (
 	"context"
 	"log/slog"
+	"net/url"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/FreshLabDev/tg"
+
+	"github.com/FreshLabDev/framy/internal/metrics"
 )
 
 type Store interface {
 	Offset(context.Context) (int64, error)
 	AdvanceOffset(context.Context, int64) error
 	Touch(context.Context, tg.User, *tg.Chat) error
+	UserLang(context.Context, int64) (string, error)
+	ChatLang(context.Context, int64) (string, error)
+	SetUserLang(context.Context, int64, string) error
+	ClearUserLang(context.Context, int64) error
+	SetChatLang(context.Context, int64, string) error
+	ClearChatLang(context.Context, int64) error
 }
 
 type Telegram interface {
 	DeleteWebhook(context.Context) error
 	GetUpdates(ctx context.Context, offset int64, timeoutSeconds int) ([]tg.Update, error)
+	SendMessage(ctx context.Context, chatID int64, text string, markup *tg.InlineKeyboardMarkup) (tg.Message, error)
+	EditMessageText(ctx context.Context, chatID, messageID int64, text string, markup *tg.InlineKeyboardMarkup) error
+	SendEphemeralMessage(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, text string, markup *tg.InlineKeyboardMarkup) (tg.Message, error)
+	EditEphemeralMessageText(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, text string, markup *tg.InlineKeyboardMarkup) error
+	DeleteEphemeralMessage(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64) error
+	AnswerCallbackQuery(ctx context.Context, callbackID, text string) error
+	AnswerCallbackQueryAlert(ctx context.Context, callbackID, text string) error
+	GetChatMember(ctx context.Context, chatID, userID int64) (tg.ChatMember, error)
+	SetMyCommandsForScope(ctx context.Context, commands []tg.BotCommand, scope *tg.BotCommandScope) error
+	Call(ctx context.Context, method string, req any, out any) error
+	CallGet(ctx context.Context, method string, values url.Values, out any) error
 }
 
 type Bot struct {
 	store       Store
 	tg          Telegram
 	log         *slog.Logger
+	username    string
+	version     string
 	lastPoll    atomic.Int64
 	initialized atomic.Bool
 }
 
-func New(store Store, client Telegram, log *slog.Logger) *Bot {
-	return &Bot{store: store, tg: client, log: log}
+// New takes the username Preflight returned, which tells a command for framy
+// from one for another bot in the same group, and the build's version for the
+// About card.
+func New(store Store, client Telegram, log *slog.Logger, username, version string) *Bot {
+	return &Bot{store: store, tg: client, log: log, username: username, version: version}
 }
 
 // LastPoll is when getUpdates last answered, for /healthz.
@@ -49,6 +75,11 @@ func (b *Bot) Run(ctx context.Context) error {
 	if !b.initialize(ctx) {
 		return nil
 	}
+	// The profile is dozens of calls; polling does not wait for them.
+	var side sync.WaitGroup
+	side.Go(func() { b.publishProfile(ctx) })
+	defer side.Wait()
+
 	offset, err := b.store.Offset(ctx)
 	if err != nil {
 		// Starting from 0 replays at most the updates Telegram still holds.
@@ -63,6 +94,7 @@ func (b *Bot) Run(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return nil
 			}
+			metrics.PollFailures.Inc()
 			pollFailures++
 			delay := retryDelay(pollFailures)
 			if pollFailures <= 3 || pollFailures%10 == 0 {
@@ -114,6 +146,9 @@ func (b *Bot) initialize(ctx context.Context) bool {
 	return false
 }
 
+// handle records who wrote in core, then answers. A failed touch does not
+// stop the answer: an ephemeral reply must go out within seconds, and the
+// next update touches again.
 func (b *Bot) handle(ctx context.Context, u tg.Update) {
 	var (
 		user *tg.User
@@ -132,8 +167,22 @@ func (b *Bot) handle(ctx context.Context, u tg.Update) {
 		return
 	}
 	if err := b.store.Touch(ctx, *user, chat); err != nil {
+		metrics.TouchFailures.Inc()
 		b.log.Error("core touch failed", "update_id", u.UpdateID, "error", err)
 	}
+	var err error
+	switch {
+	case u.Message != nil:
+		err = b.onMessage(ctx, u.Message)
+	case u.Callback != nil:
+		err = b.onCallback(ctx, u.Callback)
+	}
+	if err != nil {
+		metrics.UpdatesFailed.Inc()
+		b.log.Error("update failed", "update_id", u.UpdateID, "error", err)
+		return
+	}
+	metrics.UpdatesHandled.Inc()
 }
 
 func retryDelay(attempt int) time.Duration {

@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: Apache-2.0
 -- LOCAL-DEV ONLY. Minimal core.person/core.chat/core.presence/core.touch plus the
 -- framy schema. Production gets all of this from the core repository
--- (migration 001, and framy's own migration there).
+-- (migration 001, and 019 for framy's schema and role).
 CREATE SCHEMA IF NOT EXISTS core;
 CREATE SCHEMA IF NOT EXISTS framy;
 

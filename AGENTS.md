@@ -11,10 +11,11 @@ careful with people's keys, and production-minded.
   [`docs/design.md`](docs/design.md), the research behind it (in Russian, with
   sources) in [`docs/research/`](docs/research/README.md). Read the design
   before changing behavior.
-- The Go service is a skeleton: configuration from the environment and file
+- The Go service so far: configuration from the environment and file
   secrets (`NAME_FILE`), PostgreSQL with embedded migrations, Telegram long
   polling that records people and chats in `core`, `Preflight`, `/healthz`,
-  and a clean stop on SIGTERM. It makes nothing for people yet.
+  `/metrics` on its own listener, the family's panels on `/start`, and a clean
+  stop on SIGTERM. It makes nothing for people yet.
 - The service will be one Go binary (module `github.com/FreshLabDev/framy`):
   the HTTP server (site, Mini App, API, SSE, OAuth callbacks, provider
   webhooks), the bot, the job workers, the hourly catalog sync and the
@@ -33,6 +34,40 @@ careful with people's keys, and production-minded.
   permission. Long polling only.
 - `Preflight` runs before the bot starts and names the methods framy cannot
   work without.
+
+## One Of The Family
+
+framy is a sibling of vido, searchy, quoto, branchy, makeitMD, voicy and maply,
+and a person who knows one of them should recognise framy. Before adding a
+screen, a command or a table, check how the siblings do it.
+
+- **One database.** framy's tables live in the `framy` schema of the shared
+  `core-postgres`, created by core migration `019_framy.sql` and reached as
+  `framy_core`. Identity, presence and language are core's: call `core.touch`
+  for every update with a sender, read the language with
+  `core.effective_language`, write it with `core.set_language` and
+  `core.clear_language`. framy holds `REFERENCES` on `core.person` and
+  `core.chat` and no `SELECT`: it learns who a person is from the update or
+  the Telegram Login claims. A new grant is a core migration that revokes
+  `PUBLIC` in the same file.
+- **Panels.** Every screen follows `core/docs/panels.md` (R1 to R9): title,
+  hint and quote from one helper; "Back" to go up; Close only in a group, as
+  Danger; at most one Primary; Success only on the chosen option; `◉`/`◎` and
+  `■`/`□` marks; the sixteen languages in the family's order; no emoji; the
+  About card exactly as written there; Follow Telegram on the language screen.
+  Callbacks are `m:<owner>:<action>`, and only the owner's press acts.
+- **Groups.** `/start` there is an ephemeral command and the panel an
+  ephemeral reply; an ordinary `/start` in a group stays unanswered, and only
+  an ephemeral panel is addressable by a callback. Admin rights are asked of
+  Telegram on every use, never cached.
+- **Profile.** The command menu, the description and the short description
+  are published per language at start, a description only when it changed.
+  The direct chat's menu has `/start` only; the other tabs answer when typed.
+- **Version and metrics.** The About card shows the version from the build's
+  ldflags, never a commit or a date. Counters are `framy_*_total` in the
+  Prometheus text format on `METRICS_ADDR`, never on the public listener.
+- **Writing.** No em dash anywhere a person reads; the i18n tests check the
+  translations and the strings in Go code.
 
 ## Money And Keys
 

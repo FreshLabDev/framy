@@ -189,6 +189,8 @@ a patch that fixes what went wrong; never retag or delete the bad release.
 | Env file | `.env` on the host, never in git; file secrets beside it |
 | Networks | `core_net` (core-postgres), the Cloudflare Tunnel network for `framy.ws04.cc`, the network of the self-hosted `telegram-bot-api` |
 | Storage | R2 buckets `framy` (inputs and results) and `framy-backups`; a working volume shared with `telegram-bot-api` |
+| Database | core migration `019_framy.sql` applied, `FRAMY_CORE_PASSWORD` in core's `.env` and framy's |
+| Ports | `8080` for the tunnel; `9090` for `/metrics`, reachable on the Docker networks only and never routed by the tunnel |
 
 framy talks to the family's own `telegram-bot-api` in `--local` mode. The cloud
 Bot API downloads files only up to 20 MB and uploads up to 50 MB; photos sent

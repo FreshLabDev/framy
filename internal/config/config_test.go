@@ -10,7 +10,7 @@ import (
 
 func setBase(t *testing.T) {
 	t.Helper()
-	for _, k := range []string{"TELEGRAM_BOT_TOKEN", "TELEGRAM_BOT_TOKEN_FILE", "DATABASE_URL", "DATABASE_URL_FILE", "TELEGRAM_API_BASE", "AUTO_MIGRATE", "HTTP_ADDR", "LOG_LEVEL"} {
+	for _, k := range []string{"TELEGRAM_BOT_TOKEN", "TELEGRAM_BOT_TOKEN_FILE", "DATABASE_URL", "DATABASE_URL_FILE", "TELEGRAM_API_BASE", "AUTO_MIGRATE", "HTTP_ADDR", "METRICS_ADDR", "LOG_LEVEL"} {
 		t.Setenv(k, "")
 	}
 	t.Setenv("TELEGRAM_BOT_TOKEN", "123:abc")
@@ -23,7 +23,7 @@ func TestLoadDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.TelegramAPIBase != DefaultTelegramAPIBase || cfg.HTTPAddr != ":8080" || !cfg.AutoMigrate || cfg.LogLevel != "info" {
+	if cfg.TelegramAPIBase != DefaultTelegramAPIBase || cfg.HTTPAddr != ":8080" || cfg.MetricsAddr != ":9090" || !cfg.AutoMigrate || cfg.LogLevel != "info" {
 		t.Fatalf("defaults = %+v", cfg)
 	}
 }
@@ -63,6 +63,7 @@ func TestLoadRejects(t *testing.T) {
 		{"missing file", map[string]string{"DATABASE_URL": "", "DATABASE_URL_FILE": filepath.Join(dir, "nope")}},
 		{"bad api base", map[string]string{"TELEGRAM_API_BASE": "api.telegram.org"}},
 		{"bad auto migrate", map[string]string{"AUTO_MIGRATE": "sometimes"}},
+		{"metrics on the public listener", map[string]string{"HTTP_ADDR": ":8080", "METRICS_ADDR": ":8080"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			setBase(t)
@@ -83,5 +84,17 @@ func TestSecretErrorsDoNotLeakTheValue(t *testing.T) {
 	_, err := Load()
 	if err == nil || strings.Contains(err.Error(), "very-secret") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestMetricsCanBeTurnedOff(t *testing.T) {
+	setBase(t)
+	t.Setenv("METRICS_ADDR", "off")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MetricsAddr != "" {
+		t.Fatalf("MetricsAddr = %q", cfg.MetricsAddr)
 	}
 }
