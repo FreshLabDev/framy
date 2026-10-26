@@ -1,0 +1,168 @@
+// SPDX-License-Identifier: Apache-2.0
+package main
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/FreshLabDev/tg"
+
+	"github.com/FreshLabDev/framy/internal/bot"
+	"github.com/FreshLabDev/framy/internal/config"
+	"github.com/FreshLabDev/framy/internal/db"
+	"github.com/FreshLabDev/framy/internal/health"
+	"github.com/FreshLabDev/framy/migrations"
+)
+
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
+// shutdownTimeout bounds a stop. Docker sends SIGKILL ten seconds after
+// SIGTERM by default; the stack sets stop_grace_period above this.
+const shutdownTimeout = 20 * time.Second
+
+func main() {
+	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: parseLevel(os.Getenv("LOG_LEVEL"))}))
+	if err := run(log); err != nil {
+		log.Error("exit", "error", err)
+		os.Exit(1)
+	}
+	log.Info("stopped")
+}
+
+func run(log *slog.Logger) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	store, err := connect(ctx, cfg.DatabaseURL, log)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+	if cfg.AutoMigrate {
+		if err := store.Migrate(ctx, migrations.FS); err != nil {
+			return err
+		}
+	}
+
+	client := tg.New(cfg.TelegramBotToken,
+		tg.WithAPIBase(cfg.TelegramAPIBase),
+		// my_chat_member tells core which groups framy is in; Telegram leaves
+		// it out of the default set, so it has to be asked for.
+		tg.WithAllowedUpdates("message", "callback_query", "my_chat_member"),
+		tg.WithLogger(log),
+	)
+	me, err := client.Preflight(ctx, tg.Needs{})
+	if err != nil {
+		return err
+	}
+	log.Info("telegram preflight passed", "username", me.Username, "bot_api", tg.BotAPI)
+	b := bot.New(store, client, log)
+
+	started := time.Now()
+	mux := http.NewServeMux()
+	mux.Handle("/healthz", health.New(store, b.LastPoll, b.Initialized, started, health.Build{
+		Version: version, Commit: commit, Date: date,
+	}, log))
+	srv := &http.Server{
+		Addr:              cfg.HTTPAddr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+
+	errCh := make(chan error, 2)
+	var workers sync.WaitGroup
+	workers.Go(func() {
+		log.Info("http listening", "addr", cfg.HTTPAddr, "version", version)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- err
+		}
+	})
+	workers.Go(func() {
+		log.Info("telegram polling starting")
+		if err := b.Run(ctx); err != nil {
+			errCh <- err
+		}
+	})
+
+	var runErr error
+	select {
+	case <-ctx.Done():
+		log.Info("stopping")
+	case runErr = <-errCh:
+		stop()
+	}
+	// The poller ends on the canceled context; the server stops accepting and
+	// lets requests in flight finish. Both get the same deadline.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil && runErr == nil {
+		runErr = err
+	}
+	done := make(chan struct{})
+	go func() { workers.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-shutdownCtx.Done():
+		if runErr == nil {
+			runErr = errors.New("shutdown timed out")
+		}
+	}
+	return runErr
+}
+
+// connect retries the first PostgreSQL connection. Container DNS inside the
+// shared core_net is not always resolvable the instant the process starts, and
+// exiting there turns a two-second blip into a restart loop.
+func connect(ctx context.Context, url string, log *slog.Logger) (*db.Store, error) {
+	const maxAttempts = 8
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		store, err := db.Connect(ctx, url)
+		if err == nil {
+			return store, nil
+		}
+		lastErr = err
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		delay := time.Duration(1<<min(attempt-1, 4)) * time.Second
+		log.Warn("database connect failed; retrying", "attempt", attempt, "retry_in", delay, "error", err)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(delay):
+		}
+	}
+	return nil, lastErr
+}
+
+func parseLevel(s string) slog.Level {
+	switch s {
+	case "debug":
+		return slog.LevelDebug
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}

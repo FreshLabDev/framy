@@ -45,8 +45,10 @@ framy is deliberately narrow:
 | Stable | — | Nothing released yet |
 | Next | `v0.1.0-alpha.1` | The service, the site, the free images and `/f` |
 
-Nothing runs yet. The design and the research behind it are here; work is
-tracked on the [project board](https://github.com/orgs/FreshLabDev/projects/3).
+The design and the research behind it are here. The Go service is a skeleton:
+it connects to the database, polls Telegram and answers `/healthz`, but makes
+nothing yet. Work is tracked on the
+[project board](https://github.com/orgs/FreshLabDev/projects/3).
 
 ---
 

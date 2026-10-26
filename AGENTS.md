@@ -11,7 +11,10 @@ careful with people's keys, and production-minded.
   [`docs/design.md`](docs/design.md), the research behind it (in Russian, with
   sources) in [`docs/research/`](docs/research/README.md). Read the design
   before changing behavior.
-- Nothing runs yet.
+- The Go service is a skeleton: configuration from the environment and file
+  secrets (`NAME_FILE`), PostgreSQL with embedded migrations, Telegram long
+  polling that records people and chats in `core`, `Preflight`, `/healthz`,
+  and a clean stop on SIGTERM. It makes nothing for people yet.
 - The service will be one Go binary (module `github.com/FreshLabDev/framy`):
   the HTTP server (site, Mini App, API, SSE, OAuth callbacks, provider
   webhooks), the bot, the job workers, the hourly catalog sync and the

@@ -1,0 +1,87 @@
+// SPDX-License-Identifier: Apache-2.0
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func setBase(t *testing.T) {
+	t.Helper()
+	for _, k := range []string{"TELEGRAM_BOT_TOKEN", "TELEGRAM_BOT_TOKEN_FILE", "DATABASE_URL", "DATABASE_URL_FILE", "TELEGRAM_API_BASE", "AUTO_MIGRATE", "HTTP_ADDR", "LOG_LEVEL"} {
+		t.Setenv(k, "")
+	}
+	t.Setenv("TELEGRAM_BOT_TOKEN", "123:abc")
+	t.Setenv("DATABASE_URL", "postgres://framy@localhost/framy")
+}
+
+func TestLoadDefaults(t *testing.T) {
+	setBase(t)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TelegramAPIBase != DefaultTelegramAPIBase || cfg.HTTPAddr != ":8080" || !cfg.AutoMigrate || cfg.LogLevel != "info" {
+		t.Fatalf("defaults = %+v", cfg)
+	}
+}
+
+func TestLoadReadsSecretsFromFiles(t *testing.T) {
+	setBase(t)
+	dir := t.TempDir()
+	token := filepath.Join(dir, "bot-token")
+	if err := os.WriteFile(token, []byte("456:def\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TELEGRAM_BOT_TOKEN", "")
+	t.Setenv("TELEGRAM_BOT_TOKEN_FILE", token)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TelegramBotToken != "456:def" {
+		t.Fatal("token from file was not read and trimmed")
+	}
+}
+
+func TestLoadRejects(t *testing.T) {
+	dir := t.TempDir()
+	empty := filepath.Join(dir, "empty")
+	if err := os.WriteFile(empty, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		env  map[string]string
+	}{
+		{"no token", map[string]string{"TELEGRAM_BOT_TOKEN": ""}},
+		{"no database", map[string]string{"DATABASE_URL": ""}},
+		{"value and file", map[string]string{"TELEGRAM_BOT_TOKEN_FILE": empty}},
+		{"empty file", map[string]string{"TELEGRAM_BOT_TOKEN": "", "TELEGRAM_BOT_TOKEN_FILE": empty}},
+		{"missing file", map[string]string{"DATABASE_URL": "", "DATABASE_URL_FILE": filepath.Join(dir, "nope")}},
+		{"bad api base", map[string]string{"TELEGRAM_API_BASE": "api.telegram.org"}},
+		{"bad auto migrate", map[string]string{"AUTO_MIGRATE": "sometimes"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			setBase(t)
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			if _, err := Load(); err == nil {
+				t.Fatal("accepted")
+			}
+		})
+	}
+}
+
+func TestSecretErrorsDoNotLeakTheValue(t *testing.T) {
+	setBase(t)
+	t.Setenv("TELEGRAM_BOT_TOKEN", "999:very-secret")
+	t.Setenv("TELEGRAM_BOT_TOKEN_FILE", "/nonexistent")
+	_, err := Load()
+	if err == nil || strings.Contains(err.Error(), "very-secret") {
+		t.Fatalf("err = %v", err)
+	}
+}

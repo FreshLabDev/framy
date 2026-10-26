@@ -11,10 +11,18 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
-Nothing is released yet. The repository holds the design and the research it
-was written from.
+Nothing is released yet. The repository holds the design, the research it
+was written from, and the skeleton of the service.
 
 ### Added
+
+- The Go service skeleton. Configuration comes from the environment, and any
+  secret can instead come from a file named by `NAME_FILE`, as Docker secrets
+  do. PostgreSQL is used in the `framy` schema, with migrations embedded in
+  the binary. Long polling records every sender, and every group framy is in,
+  in `core` through `core.touch`. `Preflight` runs before polling starts.
+  `/healthz` reports the version, the database and how fresh polling is.
+  SIGTERM stops polling and the HTTP server within 20 seconds.
 
 - `docs/design.md`: what framy is, the surfaces (site, Mini App, groups, DMs),
   accounts through Telegram, providers and people's keys, the model catalog,
