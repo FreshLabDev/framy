@@ -26,6 +26,7 @@ import (
 	"github.com/FreshLabDev/framy/internal/media"
 	"github.com/FreshLabDev/framy/internal/metrics"
 	"github.com/FreshLabDev/framy/internal/price"
+	"github.com/FreshLabDev/framy/internal/providers/gemini"
 	"github.com/FreshLabDev/framy/internal/providers/openai"
 	"github.com/FreshLabDev/framy/internal/providers/openrouter"
 	"github.com/FreshLabDev/framy/internal/r2"
@@ -125,12 +126,15 @@ func run(log *slog.Logger) error {
 				UserAgent: userAgent,
 				Key:       openAIKey(),
 			}),
+			catalog.Gemini: gemini.New(gemini.Config{
+				UserAgent: userAgent,
+				Key:       geminiKey,
+			}),
 		},
 		Log:       log.With("component", "jobs"),
 		StopGrace: cfg.JobsStopGrace,
 	}
 	// Without a bucket a job ends as storage before anything is paid.
-	// Gemini has no adapter yet (#11).
 	if files != nil {
 		jobsCfg.Sink, jobsCfg.Inputs = files, files
 	}
@@ -372,4 +376,11 @@ func openAIKey() func(context.Context, jobs.Job) (string, error) {
 	return func(context.Context, jobs.Job) (string, error) {
 		return "", &jobs.Error{Class: jobs.Key, Err: errors.New("no OpenAI key connected yet")}
 	}
+}
+
+// geminiKey pays for Gemini runs: only a person's own key does, and the store
+// of keys (#13) does not exist yet, so a run fails as key before anything is
+// paid. The free allowance never runs on Gemini.
+func geminiKey(context.Context, jobs.Job) (string, error) {
+	return "", &jobs.Error{Class: jobs.Key, Err: errors.New("no Gemini key connected yet")}
 }

@@ -64,6 +64,8 @@ A connection has a status that framy can actually back up:
 | `no_credits` | OpenRouter 402 or OpenAI `insufficient_quota` |
 | `invalid` | 401; the key was revoked or mistyped |
 
+The Gemini adapter proves three of them. A 429 with `limit: 0` (or a quota value of 0), and a 400 `failed_precondition` that asks to enable billing, come back as class `key` with status `needs_billing`; a 402 or "prepayment credits are depleted" as class `money` with `no_credits`; a 401 or `API_KEY_INVALID` as class `key` with `invalid`. None is retried. A 429 with a limit above 0 is a wait and is.
+
 Nobody can read the balance behind an OpenAI or Gemini key. For OpenRouter, `/api/v1/key` gives what was spent through the key and what is left of its limit, and that is all framy shows.
 
 **Keys at rest.** Envelope encryption with the standard library: a data key per record, AES-256-GCM through `cipher.NewGCMWithRandomNonce` (Go 1.24+), `user_id | provider | connection_id | kek_version` as associated data, the data key wrapped by a key-encryption key. The KEK is a file secret with mode 0400 (`FRAMY_KEK_FILE`), not an environment variable that `docker inspect` shows, and it is kept apart from the database backups: losing it loses every stored key. Rotation rewraps the data keys only. Tink is not used: its documentation has no recipe for a local KEK. The person sees the last four characters. A key is decrypted only in the worker, for the length of one request, and never reaches a browser, the Mini App or a log. Deleting a connection deletes the row; revoking the key at the provider is the person's step, and the settings page says so.
@@ -536,7 +538,7 @@ Temporary domain `framy.ws04.cc`. Mobile first; on a wide screen the composer an
   - OpenAI's old FAQ allowed free use only for traffic that goes to the OpenAI API. The current page just says "free to use". The free tier runs on OpenRouter, so this is a grey area, and the owner decides whether to accept it or ask OpenAI.
 - **Refusals** are told apart from failures by the response body, even at HTTP 200:
   - OpenAI: `moderation_blocked` with `moderation_stage`;
-  - Gemini: `blockReason` or `finishReason` such as `IMAGE_SAFETY`; `NO_IMAGE` means the model answered in text;
+  - Gemini: an error code of the Interactions API (`image_safety`, `prohibited_content`, `no_image`), or the older `blockReason` and `finishReason`; `NO_IMAGE`, and a finished run with words and no picture, mean the model answered in text, and its words are shown;
   - OpenRouter: 403 with `metadata.reasons`.
 
   A refusal is shown with its stage and category.
