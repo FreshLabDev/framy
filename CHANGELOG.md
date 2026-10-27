@@ -136,6 +136,22 @@ was written from, and the skeleton of the service.
   person's language writes it and never rounds down, with the rate's date
   beside it, and a job keeps the rate its price was shown with. `FX_SYNC=off`
   stops the sync.
+- The public listener's foundation, in `internal/web`: the site, the API, the
+  event streams, the OAuth callbacks and the providers' webhooks all register
+  on one server that gives them the same rules. Every HTML response carries
+  one CSP that lets only Telegram Web frame the site and lets files in and out
+  of the R2 endpoint; there is no X-Frame-Options, and nosniff, no-referrer,
+  COOP same-origin and HSTS go on every response. A POST from another site is
+  refused (`http.CrossOriginProtection`), except under `/hooks/`. `/api`,
+  `/auth`, `/oauth`, `/events` and `/hooks` are never stored; only a hashed
+  file under `/assets/` is cached for a year; a person's page is never
+  `public`. Cloudflare Free allows one rate-limit rule, so the limits are in
+  the service: a bucket per address (per person once sign-in exists), stricter
+  for sign-in, uploads and job creation, answering 429 with `Retry-After`.
+  The visitor's address is read from `CF-Connecting-IP` only when the request
+  comes from `TRUSTED_PROXIES`, the addresses cloudflared connects from. An
+  event stream or a slow upload asks for longer deadlines per route. `/` is a
+  placeholder page until the frontend lands.
 - CI on every push and weekly: modules, gofmt, build, vet, race tests,
   database tests on PostgreSQL 17, govulncheck, the image build, the photo
   and storage tests inside the image, on the ffmpeg it ships, and the local
