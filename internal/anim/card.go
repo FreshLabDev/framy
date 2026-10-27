@@ -8,13 +8,17 @@ import (
 	"github.com/go-text/typesetting/language"
 )
 
-// The text of a card sits in this width, at most this many lines, and in a
-// size that goes down from the first to the second until it fits.
+// The card is the viewfinder with its cross on the left and the line on the
+// right, set from cardTextX in this width, at most this many lines, and in a
+// size that goes down from the first to the second until it fits. A card
+// without a line has the viewfinder in the middle.
 const (
-	cardTextWidth = 592
-	cardMaxLines  = 3
-	cardMaxSize   = 46
-	cardMinSize   = 30
+	cardTextX     = 470
+	cardTextWidth = 730
+	cardMaxLines  = 4
+	cardMaxSize   = 52
+	cardMinSize   = 34
+	cardMarkX     = 250 // the middle of the viewfinder beside a line
 )
 
 // Card is the picture that replaces a preview when a job fails: the
@@ -91,26 +95,28 @@ func (c *Canvas) shorten(size float64, s string) string {
 // TextDrawn tells whether the card carries its line.
 func (k *Card) TextDrawn() bool { return k.drawn }
 
-func (k *Card) Size() (int, int)  { return Side, Side }
+func (k *Card) Size() (int, int)  { return Width, Height }
 func (k *Card) Duration() float64 { return 0 }
 
 func (k *Card) Draw(c *Canvas, _ float64) {
 	c.Lang = k.lang
 	c.Fill(Field)
 	c.header()
-	cx, cy, h := 360.0, 402.0, 150.0
+	cx, cy, h := Width/2.0, (frameY0+frameY1)/2.0, 150.0
 	if k.drawn {
-		cy = 322
+		cx = cardMarkX
 	}
 	c.brackets(cx-h, cy-h, cx+h, cy+h, 56, white, 1)
 	c.cross(cx, cy, 58, stripe, white, 1)
 	if !k.drawn {
 		return
 	}
-	lead := k.size * 1.22
-	y := 526 + k.size*0.35
+	// The block of lines is centred on the viewfinder's middle: from the cap
+	// height of the first line to the baseline of the last.
+	lead, caps := k.size*1.22, k.size*0.7
+	y := cy - (lead*float64(len(k.lines)-1)+caps)/2 + caps
 	for _, l := range k.lines {
-		c.Text(Body, k.size, l, cx, y, Center, white, 1)
+		c.Text(Body, k.size, l, cardTextX, y, Left, white, 1)
 		y += lead
 	}
 }

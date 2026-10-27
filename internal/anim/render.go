@@ -22,7 +22,7 @@ import (
 // Change it with any change to how they look: the files cached under the old
 // number are not used again, and the bot, which keeps a Telegram file_id per
 // Key, sends the new picture once.
-var loopVersion = 2
+var loopVersion = 3
 
 // Telegram's limits for what this package makes (docs/research/telegram.md,
 // 3.2). An animation is H.264 in an MP4 with no sound track, up to 50 MB; a
@@ -127,7 +127,7 @@ func (r *Renderer) Album(ctx context.Context, dir string, paths []string) (Media
 // generatingKey names the loop of one design and one encoding.
 func generatingKey(o Options) string {
 	o = o.withDefaults()
-	return digest("generating", loopVersion, Field, Side, FPS, generatingDur, o.CRF, o.Preset)
+	return digest("generating", loopVersion, Field, Width, Height, FPS, generatingDur, o.CRF, o.Preset)
 }
 
 // GeneratingKey is the key Generating gives its picture, without drawing it.
@@ -182,7 +182,7 @@ func (r *Renderer) ErrorCard(ctx context.Context, text, lang string) (Media, err
 	}
 	card := NewCard(text, lang)
 	text = strings.Join(strings.Fields(text), " ")
-	key := digest("error", loopVersion, Field, Side, text, lang)
+	key := digest("error", loopVersion, Field, Width, Height, text, lang)
 	path := filepath.Join(r.Cache, "error-"+key+".png")
 	if m, ok := cached(path, card, key); ok {
 		m.TextDrawn = card.TextDrawn()

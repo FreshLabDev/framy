@@ -3,10 +3,10 @@
 <p align="center"><strong>Images and videos from OpenRouter, OpenAI and Google models, at the provider's price.</strong><br/>A website, a Telegram bot and a Mini App, built as one Go service.</p>
 
 <p align="center">
-  <a href="#status"><img src="https://img.shields.io/badge/status-in%20development-5A2A5E?style=for-the-badge&labelColor=0f172a" alt="status"></a>
+  <a href="#status"><img src="https://img.shields.io/badge/status-in%20development-00606E?style=for-the-badge&labelColor=0f172a" alt="status"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-334155?style=for-the-badge&labelColor=0f172a" alt="license"></a>
   <a href="https://t.me/framyin_bot"><img src="https://img.shields.io/badge/telegram-%40framyin__bot-26A5E4?style=for-the-badge&logo=telegram&logoColor=white&labelColor=0f172a" alt="telegram bot"></a>
-  <a href="https://github.com/orgs/FreshLabDev/projects/3"><img src="https://img.shields.io/badge/plan-project%20board-5A2A5E?style=for-the-badge&logo=github&logoColor=white&labelColor=0f172a" alt="project board"></a>
+  <a href="https://github.com/orgs/FreshLabDev/projects/3"><img src="https://img.shields.io/badge/plan-project%20board-00606E?style=for-the-badge&logo=github&logoColor=white&labelColor=0f172a" alt="project board"></a>
 </p>
 
 <p align="center">

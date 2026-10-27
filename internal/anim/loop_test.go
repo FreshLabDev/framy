@@ -52,9 +52,10 @@ func TestEveryLoopClosesOnItsFirstFrame(t *testing.T) {
 
 // The largest change between two frames, as a mean over the picture's bytes,
 // stays where a calm loop keeps it. maply's slow loops peak at about 0.3 and
-// 5 on this scale; a cut or a fast draft is far above.
+// 5 on this scale, and the generating loop's morphs at about 3.5; a cut or a
+// fast draft is far above.
 func TestLoopsMoveSlowly(t *testing.T) {
-	limit := map[string]float64{"generating": 0.6}
+	limit := map[string]float64{"generating": 5}
 	for name, s := range scenes(t, 1, 10) {
 		peak := slices.Max(steps(s))
 		want, ok := limit[name]
@@ -223,34 +224,63 @@ func TestAFailedEncodingLeavesNothing(t *testing.T) {
 	}
 }
 
-// The dots of the generating loop drift as a pale noise, gather into the
-// spark, white and with nothing around it, and go back to the noise.
-func TestGeneratingGathersIntoTheSpark(t *testing.T) {
-	hold := frameAt(Generating{}, 0.6*generatingDur)
-	if got := rgb(hold, markX, markY); !near(got, [3]int{255, 255, 255}, 2) {
-		t.Errorf("the middle of the spark is %v, not white", got)
-	}
-	// Between two of its points, far from the middle, there is nothing.
-	for _, p := range [][2]int{{markX + 150, markY + 150}, {markX - 150, markY - 150}, {markX + 150, markY - 150}} {
-		if got := rgb(hold, p[0], p[1]); !near(got, rgbOf(Field), 1) {
-			t.Errorf("the gathered spark leaves a dot at %v: %v", p, got)
-		}
-	}
-	// In the noise nothing is white, and the box is not empty.
-	noise := frameAt(Generating{}, 0)
-	lit := 0
-	for y := frameY0 + frameInset; y < frameY1-frameInset; y++ {
-		for x := frameX0 + frameInset; x < frameX1-frameInset; x++ {
-			px := rgb(noise, x, y)
-			if near(px, [3]int{255, 255, 255}, 20) {
-				t.Fatalf("a white pixel in the noise at %d, %d", x, y)
-			}
-			if !near(px, rgbOf(Field), 8) {
-				lit++
+// The dots take every figure in turn: once its morph is over every dot is
+// as full as the figure says, the figure covers a fair part of the grid and
+// not most of it, and each differs from the one before it in many dots.
+func TestGeneratingTakesEveryFigure(t *testing.T) {
+	grid := func(f func(px, py float64) bool) []bool {
+		var in []bool
+		for y := -240.0; y <= 240; y += dotPitch {
+			for x := -560.0; x <= 560; x += dotPitch {
+				in = append(in, f(x, y))
 			}
 		}
+		return in
 	}
-	if lit < 10000 {
-		t.Errorf("the noise has only %d pixels lit", lit)
+	var prev []bool
+	for k, f := range append(figures, figures[0]) {
+		at := (float64(k) + 0.8) * shapeFor
+		th := 2 * math.Pi * math.Mod(at, generatingDur) / generatingDur
+		wrong := 0
+		in := grid(func(px, py float64) bool {
+			want := smooth(-dotPitch*0.4, dotPitch*1.1, -shapeAt(k%len(figures), px, py, th))
+			if got := dotAt(0, 0, figX+px, figY+py, at); math.Abs(got-want) > 1e-9 {
+				wrong++
+			}
+			return want > 0.5
+		})
+		if wrong > 0 {
+			t.Errorf("%s at %.2fs: %d dots are not the figure's yet", f.name, at, wrong)
+		}
+		full := 0
+		for _, v := range in {
+			if v {
+				full++
+			}
+		}
+		if share := float64(full) / float64(len(in)); share < 0.04 || share > 0.45 {
+			t.Errorf("%s fills %.0f%% of the grid", f.name, 100*share)
+		}
+		if prev != nil {
+			differ := 0
+			for i := range in {
+				if in[i] != prev[i] {
+					differ++
+				}
+			}
+			if differ < len(in)/20 {
+				t.Errorf("%s differs from the figure before it in only %d dots of %d", f.name, differ, len(in))
+			}
+		}
+		prev = in
+	}
+	// The frame says the same: the blob's middle is a full white dot, and a
+	// dot in a corner of the box is a small pale one.
+	c := frameAt(Generating{}, 0.8*shapeFor)
+	if got := rgb(c, int(figX), int(figY)); !near(got, [3]int{255, 255, 255}, 2) {
+		t.Errorf("the middle of the blob is %v, not white", got)
+	}
+	if got := rgb(c, int(figX)-560, int(figY)-240); !near(got, rgbOf(haze), 2) {
+		t.Errorf("a dot in the corner is %v, not the pale grain %v", got, rgbOf(haze))
 	}
 }

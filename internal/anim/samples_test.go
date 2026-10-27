@@ -69,9 +69,12 @@ func TestSamples(t *testing.T) {
 		t.Fatal(err)
 	}
 	still("generating-still.png", Generating{}, 0)
-	for _, at := range []float64{1.5, 2.4, 3.6, 4.8} {
-		still(filepath.Join("extras", fmt.Sprintf("generating-%.1fs.png", at)), Generating{}, at)
+	// Every figure in the middle of its hold, and one morph half done.
+	for k := range figures {
+		at := float64(k)*shapeFor + (morphFor+shapeFor)/2
+		still(filepath.Join("extras", fmt.Sprintf("generating-%d-%s.png", k+1, figures[k].name)), Generating{}, at)
 	}
+	still(filepath.Join("extras", "generating-morph.png"), Generating{}, shapeFor+morphFor/2)
 
 	for _, c := range []struct{ name, text, lang string }{
 		{"error-card", "The model refused this picture. Try other words.", "en"},

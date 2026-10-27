@@ -25,7 +25,7 @@ var (
 
 // Where the photos go: the viewfinder's outer edge, and the box inside it.
 const (
-	frameX0, frameY0, frameX1, frameY1 = 32, 116, 688, 688
+	frameX0, frameY0, frameX1, frameY1 = 32, 116, Width - 32, Height - 32
 	frameInset                         = stripe + 2*gap
 )
 
@@ -38,6 +38,10 @@ const (
 	// float and the shadow.
 	floatInset = 10
 )
+
+// albumBox is where the collage goes: inside the viewfinder, with room above
+// for the float and below for the shadow.
+var albumBox = image.Rect(frameX0+frameInset, frameY0+frameInset+floatInset, frameX1-frameInset, frameY1-frameInset-floatInset)
 
 // Album is the preview of an album: the photos, numbered 1 to N in the order
 // they were sent, float in the viewfinder together.
@@ -63,10 +67,8 @@ func NewAlbum(ctx context.Context, paths []string) (*Album, error) {
 		// A panorama or a tall strip would leave a sliver of a tile.
 		aspects[i] = min(2, max(0.5, float64(w)/float64(h)))
 	}
-	// The box leaves room above for the float and below for the shadows.
-	box := image.Rect(frameX0+frameInset, frameY0+frameInset+floatInset, frameX1-frameInset, frameY1-frameInset-floatInset)
 	a := &Album{
-		rects: layout(aspects, box, gap),
+		rects: layout(aspects, albumBox, gap),
 		pics:  make([]*Pic, n),
 	}
 	a.badge = badgeSize(a.rects)
@@ -98,7 +100,7 @@ func NewAlbum(ctx context.Context, paths []string) (*Album, error) {
 	return a, nil
 }
 
-func (a *Album) Size() (int, int)  { return Side, Side }
+func (a *Album) Size() (int, int)  { return Width, Height }
 func (a *Album) Duration() float64 { return albumDur }
 
 // height is how high the album is at t: 0 at rest, 1 at the top of its
@@ -125,7 +127,7 @@ func (a *Album) Draw(c *Canvas, t float64) {
 	c.Shadow(float64(all.Min.X)+2, float64(all.Min.Y)+8, float64(all.Max.X)-2, float64(all.Max.Y)+8, 8+8*h, shade, 0.6-0.25*h)
 	// The album moves by whole pixels: a photo between two rows of pixels
 	// would be blurred by the sampling, sharper and softer by turns, and
-	// cost the encoder far more. A pixel of 720 is too small a step to see.
+	// cost the encoder far more. A pixel of 720 rows is too small a step to see.
 	y := -math.Round(floatUp * h)
 	for i, r := range a.rects {
 		c.Photo(a.pics[i], float64(r.Min.X), float64(r.Min.Y)+y, Rest, 1)
@@ -153,18 +155,19 @@ func badgeSize(rects []image.Rectangle) float64 {
 
 // layout places photos of the given aspects, width over height, in rows
 // inside box with gap pixels between them. Every way of cutting the photos,
-// in order, into at most four rows is tried. The best is the one whose
-// smallest photo is the biggest, so that every number can be read and no
-// photo is a sliver; the bigger collage breaks a tie. A row's photos share
-// one height, so none is cut more than a pixel or two. The collage sits in
-// the middle of the box.
+// in order, into at most four rows is tried. The best has the biggest product
+// of its smallest photo and its whole area: the smallest photo keeps every
+// number readable and no photo a sliver, and the area keeps a few photos of
+// mixed shapes from going into one thin strip across a wide frame. A row's
+// photos share one height, so none is cut more than a pixel or two. The
+// collage sits in the middle of the box.
 func layout(aspects []float64, box image.Rectangle, gap int) []image.Rectangle {
 	n := len(aspects)
 	bw, bh, g := float64(box.Dx()), float64(box.Dy()), float64(gap)
 	const maxRows = 4
 
 	var best []int
-	bestSmall, bestArea, bestW := -1.0, -1.0, 0.0
+	bestScore, bestArea, bestW := -1.0, -1.0, 0.0
 	for mask := 0; mask < 1<<(n-1); mask++ {
 		rows := cut(n, mask)
 		if len(rows) > maxRows {
@@ -196,8 +199,8 @@ func layout(aspects []float64, box image.Rectangle, gap int) []image.Rectangle {
 			}
 			i += k
 		}
-		if small > bestSmall+1e-6 || (small > bestSmall-1e-6 && wc*hc > bestArea+1e-6) {
-			best, bestSmall, bestArea, bestW = rows, small, wc*hc, wc
+		if score := small * wc * hc; score > bestScore*(1+1e-9) {
+			best, bestScore, bestArea, bestW = rows, score, wc*hc, wc
 		}
 	}
 

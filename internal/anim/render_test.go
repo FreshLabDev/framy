@@ -313,7 +313,7 @@ func BenchmarkAlbumFrame(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	c := NewCanvas(Side, Side)
+	c := NewCanvas(Width, Height)
 	t := albumDur / 4
 	b.ResetTimer()
 	for b.Loop() {

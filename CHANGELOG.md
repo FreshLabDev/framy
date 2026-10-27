@@ -167,13 +167,15 @@ was written from, and the skeleton of the service.
 - The pictures framy puts in a chat before and instead of a result, drawn on
   the CPU without a browser: the album preview, where the photos (one to ten),
   numbered 1 to N, float together over a soft shadow and never leave their
-  places; the loop shown while a job runs, where a halftone of dots drifts
-  like noise and gathers into framy's spark, as an image model turns noise
-  into a picture; and a card for a job that failed, with the bot's line in
-  the person's language. The loops are 720×720 H.264 with no sound track,
-  which Telegram plays as animations, and each ends on its own first frame,
-  so they have no seam. A ten-photo album renders in under a second and is
-  about 100 KB; the loop takes half a second and 480 KB. The loop and the cards are kept on disk under a key that changes
+  places; the loop shown while a job runs, where a halftone of dots keeps
+  turning from one figure into the next (a blob, a wave, a heart, mountains
+  with a sun, a flower, a crescent); and a card for a job that failed, with
+  the bot's line beside the cross in the person's language. All three are
+  1280×720, 16:9, so a chat shows them as wide as a video. The loops are
+  H.264 with no sound track, which Telegram plays as animations, and each
+  ends on its own first frame, so they have no seam. A ten-photo album
+  renders in under a second and is about 140 KB; the loop takes 0.6 s and
+  530 KB. The loop and the cards are kept on disk under a key that changes
   with the design, so each is drawn and uploaded once. The card has no line
   in Chinese, Japanese and Arabic, whose letters the bundled fonts lack.
 - The public listener's foundation, in `internal/web`: the site, the API, the

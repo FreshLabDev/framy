@@ -5,7 +5,7 @@ package anim
 import "math"
 
 // The viewfinder is framy's mark (docs/design.md, Avatar): four corner
-// brackets with a four-pointed spark inside. Stripes and gaps keep the
+// brackets. Stripes and gaps keep the
 // family's 7 : 4 proportion.
 const (
 	stripe = 14 // the thickness of a bracket

@@ -16,15 +16,16 @@ import (
 	"github.com/FreshLabDev/framy/internal/i18n"
 )
 
-// textBox is where the card's line may stand: the width of cardTextWidth in
-// the middle, and below the mark.
-var textBox = image.Rect((Side-cardTextWidth)/2, 480, (Side+cardTextWidth)/2, Side-20)
+// textBox is where the card's line may stand: right of the viewfinder, in
+// the width of cardTextWidth, inside the frame's height.
+var textBox = image.Rect(cardTextX, frameY0, cardTextX+cardTextWidth, frameY1)
 
-// inkBelow is the box of the pixels from row top down that are not the field.
-func inkBelow(c *Canvas, top int) image.Rectangle {
+// inkRightOf is the box of the pixels from column left on that are not the
+// field.
+func inkRightOf(c *Canvas, left int) image.Rectangle {
 	var box image.Rectangle
-	for y := top; y < c.H; y++ {
-		for x := range c.W {
+	for y := range c.H {
+		for x := left; x < c.W; x++ {
 			if !near(rgb(c, x, y), rgbOf(Field), 24) {
 				box = box.Union(image.Rect(x, y, x+1, y+1))
 			}
@@ -33,7 +34,7 @@ func inkBelow(c *Canvas, top int) image.Rectangle {
 	return box
 }
 
-// The line stays in its box and in three lines, whatever its length, and a
+// The line stays in its box and in four lines at most, whatever its length, and a
 // line that is too long ends in an ellipsis.
 func TestCardKeepsItsLineInsideTheBox(t *testing.T) {
 	long := strings.Repeat("Der Anbieter hat das Bild abgelehnt, weil es gegen seine Regeln verstößt. ", 6)
@@ -61,7 +62,7 @@ func TestCardKeepsItsLineInsideTheBox(t *testing.T) {
 				t.Errorf("%s: unclosed spaces in %q", c.name, l)
 			}
 		}
-		if box := inkBelow(frameAt(k, 0), textBox.Min.Y); !box.In(textBox) {
+		if box := inkRightOf(frameAt(k, 0), cardMarkX+160); !box.In(textBox) {
 			t.Errorf("%s: the line is at %v, outside %v", c.name, box, textBox)
 		}
 	}
@@ -149,7 +150,7 @@ func TestErrorCardIsAPNGKeptByItsKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("not a PNG: %v", err)
 	}
-	if b := img.Bounds(); b.Dx() != m.Width || b.Dy() != m.Height || m.Width != Side || m.Height != Side {
+	if b := img.Bounds(); b.Dx() != m.Width || b.Dy() != m.Height || m.Width != Width || m.Height != Height {
 		t.Errorf("%v, said to be %d×%d", b, m.Width, m.Height)
 	}
 	st, _ := os.Stat(m.Path)

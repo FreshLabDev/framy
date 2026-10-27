@@ -22,7 +22,7 @@ import (
 // shape by more than a pixel or two (before the limit on a panorama or a
 // strip).
 func TestLayoutFitsEveryAlbum(t *testing.T) {
-	box := image.Rect(62, 146, 658, 658)
+	box := albumBox
 	shapes := map[string]func(i int) float64{
 		"all landscape": func(int) float64 { return 4.0 / 3 },
 		"all portrait":  func(int) float64 { return 3.0 / 4 },
@@ -92,6 +92,16 @@ func TestLayoutChoosesTheNaturalShape(t *testing.T) {
 	if one.Dx() != 600 || one.Dy() < 449 || one.Dy() > 451 {
 		t.Errorf("one landscape photo in a 600×500 box: %v", one)
 	}
+	// Five photos of mixed shapes would make a strip across the whole wide
+	// frame, a third of it high; in two rows they fill more of it.
+	five := layout([]float64{4.0 / 3, 3.0 / 4, 16.0 / 9, 3.0 / 4, 1}, albumBox, gap)
+	if five[0].Min.Y == five[4].Min.Y {
+		t.Errorf("five photos of mixed shapes are one strip: %v", five)
+	}
+	three := layout([]float64{4.0 / 3, 4.0 / 3, 4.0 / 3}, albumBox, gap)
+	if three[0].Min.Y != three[2].Min.Y {
+		t.Errorf("three landscapes are not one row in the wide frame: %v", three)
+	}
 }
 
 // solidAlbum writes photos of single colours in different shapes, to tell them
@@ -118,7 +128,7 @@ func TestAlbumShowsThePhotosInOrderWithTheirNumbers(t *testing.T) {
 	hold := frameAt(a, 0)
 	// What the number of each place looks like on its own: the figure i+1 in
 	// its square, which the first frame must show at the same place.
-	numbers := NewCanvas(Side, Side)
+	numbers := NewCanvas(Width, Height)
 	numbers.Fill(Field)
 	for i, r := range a.rects {
 		numbers.number(i+1, float64(r.Min.X), float64(r.Min.Y), badgeSize(a.rects))
