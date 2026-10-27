@@ -198,7 +198,13 @@ The other controls:
 
 Omni has no duration control. It says "length chosen by the model, 3 to 10 s", and its price is "up to".
 
-A video is attached like a photo: dropped into the composer, picked from history, or sent there by "Edit" on a result. On OpenRouter it goes as a presigned R2 URL in `input_references` with `type: video_url`, the only video field of the API; a video OpenRouter made can go as `previous_job_id` instead, on the same model. framy reads its length and size with `ffprobe` and refuses one above the model's `source_video` limits before the run, not after.
+A video is attached like a photo: dropped into the composer, picked from history, or sent there by "Edit" on a result. On OpenRouter it goes as a presigned R2 URL in `input_references` with `type: video_url`, the only video field of the API; a video OpenRouter made can go as `previous_job_id` instead, on the same model. framy reads its length and size with `ffprobe` before the run.
+
+A clip longer than the model takes is not simply refused **(owner, 27 October)**. The composer offers two ways out:
+- pick a part of the allowed length on the clip's timeline, which framy cuts before the run;
+- pick a model that takes the whole clip, on the person's own key.
+
+In chat there is no timeline, so the preview offers "First N s", "Pick in framy" (the Mini App opens on the clip's timeline) and the models that take the whole clip. Proposal: a file above a model's size limit but within its length is re-encoded smaller instead, since FLUX Video Edit scales its input to 720p anyway.
 
 Nobody reports progress in percent. The wait shows elapsed time and the model's typical time, measured by framy from its own runs.
 
@@ -263,7 +269,7 @@ Whether `CF-IPCountry` reaches the service through the Cloudflare Tunnel is not 
 
   MAI 2.6 Flash is billed in tokens ($19 per million output tokens), and the price per image is Artificial Analysis's figure, not OpenRouter's. HeyGen at 480p costs $0.10 for 5 s if 768p turns out too expensive. Not chosen: `gpt-image-2.5-flare` at `low` ($0.0059) and `medium` ($0.0132), since nobody has rated those levels. `meta/muse-image` (1129 for $0.01) is not in the Images API.
 - **Fixed settings:** the image model at about 1K with one result; the video model at 5 s and 768p, with an optional start frame and no references. Other controls are locked with "with your key".
-- **Video edit (owner, 27 October):** the weekly video can instead be an edit of a clip up to 5 s on `flux-video-edit`, $0.15, cheaper than the generated one. Either one uses up the week. A longer clip is refused before the run with "up to 5 s free, longer with your key"; proposal: offer to take its first 5 s.
+- **Video edit (owner, 27 October):** the weekly video can instead be an edit of a clip up to 5 s on `flux-video-edit`, $0.15, cheaper than the generated one. Either one uses up the week. A longer clip gets the same two ways out as above **(owner)**: pick 5 s of it, or pick a model that takes more, which runs on the person's own key.
 - **Payer:** framy's own OpenRouter key: one bill, no OpenAI limit of 20 images a minute.
 - **Two fuses:**
   - a global daily budget: when it is spent, the free tier closes until 00:00 UTC with a plain message;
@@ -488,7 +494,7 @@ Temporary domain `framy.ws04.cc`. Mobile first; on a wide screen the composer an
   HEIC cannot come through a pipe, so a temporary file is needed. A Telegram photo is up to 10 MB, width plus height at most 10,000, a ratio of at most 20. Inputs are kept with the job.
 - **Results** are copied into R2 when ready, since provider links expire.
 - **For Telegram**, the photo goes as a JPEG within those limits (long side at most 2560), and the original goes as a document on demand.
-- **Video** with H.264, yuv420p and AAC or no sound is only remuxed with `-c copy -movflags +faststart`. Anything else is re-encoded to H.264 High yuv420p with AAC and even sizes. `width`, `height` and `duration` come from `ffprobe` after processing, with `supports_streaming=true`. The last frame for "Continue" is `-sseof -1 … -update 1` saved as PNG, or a frame 0.2–0.5 s before the end when the clip fades out.
+- **Video** with H.264, yuv420p and AAC or no sound is only remuxed with `-c copy -movflags +faststart`. Anything else is re-encoded to H.264 High yuv420p with AAC and even sizes. `width`, `height` and `duration` come from `ffprobe` after processing, with `supports_streaming=true`. The last frame for "Continue" is `-sseof -1 … -update 1` saved as PNG, or a frame 0.2–0.5 s before the end when the clip fades out. A part of a clip is cut with `-ss` and `-t` and re-encoded, since `-c copy` cuts only at keyframes.
 - **`file_id`s** are kept for as long as the generation exists. They are cheap and make inline mode and resending free.
 - **Where (owner, 26 October evening):** every input and result is in Cloudflare R2, in a private bucket `framy` with the location hint `eeur`. ws04 keeps only working files: what ffmpeg is processing and what the bot is sending by local path. They are deleted once the job is done.
 - **Why R2 and not the ws04 disk.** Cloudflare's policy on delivering video says that on Free, Pro and Business, traffic of a Tunnel's public hostname falls under its limit on video and on "a disproportionate amount" of large files. Files served from R2 are exempt. R2 also takes the files off the home uplink, serves `Range` requests for seeking, and gives up nothing on egress.
