@@ -119,6 +119,43 @@ func TestTheAssociatedDataIsBinding(t *testing.T) {
 	}
 }
 
+// Each layer is bound on its own. Opening a whole envelope stops at the layer
+// checked first, so a layer that lost a part of its associated data would go
+// unseen there. This opens each layer directly, with the right key, under a
+// binding that differs in one part.
+func TestEachLayerIsBoundOnItsOwn(t *testing.T) {
+	k := testKEK(t, 1)
+	e, err := k.seal(bound, []byte(plain))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dek, err := k.unwrap(bound, e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := openAES(dek, e.ciphertext, bound.keyAD()); err != nil || string(got) != plain {
+		t.Fatalf("the key layer does not open under its own binding: %v", err)
+	}
+	if _, err := openAES(k.keys[1], e.wrappedDEK, bound.wrapAD(1)); err != nil {
+		t.Fatalf("the wrap does not open under its own binding: %v", err)
+	}
+	for name, b := range map[string]binding{
+		"person":     {userID: bound.userID + 1, provider: bound.provider, connectionID: bound.connectionID},
+		"provider":   {userID: bound.userID, provider: "gemini", connectionID: bound.connectionID},
+		"connection": {userID: bound.userID, provider: bound.provider, connectionID: "6f1f2c5e-8a40-4c89-9d1f-0a8f1f3a2b12"},
+	} {
+		if _, err := openAES(dek, e.ciphertext, b.keyAD()); err == nil {
+			t.Errorf("the key layer opens for another %s", name)
+		}
+		if _, err := openAES(k.keys[1], e.wrappedDEK, b.wrapAD(1)); err == nil {
+			t.Errorf("the wrap opens for another %s", name)
+		}
+	}
+	if _, err := openAES(k.keys[1], e.wrappedDEK, bound.wrapAD(2)); err == nil {
+		t.Error("the wrap opens under another KEK version")
+	}
+}
+
 // The key and its data key are bound separately: a wrap from one record
 // does not open another record's key, nor does a key move under a wrap that
 // belongs to a different record of the same person.

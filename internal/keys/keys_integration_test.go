@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -265,15 +266,71 @@ func TestSaveKeepsAnEncryptedKeyAndShowsOnlyTheLastFour(t *testing.T) {
 	assertNoSecret(t, logs.String(), annOpenAI, kek)
 }
 
+// asWritten gives the ways a careless log line would write bytes: base64
+// (both alphabets), hex, the decimal list fmt prints for a []byte inside a
+// map or struct, and the quoted raw bytes slog prints for a bare []byte. Each
+// is cut to a prefix long enough to be no coincidence.
+func asWritten(b []byte) []string {
+	if len(b) > 12 {
+		b = b[:12]
+	}
+	decimal := strings.TrimSuffix(fmt.Sprint(b), "]")
+	quoted := strings.Trim(strconv.Quote(string(b)), `"`)
+	return []string{
+		strings.TrimRight(base64.StdEncoding.EncodeToString(b), "="),
+		base64.RawURLEncoding.EncodeToString(b),
+		hex.EncodeToString(b),
+		decimal,
+		quoted,
+	}
+}
+
 func assertNoSecret(t *testing.T, text, key string, kek *KEK) {
 	t.Helper()
 	forms := []string{key, key[:14], key[len(key)-14:]}
+	forms = append(forms, asWritten([]byte(key))...)
 	for _, k := range kek.keys {
-		forms = append(forms, base64.StdEncoding.EncodeToString(k), base64.StdEncoding.EncodeToString(k)[:16])
+		forms = append(forms, base64.StdEncoding.EncodeToString(k))
+		forms = append(forms, asWritten(k)...)
+		forms = append(forms, asWritten(k[len(k)-12:])...)
 	}
 	for _, f := range forms {
 		if strings.Contains(text, f) {
 			t.Errorf("a secret reached the output: %q in %.300s", f, text)
+		}
+	}
+}
+
+// storedForms lists the encrypted values now in the table, as they would be
+// written. They are no secret on their own, but nothing has a reason to put
+// them in a log.
+func storedForms(t *testing.T, pool *pgxpool.Pool) []string {
+	t.Helper()
+	rows, err := pool.Query(context.Background(), `SELECT ciphertext, wrapped_dek FROM connection`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var forms []string
+	for rows.Next() {
+		var ct, wrap []byte
+		if err := rows.Scan(&ct, &wrap); err != nil {
+			t.Fatal(err)
+		}
+		forms = append(forms, asWritten(ct[12:])...)
+		forms = append(forms, asWritten(wrap[12:])...)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return forms
+}
+
+func assertNoneWritten(t *testing.T, text string, forms []string) {
+	t.Helper()
+	for _, f := range forms {
+		if strings.Contains(text, f) {
+			t.Errorf("a stored value reached the output: %q", f)
 		}
 	}
 }
@@ -631,6 +688,7 @@ func TestAlteredRowsDoNotDecrypt(t *testing.T) {
 		t.Fatalf("the control does not read: %v", ok)
 	}
 
+	var written []string
 	for _, tc := range []struct {
 		name   string
 		stmt   string
@@ -653,6 +711,7 @@ func TestAlteredRowsDoNotDecrypt(t *testing.T) {
 			if _, err := pool.Exec(ctx, tc.stmt, tc.args...); err != nil {
 				t.Fatal(err)
 			}
+			written = append(written, storedForms(t, pool)...)
 			if ok := read(t); ok[tc.victim] {
 				t.Errorf("%v still reads after the change", tc.victim)
 			}
@@ -665,6 +724,7 @@ func TestAlteredRowsDoNotDecrypt(t *testing.T) {
 	for _, key := range baseline {
 		assertNoSecret(t, logs.String(), key, kek)
 	}
+	assertNoneWritten(t, logs.String(), written)
 }
 
 func TestRecheck(t *testing.T) {
@@ -1226,4 +1286,5 @@ func TestNothingItLogsHoldsAKey(t *testing.T) {
 	for _, key := range []string{annOpenAI, annGemini, annRouter, bobOpenAI} {
 		assertNoSecret(t, logs.String(), key, kek)
 	}
+	assertNoneWritten(t, logs.String(), storedForms(t, pool))
 }
