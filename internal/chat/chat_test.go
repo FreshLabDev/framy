@@ -494,6 +494,8 @@ func TestAFailedRunShowsTheCard(t *testing.T) {
 		{jobs.Failed, jobs.Money, false, "err.money"},
 		{jobs.Failed, jobs.Money, true, "err.failed"},
 		{jobs.Failed, jobs.Key, false, "err.key"},
+		// A free run is paid by framy's key, not the person's.
+		{jobs.Failed, jobs.Key, true, "err.failed"},
 		{jobs.Expired, "", true, "err.timeout"},
 		{jobs.Failed, jobs.Internal, true, "err.failed"},
 	} {

@@ -450,6 +450,7 @@ func openStorage(ctx context.Context, cfg config.Config, store *db.Store, client
 	files, err := storage.New(storage.Config{
 		Pool:   store.Pool(),
 		Bucket: bucket,
+		Prefix: cfg.R2.Prefix,
 		Media:  conv,
 		Work:   work,
 		Fetch:  safehttp.Client(storage.DefaultFetchTimeout),
@@ -459,7 +460,7 @@ func openStorage(ctx context.Context, cfg config.Config, store *db.Store, client
 	if err != nil {
 		return nil, work, err
 	}
-	log.Info("storage ready", "bucket", cfg.R2.Bucket, "work_dir", cfg.WorkDir)
+	log.Info("storage ready", "bucket", cfg.R2.Bucket, "prefix", cfg.R2.Prefix, "work_dir", cfg.WorkDir)
 	return files, work, nil
 }
 

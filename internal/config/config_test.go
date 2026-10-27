@@ -12,7 +12,7 @@ import (
 func setBase(t *testing.T) {
 	t.Helper()
 	for _, k := range []string{"TELEGRAM_BOT_TOKEN", "TELEGRAM_BOT_TOKEN_FILE", "DATABASE_URL", "DATABASE_URL_FILE", "TELEGRAM_API_BASE", "AUTO_MIGRATE", "HTTP_ADDR", "METRICS_ADDR", "LOG_LEVEL", "OPENROUTER_API_BASE", "CATALOG_SYNC_INTERVAL", "FX_SYNC", "JOBS_STOP_GRACE", "OPENROUTER_API_KEY", "OPENROUTER_API_KEY_FILE",
-		"R2_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID_FILE", "R2_SECRET_ACCESS_KEY", "R2_SECRET_ACCESS_KEY_FILE", "R2_ENDPOINT", "R2_ACCOUNT_ID", "R2_BUCKET",
+		"R2_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID_FILE", "R2_SECRET_ACCESS_KEY", "R2_SECRET_ACCESS_KEY_FILE", "R2_ENDPOINT", "R2_ACCOUNT_ID", "R2_BUCKET", "R2_PREFIX",
 		"WORK_DIR", "FFMPEG", "FFPROBE", "OPERATOR_CHAT_ID"} {
 		t.Setenv(k, "")
 	}
@@ -55,9 +55,13 @@ func TestLoadR2(t *testing.T) {
 		t.Fatalf("r2 = %+v, operator %d", cfg.R2, cfg.OperatorChatID)
 	}
 	for name, env := range map[string][2]string{
-		"both endpoints":      {"R2_ENDPOINT", "https://x.r2.cloudflarestorage.com"},
-		"half a token":        {"R2_SECRET_ACCESS_KEY_FILE", ""},
-		"a bad operator chat": {"OPERATOR_CHAT_ID", "the-ops-chat"},
+		"both endpoints":           {"R2_ENDPOINT", "https://x.r2.cloudflarestorage.com"},
+		"half a token":             {"R2_SECRET_ACCESS_KEY_FILE", ""},
+		"a bad operator chat":      {"OPERATOR_CHAT_ID", "the-ops-chat"},
+		"a prefix without a slash": {"R2_PREFIX", "test"},
+		"a nested prefix":          {"R2_PREFIX", "test/u/"},
+		"production's own prefix":  {"R2_PREFIX", "u/"},
+		"a prefix from the root":   {"R2_PREFIX", "/test/"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv(env[0], env[1])
@@ -69,6 +73,10 @@ func TestLoadR2(t *testing.T) {
 				t.Error("the error names the secret")
 			}
 		})
+	}
+	t.Setenv("R2_PREFIX", "test-2/")
+	if cfg, err := Load(); err != nil || cfg.R2.Prefix != "test-2/" {
+		t.Errorf("prefix = %q, %v", cfg.R2.Prefix, err)
 	}
 	t.Setenv("R2_ACCOUNT_ID", "")
 	if _, err := Load(); err == nil {

@@ -80,8 +80,12 @@ type Config struct {
 
 // R2 is the bucket and the token limited to it.
 type R2 struct {
-	Endpoint        string
-	Bucket          string
+	Endpoint string
+	Bucket   string
+	// Prefix goes before every object key, so a test bot can share the
+	// bucket without writing where production does: "test/". Empty for
+	// production.
+	Prefix          string
 	AccessKeyID     string
 	SecretAccessKey string
 }
@@ -179,7 +183,10 @@ func Load() (Config, error) {
 // loadR2 reads the bucket: R2_ENDPOINT, or R2_ACCOUNT_ID for R2's own
 // endpoint, R2_BUCKET, and the token's two halves, each also as _FILE.
 func loadR2() (R2, error) {
-	r := R2{Bucket: valueOrDefault("R2_BUCKET", "framy")}
+	r := R2{Bucket: valueOrDefault("R2_BUCKET", "framy"), Prefix: valueOrDefault("R2_PREFIX", "")}
+	if !validPrefix(r.Prefix) {
+		return R2{}, fmt.Errorf("R2_PREFIX must be lowercase letters, digits and dashes ending in a slash, such as test/")
+	}
 	var err error
 	if r.AccessKeyID, err = secret("R2_ACCESS_KEY_ID"); err != nil {
 		return R2{}, err
@@ -206,6 +213,24 @@ func loadR2() (R2, error) {
 		return R2{}, fmt.Errorf("R2_ENDPOINT must be an http or https URL")
 	}
 	return r, nil
+}
+
+// validPrefix: empty, or one path segment of a-z, 0-9 and dashes with its
+// slash, so a prefix can never reach into production's u/.
+func validPrefix(p string) bool {
+	if p == "" {
+		return true
+	}
+	name, ok := strings.CutSuffix(p, "/")
+	if !ok || name == "" || name == "u" {
+		return false
+	}
+	for _, r := range name {
+		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 // secret reads NAME, or the file NAME_FILE points at, as Docker secrets do.

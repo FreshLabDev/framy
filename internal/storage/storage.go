@@ -84,6 +84,9 @@ type Config struct {
 	// Fetch downloads results from providers' links: safehttp.Client, so a
 	// link cannot point framy at its own network.
 	Fetch *http.Client
+	// Prefix goes before every object key: "test/" for a test bot that
+	// shares the bucket, empty for production.
+	Prefix string
 	// Notify tells the operator chat; nil logs instead.
 	Notify    func(ctx context.Context, text string) error
 	Log       *slog.Logger
@@ -187,7 +190,7 @@ func (s *Store) UploadCopy(ctx context.Context, userID int64, r io.Reader, copyT
 		}
 	}
 	a := Asset{
-		UserID: userID, Kind: "upload", Key: fmt.Sprintf("u/%d/in/%s%s", userID, random(), ext(img.ContentType)),
+		UserID: userID, Kind: "upload", Key: s.cfg.Prefix + fmt.Sprintf("u/%d/in/%s%s", userID, random(), ext(img.ContentType)),
 		ContentType: img.ContentType, Bytes: img.Bytes, Width: img.Width, Height: img.Height,
 	}
 	if err := s.putFile(ctx, &a, img.Path); err != nil {
@@ -266,7 +269,7 @@ func (s *Store) keep(ctx context.Context, j jobs.Job, i int, r jobs.Result) erro
 		if err := s.checkType(a.ContentType); err != nil {
 			return err
 		}
-		a.Key = resultKey(j, i, a.ContentType)
+		a.Key = resultKey(s.cfg.Prefix, j, i, a.ContentType)
 		info, _ := media.Inspect(bytes.NewReader(r.Data), int64(len(r.Data)))
 		a.Width, a.Height = info.Width, info.Height
 		sum := sha256.Sum256(r.Data)
@@ -291,7 +294,7 @@ func (s *Store) keep(ctx context.Context, j jobs.Job, i int, r jobs.Result) erro
 		if err := s.checkType(a.ContentType); err != nil {
 			return err
 		}
-		a.Key = resultKey(j, i, a.ContentType)
+		a.Key = resultKey(s.cfg.Prefix, j, i, a.ContentType)
 		if f, err := os.Open(path); err == nil {
 			if st, err := f.Stat(); err == nil {
 				info, _ := media.Inspect(f, st.Size())
@@ -576,8 +579,8 @@ func resultType(declared string, head []byte) string {
 	return http.DetectContentType(head)
 }
 
-func resultKey(j jobs.Job, i int, contentType string) string {
-	return fmt.Sprintf("u/%d/out/%d-%d%s", j.UserID, j.ID, i, ext(contentType))
+func resultKey(prefix string, j jobs.Job, i int, contentType string) string {
+	return prefix + fmt.Sprintf("u/%d/out/%d-%d%s", j.UserID, j.ID, i, ext(contentType))
 }
 
 var exts = map[string]string{

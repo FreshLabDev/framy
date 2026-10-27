@@ -1,0 +1,93 @@
+# SPDX-License-Identifier: Apache-2.0
+# The test bot @framytest_bot on ws04, in /opt/stacks/framy-test.
+#
+# Its own PostgreSQL, seeded with the core stand-in (initdb/00-core-init.sql
+# is deploy/core-init.sql), so it never sees production data. It shares the
+# R2 bucket under the prefix test/, and talks to the cloud Bot API.
+#
+# Until there is a release to pin, the image is built on the host from a
+# commit of dev:
+#   git -C <checkout> checkout <commit>
+#   docker build -t framy:test-<commit> --build-arg VERSION=dev-<commit> \
+#     --build-arg COMMIT=<commit> <checkout>
+# and FRAMY_IMAGE in .env names it.
+#
+# .env holds FRAMY_IMAGE, FRAMY_TEST_DB_PASSWORD and R2_ACCOUNT_ID. The files
+# in secrets/ belong to uid 10001, the image's user, mode 0400: bot-token,
+# kek, r2-access-key-id, r2-secret-access-key, and openrouter-key when there
+# is one.
+name: framy-test
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: framy-test-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: framy
+      POSTGRES_PASSWORD: ${FRAMY_TEST_DB_PASSWORD:?FRAMY_TEST_DB_PASSWORD is required}
+      POSTGRES_DB: framy
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U framy -d framy"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  bot:
+    image: ${FRAMY_IMAGE:?FRAMY_IMAGE is required}
+    pull_policy: never
+    container_name: framy-test-bot
+    restart: unless-stopped
+    # Longer than JOBS_STOP_GRACE (3m30s): a stop waits for runs in progress.
+    stop_grace_period: 4m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 1g
+    env_file:
+      - path: .env
+        required: true
+    environment:
+      DATABASE_URL: postgres://framy:${FRAMY_TEST_DB_PASSWORD}@postgres:5432/framy?sslmode=disable
+      HTTP_ADDR: :8080
+      METRICS_ADDR: :9090
+      TELEGRAM_BOT_TOKEN_FILE: /run/secrets/bot-token
+      FRAMY_KEK_FILE: /run/secrets/kek
+      R2_BUCKET: framy
+      R2_PREFIX: test/
+      R2_ACCESS_KEY_ID_FILE: /run/secrets/r2-access-key-id
+      R2_SECRET_ACCESS_KEY_FILE: /run/secrets/r2-secret-access-key
+      WORK_DIR: /work
+      ANIM_CACHE_DIR: /anim
+    volumes:
+      - ./secrets:/run/secrets:ro
+      - work:/work
+      - anim:/anim
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  pgdata:
+  work:
+  anim:

@@ -303,6 +303,13 @@ was written from, and the skeleton of the service.
   failure. A file a job took, a cancelled draft's included, stays until the
   person deletes it. A job that tries to take a file at the moment the sweep
   deletes it is refused as if the file were not the person's.
+- `R2_PREFIX` puts every object of a test bot under its own prefix, such as
+  `test/`, so it can share the bucket without writing where production
+  does. `deploy/ws04-test/compose.yaml` is the test bot's stack on ws04: its
+  own PostgreSQL with the core stand-in, and the image built on the host
+  from a commit of `dev` until there is a release.
+- A free run that fails on framy's own OpenRouter key says the model could
+  not make it, instead of blaming the person's key.
 - `/img` is off, and the log says why, when there is no R2 bucket or ffmpeg
   lacks libx264. The loops and cards are kept in `ANIM_CACHE_DIR` (by default
   `framy-anim` in the system temp directory), outside `WORK_DIR`, which is

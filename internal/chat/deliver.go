@@ -256,6 +256,10 @@ func reason(run db.ChatRun) string {
 		}
 		return "err.money"
 	case jobs.Key:
+		if run.Free {
+			// framy's own key, not the person's.
+			return "err.failed"
+		}
 		return "err.key"
 	case jobs.Timeout:
 		return "err.timeout"

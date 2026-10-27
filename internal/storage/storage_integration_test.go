@@ -796,3 +796,23 @@ func TestAnObjectThatWouldNotGoKeepsItsRow(t *testing.T) {
 		t.Fatalf("the next sweep: %d, %v", n, err)
 	}
 }
+
+func TestATestBotWritesUnderItsPrefix(t *testing.T) {
+	h := newHarness(t, storage.Config{Prefix: "test/", Media: converter(t)})
+	ctx := context.Background()
+	a, err := h.store.Upload(ctx, alice, bytes.NewReader(pngBytes(t, 8, 8, 255)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(a.Key, "test/u/3001/in/") {
+		t.Fatalf("key = %q", a.Key)
+	}
+	if _, ok := h.bucket.Get(a.Key); !ok {
+		t.Fatal("no object under the prefixed key")
+	}
+	for _, key := range h.bucket.Keys() {
+		if !strings.HasPrefix(key, "test/") {
+			t.Errorf("%q is outside the prefix", key)
+		}
+	}
+}
