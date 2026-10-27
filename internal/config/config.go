@@ -70,6 +70,8 @@ type Config struct {
 	SiteURL string
 	// TelegramLogin is the client of sign-in on the site (internal/auth).
 	TelegramLogin TelegramLogin
+	// Hooks is the address and the secrets of the providers' webhooks (hooks.go).
+	Hooks Hooks
 }
 
 // R2 is the bucket and the token limited to it.
@@ -149,6 +151,9 @@ func Load() (Config, error) {
 	}
 	cfg.KEKFile = valueOrDefault("FRAMY_KEK_FILE", "")
 	if cfg.SiteURL, cfg.TelegramLogin, err = loadSite(); err != nil {
+		return Config{}, err
+	}
+	if cfg.Hooks, err = loadHooks(cfg.SiteURL); err != nil {
 		return Config{}, err
 	}
 	if cfg.MetricsAddr == "off" {
