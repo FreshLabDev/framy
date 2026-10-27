@@ -106,6 +106,7 @@ var (
 	StreamsOpened    = registerCounter("framy_sse_streams_total", "Job event streams opened.")
 	StreamsRefused   = registerCounter("framy_sse_streams_refused_total", "Job event streams refused because the person held the most allowed.")
 	EventsReconnects = registerCounter("framy_sse_listener_reconnects_total", "Times the job event listener lost its connection and made it again.")
+	OpenRouterHooks  = registerVec("framy_openrouter_hooks_total", "OpenRouter video webhooks, by result: woken, duplicate, ignored, bad_path, bad_signature, error.", "result")
 )
 
 // Handler serves the registry in Prometheus text exposition format.

@@ -31,12 +31,14 @@ const (
 // kinds are the request fields whose value is not what the catalog's type
 // says: OpenRouter lists seed and size as boolean, meaning only that the
 // route takes them, while the value is a number or a size such as
-// "1024x1536". n and output_compression are ranges of whole numbers.
+// "1024x1536". n and output_compression are ranges of whole numbers, and a
+// video's duration is a whole number of seconds.
 var kinds = map[string]valueKind{
 	"seed":               integer,
 	"size":               text,
 	"n":                  integer,
 	"output_compression": integer,
+	"duration":           integer,
 }
 
 // referencesParam is how a route says how many reference images it takes.

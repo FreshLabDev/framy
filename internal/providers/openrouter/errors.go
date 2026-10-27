@@ -43,7 +43,10 @@ type APIError struct {
 
 func (e *APIError) Error() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "openrouter %d", e.Status)
+	b.WriteString("openrouter")
+	if e.Status != 0 {
+		fmt.Fprintf(&b, " %d", e.Status)
+	}
 	if e.Type != "" {
 		b.WriteString(" " + e.Type)
 	}

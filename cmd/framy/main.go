@@ -135,6 +135,10 @@ func run(log *slog.Logger) error {
 				Referer:   "https://github.com/FreshLabDev/framy",
 				Title:     "framy",
 				Key:       openRouterKey(cfg.OpenRouterKey, people.JobKey),
+				// A finished video may be redirected to a link OpenRouter
+				// signed: the client refuses private addresses.
+				Fetch:     safehttp.Client(storage.DefaultFetchTimeout),
+				Callbacks: openRouterCallbacks(cfg.Hooks),
 			})),
 			// Only a person's own key pays at OpenAI and Gemini, never
 			// framy's: JobKey refuses a free run.
@@ -248,6 +252,9 @@ func run(log *slog.Logger) error {
 	// The listener ends with ctx, and ends every open stream with it, so that
 	// a stop is not held up by a connection that has no end of its own.
 	go jobAPI.Run(ctx)
+
+	// OpenRouter's video webhooks (#32).
+	mountOpenRouterHook(site, cfg.Hooks, store.Pool(), queue, log)
 
 	servers := []*http.Server{site.HTTPServer(cfg.HTTPAddr)}
 	if cfg.MetricsAddr != "" {

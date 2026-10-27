@@ -513,10 +513,21 @@ func TestAStopDuringTheCallIsLeftToTheQueue(t *testing.T) {
 	}
 }
 
-func TestVideoIsNotRunYet(t *testing.T) {
+// An image comes back from Submit, so nothing ever polls one: if the queue did,
+// it would be a bug, and the answer says so without a call.
+func TestAnImageIsNeverPolled(t *testing.T) {
+	p, u := serve(t, reply(200, "{}"))
+	_, err := p.Poll(context.Background(), job(nil))
+	if pe := classOf(t, err); pe.Class != jobs.NoAdapter || u.calls != 0 {
+		t.Errorf("class %s, %d calls", pe.Class, u.calls)
+	}
+}
+
+// Audio and anything else that is not an image or a video has no adapter.
+func TestOtherKindsHaveNoAdapter(t *testing.T) {
 	p, u := serve(t, reply(200, "{}"))
 	j := job(nil)
-	j.Kind = catalog.Video
+	j.Kind = catalog.Kind("audio")
 	_, err := p.Submit(context.Background(), j)
 	if pe := classOf(t, err); pe.Class != jobs.NoAdapter || u.calls != 0 {
 		t.Errorf("class %s, %d calls", pe.Class, u.calls)

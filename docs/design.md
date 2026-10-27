@@ -368,11 +368,11 @@ Progress for SSE goes through `pg_notify('framy_events', …)` in the transactio
 - **Images:** one provider call inside the worker, with a 180 s timeout.
 - **Video:**
   - submit, then poll. OpenRouter `GET /api/v1/videos/{id}` every 30 s; Omni with `background: true` and `GET /interactions/{id}`.
-  - The provider job id is written to the database right after the paid submit, before any polling. Otherwise a retry after a crash pays for the video twice.
-  - Every OpenRouter video request carries a `callback_url` with a path nobody can guess, `/hooks/or/<job>/<hmac(job)>`.
+  - The provider job id is written to the database right after the paid submit, before any polling. Otherwise a retry after a crash pays for the video twice. If the id cannot be saved, the retry fails the job as `interrupted` and sends nothing, and the log has the id.
+  - An OpenRouter video request carries a `callback_url` with a path nobody can guess, `/hooks/or/<job>/<mac>`, when `PUBLIC_URL` and `HOOK_PATH_SECRET` are set (see "OpenRouter video"). Without them the poll alone finishes every video.
     - **framy's own key:** the `X-OpenRouter-Signature` check, an HMAC-SHA256 of `t + "," + raw body` with a 300 s window.
     - **A person's key:** the workspace secret belongs to the person, so the webhook is only a signal, and framy rereads the status with that key.
-  - Webhooks are deduplicated by `X-OpenRouter-Idempotency-Key`. Polling every 30 s stays as the fallback. Whether `callback_url` works with OAuth keys at all is not checked.
+  - Webhooks are deduplicated by `X-OpenRouter-Idempotency-Key`. Polling every 30 s stays as the fallback. Whether `callback_url` works with OAuth keys at all is not checked; open check 10 says how to check it.
 - **Inputs.** A job's files are found just before the paid request (`jobs.Inputs`), as links the provider can fetch during the call: presigned R2 URLs that live 15 minutes, made anew for each submit, or data URLs. A job takes only its owner's files, written to `job_input` in the transaction that creates it. A file deleted before the run fails the job as `storage` before anything is paid; storage that does not answer is asked again. A presigned link a provider echoes in its error is taken out before the error is stored or logged.
 
 **OpenRouter images** (`internal/providers/openrouter`). `POST /api/v1/images` answers with the image in base64, so a run is one call:
@@ -394,6 +394,20 @@ Progress for SSE goes through `pg_notify('framy_events', …)` in the transactio
 | 500, an answer that cannot be read | `provider` | no |
 
 The moderation's reasons and the provider's name go into the job's error; the flagged text itself does not. OpenRouter's documentation calls a 502 a model that is down or an answer it could not read; whether a run that ended in a 502 is ever billed is not checked.
+
+**OpenRouter video** (`internal/providers/openrouter`, `video.go` and `hook.go`). `POST /api/v1/videos` answers 202 with a job id. The settings go as fields of the request and are checked against the offer's parameters before anything is paid:
+- a file is a frame or a reference. The `frame_images` setting lists the frame type of each of the job's first files (`["first_frame"]`, `["first_frame", "last_frame"]`), and the other files go in `input_references` as `image_url`, `video_url` or `audio_url`. OpenRouter keeps the frames and drops the references when both come, so a run with both is refused. The free plans of a video from a start frame (`internal/free`) set `frame_images` themselves, since a photo sent as a reference is priced apart: HeyGen's 768p is $0.10 a second that way and $0.036 as a start frame;
+- `size` replaces `resolution` and `aspect_ratio`. A pass-through setting such as a negative prompt is refused, since the video catalog names no provider to put it under. No `user` is sent: the Videos API documents none;
+- `completed` is the downloaded results with `usage.cost`; `failed` is `moderation` when its text names a content filter and `provider` otherwise; `cancelled` is `provider` and `expired` is `timeout`. A status framy does not know is a run still going, and the hour's deadline ends it. A GET that answers 404 or 400 says nothing about a run that may be paid and finishing, so it is asked again;
+- results come from `/videos/{id}/content?index=N` with the key, never from the URLs in the job object: unsigned ones need a key that must go only to OpenRouter, and signed ones are secrets. The download goes through `safehttp`, the key is dropped on a redirect to another host, and a link never reaches an error. A video above `MaxResponse` ends the run as `storage` with its cost kept.
+
+The webhook, `POST /hooks/or/{job}/{mac}`, checks in this order:
+1. the MAC in the path: base64url HMAC-SHA256 of the job id under `HOOK_PATH_SECRET`, compared in constant time before anything is read. A wrong one is a 404 and the path is not logged;
+2. for a free job, when `OPENROUTER_WEBHOOK_SECRET` is set: `X-OpenRouter-Signature`, `t=<unix>,v1=<hex>`, over `t + "," + raw body`, within 300 s either way. The format is taken from OpenRouter's documents and has not been seen live (`live_video_test.go` checks it). Without the secret a free job's webhook is a signal like a person's;
+3. the delivery's keys, SHA-256 digests of `X-OpenRouter-Idempotency-Key` and of the signature, go into `webhook_delivery` in the transaction that brings the poll forward (`jobs.Queue.PollNowTx`, River's `JobRetryTx`), so a retry or a replay within the window does nothing twice;
+4. the answer is a 204 for everything but a wrong path (404), a bad signature (401), a body above 64 KiB (413) and framy's own failures (500, which OpenRouter retries). The request does no work of its own.
+
+A webhook that lands while the job is being polled brings nothing forward: River does not touch a running job, and the poll's own turn comes within 30 s.
 
 **OpenAI images** (`internal/providers/openai`). A person's own key pays, never framy's: the adapter takes its key from `keys.Service.JobKey`, which refuses a free run, and what an answer proves about the key (`APIError.KeyStatus`: a 401 is `invalid`, a 403 that asks for verification `needs_verification`) becomes the connection's status. A run is one call:
 - without references `POST /v1/images/generations`; with references `POST /v1/images/edits` with a JSON body, each reference an `images[].image_url`: the presigned R2 link, which OpenAI fetches, or a data URL. The files framy keeps are PNG or JPEG with the long side at most 2048 px, well inside OpenAI's 50 MB and 16 images; a type OpenAI does not take is refused;
@@ -749,6 +763,7 @@ Main tables of the `framy` schema, created by a core migration with its own `fra
 | `album_item` | the 48-hour album cache |
 | `fx_rate` | date, code, UAH per unit, source (`nbu` or `currency-api`), fetched at |
 | `oauth_state` | the hash of the OAuth state, the PKCE verifier and the person, for 10 minutes; one per person and provider |
+| `webhook_delivery` | per provider and job, the digests of the idempotency keys and signatures of webhooks already acted on, for 7 days |
 
 The free allowance is counted from `job`, not stored separately.
 
@@ -793,7 +808,7 @@ Live tests on a test bot and the real tunnel (details in [research/telegram.md](
 7. **Prices:** estimate against `usage.cost` on 10 runs per pricing kind.
 8. **Blind tests** of the free-tier candidates.
 9. **Files:** HEIC from real iPhones (Portrait, Live Photo, HDR) through the ffmpeg in framy's image; the final MP4s on iOS, Android, Desktop and Web.
-10. **OpenRouter webhooks:** `callback_url` with an OAuth key, and whether Bot Fight Mode lets the POST through.
+10. **OpenRouter webhooks:** `callback_url` with an OAuth key, the signature format, and whether Bot Fight Mode lets the POST through. Not checked. To check the first two: connect a test account through the OAuth flow, put the key in `OPENROUTER_TEST_KEY_FILE`, point a tunnel at `OPENROUTER_TEST_CALLBACK_LISTEN` and run `TestLiveVideoCallback` (about $0.02, see `live_video_test.go`). A 202 and a delivery on the tunnel mean the key kind delivers; a 400, or silence, mean OAuth users are polled only. With the workspace secret in `OPENROUTER_TEST_WEBHOOK_SECRET_FILE` the test also checks the signature.
 11. **Cloudflare:** "Respect Existing Headers" on Free, checked with `curl -I`; whether `downloadFile` follows a redirect.
 12. **Video editing:** one short clip through each editor and Seedance 2.5, as `input_references` and as `previous_job_id`; which field each one honours, whether Aleph 2 keeps the length, about $2.
 

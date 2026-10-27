@@ -2,7 +2,9 @@
 
 // Package openrouter runs generations on OpenRouter. Images go through
 // POST /api/v1/images, which answers with the image itself, so a run is one
-// call (docs/design.md, Jobs). Video comes later.
+// call. Video goes through POST /api/v1/videos, which answers with a job to
+// poll, and a webhook (Hook) that brings the poll forward (docs/design.md,
+// Jobs).
 package openrouter
 
 import (
@@ -45,8 +47,17 @@ type Config struct {
 	// class; any other error fails the job as internal. The key never reaches
 	// a log or an error.
 	Key func(ctx context.Context, j jobs.Job) (string, error)
-	// MaxResponse bounds an answer, DefaultMaxResponse when zero.
+	// MaxResponse bounds an answer, and a finished video, which is held in
+	// memory while it is copied: DefaultMaxResponse when zero.
 	MaxResponse int64
+	// Fetch downloads finished videos, HTTP when nil. A download may be
+	// redirected to a link OpenRouter signed, so framy points this at the
+	// client that refuses private addresses (safehttp.Client). The key goes
+	// only to the host it was first sent to.
+	Fetch *http.Client
+	// Callbacks puts a callback_url on every video request. The zero value
+	// sends none, and the poll alone finishes the run.
+	Callbacks Callbacks
 }
 
 // Provider is the OpenRouter adapter of the job queue.
@@ -69,11 +80,15 @@ func New(cfg Config) *Provider {
 	return &Provider{cfg: cfg}
 }
 
-// Submit runs an image. Everything framy can check is checked before the
-// request goes, so a run refused for its settings costs nothing.
+// Submit runs an image, or sends a video and returns its job id. Everything
+// framy can check is checked before the request goes, so a run refused for
+// its settings costs nothing.
 func (p *Provider) Submit(ctx context.Context, j jobs.Job) (jobs.Submission, error) {
+	if j.Kind == catalog.Video {
+		return p.submitVideo(ctx, j)
+	}
 	if j.Kind != catalog.Image {
-		return jobs.Submission{}, &jobs.Error{Class: jobs.NoAdapter, Err: errors.New("framy cannot run OpenRouter video yet")}
+		return jobs.Submission{}, &jobs.Error{Class: jobs.NoAdapter, Err: fmt.Errorf("framy cannot run OpenRouter %s", j.Kind)}
 	}
 	body, err := imageRequest(j)
 	if err != nil {
@@ -90,8 +105,12 @@ func (p *Provider) Submit(ctx context.Context, j jobs.Job) (jobs.Submission, err
 	return jobs.Submission{Outcome: &out}, nil
 }
 
-// Poll is never called for an image: Submit returns the result.
+// Poll asks about a video. It is never called for an image: Submit returns
+// the result.
 func (p *Provider) Poll(ctx context.Context, j jobs.Job) (jobs.Outcome, error) {
+	if j.Kind == catalog.Video {
+		return p.pollVideo(ctx, j)
+	}
 	return jobs.Outcome{}, &jobs.Error{Class: jobs.NoAdapter, Err: fmt.Errorf("OpenRouter %s runs are not polled yet", j.Kind)}
 }
 
