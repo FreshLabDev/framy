@@ -114,10 +114,20 @@ func mediaOf(photos []tg.Photo, doc *tg.Document, an *tg.Animation, video *tg.Vi
 }
 
 // dedupeKey makes a replayed update start nothing: the chat and the command
-// message are the same in every copy of the update.
+// message are the same in every copy of the update. An ephemeral command has
+// no message id, and Telegram gives its ephemeral id to another message once
+// it is gone, so the date goes with it.
 func dedupeKey(m *tg.Message) string {
-	return "tg:" + strconv.FormatInt(m.Chat.ID, 10) + ":" + strconv.FormatInt(m.MessageID, 10)
+	chat := "tg:" + strconv.FormatInt(m.Chat.ID, 10) + ":"
+	if ephemeralCommand(m) {
+		return chat + "e" + strconv.FormatInt(m.EphemeralMessageID, 10) + ":" + strconv.FormatInt(m.Date, 10)
+	}
+	return chat + strconv.FormatInt(m.MessageID, 10)
 }
+
+// ephemeralCommand: the command is an ephemeral message, which only framy
+// and its sender see.
+func ephemeralCommand(m *tg.Message) bool { return m.MessageID == 0 && m.EphemeralMessageID != 0 }
 
 // cutPrompt keeps the first maxPrompt characters.
 func cutPrompt(s string) string {
@@ -188,17 +198,18 @@ func (f *Flow) command(ctx context.Context, m *tg.Message, command, prompt strin
 		// The same command came again while its draft was being made.
 		return nil
 	}
-	preview, err := f.sendPreview(ctx, m, d, prompt, lang, dir)
+	preview, ephemeral, err := f.sendPreview(ctx, m, d, prompt, lang, dir)
 	if err != nil {
 		f.cancel(ctx, d.id)
 		return f.fail(ctx, m, lang, err)
 	}
 	run := db.ChatRun{
 		JobID: d.id, ChatID: m.Chat.ID, ThreadID: thread, CommandMessageID: m.MessageID,
-		PreviewMessageID: preview, Lang: lang, Taken: d.taken, Album: d.album, Note: d.note,
+		PreviewMessageID: preview, PreviewEphemeral: ephemeral, CommandEphemeral: ephemeralCommand(m),
+		Lang: lang, Taken: d.taken, Album: d.album, Note: d.note, UserID: m.From.ID,
 	}
 	if err := f.cfg.Store.AddChatRun(ctx, run); err != nil {
-		f.deleteMessage(ctx, m.Chat.ID, preview)
+		f.removePreview(ctx, run)
 		f.cancel(ctx, d.id)
 		return f.fail(ctx, m, lang, err)
 	}
@@ -412,6 +423,38 @@ func (f *Flow) cancel(ctx context.Context, jobID int64) {
 	defer done()
 	if err := f.cfg.Queue.Cancel(ctx, jobID); err != nil {
 		f.log.Warn("draft not cancelled", "job", jobID, "error", err)
+	}
+}
+
+// removePreview deletes the message that shows a run before Generate, in
+// the chat or the requester's own, and the run's panel.
+func (f *Flow) removePreview(ctx context.Context, run db.ChatRun) {
+	f.dropPanel(ctx, run)
+	if run.PreviewEphemeral {
+		f.deleteEphemeral(ctx, run.ChatID, run.UserID, run.PreviewMessageID)
+		return
+	}
+	f.deleteMessage(ctx, run.ChatID, run.PreviewMessageID)
+}
+
+// dropPanel deletes the run's Model and Settings panel, if it has one.
+func (f *Flow) dropPanel(ctx context.Context, run db.ChatRun) {
+	if run.PanelMessageID == 0 {
+		return
+	}
+	f.deleteEphemeral(ctx, run.ChatID, run.UserID, run.PanelMessageID)
+	if err := f.cfg.Store.SetChatRunPanel(ctx, run.JobID, 0); err != nil {
+		f.log.Warn("panel not cleared", "job", run.JobID, "error", err)
+	}
+}
+
+func (f *Flow) deleteEphemeral(ctx context.Context, chatID, userID, ephemeralID int64) {
+	if ephemeralID == 0 {
+		return
+	}
+	// An ephemeral message may be gone already: Telegram lets them expire.
+	if err := f.cfg.Telegram.DeleteEphemeralMessage(ctx, chatID, userID, ephemeralID); err != nil {
+		f.log.Debug("ephemeral message not deleted", "chat", chatID, "message", ephemeralID, "error", err)
 	}
 }
 

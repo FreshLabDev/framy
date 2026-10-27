@@ -513,7 +513,7 @@ An album sent before framy became an admin is not in the cache. The preview alwa
 
 What `internal/chat` does today, and what comes later. The bot handles updates one at a time, so a command (at most 4 at once) and a press each run beside polling. Every run is a row of `framy.chat_run` next to its job, so a restart picks it up where it was.
 
-1. **The command arrives.** framy sends `upload_photo` (`sendChatAction`) and puts no reaction on the command: the preview comes within a second or two and says the same. A replayed update makes no second draft: the job's key is `tg:<chat>:<message>`.
+1. **The command arrives.** framy sends `upload_photo` (`sendChatAction`) and puts no reaction on the command: the preview comes within a second or two and says the same. A replayed update makes no second draft: the job's key is `tg:<chat>:<message>`. An ephemeral command has no message id, and Telegram gives its ephemeral id to another message once it is gone, so its key is `tg:<chat>:e<ephemeral id>:<date>`. framy answers it with a reply only its sender sees, a refusal included, and with a public one when Telegram refuses that.
 2. **The sources are collected:**
    - the reply, the album from the cache, or the photos the command is the caption of;
    - downloaded through the local Bot API server (`getFile`, then read from disk);
@@ -523,14 +523,18 @@ What `internal/chat` does today, and what comes later. The bot handles updates o
    - the free allowance first, on its plan for the number of photos: MAI Image 2.6 Flash up to 5, FLUX.3 Klein up to 10;
    - when the allowance is used up or paused, the person's OpenRouter key, if one is connected and not invalid;
    - otherwise the reason is the answer, with the way on: "Connect your own OpenRouter key on the site".
-4. **The preview is sent as a reply to the command** **(owner)**:
+4. **The preview is sent as a reply to the command** **(owner)**. In a group it goes to the requester alone, as an ephemeral message, when Telegram lets framy send one: framy is an admin, or the command was ephemeral and the preview comes within its 15 seconds. Otherwise, and when the ephemeral send is refused, the chat sees it.
    - **The card** (`anim.Preview`, owner, 27 October): the viewfinder holds the photos, numbered 1…N, or with none a field of dots in the shape of the result and its ratio. Beside it are the maker, the model's name, the settings as chips ("2K", "×2") and the price for the requester: the meter of the free allowance, or the estimate on their key in dollars and their currency ("≈ $0.034", "≈ 1,42 ₴"). The prompt is not on the card. The card is a still, a PNG or with photos a JPEG, so a new model or setting redraws it in milliseconds where a loop would take a second.
    - **The caption:** the prompt (in an expandable quote when long) and what was not taken ("Photos of the album I see: 3"). Where the faces cannot draw the card's label (Chinese, Japanese and Arabic), the price line comes in the caption as well ("free · 4 of 5 left").
-   - **The buttons today:** **Generate** (`style: success`) and **No** (`style: danger`).
-   - **Later:** **Model**, **Settings** and **Image / Video**; **Open on the site**, a link to `t.me/framyin_bot/app?startapp=<signed job id>`, because `web_app` buttons work only in DMs.
-5. **No:** `deleteMessage` on the preview and the job is cancelled **(owner)**.
-6. **Model or Settings (later):** `editMessageReplyMarkup` with the choices, and `editMessageCaption` for the new price. Nothing new is posted. Stage 3, if framy is an admin: an ephemeral panel only the requester sees.
-7. **Generate:** the job is queued, and `editMessageMedia` turns the preview into the generating loop by its `file_id`, with no upload **(owner)**. The loop is drawn when framy starts, uploaded on its first use and sent by `file_id` after that. The caption says "generating · model", and the only button is Stop.
+   - **The buttons today:** **Generate** (`style: success`) and **No** (`style: danger`), and under them **Model** and **Settings**.
+   - **Later:** **Image / Video**; **Open on the site**, a link to `t.me/framyin_bot/app?startapp=<signed job id>`, because `web_app` buttons work only in DMs.
+5. **No:** `deleteMessage` on the preview and the job is cancelled **(owner)**. The panel goes with it.
+6. **Model or Settings** (`internal/chat/panel.go`):
+   - **Where.** On a preview the chat sees in a group, the press sends the requester an ephemeral panel in place of the preview (`callback_query_id` with `replace_callback_query_message`): the same card by its `file_id`, with the list instead of the buttons. The chat keeps seeing the preview as it was. On a preview only the requester sees, and in a DM, the list goes on the preview itself. When Telegram refuses the panel, the list goes on the chat's preview, which only the requester can press.
+   - **Model** lists the image models: the free ones first, then the featured. A model is left out when none of its offers takes the run's photos (`input_references`). A free model runs on its plan when the plan takes the photos; past the free tier, on the person's key for its provider. Another model runs on the offer of a provider the person has a key for, in this order: the run's provider, OpenRouter, OpenAI, Gemini. A model the person has no key for is marked 🔑, and a press says to connect one on the site. The current model is marked ✓. A button carries the first 8 hex digits of the SHA-256 of the model's id.
+   - **Settings** lists, for a run on the person's key, the shape, the resolution, the quality, the size and up to 4 results, as far as the model has them: a row with the setting's name (a disabled button), then its values, 4 to a row, the current one marked ✓. A free run has its settings fixed, and the press says so.
+   - **A pick** revises the draft in place (`jobs.Queue.Revise`: the offer, the settings, who pays, the estimate). The settings that go to another model are those it takes, and a free model's are its plan's. The card is drawn again from the run's files in R2: `editMessageMedia` on the chat's preview, which keeps Generate and No, then `editEphemeralMessageMedia` on the panel with the `file_id` that edit got, or with an upload when there is no preview in the chat. After a model the main buttons come back; after a setting the settings stay.
+7. **Generate:** the job is queued, the panel is deleted, and `editMessageMedia` turns the preview into the generating loop by its `file_id`, with no upload **(owner)**. A preview only the requester saw is deleted, and the loop comes as a new message the chat sees, a reply to the command unless the command was ephemeral. The loop is drawn when framy starts, uploaded on its first use and sent by `file_id` after that. The caption says "generating · model", and the only button is Stop.
 8. **While it runs:** `sendChatAction` every 4.5 s, and the caption shows the elapsed time every 10 s. framy reads the open runs every 2 s.
 9. **Done:**
    - A result ready within 25 s of Generate: `editMessageMedia` turns the loop into it in place **(owner)**.
@@ -547,7 +551,7 @@ In groups one run makes one result. Proposal: more than one only on the site and
 
 ### Who can press
 
-- Only the requester can press Generate, No and Stop (and later Model and Settings). Anyone else gets a short alert from `answerCallbackQuery`.
+- Only the requester can press Generate, No, Stop, Model and Settings. Anyone else gets a short alert from `answerCallbackQuery`.
 - Proposal: group admins can also press No, to clean up.
 - State changes are compare-and-set, so a double tap cannot start two runs.
 
@@ -735,7 +739,7 @@ Released in tg v0.2.0-alpha.1 on 27 October 2026, and framy is on it.
   - `EditMessageText` and `EditMessageMedia` by `inline_message_id`.
 - `CallbackQuery.Message` becomes a pointer, and `inline_message_id` is added. A callback from an inline or guest message has no message. This is a breaking change: a minor bump before v1.0.0, and every consumer updates.
 - `AnswerGuestQuery` and the `guest_message` update.
-- Ephemeral media and `EditEphemeralMessageMedia`; today `ephemeral.go` has text and rich only.
+- Ephemeral media and `EditEphemeralMessageMedia`, `EditEphemeralMessageCaption` and `EditEphemeralMessageReplyMarkup`: done in v0.2.0-alpha.2, for the Model and Settings panel.
 - `SendMessageDraft` and `SendRichMessageDraft` with `can_stop` and `keep_on_stop`, and the `stopped_message_generation` update.
 - `BotCommandScope` with a chat id and a user id.
 - `GetMessages`, only if the server patch lands. `Preflight` already refuses a server without it.
@@ -845,7 +849,7 @@ framy **(owner)**: a frame is both a still and a shot. Written in lowercase ever
    - Animate, the weekly free video, delivery to Telegram.
    - OpenRouter polling and webhooks, Omni.
 3. **Telegram in depth.**
-   - Inline history, the ephemeral settings panel, guest mode.
+   - Inline history and guest mode. The ephemeral Model and Settings panel came early, with `/img`.
    - The `getMessages` patch.
    - DM drafts with Stop.
    - The mask editor.

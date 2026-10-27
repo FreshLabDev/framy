@@ -72,8 +72,12 @@ func TestAChatRunFollowsItsJob(t *testing.T) {
 		t.Fatalf("run = %+v", got)
 	}
 	// The model's own name, not the offer's with the maker before it.
-	if got.UserID != 4301 || got.Prompt != "a fox" || !got.Free || got.Status != "draft" || got.Model != "Chat image" {
+	if got.UserID != 4301 || got.Prompt != "a fox" || !got.Free || got.Status != "draft" || got.Model != "Chat image" ||
+		got.OfferID != "openrouter:test/chat" || got.Settings == nil {
 		t.Fatalf("the job's side = %+v", got)
+	}
+	if got.PreviewEphemeral || got.CommandEphemeral || got.PanelMessageID != 0 {
+		t.Fatalf("a preview in the chat = %+v", got)
 	}
 	open, err := store.OpenChatRuns(ctx)
 	if err != nil || len(open) != 1 || open[0].JobID != job {
@@ -108,6 +112,38 @@ func TestAChatRunFollowsItsJob(t *testing.T) {
 	}
 	if open, _ := store.OpenChatRuns(ctx); len(open) != 0 {
 		t.Fatalf("a finished run is open: %+v", open)
+	}
+}
+
+// An ephemeral preview has an id of its own numbering; Generate posts the
+// loop in the chat and records it in its place.
+func TestAnEphemeralPreviewGivesWayToTheLoop(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+	job := chatJob(t, store, 4303, "tg:-100:30")
+	run := ChatRun{JobID: job, ChatID: -100, CommandMessageID: 30, PreviewMessageID: 4, PreviewEphemeral: true, CommandEphemeral: true, Lang: "en"}
+	if err := store.AddChatRun(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.ChatRun(ctx, job)
+	if got.PreviewMessageID != 4 || !got.PreviewEphemeral || !got.CommandEphemeral {
+		t.Fatalf("run = %+v", got)
+	}
+	if err := store.SetChatRunPanel(ctx, job, 7); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := store.ChatRun(ctx, job); got.PanelMessageID != 7 {
+		t.Fatalf("panel = %d", got.PanelMessageID)
+	}
+	if err := store.SetChatRunPanel(ctx, job, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetChatRunPreview(ctx, job, 31, false); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = store.ChatRun(ctx, job)
+	if got.PreviewMessageID != 31 || got.PreviewEphemeral || got.PanelMessageID != 0 || !got.CommandEphemeral {
+		t.Fatalf("after Generate = %+v", got)
 	}
 }
 

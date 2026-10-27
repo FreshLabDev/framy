@@ -40,12 +40,17 @@ import (
 // Telegram is what the flow calls: *tg.Client.
 type Telegram interface {
 	SendReply(ctx context.Context, chatID, replyTo int64, threadID int, text string, markup *tg.InlineKeyboardMarkup) (tg.Message, error)
+	SendEphemeralMessage(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, text string, markup *tg.InlineKeyboardMarkup) (tg.Message, error)
 	SendPhoto(ctx context.Context, chatID int64, photo tg.InputFile, opts tg.CaptionOptions) (tg.Message, error)
 	SendAnimation(ctx context.Context, chatID int64, animation tg.InputFile, opts tg.AnimationOptions) (tg.Message, error)
 	SendDocument(ctx context.Context, chatID int64, document tg.InputFile, opts tg.DocumentOptions) (tg.Message, error)
 	EditMessageMediaMessage(ctx context.Context, chatID, messageID int64, media tg.InputMedia, markup *tg.InlineKeyboardMarkup) (tg.Message, error)
 	EditMessageCaption(ctx context.Context, chatID, messageID int64, caption string, opts tg.EditCaptionOptions) (tg.Message, error)
+	EditMessageReplyMarkup(ctx context.Context, chatID, messageID int64, markup *tg.InlineKeyboardMarkup) error
 	DeleteMessage(ctx context.Context, chatID, messageID int64) error
+	EditEphemeralMessageMedia(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, media tg.InputMedia, markup *tg.InlineKeyboardMarkup) error
+	EditEphemeralMessageReplyMarkup(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, markup *tg.InlineKeyboardMarkup) error
+	DeleteEphemeralMessage(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64) error
 	SendChatAction(ctx context.Context, chatID int64, threadID int, action string) error
 	GetFile(ctx context.Context, fileID string) (tg.File, error)
 	DownloadToFile(ctx context.Context, filePath, dst string, maxBytes int64) error
@@ -56,6 +61,7 @@ type Telegram interface {
 // Store is framy's database: *db.Store.
 type Store interface {
 	Offer(ctx context.Context, id string) (catalog.Model, catalog.Offer, error)
+	Catalog(ctx context.Context) ([]catalog.Model, error)
 	UserLang(ctx context.Context, userID int64) (string, error)
 	ChatLang(ctx context.Context, chatID int64) (string, error)
 	Currency(ctx context.Context, userID int64) (string, error)
@@ -65,6 +71,8 @@ type Store interface {
 	ChatRun(ctx context.Context, jobID int64) (db.ChatRun, error)
 	OpenChatRuns(ctx context.Context) ([]db.ChatRun, error)
 	MoveChatRun(ctx context.Context, jobID int64, from, to string) (bool, error)
+	SetChatRunPreview(ctx context.Context, jobID, messageID int64, ephemeral bool) error
+	SetChatRunPanel(ctx context.Context, jobID, panelID int64) error
 	StopChatRun(ctx context.Context, jobID int64) (bool, error)
 	FinishChatRun(ctx context.Context, jobID int64, stage string, res db.ChatResult) (bool, error)
 }
@@ -73,6 +81,7 @@ type Store interface {
 type Queue interface {
 	Draft(ctx context.Context, n jobs.New) (id int64, created bool, err error)
 	Generate(ctx context.Context, id int64) error
+	Revise(ctx context.Context, id int64, n jobs.New) error
 	Cancel(ctx context.Context, id int64) error
 }
 
@@ -80,6 +89,7 @@ type Queue interface {
 type Files interface {
 	UploadCopy(ctx context.Context, userID int64, r io.Reader, copyTo string) (storage.Asset, error)
 	Results(ctx context.Context, jobID int64) ([]storage.Asset, error)
+	JobInputs(ctx context.Context, jobID int64) ([]storage.Asset, error)
 	Open(ctx context.Context, a storage.Asset) (io.ReadCloser, error)
 }
 
@@ -207,11 +217,18 @@ func (f *Flow) Command(ctx context.Context, m *tg.Message, command, prompt strin
 const callbackPrefix = "j:"
 
 // Actions a run's buttons carry. They are a contract with previews already
-// sent.
+// sent. A model is picked with actPickModel and the hash of its id, a
+// setting with actPickSetting and "<setting>.<value>", numbered as the
+// panel lists them.
 const (
-	actGenerate = "go"
-	actNo       = "no"
-	actStop     = "stop"
+	actGenerate    = "go"
+	actNo          = "no"
+	actStop        = "stop"
+	actModel       = "m"
+	actSettings    = "s"
+	actBack        = "b"
+	actPickModel   = "M"
+	actPickSetting = "S"
 )
 
 // Owns reports whether callback data is a run's button.
@@ -315,8 +332,16 @@ var errTooBig = errors.New("the file is over the download limit")
 
 func t(lang, key string, pairs ...string) string { return i18n.T(i18n.Resolve(lang), key, pairs...) }
 
-// reply answers the command with text.
+// reply answers the command with text: an ephemeral command only its
+// sender sees, while Telegram takes the reply.
 func (f *Flow) reply(ctx context.Context, m *tg.Message, text string) error {
+	if ephemeralCommand(m) {
+		_, err := f.cfg.Telegram.SendEphemeralMessage(ctx, m.Chat.ID, m.From.ID, m.EphemeralMessageID, text, nil)
+		if err == nil {
+			return nil
+		}
+		f.log.Warn("ephemeral reply refused; the chat sees it", "chat", m.Chat.ID, "error", err)
+	}
 	if _, err := f.cfg.Telegram.SendReply(ctx, m.Chat.ID, m.MessageID, threadOf(m), text, nil); err != nil {
 		return fmt.Errorf("reply in %d: %w", m.Chat.ID, err)
 	}

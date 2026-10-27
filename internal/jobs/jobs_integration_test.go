@@ -259,6 +259,48 @@ func TestADuplicateUpdateStartsNothing(t *testing.T) {
 	}
 }
 
+// Model and Settings change a draft in place; a job past its draft is left
+// as it is.
+func TestADraftIsRevisedInPlace(t *testing.T) {
+	q, pool := testQueue(t, newFake())
+	ctx := context.Background()
+	other := catalog.Offer{ID: "openai:test/other", ModelID: "test/other", Provider: "openai", ProviderModelID: "test/other", Kind: catalog.Image}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO framy.catalog_model (id, kind, name, maker) VALUES ('test/other', 'image', 'Other', 'test') ON CONFLICT DO NOTHING;
+		INSERT INTO framy.catalog_offer (id, model_id, provider, provider_model_id, name, routes, fetched_at)
+		VALUES ('openai:test/other', 'test/other', 'openai', 'test/other', 'Other', '[]', now()) ON CONFLICT DO NOTHING`); err != nil {
+		t.Fatal(err)
+	}
+	n := job(alice, imageOffer)
+	n.DedupeKey = TelegramUpdate(44)
+	id, _, err := q.Draft(ctx, n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := job(alice, other)
+	r.Settings = map[string]any{"quality": "high"}
+	r.Estimate = &price.Estimate{Kind: price.About, USD: 0.2}
+	if err := q.Revise(ctx, id, r); err != nil {
+		t.Fatal(err)
+	}
+	j := get(t, q, id)
+	if j.OfferID != other.ID || j.ModelID != "test/other" || j.Provider != "openai" || j.Settings["quality"] != "high" || j.Status != Draft {
+		t.Fatalf("revised = %+v", j)
+	}
+	if usd := scalar[float64](t, pool, `SELECT estimate_usd::float8 FROM framy.job WHERE id=$1`, id); usd != 0.2 {
+		t.Fatalf("estimate = %v", usd)
+	}
+	if key := scalar[string](t, pool, `SELECT dedupe_key FROM framy.job WHERE id=$1`, id); key != TelegramUpdate(44) {
+		t.Fatalf("dedupe key = %q", key)
+	}
+	if err := q.Generate(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Revise(ctx, id, job(alice, imageOffer)); !errors.Is(err, ErrNotDraft) {
+		t.Fatalf("a queued job revised: %v", err)
+	}
+}
+
 // A supergroup's id is below the smallest int4, and NULLIF($n, 0) would
 // type its parameter as one.
 func TestASupergroupsJobKeepsItsChat(t *testing.T) {

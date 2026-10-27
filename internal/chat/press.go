@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"strings"
 
 	"github.com/FreshLabDev/tg"
 
@@ -30,7 +31,8 @@ func (f *Flow) press(ctx context.Context, cq *tg.CallbackQuery) error {
 		_ = answer("")
 		return err
 	}
-	if cq.Message.Chat.ID != run.ChatID || cq.Message.MessageID != run.PreviewMessageID {
+	if _, ok := pressedOn(cq, run); !ok {
+		f.log.Debug("press on another message", "job", jobID, "message", cq.Message.MessageID, "ephemeral", cq.Message.EphemeralMessageID)
 		return answer("")
 	}
 	if cq.From.ID != run.UserID {
@@ -43,15 +45,59 @@ func (f *Flow) press(ctx context.Context, cq *tg.CallbackQuery) error {
 		_ = answer("")
 		return err
 	}
-	switch action {
-	case actGenerate:
+	on, ok := pressedOn(cq, run)
+	if !ok {
+		return answer("")
+	}
+	switch {
+	case action == actGenerate:
 		return f.generate(ctx, cq, run)
-	case actNo:
+	case action == actNo:
 		return f.no(ctx, cq, run)
-	case actStop:
+	case action == actStop:
 		return f.stop(ctx, cq, run)
+	case action == actModel:
+		return f.view(ctx, cq, run, on, viewModel)
+	case action == actSettings:
+		return f.view(ctx, cq, run, on, viewSettings)
+	case action == actBack:
+		return f.view(ctx, cq, run, on, viewMain)
+	case strings.HasPrefix(action, actPickModel):
+		return f.pickModel(ctx, cq, run, on, strings.TrimPrefix(action, actPickModel))
+	case strings.HasPrefix(action, actPickSetting):
+		return f.pickSetting(ctx, cq, run, on, strings.TrimPrefix(action, actPickSetting))
 	}
 	return answer("")
+}
+
+// Where a press came from.
+type place int
+
+const (
+	// onPreview: the message that shows the run, in the chat or, when it is
+	// ephemeral, the requester's own.
+	onPreview place = iota
+	// onPanel: the requester's ephemeral panel over a preview in the chat.
+	onPanel
+)
+
+// pressedOn tells which of the run's messages a press came from, if any:
+// a client can send any callback data against any message it sees.
+// Ephemeral messages are numbered apart from the chat's.
+func pressedOn(cq *tg.CallbackQuery, run db.ChatRun) (place, bool) {
+	if cq.Message.Chat.ID != run.ChatID {
+		return 0, false
+	}
+	if id := cq.Message.EphemeralMessageID; id != 0 {
+		switch {
+		case run.PreviewEphemeral && id == run.PreviewMessageID:
+			return onPreview, true
+		case run.PanelMessageID != 0 && id == run.PanelMessageID:
+			return onPanel, true
+		}
+		return 0, false
+	}
+	return onPreview, !run.PreviewEphemeral && cq.Message.MessageID == run.PreviewMessageID
 }
 
 // generate queues the draft and turns the preview into the generating loop.
@@ -88,11 +134,34 @@ func (f *Flow) generate(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRu
 	return nil
 }
 
-// showLoop turns the preview into the generating loop.
+// showLoop turns the preview into the generating loop. The chat sees the
+// loop: a preview only the requester saw gives way to a new message, as a
+// reply to the command when the chat can see that.
 func (f *Flow) showLoop(ctx context.Context, run db.ChatRun) {
 	tk := f.ticker(run.JobID)
 	tk.action, tk.caption = f.now(), f.now()
+	f.dropPanel(ctx, run)
 	loop, err := f.cfg.Renderer.Generating(ctx)
+	if run.PreviewEphemeral {
+		f.deleteEphemeral(ctx, run.ChatID, run.UserID, run.PreviewMessageID)
+		var sent tg.Message
+		caption, kb := generatingCaption(run.Lang, run.Prompt, run.Model, 0), generatingKeyboard(run.Lang, run.JobID)
+		if err == nil {
+			sent, err = f.send(ctx, run.ChatID, run.CommandMessageID, run.ThreadID, loop, caption, kb)
+		}
+		if err != nil {
+			f.log.Warn("generating loop not shown", "job", run.JobID, "error", err)
+			sent, err = f.cfg.Telegram.SendReply(ctx, run.ChatID, run.CommandMessageID, run.ThreadID, caption, kb)
+		}
+		if err != nil {
+			// The result still comes, as a new message.
+			f.log.Warn("generating message not sent", "job", run.JobID, "error", err)
+		}
+		if err := f.cfg.Store.SetChatRunPreview(ctx, run.JobID, sent.MessageID, false); err != nil {
+			f.log.Warn("generating message not recorded", "job", run.JobID, "error", err)
+		}
+		return
+	}
 	if err == nil {
 		_, err = f.edit(ctx, run.ChatID, run.PreviewMessageID, loop,
 			generatingCaption(run.Lang, run.Prompt, run.Model, 0), generatingKeyboard(run.Lang, run.JobID))
@@ -132,7 +201,7 @@ func (f *Flow) stop(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun) e
 			return err
 		}
 		_ = f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, t(run.Lang, "run.stopped"))
-		f.deleteMessage(ctx, run.ChatID, run.PreviewMessageID)
+		f.removePreview(ctx, run)
 		f.forget(run.JobID)
 		return nil
 	case err != nil:
@@ -145,7 +214,7 @@ func (f *Flow) stop(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun) e
 }
 
 // close ends a run that leaves nothing in the chat: the preview or the loop
-// is deleted.
+// is deleted, and the panel with them.
 func (f *Flow) close(ctx context.Context, run db.ChatRun, from string) {
 	moved, err := f.cfg.Store.MoveChatRun(ctx, run.JobID, from, db.StageGone)
 	if err != nil {
@@ -155,6 +224,6 @@ func (f *Flow) close(ctx context.Context, run db.ChatRun, from string) {
 	if !moved {
 		return
 	}
-	f.deleteMessage(ctx, run.ChatID, run.PreviewMessageID)
+	f.removePreview(ctx, run)
 	f.forget(run.JobID)
 }

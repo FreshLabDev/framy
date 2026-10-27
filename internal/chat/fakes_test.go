@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -36,6 +37,10 @@ type call struct {
 	markup    *tg.InlineKeyboardMarkup
 	file      string // "upload:<name>" or the file_id sent
 	action    string
+	// ephemeral is what an ephemeral send asked for; nil for one the chat
+	// sees. replyEphemeral is the ephemeral message it answers.
+	ephemeral      *tg.Ephemeral
+	replyEphemeral int64
 }
 
 type fakeTelegram struct {
@@ -51,14 +56,22 @@ func newTelegram() *fakeTelegram {
 	return &fakeTelegram{next: 100, fail: map[string]error{}, files: map[string]string{}}
 }
 
+// record keeps a call. An ephemeral send fails with fail["ephemeral"], and
+// comes back with an ephemeral id instead of a message id.
 func (f *fakeTelegram) record(c call) (tg.Message, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.fail[c.method]; err != nil {
 		return tg.Message{}, err
 	}
+	if err := f.fail["ephemeral"]; err != nil && c.ephemeral != nil {
+		return tg.Message{}, err
+	}
 	f.calls = append(f.calls, c)
 	f.next++
+	if c.ephemeral != nil {
+		return tg.Message{EphemeralMessageID: f.next}, nil
+	}
 	return tg.Message{MessageID: f.next}, nil
 }
 
@@ -77,14 +90,21 @@ func (f *fakeTelegram) SendReply(_ context.Context, chatID, replyTo int64, threa
 	return f.record(call{method: "sendMessage", chatID: chatID, messageID: replyTo, thread: threadID, text: text, markup: markup})
 }
 
+func (f *fakeTelegram) SendEphemeralMessage(_ context.Context, chatID, receiver, ephemeralID int64, text string, markup *tg.InlineKeyboardMarkup) (tg.Message, error) {
+	return f.record(call{method: "sendMessage", chatID: chatID, text: text, markup: markup,
+		ephemeral: &tg.Ephemeral{ReceiverUserID: receiver}, replyEphemeral: ephemeralID})
+}
+
 func (f *fakeTelegram) SendPhoto(_ context.Context, chatID int64, photo tg.InputFile, o tg.CaptionOptions) (tg.Message, error) {
-	m, err := f.record(call{method: "sendPhoto", chatID: chatID, messageID: o.ReplyTo, thread: o.ThreadID, text: o.Caption, markup: o.Markup, file: fileOf(photo)})
+	m, err := f.record(call{method: "sendPhoto", chatID: chatID, messageID: o.ReplyTo, thread: o.ThreadID, text: o.Caption, markup: o.Markup, file: fileOf(photo),
+		ephemeral: o.Ephemeral, replyEphemeral: o.ReplyToEphemeral})
 	m.Photo = []tg.Photo{{FileID: "small"}, {FileID: "photo-file", FileUniqueID: "photo-unique"}}
 	return m, err
 }
 
 func (f *fakeTelegram) SendAnimation(_ context.Context, chatID int64, an tg.InputFile, o tg.AnimationOptions) (tg.Message, error) {
-	m, err := f.record(call{method: "sendAnimation", chatID: chatID, messageID: o.ReplyTo, thread: o.ThreadID, text: o.Caption, markup: o.Markup, file: fileOf(an)})
+	m, err := f.record(call{method: "sendAnimation", chatID: chatID, messageID: o.ReplyTo, thread: o.ThreadID, text: o.Caption, markup: o.Markup, file: fileOf(an),
+		ephemeral: o.Ephemeral, replyEphemeral: o.ReplyToEphemeral})
 	m.Animation = &tg.Animation{FileID: "anim-file"}
 	return m, err
 }
@@ -116,8 +136,36 @@ func (f *fakeTelegram) EditMessageCaption(_ context.Context, chatID, messageID i
 	return f.record(call{method: "editMessageCaption", chatID: chatID, messageID: messageID, text: caption, markup: o.Markup})
 }
 
+func (f *fakeTelegram) EditMessageReplyMarkup(_ context.Context, chatID, messageID int64, markup *tg.InlineKeyboardMarkup) error {
+	_, err := f.record(call{method: "editMessageReplyMarkup", chatID: chatID, messageID: messageID, markup: markup})
+	return err
+}
+
 func (f *fakeTelegram) DeleteMessage(_ context.Context, chatID, messageID int64) error {
 	_, err := f.record(call{method: "deleteMessage", chatID: chatID, messageID: messageID})
+	return err
+}
+
+// The ephemeral edits keep the receiver in action.
+func (f *fakeTelegram) EditEphemeralMessageMedia(_ context.Context, chatID, receiver, id int64, item tg.InputMedia, markup *tg.InlineKeyboardMarkup) error {
+	c := call{method: "editEphemeralMessageMedia", chatID: chatID, messageID: id, markup: markup, action: strconv.FormatInt(receiver, 10)}
+	switch v := item.(type) {
+	case tg.InputMediaAnimation:
+		c.text, c.file = v.Caption, "animation "+fileOf(v.Media)
+	case tg.InputMediaPhoto:
+		c.text, c.file = v.Caption, "photo "+fileOf(v.Media)
+	}
+	_, err := f.record(c)
+	return err
+}
+
+func (f *fakeTelegram) EditEphemeralMessageReplyMarkup(_ context.Context, chatID, receiver, id int64, markup *tg.InlineKeyboardMarkup) error {
+	_, err := f.record(call{method: "editEphemeralMessageReplyMarkup", chatID: chatID, messageID: id, markup: markup, action: strconv.FormatInt(receiver, 10)})
+	return err
+}
+
+func (f *fakeTelegram) DeleteEphemeralMessage(_ context.Context, chatID, receiver, id int64) error {
+	_, err := f.record(call{method: "deleteEphemeralMessage", chatID: chatID, messageID: id, action: strconv.FormatInt(receiver, 10)})
 	return err
 }
 
@@ -190,7 +238,10 @@ type fakeStore struct {
 	quotes   map[string]fx.Quote
 	keys     map[string]int64
 	offers   map[string]catalog.Offer
-	now      func() time.Time
+	// models are the catalog: Offer finds an offer's model here, and
+	// Catalog lists them.
+	models []catalog.Model
+	now    func() time.Time
 }
 
 func newStore() *fakeStore {
@@ -204,11 +255,29 @@ func newStore() *fakeStore {
 func (s *fakeStore) Offer(_ context.Context, id string) (catalog.Model, catalog.Offer, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.offer(id)
+}
+
+func (s *fakeStore) offer(id string) (catalog.Model, catalog.Offer, error) {
+	for _, m := range s.models {
+		for _, o := range m.Offers {
+			if o.ID == id {
+				return m, o, nil
+			}
+		}
+	}
 	o, ok := s.offers[id]
 	if !ok {
-		o = catalog.Offer{ID: id, Provider: catalog.OpenRouter, Kind: catalog.Image}
+		_, model, _ := strings.Cut(id, ":")
+		o = catalog.Offer{ID: id, ModelID: model, Provider: catalog.OpenRouter, Kind: catalog.Image}
 	}
-	return catalog.Model{Name: "MAI Image 2.6 Flash", Maker: "Microsoft AI", Kind: catalog.Image}, o, nil
+	return catalog.Model{ID: o.ModelID, Name: "MAI Image 2.6 Flash", Maker: "Microsoft AI", Kind: catalog.Image}, o, nil
+}
+
+func (s *fakeStore) Catalog(context.Context) ([]catalog.Model, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.models), nil
 }
 
 func (s *fakeStore) UserLang(_ context.Context, id int64) (string, error) {
@@ -273,9 +342,36 @@ func (s *fakeStore) read(jobID int64) (db.ChatRun, error) {
 	out := *r
 	if j := s.jobs[jobID]; j != nil {
 		out.UserID, out.Prompt, out.Free, out.Status, out.ErrorClass = j.n.UserID, j.n.Prompt, j.n.Free, string(j.status), string(j.class)
-		out.Model = "MAI Image 2.6 Flash"
+		m, _, _ := s.offer(j.n.Offer.ID)
+		out.Model, out.OfferID = m.Name, j.n.Offer.ID
+		// As the database gives them back: numbers from JSON.
+		out.Settings = map[string]any{}
+		for k, v := range j.n.Settings {
+			if n, ok := v.(int); ok {
+				v = float64(n)
+			}
+			out.Settings[k] = v
+		}
 	}
 	return out, nil
+}
+
+func (s *fakeStore) SetChatRunPreview(_ context.Context, jobID, messageID int64, ephemeral bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if r, ok := s.runs[jobID]; ok {
+		r.PreviewMessageID, r.PreviewEphemeral, r.PanelMessageID = messageID, ephemeral, 0
+	}
+	return nil
+}
+
+func (s *fakeStore) SetChatRunPanel(_ context.Context, jobID, panelID int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if r, ok := s.runs[jobID]; ok {
+		r.PanelMessageID = panelID
+	}
+	return nil
 }
 
 func (s *fakeStore) OpenChatRuns(context.Context) ([]db.ChatRun, error) {
@@ -351,6 +447,23 @@ type fakeQueue struct {
 	generate  error
 	cancelErr error
 	cancelled []int64
+	revised   []jobs.New
+}
+
+// Revise changes a draft as the queue does; refuse fails a free one.
+func (q *fakeQueue) Revise(_ context.Context, id int64, n jobs.New) error {
+	if n.Free && q.refuse != nil {
+		return q.refuse
+	}
+	q.store.mu.Lock()
+	defer q.store.mu.Unlock()
+	j := q.store.jobs[id]
+	if j == nil || j.status != jobs.Draft {
+		return jobs.ErrNotDraft
+	}
+	q.revised = append(q.revised, n)
+	j.n.Offer, j.n.Settings, j.n.Free, j.n.Estimate, j.n.FX = n.Offer, n.Settings, n.Free, n.Estimate, n.FX
+	return nil
 }
 
 func (q *fakeQueue) Draft(_ context.Context, n jobs.New) (int64, bool, error) {
@@ -402,6 +515,25 @@ type fakeFiles struct {
 	uploads int
 	fail    error
 	results map[int64][]storage.Asset
+	// store has the jobs, whose inputs JobInputs reads.
+	store  *fakeStore
+	assets map[int64]storage.Asset
+}
+
+func (f *fakeFiles) JobInputs(_ context.Context, jobID int64) ([]storage.Asset, error) {
+	f.store.mu.Lock()
+	var ids []int64
+	if j := f.store.jobs[jobID]; j != nil {
+		ids = j.n.Inputs
+	}
+	f.store.mu.Unlock()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []storage.Asset
+	for _, id := range ids {
+		out = append(out, f.assets[id])
+	}
+	return out, nil
 }
 
 func (f *fakeFiles) UploadCopy(_ context.Context, userID int64, r io.Reader, copyTo string) (storage.Asset, error) {
@@ -419,7 +551,12 @@ func (f *fakeFiles) UploadCopy(_ context.Context, userID int64, r io.Reader, cop
 	}
 	f.next++
 	f.uploads++
-	return storage.Asset{ID: f.next, UserID: userID, Kind: "upload", ContentType: "image/jpeg", Width: 1024, Height: 768}, nil
+	a := storage.Asset{ID: f.next, UserID: userID, Kind: "upload", ContentType: "image/jpeg", Width: 1024, Height: 768}
+	if f.assets == nil {
+		f.assets = map[int64]storage.Asset{}
+	}
+	f.assets[a.ID] = a
+	return a, nil
 }
 
 func (f *fakeFiles) Results(_ context.Context, jobID int64) ([]storage.Asset, error) {
@@ -505,7 +642,7 @@ func newHarness(t *testing.T) *harness {
 	store := newStore()
 	h := &harness{
 		tg: newTelegram(), store: store, queue: &fakeQueue{store: store},
-		files: &fakeFiles{results: map[int64][]storage.Asset{}}, renderer: &fakeRenderer{dir: t.TempDir()}, now: clock,
+		files: &fakeFiles{results: map[int64][]storage.Asset{}, store: store}, renderer: &fakeRenderer{dir: t.TempDir()}, now: clock,
 	}
 	f, err := New(Config{
 		Telegram: h.tg, Store: store, Queue: h.queue, Files: h.files, Allowance: fakeAllowance{left: 5},
@@ -525,15 +662,32 @@ func (h *harness) command(m *tg.Message, command, prompt string) error {
 	return h.flow.command(context.Background(), m, command, prompt)
 }
 
+// press presses a button of the run's preview, wherever it is.
 func (h *harness) press(jobID int64, from int64, action string) error {
 	run, err := h.store.ChatRun(context.Background(), jobID)
 	if err != nil {
 		return err
 	}
-	cq := &tg.CallbackQuery{
-		ID: "cq", From: tg.User{ID: from, LanguageCode: "en"}, Data: callback(jobID, action),
-		Message: tg.Message{MessageID: run.PreviewMessageID, Chat: tg.Chat{ID: run.ChatID, Type: "supergroup"}, Date: 1},
+	msg := tg.Message{MessageID: run.PreviewMessageID, Chat: tg.Chat{ID: run.ChatID, Type: "supergroup"}, Date: 1,
+		Photo: []tg.Photo{{FileID: "small"}, {FileID: "preview-file"}}}
+	if run.PreviewEphemeral {
+		msg.MessageID, msg.EphemeralMessageID = 0, run.PreviewMessageID
 	}
+	return h.pressOn(jobID, from, action, msg)
+}
+
+// pressPanel presses a button of the requester's panel.
+func (h *harness) pressPanel(jobID int64, from int64, action string) error {
+	run, err := h.store.ChatRun(context.Background(), jobID)
+	if err != nil {
+		return err
+	}
+	return h.pressOn(jobID, from, action, tg.Message{EphemeralMessageID: run.PanelMessageID, Chat: tg.Chat{ID: run.ChatID, Type: "supergroup"}, Date: 1,
+		Photo: []tg.Photo{{FileID: "preview-file"}}})
+}
+
+func (h *harness) pressOn(jobID, from int64, action string, msg tg.Message) error {
+	cq := &tg.CallbackQuery{ID: "cq", From: tg.User{ID: from, LanguageCode: "en"}, Data: callback(jobID, action), Message: msg}
 	return h.flow.press(context.Background(), cq)
 }
 

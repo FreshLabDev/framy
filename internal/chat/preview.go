@@ -206,11 +206,14 @@ func button(text, data, style string) tg.InlineKeyboardButton {
 	return tg.InlineKeyboardButton{Text: text, CallbackData: data, Style: style}
 }
 
-// previewKeyboard: Generate and No.
+// previewKeyboard: Generate and No, and under them Model and Settings.
 func previewKeyboard(lang string, jobID int64) *tg.InlineKeyboardMarkup {
 	return &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{{
 		button(t(lang, "run.generate"), callback(jobID, actGenerate), "success"),
 		button(t(lang, "run.no"), callback(jobID, actNo), "danger"),
+	}, {
+		button(t(lang, "run.model"), callback(jobID, actModel), ""),
+		button(t(lang, "run.settings"), callback(jobID, actSettings), ""),
 	}}}
 }
 
@@ -222,23 +225,66 @@ func generatingKeyboard(lang string, jobID int64) *tg.InlineKeyboardMarkup {
 }
 
 // sendPreview draws the preview card in dir and sends it as a reply to the
-// command.
-func (f *Flow) sendPreview(ctx context.Context, m *tg.Message, d draft, prompt, lang, dir string) (int64, error) {
+// command. In a group it goes to the requester alone when Telegram lets
+// framy: framy is an admin, or the command was ephemeral and the answer
+// comes within 15 seconds. Otherwise, or when the ephemeral send is
+// refused, the chat sees it. ephemeral tells which, and the id is of that
+// kind.
+func (f *Flow) sendPreview(ctx context.Context, m *tg.Message, d draft, prompt, lang, dir string) (id int64, ephemeral bool, err error) {
 	pic, err := f.cfg.Renderer.Preview(ctx, dir, previewCard(lang, d), d.paths)
 	if err != nil {
-		return 0, fmt.Errorf("draw the preview: %w", err)
+		return 0, false, fmt.Errorf("draw the preview: %w", err)
 	}
-	sent, err := f.send(ctx, m.Chat.ID, m.MessageID, threadOf(m), pic, previewCaption(lang, prompt, d, pic.TextDrawn), previewKeyboard(lang, d.id))
+	opts := tg.CaptionOptions{
+		ThreadID: threadOf(m), ReplyTo: m.MessageID,
+		Caption: previewCaption(lang, prompt, d, pic.TextDrawn), Markup: previewKeyboard(lang, d.id),
+	}
+	if m.Chat.Type != "private" {
+		switch {
+		case ephemeralCommand(m):
+			opts.ReplyToEphemeral = m.EphemeralMessageID
+			opts.Ephemeral = &tg.Ephemeral{ReceiverUserID: m.From.ID}
+		case f.isAdmin(ctx, m.Chat.ID):
+			opts.Ephemeral = &tg.Ephemeral{ReceiverUserID: m.From.ID}
+		}
+	}
+	if opts.Ephemeral != nil {
+		sent, err := f.sendPicture(ctx, m.Chat.ID, pic, opts)
+		if err == nil && sent.EphemeralMessageID != 0 {
+			return sent.EphemeralMessageID, true, nil
+		}
+		f.log.Warn("ephemeral preview refused; the chat sees it", "chat", m.Chat.ID, "error", err)
+		opts.Ephemeral, opts.ReplyToEphemeral = nil, 0
+	}
+	sent, err := f.sendPicture(ctx, m.Chat.ID, pic, opts)
 	if err != nil {
-		return 0, fmt.Errorf("send the preview: %w", err)
+		return 0, false, fmt.Errorf("send the preview: %w", err)
 	}
-	return sent.MessageID, nil
+	return sent.MessageID, false, nil
+}
+
+// isAdmin tells whether framy is an admin of the group, which lets it send
+// a member an ephemeral message at any time. The album cache knows: an
+// admin sees every message.
+func (f *Flow) isAdmin(ctx context.Context, chatID int64) bool {
+	if f.albums == nil {
+		return false
+	}
+	admin, err := f.albums.SeesEveryMessage(ctx, chatID)
+	if err != nil {
+		f.log.Warn("admin rights unread", "chat", chatID, "error", err)
+	}
+	return admin
 }
 
 // send posts a picture as a reply. A picture with a key (the loop, a card)
 // is uploaded once; after that its file_id goes.
 func (f *Flow) send(ctx context.Context, chatID, replyTo int64, thread int, pic anim.Media, caption string, kb *tg.InlineKeyboardMarkup) (tg.Message, error) {
-	opts := tg.CaptionOptions{ThreadID: thread, ReplyTo: replyTo, Caption: caption, Markup: kb}
+	return f.sendPicture(ctx, chatID, pic, tg.CaptionOptions{ThreadID: thread, ReplyTo: replyTo, Caption: caption, Markup: kb})
+}
+
+// sendPicture posts a picture with the options given.
+func (f *Flow) sendPicture(ctx context.Context, chatID int64, pic anim.Media, opts tg.CaptionOptions) (tg.Message, error) {
 	try := func(file tg.InputFile) (tg.Message, error) {
 		if isAnimation(pic) {
 			return f.cfg.Telegram.SendAnimation(ctx, chatID, file, tg.AnimationOptions{

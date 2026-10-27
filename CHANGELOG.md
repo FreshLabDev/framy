@@ -297,7 +297,19 @@ was written from, and the skeleton of the service.
   OpenRouter key when the allowance is used up or paused. framy keeps every
   run in `chat_run` (migration 014), so a restart picks it up where it was.
   `/edit` is in the group menu for video and answers that video in chats is
-  not open yet. Model, Settings, Again and Animate come later.
+  not open yet. Again and Animate come later.
+- Model and Settings under Generate and No. In a group the requester gets
+  the list in an ephemeral panel over the preview, so the chat sees only the
+  card change; in a DM, or on a preview only they see, the list is on the
+  preview. Model lists the free image models, then the featured ones that
+  take the run's photos, each on the provider the person has a key for, and
+  marks with 🔑 those that need one. Settings change the shape, the
+  resolution, the quality, the size and up to 4 results of a run on the
+  person's key; a free run's are fixed. A pick revises the draft and redraws
+  the card from the run's files. When framy is an admin of the group, or the
+  command was ephemeral, the preview itself goes to the requester alone, and
+  Generate posts the loop for the chat. Migration 015 keeps where the
+  preview and the panel are.
 - An upload that no job took within an hour is deleted, object and row,
   checked at start and every hour. The site will upload on Generate and the
   chat uploads right before its draft, so such a file is left from a

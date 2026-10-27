@@ -256,6 +256,63 @@ func (q *Queue) Generate(ctx context.Context, id int64) error {
 	})
 }
 
+// Revise changes what a draft runs: the offer, the settings, who pays and
+// the price shown, as the chat's Model and Settings panels do. The person,
+// the prompt and the files stay, and so does the draft's age. A job that is
+// not a draft any more gives ErrNotDraft. A free revision asks the allowance
+// as a new job would.
+func (q *Queue) Revise(ctx context.Context, id int64, n New) error {
+	return pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
+		a := Admission{Offer: n.Offer.ID, Kind: n.Offer.Kind, Settings: n.Settings}
+		err := tx.QueryRow(ctx, `
+			SELECT user_id, (SELECT count(*) FROM job_input WHERE job_id = job.id)
+			FROM job
+			WHERE id=$1 AND status='draft' AND created_at > now() - make_interval(secs => $2)
+			FOR UPDATE`, id, draftTTL.Seconds()).Scan(&a.UserID, &a.Inputs)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotDraft
+		}
+		if err != nil {
+			return err
+		}
+		if n.Free && q.cfg.Admit != nil {
+			if n.Estimate != nil {
+				a.EstimateUSD = n.Estimate.USD
+			}
+			if err := q.cfg.Admit.Admit(ctx, tx, a); err != nil {
+				return err
+			}
+		}
+		var estimateUSD *float64
+		if n.Estimate != nil {
+			estimateUSD = &n.Estimate.USD
+		}
+		settings := n.Settings
+		if settings == nil {
+			settings = map[string]any{}
+		}
+		var currency *string
+		var fxRate *float64
+		var fxDate *time.Time
+		if n.FX != nil {
+			currency, fxRate = &n.FX.Code, &n.FX.PerUSD
+			if !n.FX.Date.IsZero() {
+				fxDate = &n.FX.Date
+			}
+		}
+		_, err = tx.Exec(ctx, `
+			UPDATE job SET offer_id=$2, model_id=$3, provider=$4, kind=$5, settings=$6, free=$7,
+			       estimate_usd=$8, estimate=$9, currency=$10, fx_rate=$11, fx_date=$12::date, updated_at=now()
+			WHERE id=$1`,
+			id, n.Offer.ID, n.Offer.ModelID, n.Offer.Provider, n.Offer.Kind, settings, n.Free,
+			estimateUSD, n.Estimate, currency, fxRate, fxDate)
+		if err != nil {
+			return fmt.Errorf("revise job %d: %w", id, err)
+		}
+		return nil
+	})
+}
+
 // admitNew asks the allowance about a free job about to be created.
 func (q *Queue) admitNew(ctx context.Context, tx pgx.Tx, n New) error {
 	if !n.Free || q.cfg.Admit == nil {

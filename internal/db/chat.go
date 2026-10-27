@@ -31,10 +31,19 @@ type ChatRun struct {
 	ThreadID         int
 	CommandMessageID int64
 	PreviewMessageID int64
-	Lang             string
-	Taken, Album     int
-	Note             string
-	Stage            string
+	// PreviewEphemeral: the preview is an ephemeral message to the requester,
+	// and PreviewMessageID its ephemeral id.
+	PreviewEphemeral bool
+	// CommandEphemeral: the command was ephemeral, and nothing in the chat
+	// can reply to it.
+	CommandEphemeral bool
+	// PanelMessageID is the ephemeral Model and Settings panel the requester
+	// sees in place of the preview; zero for none.
+	PanelMessageID int64
+	Lang           string
+	Taken, Album   int
+	Note           string
+	Stage          string
 	// GenerateAt is when Generate was pressed; zero before.
 	GenerateAt time.Time
 	Stopped    bool
@@ -49,14 +58,19 @@ type ChatRun struct {
 	Error      string
 	// Model is the name of the job's model, as the catalog has it: the
 	// model's own, "Nano Banana Pro", not the offer's with its maker before it.
-	Model   string
-	Created time.Time
+	Model string
+	// OfferID and Settings are what the job runs with.
+	OfferID  string
+	Settings map[string]any
+	Created  time.Time
 }
 
 const chatRunColumns = `
-	r.job_id, r.chat_id, r.thread_id, r.command_message_id, COALESCE(r.preview_message_id, 0), r.lang,
+	r.job_id, r.chat_id, r.thread_id, r.command_message_id, COALESCE(r.preview_message_id, 0),
+	r.preview_ephemeral, r.command_ephemeral, COALESCE(r.panel_message_id, 0), r.lang,
 	r.taken, r.album, r.note, r.stage, r.generate_at, r.stopped,
-	j.user_id, j.prompt, j.free, j.status, COALESCE(j.error_class, ''), COALESCE(j.error, ''), COALESCE(m.name, o.name, j.model_id), j.created_at`
+	j.user_id, j.prompt, j.free, j.status, COALESCE(j.error_class, ''), COALESCE(j.error, ''), COALESCE(m.name, o.name, j.model_id),
+	j.offer_id, j.settings, j.created_at`
 
 const chatRunFrom = `
 	FROM chat_run r JOIN job j ON j.id = r.job_id
@@ -66,9 +80,11 @@ const chatRunFrom = `
 func scanChatRun(row pgx.Row) (ChatRun, error) {
 	var r ChatRun
 	var at *time.Time
-	err := row.Scan(&r.JobID, &r.ChatID, &r.ThreadID, &r.CommandMessageID, &r.PreviewMessageID, &r.Lang,
+	err := row.Scan(&r.JobID, &r.ChatID, &r.ThreadID, &r.CommandMessageID, &r.PreviewMessageID,
+		&r.PreviewEphemeral, &r.CommandEphemeral, &r.PanelMessageID, &r.Lang,
 		&r.Taken, &r.Album, &r.Note, &r.Stage, &at, &r.Stopped,
-		&r.UserID, &r.Prompt, &r.Free, &r.Status, &r.ErrorClass, &r.Error, &r.Model, &r.Created)
+		&r.UserID, &r.Prompt, &r.Free, &r.Status, &r.ErrorClass, &r.Error, &r.Model,
+		&r.OfferID, &r.Settings, &r.Created)
 	if at != nil {
 		r.GenerateAt = *at
 	}
@@ -80,10 +96,12 @@ func scanChatRun(row pgx.Row) (ChatRun, error) {
 // update that made it may come again.
 func (s *Store) AddChatRun(ctx context.Context, r ChatRun) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO chat_run (job_id, chat_id, thread_id, command_message_id, preview_message_id, lang, taken, album, note)
-		VALUES ($1, $2, $3, $4, NULLIF($5::bigint, 0), $6, $7, $8, $9)
+		INSERT INTO chat_run (job_id, chat_id, thread_id, command_message_id, preview_message_id, lang, taken, album, note,
+		                      preview_ephemeral, command_ephemeral)
+		VALUES ($1, $2, $3, $4, NULLIF($5::bigint, 0), $6, $7, $8, $9, $10, $11)
 		ON CONFLICT (job_id) DO NOTHING`,
-		r.JobID, r.ChatID, r.ThreadID, r.CommandMessageID, r.PreviewMessageID, r.Lang, r.Taken, r.Album, r.Note)
+		r.JobID, r.ChatID, r.ThreadID, r.CommandMessageID, r.PreviewMessageID, r.Lang, r.Taken, r.Album, r.Note,
+		r.PreviewEphemeral, r.CommandEphemeral)
 	if err != nil {
 		return fmt.Errorf("add the chat run of job %d: %w", r.JobID, err)
 	}
@@ -133,6 +151,29 @@ func (s *Store) MoveChatRun(ctx context.Context, jobID int64, from, to string) (
 		return false, fmt.Errorf("move the chat run of job %d to %s: %w", jobID, to, err)
 	}
 	return tag.RowsAffected() == 1, nil
+}
+
+// SetChatRunPreview records the message that shows the run now: the loop
+// Generate posted in the chat in place of an ephemeral preview.
+func (s *Store) SetChatRunPreview(ctx context.Context, jobID, messageID int64, ephemeral bool) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE chat_run SET preview_message_id = NULLIF($2::bigint, 0), preview_ephemeral = $3, updated_at = now()
+		WHERE job_id = $1`, jobID, messageID, ephemeral)
+	if err != nil {
+		return fmt.Errorf("set the preview of job %d: %w", jobID, err)
+	}
+	return nil
+}
+
+// SetChatRunPanel records the ephemeral panel of a run; zero for none.
+func (s *Store) SetChatRunPanel(ctx context.Context, jobID, panelID int64) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE chat_run SET panel_message_id = NULLIF($2::bigint, 0), updated_at = now()
+		WHERE job_id = $1`, jobID, panelID)
+	if err != nil {
+		return fmt.Errorf("set the panel of job %d: %w", jobID, err)
+	}
+	return nil
 }
 
 // StopChatRun marks a generating run whose job could not be cancelled: its

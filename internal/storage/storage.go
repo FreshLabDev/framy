@@ -491,6 +491,30 @@ func (s *Store) Results(ctx context.Context, jobID int64) ([]Asset, error) {
 	return out, rows.Err()
 }
 
+// JobInputs are the files job id takes, in order, as kept: the chat draws
+// the preview card from them again when Model or Settings changes the run.
+// A file deleted since is left out.
+func (s *Store) JobInputs(ctx context.Context, jobID int64) ([]Asset, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT a.id, a.user_id, a.kind, a.object_key, a.content_type, a.bytes, COALESCE(a.width, 0), COALESCE(a.height, 0), a.sha256, a.created_at
+		FROM job_input i JOIN asset a ON a.id = i.asset_id
+		WHERE i.job_id = $1
+		ORDER BY i.position`, jobID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Asset
+	for rows.Next() {
+		var a Asset
+		if err := rows.Scan(&a.ID, &a.UserID, &a.Kind, &a.Key, &a.ContentType, &a.Bytes, &a.Width, &a.Height, &a.SHA256, &a.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
 // Open reads a file the bot is about to send to its owner's chat. The
 // caller closes it.
 func (s *Store) Open(ctx context.Context, a Asset) (io.ReadCloser, error) {

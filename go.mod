@@ -5,7 +5,7 @@ module github.com/FreshLabDev/framy
 go 1.27.3
 
 require (
-	github.com/FreshLabDev/tg v0.2.0-alpha.1
+	github.com/FreshLabDev/tg v0.2.0-alpha.1.0.20261027165234-9a75f63df9ec
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/go-text/typesetting v0.3.5
 	github.com/jackc/pgx/v5 v5.11.0

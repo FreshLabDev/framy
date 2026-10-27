@@ -484,6 +484,35 @@ func TestADeletedInputFailsTheJobBeforeItIsPaid(t *testing.T) {
 	}
 }
 
+// The chat draws a preview again from the files a draft takes, in their
+// order, and reads them from the bucket.
+func TestJobInputsAreTheDraftsFilesInOrder(t *testing.T) {
+	h := newHarness(t, storage.Config{})
+	ctx := context.Background()
+	second := upload(t, h, alice, "u/3001/in/b.png", pngBytes(t, 8, 8, 255))
+	first := upload(t, h, alice, "u/3001/in/a.png", pngBytes(t, 8, 8, 255))
+	q, err := jobs.NewQueue(h.pool, jobs.Config{Providers: map[string]jobs.Provider{"openrouter": &provider{}}, Sink: h.store, Inputs: h.store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _, err := q.Draft(ctx, jobs.New{UserID: alice, Surface: jobs.Group, Offer: offer, Prompt: "x", Inputs: []int64{first, second}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := h.store.JobInputs(ctx, id)
+	if err != nil || len(got) != 2 || got[0].ID != first || got[1].ID != second {
+		t.Fatalf("inputs = %+v, %v", got, err)
+	}
+	r, err := h.store.Open(ctx, got[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Close()
+	if none, err := h.store.JobInputs(ctx, id+1); err != nil || len(none) != 0 {
+		t.Fatalf("another job's = %+v, %v", none, err)
+	}
+}
+
 func TestAJobTakesOnlyThePersonsOwnFiles(t *testing.T) {
 	h := newHarness(t, storage.Config{})
 	ctx := context.Background()
