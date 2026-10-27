@@ -344,7 +344,7 @@ River's listener needs a real Postgres session, not PgBouncer in transaction mod
 | `/f text`, not a reply | an image from scratch **(owner)** |
 | `/f text` in reply to a photo or an image document | that image edited **(owner)** |
 | `/f text` in reply to a photo from an album | all photos of the album with one instruction **(owner)** |
-| `/f text` in reply to a video or a video document, or as the caption of one's own video | that video edited; proposal: on the person's video editor, `flux-video-edit` by default |
+| `/f text` in reply to a video or a video document, or as the caption of one's own video | that video edited on the person's video editor, `flux-video-edit` by default **(owner)** |
 | `/f text` as the caption of one's own photo or album | those photos edited (proposal) |
 | a plain reply to a framy result | the result refined; this reaches the bot even in privacy mode (proposal) |
 | `/f` with no text | the preview asks what to do; the next reply to it becomes the prompt (proposal) |
