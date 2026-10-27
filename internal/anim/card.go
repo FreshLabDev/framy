@@ -37,7 +37,7 @@ type Card struct {
 // Arabic among them, is not drawn at all, and TextDrawn says so.
 func NewCard(text, lang string) *Card {
 	text = strings.Join(strings.Fields(text), " ")
-	card := &Card{lang: language.NewLanguage(lang)}
+	card := &Card{lang: ShapingLang(lang)}
 	if text == "" || !Covers(text) {
 		return card
 	}

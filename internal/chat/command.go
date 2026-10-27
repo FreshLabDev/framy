@@ -142,6 +142,7 @@ type draft struct {
 	estimate price.Estimate
 	quote    fx.Quote
 	usage    free.Meter
+	settings map[string]any
 	paths    []string
 	taken    int
 	album    int
@@ -189,7 +190,7 @@ func (f *Flow) command(ctx context.Context, m *tg.Message, command, prompt strin
 		// The same command came again while its draft was being made.
 		return nil
 	}
-	preview, err := f.sendPreview(ctx, m, d, prompt, lang)
+	preview, err := f.sendPreview(ctx, m, d, prompt, lang, dir)
 	if err != nil {
 		f.cancel(ctx, d.id)
 		return f.fail(ctx, m, lang, err)
@@ -246,7 +247,7 @@ func (f *Flow) draft(ctx context.Context, m *tg.Message, src found, prompt, key,
 		return d, "", err
 	}
 	settings := plan.SettingsFor(len(inputs))
-	d.model, d.offer, d.paths, d.taken = model, offer, paths, len(inputs)
+	d.model, d.offer, d.paths, d.taken, d.settings = model, offer, paths, len(inputs), settings
 	d.estimate = price.Of(model, offer, price.Request{Settings: settings, Prompt: prompt, Images: sizes})
 	if d.quote, err = f.quote(ctx, user, lang); err != nil {
 		return d, "", err

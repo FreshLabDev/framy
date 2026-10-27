@@ -21,7 +21,7 @@ func chatJob(t *testing.T, store *Store, id int64, key string) int64 {
 		`INSERT INTO catalog_model (id, kind, name, maker) VALUES ('test/chat', 'image', 'Chat image', 'test')
 		 ON CONFLICT (id) DO NOTHING`,
 		`INSERT INTO catalog_offer (id, model_id, provider, provider_model_id, name, routes, fetched_at)
-		 VALUES ('openrouter:test/chat', 'test/chat', 'openrouter', 'test/chat', 'Chat image', '[]', now())
+		 VALUES ('openrouter:test/chat', 'test/chat', 'openrouter', 'test/chat', 'Test: Chat image', '[]', now())
 		 ON CONFLICT (id) DO NOTHING`,
 	} {
 		if _, err := store.pool.Exec(ctx, stmt); err != nil {
@@ -71,6 +71,7 @@ func TestAChatRunFollowsItsJob(t *testing.T) {
 		got.Album != 4 || got.Note != "run.album_part" || !got.GenerateAt.IsZero() {
 		t.Fatalf("run = %+v", got)
 	}
+	// The model's own name, not the offer's with the maker before it.
 	if got.UserID != 4301 || got.Prompt != "a fox" || !got.Free || got.Status != "draft" || got.Model != "Chat image" {
 		t.Fatalf("the job's side = %+v", got)
 	}

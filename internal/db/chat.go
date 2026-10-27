@@ -47,7 +47,8 @@ type ChatRun struct {
 	Status     string
 	ErrorClass string
 	Error      string
-	// Model is the name of the job's model, as the catalog has it.
+	// Model is the name of the job's model, as the catalog has it: the
+	// model's own, "Nano Banana Pro", not the offer's with its maker before it.
 	Model   string
 	Created time.Time
 }
@@ -55,11 +56,12 @@ type ChatRun struct {
 const chatRunColumns = `
 	r.job_id, r.chat_id, r.thread_id, r.command_message_id, COALESCE(r.preview_message_id, 0), r.lang,
 	r.taken, r.album, r.note, r.stage, r.generate_at, r.stopped,
-	j.user_id, j.prompt, j.free, j.status, COALESCE(j.error_class, ''), COALESCE(j.error, ''), COALESCE(o.name, j.model_id), j.created_at`
+	j.user_id, j.prompt, j.free, j.status, COALESCE(j.error_class, ''), COALESCE(j.error, ''), COALESCE(m.name, o.name, j.model_id), j.created_at`
 
 const chatRunFrom = `
 	FROM chat_run r JOIN job j ON j.id = r.job_id
-	LEFT JOIN catalog_offer o ON o.id = j.offer_id`
+	LEFT JOIN catalog_offer o ON o.id = j.offer_id
+	LEFT JOIN catalog_model m ON m.id = j.model_id`
 
 func scanChatRun(row pgx.Row) (ChatRun, error) {
 	var r ChatRun

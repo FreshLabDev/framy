@@ -209,6 +209,22 @@ func TestFormat(t *testing.T) {
 	}
 }
 
+func TestFormatCodePutsTheCodeAfterTheNumber(t *testing.T) {
+	for _, tc := range []struct {
+		amount     float64
+		code, lang string
+		want       string
+	}{
+		{18.004, UAH, "uk", "18,01 UAH"},
+		{0.5, UAH, "en", "0.50 UAH"},
+		{2.049, "RUB", "ru", "2,05 RUB"},
+	} {
+		if got := FormatCode(tc.amount, tc.code, tc.lang); got != tc.want {
+			t.Errorf("FormatCode(%v, %s, %s) = %q, want %q", tc.amount, tc.code, tc.lang, got, tc.want)
+		}
+	}
+}
+
 func TestFormatNeverRoundsDown(t *testing.T) {
 	for i := 1; i < 20000; i++ {
 		amount := float64(i) * 0.00137

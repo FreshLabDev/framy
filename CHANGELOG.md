@@ -282,9 +282,11 @@ was written from, and the skeleton of the service.
 - `/img` in groups and DMs, the first way to make an image from Telegram.
   `/img a prompt` alone makes one from scratch; in reply to a photo, an image
   document or a photo of an album, or as the caption of one's own photos, it
-  edits them, up to 10 photos. framy answers the command with a preview: the
-  photos floating in their frame (or the empty frame), the prompt, the model,
-  what was taken and what was left out, and the price. Nothing runs until the
+  edits them, up to 10 photos. framy answers the command with a preview
+  card: the photos it takes, numbered, or the shape of the result; the maker
+  and the model; the settings; and the price, as what is left of the free
+  allowance or the estimate on the person's key. The caption is the prompt
+  and what was left out. Nothing runs until the
   requester presses Generate, and No deletes the preview. Generate turns the
   preview into the generating loop, with the elapsed time in the caption and
   a Stop button; a result ready within 25 s replaces the loop in place, a

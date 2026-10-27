@@ -35,14 +35,14 @@ func TestATextCommandShowsAPreviewOfTheFreeRun(t *testing.T) {
 		t.Fatalf("previews = %+v", h.tg.calls)
 	}
 	p := sent[0]
-	// No photo: the still of the generating loop, as a reply to the command.
-	if p.chatID != -100 || p.messageID != 10 || p.file != "upload:framy.png" {
+	// The card, as a reply to the command; the caption is the prompt alone.
+	if p.chatID != -100 || p.messageID != 10 || p.file != "upload:framy.png" || p.text != "<blockquote>a fox</blockquote>" {
 		t.Fatalf("preview = %+v", p)
 	}
-	for _, want := range []string{"<blockquote>a fox</blockquote>", "<b>MAI Image 2.6 Flash</b>", i18n.T("en", "run.free", "left", "5", "limit", "5")} {
-		if !strings.Contains(p.text, want) {
-			t.Errorf("caption %q lacks %q", p.text, want)
-		}
+	card := h.renderer.previews[0]
+	if card.Model != "MAI Image 2.6 Flash" || card.Maker != "Microsoft AI" || !card.Free || card.Left != 5 || card.Limit != 5 ||
+		card.Label != i18n.T("en", "card.free") || len(h.renderer.albums[0]) != 0 {
+		t.Fatalf("card = %+v", card)
 	}
 	row := p.markup.InlineKeyboard[0]
 	if len(row) != 2 || row[0].CallbackData != "j:1:go" || row[0].Style != "success" || row[1].CallbackData != "j:1:no" || row[1].Style != "danger" {
@@ -55,12 +55,19 @@ func TestATextCommandShowsAPreviewOfTheFreeRun(t *testing.T) {
 	if r := h.tg.methods("setMessageReaction"); len(r) != 1 || r[0].reaction != reactSeen {
 		t.Fatalf("reactions = %+v", r)
 	}
-	// The next preview with no photo sends the still by its file_id.
-	if err := h.command(&tg.Message{MessageID: 11, Chat: group, From: &tg.User{ID: 7}}, CommandImage, "a cat"); err != nil {
+}
+
+// A card the faces cannot label, as in Japanese, leaves the price to the
+// caption.
+func TestACardWithoutItsLabelPutsThePriceInTheCaption(t *testing.T) {
+	h := newHarness(t)
+	h.store.chatLang[-100] = "ja"
+	if err := h.command(command("/img a fox"), CommandImage, "a fox"); err != nil {
 		t.Fatal(err)
 	}
-	if sent := h.tg.methods("sendPhoto"); len(sent) != 2 || sent[1].file != "photo-file" {
-		t.Fatalf("second preview = %+v", sent)
+	p := h.tg.methods("sendPhoto")[0]
+	if !strings.Contains(p.text, i18n.T("ja", "run.free", "left", "5", "limit", "5")) {
+		t.Fatalf("caption = %q", p.text)
 	}
 }
 
@@ -77,10 +84,10 @@ func TestAReplyToAPhotoTakesThePhoto(t *testing.T) {
 		t.Fatalf("job = %+v", job.n)
 	}
 	if len(h.renderer.albums) != 1 || len(h.renderer.albums[0]) != 1 {
-		t.Fatalf("album drawn from %v", h.renderer.albums)
+		t.Fatalf("card drawn from %v", h.renderer.albums)
 	}
-	sent := h.tg.methods("sendAnimation")
-	if len(sent) != 1 || sent[0].messageID != 10 || !strings.Contains(sent[0].text, i18n.T("en", "run.taken", "n", "1")) {
+	sent := h.tg.methods("sendPhoto")
+	if len(sent) != 1 || sent[0].messageID != 10 {
 		t.Fatalf("preview = %+v", sent)
 	}
 }
@@ -131,7 +138,7 @@ func TestWithoutAdminRightsThePreviewSaysWhatItSaw(t *testing.T) {
 	if err := h.command(m, CommandImage, "one style"); err != nil {
 		t.Fatal(err)
 	}
-	sent := h.tg.methods("sendAnimation")
+	sent := h.tg.methods("sendPhoto")
 	if len(sent) != 1 || !strings.Contains(sent[0].text, i18n.T("en", noteAlbumOne)) {
 		t.Fatalf("preview = %+v", sent)
 	}
@@ -152,7 +159,7 @@ func TestMoreThanTenPhotosAreCut(t *testing.T) {
 	if n := len(h.store.jobs[1].n.Inputs); n != free.ImageKlein.MaxInputs {
 		t.Fatalf("%d inputs", n)
 	}
-	sent := h.tg.methods("sendAnimation")
+	sent := h.tg.methods("sendPhoto")
 	if !strings.Contains(sent[0].text, i18n.T("en", noteCut, "max", "10", "left", "2")) {
 		t.Fatalf("caption = %q", sent[0].text)
 	}
@@ -188,8 +195,9 @@ func TestPastTheFreeTierTheKeyRunsIt(t *testing.T) {
 		t.Fatalf("job = %+v", job)
 	}
 	sent := h.tg.methods("sendPhoto")
-	if len(sent) != 1 || !strings.Contains(sent[0].text, "OpenRouter") || strings.Contains(sent[0].text, "of 5 left") {
-		t.Fatalf("preview = %+v", sent)
+	card := h.renderer.previews[0]
+	if len(sent) != 1 || card.Free || card.Label != i18n.T("en", "card.key", "provider", "OpenRouter") || card.Price == "" {
+		t.Fatalf("preview = %+v, card = %+v", sent, card)
 	}
 }
 

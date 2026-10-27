@@ -178,6 +178,17 @@ func Format(amount float64, code, lang string) string {
 	return symbol + n
 }
 
+// FormatCode is Format with the currency's code after the number in place
+// of its sign: "0,89 UAH". It is for a picture whose faces lack the sign.
+func FormatCode(amount float64, code, lang string) string {
+	lang, _, _ = strings.Cut(strings.ToLower(lang), "-")
+	n := number(amount)
+	if comma[lang] {
+		n = strings.Replace(n, ".", ",", 1)
+	}
+	return n + "\u00a0" + code
+}
+
 func number(amount float64) string {
 	if amount <= 0 || math.IsNaN(amount) || math.IsInf(amount, 0) {
 		return "0"

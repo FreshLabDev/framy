@@ -101,6 +101,22 @@ func TestCardSetsTheLanguageOfItsLetters(t *testing.T) {
 	}
 }
 
+// The font has local forms for Russian only, so Ukrainian and Belarusian
+// must come out in the Russian ones and not in the Bulgarian default.
+func TestUkrainianAndBelarusianAreNotDrawnInBulgarianForms(t *testing.T) {
+	text := "вдтш"
+	ru := Body.Layout(text, 100, ShapingLang("ru")).Width
+	bg := Body.Layout(text, 100, ShapingLang("bg")).Width
+	if ru == bg {
+		t.Fatal("the Russian and Bulgarian forms are as wide: the probe tells nothing")
+	}
+	for _, lang := range []string{"uk", "be"} {
+		if w := Body.Layout(text, 100, ShapingLang(lang)).Width; w != ru {
+			t.Errorf("%s: %.1f wide, Russian forms are %.1f", lang, w, ru)
+		}
+	}
+}
+
 // Every letter that framy's interface uses in the thirteen languages the
 // faces cover has a glyph in them; the other three are known not to.
 func TestFacesCoverTheLanguagesTheyShouldAndOnlyThose(t *testing.T) {

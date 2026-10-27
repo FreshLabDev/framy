@@ -97,8 +97,7 @@ type Connections interface {
 
 // Renderer draws the preview, the loop and the cards: *anim.Renderer.
 type Renderer interface {
-	Album(ctx context.Context, dir string, paths []string) (anim.Media, error)
-	Blank(ctx context.Context) (anim.Media, error)
+	Preview(ctx context.Context, dir string, p anim.Preview, paths []string) (anim.Media, error)
 	Generating(ctx context.Context) (anim.Media, error)
 	ErrorCard(ctx context.Context, text, lang string) (anim.Media, error)
 }

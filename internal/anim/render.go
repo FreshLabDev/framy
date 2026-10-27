@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"image/jpeg"
 	"image/png"
 	"os"
 	"os/exec"
@@ -22,7 +23,7 @@ import (
 // Change it with any change to how they look: the files cached under the old
 // number are not used again, and the bot, which keeps a Telegram file_id per
 // Key, sends the new picture once.
-var loopVersion = 3
+var loopVersion = 4
 
 // Telegram's limits for what this package makes (docs/research/telegram.md,
 // 3.2). An animation is H.264 in an MP4 with no sound track, up to 50 MB; a
@@ -43,7 +44,7 @@ var errNoCache = errors.New("anim: Renderer.Cache is not set")
 // sendAnimation, or a PNG for sendPhoto and InputMediaPhoto.
 type Media struct {
 	Path        string
-	ContentType string        // "video/mp4" or "image/png"
+	ContentType string        // "video/mp4", "image/png" or, for a card with photos, "image/jpeg"
 	Width       int           // pixels
 	Height      int           // pixels
 	Duration    time.Duration // of one loop; 0 for a picture
@@ -122,6 +123,48 @@ func (r *Renderer) Album(ctx context.Context, dir string, paths []string) (Media
 		return Media{}, err
 	}
 	return r.encode(ctx, a, filepath.Join(dir, "album.mp4"), "")
+}
+
+// Preview draws the card of a run before Generate (see Preview) in dir, a
+// directory of the caller's. paths are the photos the run takes, as for
+// Album; none for a run from words alone. A card of words and dots is a PNG,
+// sharp and small; one with photos is a JPEG, a tenth of the PNG's size.
+func (r *Renderer) Preview(ctx context.Context, dir string, p Preview, paths []string) (Media, error) {
+	release, err := r.acquire(ctx)
+	if err != nil {
+		return Media{}, err
+	}
+	defer release()
+	card, err := NewPreview(ctx, p, paths)
+	if err != nil {
+		return Media{}, err
+	}
+	m := Media{Path: filepath.Join(dir, "preview.png"), ContentType: "image/png", Width: Width, Height: Height, TextDrawn: card.Label != ""}
+	if len(paths) > 0 {
+		m.Path, m.ContentType = filepath.Join(dir, "preview.jpg"), "image/jpeg"
+	}
+	f, err := os.Create(m.Path)
+	if err != nil {
+		return Media{}, err
+	}
+	img := Still(card, 0)
+	if m.ContentType == "image/jpeg" {
+		err = jpeg.Encode(f, img, &jpeg.Options{Quality: 90})
+	} else {
+		err = (&png.Encoder{CompressionLevel: png.BestSpeed}).Encode(f, img)
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return Media{}, err
+	}
+	st, err := os.Stat(m.Path)
+	if err != nil {
+		return Media{}, err
+	}
+	m.Bytes = st.Size()
+	return m, nil
 }
 
 // generatingKey names the loop of one design and one encoding.

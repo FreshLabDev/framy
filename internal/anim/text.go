@@ -43,7 +43,7 @@ const maxRuns = 2048
 
 // Font is one face at one weight. It shapes with HarfBuzz rules, so the
 // language picks the local forms: Sofia Sans draws Bulgarian Cyrillic unless
-// told the text is Russian, Ukrainian or Belarusian.
+// told the text is Russian (see ShapingLang).
 type Font struct {
 	mu     sync.Mutex
 	face   *font.Face
@@ -65,6 +65,18 @@ func mustFont(ttf []byte, weight float32) *Font {
 	}
 	face.SetVariations([]font.Variation{{Tag: ot.MustNewTag("wght"), Value: weight}})
 	return &Font{face: face, upem: float64(face.Upem()), runs: map[runKey]*Run{}}
+}
+
+// ShapingLang is the language the faces are told for text in the language
+// code. Sofia Sans has local forms for Russian only: told Ukrainian or
+// Belarusian, it keeps its Bulgarian ones, a в like a ϐ and a т like an m.
+// Those two are shaped as Russian, whose forms are theirs too.
+func ShapingLang(code string) language.Language {
+	switch code {
+	case "uk", "be":
+		code = "ru"
+	}
+	return language.NewLanguage(code)
 }
 
 // Run is a shaped line: its outline in pixels with the pen at (0, 0) on the

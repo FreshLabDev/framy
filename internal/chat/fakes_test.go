@@ -218,7 +218,7 @@ func (s *fakeStore) Offer(_ context.Context, id string) (catalog.Model, catalog.
 	if !ok {
 		o = catalog.Offer{ID: id, Provider: catalog.OpenRouter, Kind: catalog.Image}
 	}
-	return catalog.Model{Name: "MAI Image 2.6 Flash", Kind: catalog.Image}, o, nil
+	return catalog.Model{Name: "MAI Image 2.6 Flash", Maker: "Microsoft AI", Kind: catalog.Image}, o, nil
 }
 
 func (s *fakeStore) UserLang(_ context.Context, id int64) (string, error) {
@@ -454,9 +454,10 @@ func (k fakeKeys) List(context.Context, int64) ([]keys.Connection, error) { retu
 
 // fakeRenderer writes small files where the real one would draw.
 type fakeRenderer struct {
-	dir    string
-	albums [][]string
-	cards  []string
+	dir      string
+	previews []anim.Preview
+	albums   [][]string // the photos of each preview
+	cards    []string
 }
 
 func (r *fakeRenderer) file(name string) string {
@@ -465,17 +466,14 @@ func (r *fakeRenderer) file(name string) string {
 	return path
 }
 
-func (r *fakeRenderer) Album(_ context.Context, dir string, paths []string) (anim.Media, error) {
+func (r *fakeRenderer) Preview(_ context.Context, dir string, p anim.Preview, paths []string) (anim.Media, error) {
+	r.previews = append(r.previews, p)
 	r.albums = append(r.albums, paths)
-	path := filepath.Join(dir, "album.mp4")
-	if err := os.WriteFile(path, []byte("album"), 0o600); err != nil {
+	path := filepath.Join(dir, "preview.png")
+	if err := os.WriteFile(path, []byte("preview"), 0o600); err != nil {
 		return anim.Media{}, err
 	}
-	return anim.Media{Path: path, ContentType: "video/mp4", Width: 1280, Height: 720, Duration: 4 * time.Second}, nil
-}
-
-func (r *fakeRenderer) Blank(context.Context) (anim.Media, error) {
-	return anim.Media{Path: r.file("blank.png"), ContentType: "image/png", Width: 1280, Height: 720, Key: "blank-1"}, nil
+	return anim.Media{Path: path, ContentType: "image/png", Width: 1280, Height: 720, TextDrawn: p.Label != "" && p.Lang != "ja"}, nil
 }
 
 func (r *fakeRenderer) Generating(context.Context) (anim.Media, error) {

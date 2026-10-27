@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"html"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -64,15 +63,6 @@ func lines(parts ...string) string {
 	return strings.Join(out, "\n")
 }
 
-// modelLine is the model and what was taken.
-func modelLine(lang, model string, taken int) string {
-	s := "<b>" + html.EscapeString(model) + "</b>"
-	if taken > 0 {
-		s += " · " + t(lang, "run.taken", "n", strconv.Itoa(taken))
-	}
-	return s
-}
-
 // noteLine is the note about what was taken, in italics.
 func noteLine(lang, note string, taken, album int) string {
 	switch note {
@@ -122,14 +112,78 @@ func priceLabel(lang string, e price.Estimate, q fx.Quote) string {
 	return s
 }
 
-// previewCaption is the caption of a preview.
-func previewCaption(lang, prompt string, d draft) string {
-	return lines(
-		promptQuote(prompt),
-		modelLine(lang, d.model.Name, d.taken),
-		priceLine(lang, d.pay, d.offer.Provider, d.usage, d.estimate, d.quote),
-		noteLine(lang, d.note, d.taken, d.album),
-	)
+// previewCaption is the caption of a preview: the prompt and the note on
+// what was taken. The model, the settings and the price are on the card;
+// in a language whose letters the card lacks, the price line comes here.
+func previewCaption(lang, prompt string, d draft, labelDrawn bool) string {
+	price := ""
+	if !labelDrawn {
+		price = priceLine(lang, d.pay, d.offer.Provider, d.usage, d.estimate, d.quote)
+	}
+	return lines(promptQuote(prompt), noteLine(lang, d.note, d.taken, d.album), price)
+}
+
+// previewCard is what the preview card shows: the model, the settings and
+// what the run costs the person.
+func previewCard(lang string, d draft) anim.Preview {
+	p := anim.Preview{Lang: lang, Maker: d.model.Maker, Model: d.model.Name}
+	p.Aspect, p.Chips = settingChips(d.settings)
+	if d.pay == payFree {
+		p.Free, p.Left, p.Limit = true, d.usage.Left(), d.usage.Limit
+		p.Label = t(lang, "card.free")
+		return p
+	}
+	name := providerNames[d.offer.Provider]
+	if name == "" {
+		name = d.offer.Provider
+	}
+	p.Label = t(lang, "card.key", "provider", name)
+	p.Price, p.Local, p.LocalCode = cardPrice(lang, d.estimate, d.quote)
+	if p.Price == "" {
+		p.Price = t(lang, "run.price_unknown")
+	}
+	return p
+}
+
+// settingChips are a run's settings as the card shows them: the shape, and
+// the rest as short chips. A setting a model has no value for is left out,
+// and one result is the rule, so ×1 is not shown.
+func settingChips(settings map[string]any) (aspect string, chips []string) {
+	if v, ok := settings["aspect_ratio"].(string); ok && v != "auto" {
+		aspect = v
+	}
+	for _, k := range []string{"resolution", "quality"} {
+		if v, ok := settings[k]; ok && fmt.Sprint(v) != "" && fmt.Sprint(v) != "auto" {
+			chips = append(chips, fmt.Sprint(v))
+		}
+	}
+	if n, ok := settings["n"].(int); ok && n > 1 {
+		chips = append(chips, "×"+strconv.Itoa(n))
+	}
+	return aspect, chips
+}
+
+// cardPrice is a price on the person's key as the card writes it, in signs
+// rather than words: "≈ $0.034", with "≈ 1,42 ₴" and "≈ 1,42 UAH" for the
+// faces that lack ₴. An unknown price is empty.
+func cardPrice(lang string, e price.Estimate, q fx.Quote) (usd, local, code string) {
+	amount, sign := e.USD, ""
+	switch e.Kind {
+	case price.Unknown:
+		return "", "", ""
+	case price.About:
+		sign = "≈ "
+	case price.UpTo:
+		amount, sign = max(e.MaxUSD, e.USD), "≤ "
+	case price.From:
+		sign = "≥ "
+	}
+	usd = sign + fx.Format(amount, fx.USD, lang)
+	if q.Code != "" && q.Code != fx.USD && q.PerUSD > 0 {
+		local = "≈ " + fx.Format(amount*q.PerUSD, q.Code, lang)
+		code = "≈ " + fx.FormatCode(amount*q.PerUSD, q.Code, lang)
+	}
+	return usd, local, code
 }
 
 // generatingCaption is the caption of the loop: the model and how long the
@@ -167,20 +221,14 @@ func generatingKeyboard(lang string, jobID int64) *tg.InlineKeyboardMarkup {
 	}}}
 }
 
-// sendPreview draws the preview and sends it as a reply to the command: the
-// album loop for photos, the still of the generating loop for none.
-func (f *Flow) sendPreview(ctx context.Context, m *tg.Message, d draft, prompt, lang string) (int64, error) {
-	var pic anim.Media
-	var err error
-	if len(d.paths) > 0 {
-		pic, err = f.cfg.Renderer.Album(ctx, filepath.Dir(d.paths[0]), d.paths)
-	} else {
-		pic, err = f.cfg.Renderer.Blank(ctx)
-	}
+// sendPreview draws the preview card in dir and sends it as a reply to the
+// command.
+func (f *Flow) sendPreview(ctx context.Context, m *tg.Message, d draft, prompt, lang, dir string) (int64, error) {
+	pic, err := f.cfg.Renderer.Preview(ctx, dir, previewCard(lang, d), d.paths)
 	if err != nil {
 		return 0, fmt.Errorf("draw the preview: %w", err)
 	}
-	sent, err := f.send(ctx, m.Chat.ID, m.MessageID, threadOf(m), pic, previewCaption(lang, prompt, d), previewKeyboard(lang, d.id))
+	sent, err := f.send(ctx, m.Chat.ID, m.MessageID, threadOf(m), pic, previewCaption(lang, prompt, d, pic.TextDrawn), previewKeyboard(lang, d.id))
 	if err != nil {
 		return 0, fmt.Errorf("send the preview: %w", err)
 	}
@@ -236,8 +284,11 @@ func (f *Flow) withFile(pic anim.Media, send func(tg.InputFile) (tg.Message, err
 	}
 	defer file.Close()
 	name := "framy.png"
-	if isAnimation(pic) {
+	switch {
+	case isAnimation(pic):
 		name = "framy.mp4"
+	case pic.ContentType == "image/jpeg":
+		name = "framy.jpg"
 	}
 	msg, err := send(tg.InputFileUpload{Filename: name, Data: file})
 	if err != nil {
