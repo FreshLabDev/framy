@@ -7,12 +7,18 @@ import (
 	"io"
 	"log/slog"
 	"net/url"
+	"slices"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/FreshLabDev/tg"
+
+	"github.com/FreshLabDev/framy/internal/db"
 )
+
+// selfID is the id the test bot has in Telegram.
+const selfID = int64(555)
 
 type touch struct {
 	userID int64
@@ -27,10 +33,66 @@ type fakeStore struct {
 	chatLang map[int64]string
 	// fallback is what core answers for a person once framy's claim is gone.
 	fallback map[int64]string
+
+	// items is the album cache by chat and message; noteErr makes a save fail;
+	// notes counts the saves and swept holds the cut-off of every clean-up.
+	items   map[albumID]db.AlbumItem
+	noteErr error
+	notes   int
+	swept   []time.Time
 }
 
+type albumID struct{ chat, message int64 }
+
 func newStore() *fakeStore {
-	return &fakeStore{userLang: map[int64]string{}, chatLang: map[int64]string{}, fallback: map[int64]string{}}
+	return &fakeStore{
+		userLang: map[int64]string{}, chatLang: map[int64]string{}, fallback: map[int64]string{},
+		items: map[albumID]db.AlbumItem{},
+	}
+}
+
+func (f *fakeStore) NoteAlbumItem(_ context.Context, it db.AlbumItem) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.noteErr != nil {
+		return f.noteErr
+	}
+	f.notes++
+	id := albumID{it.ChatID, it.MessageID}
+	if old, ok := f.items[id]; ok {
+		it.CreatedAt = old.CreatedAt
+	} else if it.CreatedAt.IsZero() {
+		it.CreatedAt = time.Now()
+	}
+	f.items[id] = it
+	return nil
+}
+
+func (f *fakeStore) AlbumItems(_ context.Context, chatID int64, group string) ([]db.AlbumItem, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []db.AlbumItem
+	for _, it := range f.items {
+		if it.ChatID == chatID && it.MediaGroupID == group {
+			out = append(out, it)
+		}
+	}
+	slices.SortFunc(out, func(a, b db.AlbumItem) int { return int(a.MessageID - b.MessageID) })
+	return out, nil
+}
+
+func (f *fakeStore) DeleteAlbumItemsBefore(_ context.Context, t time.Time) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.swept = append(f.swept, t)
+	var n int64
+	for id, it := range f.items {
+		if it.CreatedAt.Before(t) {
+			delete(f.items, id)
+			n++
+		}
+	}
+	return n, nil
 }
 
 func (f *fakeStore) Offset(context.Context) (int64, error) {
@@ -123,6 +185,9 @@ type fakeTelegram struct {
 	// by method field and language; writes counts the set calls.
 	profile map[string]string
 	writes  int
+	// members counts the GetChatMember calls, and memberErr makes them fail.
+	members   int
+	memberErr error
 }
 
 func newTelegram() *fakeTelegram {
@@ -205,6 +270,10 @@ func (f *fakeTelegram) AnswerCallbackQueryAlert(_ context.Context, _, text strin
 func (f *fakeTelegram) GetChatMember(_ context.Context, _, userID int64) (tg.ChatMember, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.members++
+	if f.memberErr != nil {
+		return tg.ChatMember{}, f.memberErr
+	}
 	status := f.statuses[userID]
 	if status == "" {
 		status = "member"
@@ -258,7 +327,7 @@ func TestRunTouchesSendersAndAdvancesOffset(t *testing.T) {
 		{UpdateID: 41, Message: &tg.Message{Chat: tg.Chat{ID: -200, Type: "channel"}}},
 		{UpdateID: 42, MyChatMember: &tg.ChatMemberUpdated{From: tg.User{ID: 2}, Chat: tg.Chat{ID: -300, Type: "group"}}},
 	}
-	b := New(store, client, quiet(), "framytest_bot", "v0.0.0")
+	b := New(store, client, quiet(), "framytest_bot", selfID, "v0.0.0")
 
 	if err := b.Run(ctx); err != nil {
 		t.Fatal(err)

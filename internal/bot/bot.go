@@ -11,6 +11,7 @@ import (
 
 	"github.com/FreshLabDev/tg"
 
+	"github.com/FreshLabDev/framy/internal/db"
 	"github.com/FreshLabDev/framy/internal/metrics"
 )
 
@@ -24,6 +25,9 @@ type Store interface {
 	ClearUserLang(context.Context, int64) error
 	SetChatLang(context.Context, int64, string) error
 	ClearChatLang(context.Context, int64) error
+	NoteAlbumItem(context.Context, db.AlbumItem) error
+	AlbumItems(ctx context.Context, chatID int64, mediaGroupID string) ([]db.AlbumItem, error)
+	DeleteAlbumItemsBefore(context.Context, time.Time) (int64, error)
 }
 
 type Telegram interface {
@@ -49,16 +53,19 @@ type Bot struct {
 	tg          Telegram
 	log         *slog.Logger
 	username    string
+	selfID      int64
 	version     string
+	arrivals    *arrivals
 	lastPoll    atomic.Int64
 	initialized atomic.Bool
 }
 
-// New takes the username Preflight returned, which tells a command for framy
-// from one for another bot in the same group, and the build's version for the
-// About card.
-func New(store Store, client Telegram, log *slog.Logger, username, version string) *Bot {
-	return &Bot{store: store, tg: client, log: log, username: username, version: version}
+// New takes the username and the id Preflight returned: the username tells a
+// command for framy from one for another bot in the same group, and the id is
+// what the bot's own rights in a chat are asked by. The build's version is for
+// the About card.
+func New(store Store, client Telegram, log *slog.Logger, username string, selfID int64, version string) *Bot {
+	return &Bot{store: store, tg: client, log: log, username: username, selfID: selfID, version: version, arrivals: newArrivals()}
 }
 
 // LastPoll is when getUpdates last answered, for /healthz.
@@ -80,6 +87,7 @@ func (b *Bot) Run(ctx context.Context) error {
 	// The profile is dozens of calls; polling does not wait for them.
 	var side sync.WaitGroup
 	side.Go(func() { b.publishProfile(ctx) })
+	side.Go(func() { b.sweepAlbums(ctx, albumSweepEvery) })
 	defer side.Wait()
 
 	offset, err := b.store.Offset(ctx)
@@ -152,6 +160,18 @@ func (b *Bot) initialize(ctx context.Context) bool {
 // stop the answer: an ephemeral reply must go out within seconds, and the
 // next update touches again.
 func (b *Bot) handle(ctx context.Context, u tg.Update) {
+	// An item of an album is kept whoever sent it and whatever else the
+	// message is, so before anything that could return early. A failure to
+	// keep it is logged and counted there and stops nothing.
+	switch {
+	case u.Message != nil:
+		b.noteAlbumItem(ctx, u.Message)
+	case u.EditedMessage != nil:
+		// An edit can swap the file of an item, and nothing else about it is
+		// handled: no touch, no command.
+		b.noteAlbumItem(ctx, u.EditedMessage)
+		return
+	}
 	var (
 		user *tg.User
 		chat *tg.Chat

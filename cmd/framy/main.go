@@ -87,8 +87,9 @@ func run(log *slog.Logger) error {
 	client := tg.New(cfg.TelegramBotToken,
 		tg.WithAPIBase(cfg.TelegramAPIBase),
 		// my_chat_member tells core which groups framy is in; Telegram leaves
-		// it out of the default set, so it has to be asked for.
-		tg.WithAllowedUpdates("message", "callback_query", "my_chat_member"),
+		// it out of the default set, so it has to be asked for. So does
+		// edited_message, which can swap the file of an album's item.
+		tg.WithAllowedUpdates("message", "edited_message", "callback_query", "my_chat_member"),
 		tg.WithLogger(log),
 		tg.WithObserver(func(e tg.Event) {
 			switch {
@@ -113,7 +114,7 @@ func run(log *slog.Logger) error {
 		return err
 	}
 	log.Info("telegram preflight passed", "username", me.Username, "bot_api", tg.BotAPI)
-	b := bot.New(store, client, log, me.Username, version)
+	b := bot.New(store, client, log, me.Username, me.ID, version)
 
 	userAgent := "framy/" + version + " (+https://github.com/FreshLabDev/framy)"
 	files, work, err := openStorage(ctx, cfg, store, client, log)

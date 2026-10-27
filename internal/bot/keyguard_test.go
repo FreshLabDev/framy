@@ -125,7 +125,7 @@ func (failingDelete) DeleteMessage(context.Context, int64, int64) error {
 func TestAKeyThatCannotBeDeletedSaysSo(t *testing.T) {
 	var logs bytes.Buffer
 	client := newTelegram()
-	b := New(newStore(), failingDelete{client}, slog.New(slog.NewTextHandler(&logs, nil)), "framytest_bot", "v0.1.0")
+	b := New(newStore(), failingDelete{client}, slog.New(slog.NewTextHandler(&logs, nil)), "framytest_bot", selfID, "v0.1.0")
 	if err := b.onMessage(context.Background(), message(dmChat, 7, openRouterKey)); err != nil {
 		t.Fatal(err)
 	}

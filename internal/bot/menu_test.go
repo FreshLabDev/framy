@@ -224,7 +224,7 @@ func TestAboutCardIsExactly(t *testing.T) {
 
 func newBot() (*Bot, *fakeStore, *fakeTelegram) {
 	store, client := newStore(), newTelegram()
-	return New(store, client, quiet(), "framytest_bot", "v0.1.0"), store, client
+	return New(store, client, quiet(), "framytest_bot", selfID, "v0.1.0"), store, client
 }
 
 func message(chat tg.Chat, from int64, text string) *tg.Message {
