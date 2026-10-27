@@ -198,6 +198,10 @@ func (c *calc) quantity(billable, unit string) (lo, hi float64, ok bool) {
 		if images == 0 {
 			return 0, 0, true
 		}
+		if t, ok := c.inputTokensBySize(); ok {
+			c.about()
+			return t, t, true
+		}
 		per, ok := c.hints.Tokens[inputImage][catalog.Any]
 		if !ok {
 			c.cannot("the tokens of the input images")
@@ -237,6 +241,24 @@ func (c *calc) quantity(billable, unit string) (lo, hi float64, ok bool) {
 		return float64(per) * sLo, float64(per) * sHi, true
 	}
 	return 0, 0, false
+}
+
+// inputTokensBySize counts the input images' tokens from their sizes, when
+// the model has a rate per megapixel and every size is known. Frames of a
+// video have no size here, so they fall back to the count per image.
+func (c *calc) inputTokensBySize() (float64, bool) {
+	per := c.hints.InputTokensPerMP
+	if per <= 0 || c.req.Frames > 0 {
+		return 0, false
+	}
+	var t float64
+	for _, im := range c.req.Images {
+		if im.Width <= 0 || im.Height <= 0 {
+			return 0, false
+		}
+		t += math.Ceil(float64(im.Width*im.Height) / 1e6 * per)
+	}
+	return t, true
 }
 
 // outputTokens is how many tokens one output image takes: OpenAI's formula,

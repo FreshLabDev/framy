@@ -286,7 +286,7 @@ func (f *Flow) draft(ctx context.Context, m *tg.Message, src found, prompt, key,
 		}
 		if !has {
 			if limit != nil {
-				return d, t(lang, "run.limit", "limit", strconv.Itoa(limit.Limit)), nil
+				return d, f.limitText(lang, limit), nil
 			}
 			return d, t(lang, "run.closed"), nil
 		}

@@ -525,7 +525,7 @@ func (f *Flow) revise(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun,
 		if !has {
 			text := t(run.Lang, "run.closed")
 			if limit != nil {
-				text = t(run.Lang, "run.limit", "limit", strconv.Itoa(limit.Limit))
+				text = f.limitText(run.Lang, limit)
 			}
 			return f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, text)
 		}

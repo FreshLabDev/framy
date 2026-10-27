@@ -164,7 +164,7 @@ func TestMoreThanTenPhotosAreCut(t *testing.T) {
 
 func TestPastTheFreeTierWithoutAKeyTheReasonIsTheAnswer(t *testing.T) {
 	h := newHarness(t)
-	h.queue.refuse = &free.LimitError{Kind: catalog.Image, Limit: 5, Window: free.ImageWindow}
+	h.queue.refuse = &free.LimitError{Kind: catalog.Image, Limit: 5, Window: free.ImageWindow, FreesAt: h.now.Add(2*time.Hour + 14*time.Minute + 30*time.Second)}
 	if err := h.command(command("/img a fox"), CommandImage, "a fox"); err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +172,7 @@ func TestPastTheFreeTierWithoutAKeyTheReasonIsTheAnswer(t *testing.T) {
 		t.Fatal("a preview went out")
 	}
 	got := h.tg.methods("sendMessage")
-	if len(got) != 1 || got[0].text != i18n.T("en", "run.limit", "limit", "5") || got[0].messageID != 10 {
+	if len(got) != 1 || got[0].text != i18n.T("en", "run.limit", "limit", "5", "wait", "2 h 15 min") || got[0].messageID != 10 {
 		t.Fatalf("answer = %+v", got)
 	}
 }
@@ -362,11 +362,11 @@ func TestGenerateOnAnExpiredDraftDeletesThePreview(t *testing.T) {
 func TestGenerateWhenTheFreeTierRanOut(t *testing.T) {
 	h := newHarness(t)
 	id := h.preview(t)
-	h.queue.generate = &free.LimitError{Limit: 5}
+	h.queue.generate = &free.LimitError{Limit: 5, FreesAt: h.now.Add(40 * time.Second)}
 	if err := h.press(id, 7, actGenerate); err != nil {
 		t.Fatal(err)
 	}
-	if h.tg.answers[0] != "alert:"+i18n.T("en", "run.limit", "limit", "5") || h.store.stage(id) != db.StagePreview {
+	if h.tg.answers[0] != "alert:"+i18n.T("en", "run.limit", "limit", "5", "wait", "1 min") || h.store.stage(id) != db.StagePreview {
 		t.Fatalf("answers %v, stage %s", h.tg.answers, h.store.stage(id))
 	}
 }
@@ -619,5 +619,24 @@ func TestPromptQuote(t *testing.T) {
 	}
 	if got := promptQuote("<b>x</b>"); got != "<blockquote>&lt;b&gt;x&lt;/b&gt;</blockquote>" {
 		t.Fatalf("prompt not escaped: %q", got)
+	}
+}
+
+// The wait is rounded up: a free run is never promised before it is there.
+func TestTheWaitIsInHoursAndMinutes(t *testing.T) {
+	for _, c := range []struct {
+		lang string
+		d    time.Duration
+		want string
+	}{
+		{"en", 0, "1 min"},
+		{"en", 59*time.Minute + time.Second, "1 h 0 min"},
+		{"en", 23*time.Hour + 59*time.Minute, "23 h 59 min"},
+		{"ru", 3*time.Hour + 5*time.Minute, "3 ч 5 мин"},
+		{"uk", 12 * time.Minute, "12 хв"},
+	} {
+		if got := waitText(c.lang, c.d); got != c.want {
+			t.Errorf("%s %s: %q, want %q", c.lang, c.d, got, c.want)
+		}
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"path"
 	"strings"
 
@@ -290,8 +291,11 @@ func (h *PriceHints) validate() error {
 	if h == nil {
 		return nil
 	}
-	if len(h.Tokens) == 0 && len(h.OpenAITokens) == 0 && len(h.Variants) == 0 && len(h.Skip) == 0 && h.From == "" {
+	if len(h.Tokens) == 0 && len(h.OpenAITokens) == 0 && h.InputTokensPerMP == 0 && len(h.Variants) == 0 && len(h.Skip) == 0 && h.From == "" {
 		return errors.New("price says nothing")
+	}
+	if h.InputTokensPerMP < 0 || math.IsNaN(h.InputTokensPerMP) || math.IsInf(h.InputTokensPerMP, 0) {
+		return errors.New("price.input_tokens_per_mp must be above zero")
 	}
 	for billable, counts := range h.Tokens {
 		if len(counts) == 0 {

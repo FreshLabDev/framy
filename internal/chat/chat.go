@@ -332,6 +332,22 @@ var errTooBig = errors.New("the file is over the download limit")
 
 func t(lang, key string, pairs ...string) string { return i18n.T(i18n.Resolve(lang), key, pairs...) }
 
+// limitText says the free allowance is used up and how long until the next
+// free run.
+func (f *Flow) limitText(lang string, e *free.LimitError) string {
+	return t(lang, "run.limit", "limit", strconv.Itoa(e.Limit), "wait", waitText(lang, e.FreesAt.Sub(f.now())))
+}
+
+// waitText is a wait in hours and minutes, rounded up to the minute, so it
+// never promises a free run before it is there.
+func waitText(lang string, d time.Duration) string {
+	m := max(int((d+time.Minute-1)/time.Minute), 1)
+	if m < 60 {
+		return t(lang, "run.wait_m", "m", strconv.Itoa(m))
+	}
+	return t(lang, "run.wait_hm", "h", strconv.Itoa(m/60), "m", strconv.Itoa(m%60))
+}
+
 // reply answers the command with text: an ephemeral command only its
 // sender sees, while Telegram takes the reply.
 func (f *Flow) reply(ctx context.Context, m *tg.Message, text string) error {

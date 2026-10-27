@@ -94,25 +94,32 @@ models:
 
   # Microsoft publishes no token count. About 1,024 a 1024x1024 image is
   # Artificial Analysis's price per image divided by the rate, on all four
-  # models: $0.0195, $0.0389, $0.048 and $0.108.
+  # models: $0.0195, $0.0389, $0.048 and $0.108. An input image takes about
+  # 1,050 tokens a megapixel: 250 at 512x512, 1,100 at 1024x1024 and 2,470
+  # at 2048x1152, measured on 2.6 Flash on 27 October 2026. 1,100 keeps the
+  # estimate from coming out low.
   microsoft/mai-image-2.5:
     price:
       tokens: {output_image: {"*": 1024}}
+      input_tokens_per_mp: 1100
 
   microsoft/mai-image-2.5-pro:
     price:
       tokens: {output_image: {"*": 1024}}
+      input_tokens_per_mp: 1100
 
   microsoft/mai-image-2.6:
     featured: true
     price:
       tokens: {output_image: {"*": 1024}}
+      input_tokens_per_mp: 1100
 
   # The free image model (owner, 26 October 2026).
   microsoft/mai-image-2.6-flash:
     free: true
     price:
       tokens: {output_image: {"*": 1024}}
+      input_tokens_per_mp: 1100
 
   # The free allowance's model for albums of more than 5 photos, and its
   # fallback; the blind test confirms it (docs/design.md, Free tier).

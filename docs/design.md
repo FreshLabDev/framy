@@ -288,6 +288,7 @@ An estimate never rounds in framy's favour, and an approximate one says so. An o
 Where OpenRouter's rates are not enough, a model's `price` in `catalog/overlay.yaml` fills in:
 - `tokens`: tokens per output image by resolution (Gemini, MAI), per input image, per second of video (Omni);
 - `openai_tokens`: the base of OpenAI's formula by quality;
+- `input_tokens_per_mp`: tokens an input image takes per megapixel, for a model that counts them by size (MAI, about 1,050 measured, 1,100 set);
 - `variants`: the settings a dearer rate is for, such as Krea's style references, so it is not taken otherwise;
 - `skip`: a billable framy never sends, with the reason, such as Riverflow 2's fonts;
 - `from`: why the price is only a floor.

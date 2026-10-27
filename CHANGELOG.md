@@ -76,7 +76,9 @@ was written from, and the skeleton of the service.
   keeps the rates and quantities it used. It agrees with OpenAI's published
   gpt-image-2 prices, OpenRouter's 16:9 example and BytePlus's Seedance 2.0
   example. The overlay's `price` hints fill in what the rates leave out, and
-  every sync logs the price lines the estimate cannot read.
+  every sync logs the price lines the estimate cannot read. MAI counts an
+  input image by its size, about 1,100 tokens a megapixel as measured, so an
+  edit's estimate includes its photos.
 - The job queue, on River in the `framy` schema. A job is a row in
   `framy.job` and a River job, created in one transaction, and it moves
   through draft, queued, running and done, failed, cancelled or expired. The
@@ -94,7 +96,9 @@ was written from, and the skeleton of the service.
   cheapest first. What no route takes is refused before the call, so it costs
   nothing. `usage.cost` becomes the job's actual cost. A moderated prompt ends
   as `moderation` with its reasons, apart from money, key, refused, timeout
-  and provider failures, and an error inside a 200 is read too. Only a 429, a
+  and provider failures, and an error inside a 200 is read too. OpenAI's own
+  filter, which OpenRouter passes on as a bare 400, is told apart by its
+  words. Only a 429, a
   provider that is down or overloaded, and a connection never made are
   retried. framy's own key for the free allowance is `OPENROUTER_API_KEY`
   (or `OPENROUTER_API_KEY_FILE`).
@@ -134,7 +138,8 @@ was written from, and the skeleton of the service.
   lack of money pauses the tier for 15 minutes. The operator chat is told
   once a day per fuse. A refusal is a typed error that says when the slot
   frees up or until when the tier is closed, for the bot and the site to
-  word.
+  word. The bot says how long until the next free image, in hours and
+  minutes.
 - Provider keys that people paste in: OpenAI, Gemini and OpenRouter. A key is
   checked with the provider when it is saved (the list of models, which costs
   nothing) and kept only encrypted: a new data key for every record,
@@ -320,7 +325,9 @@ was written from, and the skeleton of the service.
   `test/`, so it can share the bucket without writing where production
   does. `deploy/ws04-test/compose.yaml` is the test bot's stack on ws04: its
   own PostgreSQL with the core stand-in, and the image built on the host
-  from a commit of `dev` until there is a release.
+  from a commit of `dev` until there is a release. It pays the free
+  allowance with the production key and counts its own budget, so it is
+  stopped when nobody tests.
 - A free run that fails on framy's own OpenRouter key says the model could
   not make it, instead of blaming the person's key.
 - `/img` is off, and the log says why, when there is no R2 bucket or ffmpeg

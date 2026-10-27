@@ -14,8 +14,11 @@
 #
 # .env holds FRAMY_IMAGE, FRAMY_TEST_DB_PASSWORD and R2_ACCOUNT_ID. The files
 # in secrets/ belong to uid 10001, the image's user, mode 0400: bot-token,
-# kek, r2-access-key-id, r2-secret-access-key, and openrouter-key when there
-# is one.
+# kek, r2-access-key-id, r2-secret-access-key and openrouter-key.
+#
+# openrouter-key is framy's own key, the same one the production stack pays
+# the free allowance with. Each stack counts its own daily budget, so stop
+# this one when it is not in use, or the key pays the free tier twice.
 name: framy-test
 
 services:
@@ -66,6 +69,7 @@ services:
       R2_PREFIX: test/
       R2_ACCESS_KEY_ID_FILE: /run/secrets/r2-access-key-id
       R2_SECRET_ACCESS_KEY_FILE: /run/secrets/r2-secret-access-key
+      OPENROUTER_API_KEY_FILE: /run/secrets/openrouter-key
       WORK_DIR: /var/lib/framy/work
       ANIM_CACHE_DIR: /var/lib/framy/anim
     volumes:

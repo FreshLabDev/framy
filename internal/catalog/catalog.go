@@ -210,6 +210,10 @@ type PriceHints struct {
 	// OpenAITokens is the base of OpenAI's image token formula by quality,
 	// from the official calculator.
 	OpenAITokens map[string]int `json:"openai_tokens,omitempty" yaml:"openai_tokens"`
+	// InputTokensPerMP is how many tokens an input image takes per
+	// megapixel, for a model that counts them by the image's size. It wins
+	// over Tokens[input_image] when the sizes are known.
+	InputTokensPerMP float64 `json:"input_tokens_per_mp,omitempty" yaml:"input_tokens_per_mp"`
 	// Variants says when a price variant applies: when every listed setting
 	// has its value, Any meaning any value. A variant not listed applies when
 	// its parts are chosen values, as low_1k is quality low at resolution 1K.

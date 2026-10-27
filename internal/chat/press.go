@@ -4,7 +4,6 @@ package chat
 import (
 	"context"
 	"errors"
-	"strconv"
 	"strings"
 
 	"github.com/FreshLabDev/tg"
@@ -118,7 +117,7 @@ func (f *Flow) generate(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRu
 		return nil
 	case errors.As(err, &limit):
 		// The free tier ran out between the preview and the press.
-		return f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, t(run.Lang, "run.limit", "limit", strconv.Itoa(limit.Limit)))
+		return f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, f.limitText(run.Lang, limit))
 	case errors.As(err, &closed):
 		return f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, t(run.Lang, "run.closed"))
 	case err != nil:

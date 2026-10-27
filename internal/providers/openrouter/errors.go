@@ -74,7 +74,26 @@ func (e *APIError) Error() string {
 // Moderated: the request was understood and declined by a content filter
 // or by the model.
 func (e *APIError) Moderated() bool {
-	return len(e.Reasons) > 0 || e.InputFlagged || e.Type == "content_policy_violation" || e.Type == "refusal"
+	if len(e.Reasons) > 0 || e.InputFlagged || e.Type == "content_policy_violation" || e.Type == "refusal" {
+		return true
+	}
+	return e.Status == http.StatusBadRequest && e.Type == "" && safetyWords(e.Message)
+}
+
+// safetyPhrases are how a provider's own filter words its refusal when
+// OpenRouter passes it on as a bare 400, with no error_type and no reasons.
+// OpenAI, live on 27 October 2026: "Your request was rejected by the safety
+// system."
+var safetyPhrases = []string{"safety system", "moderation_blocked", "safety_violations"}
+
+func safetyWords(message string) bool {
+	m := strings.ToLower(message)
+	for _, p := range safetyPhrases {
+		if strings.Contains(m, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // budgetLimits are the limits a 403 names when money, not permission, is

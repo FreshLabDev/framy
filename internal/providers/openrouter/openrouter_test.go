@@ -314,6 +314,27 @@ func TestAModeratedPromptIsARefusal(t *testing.T) {
 	}
 }
 
+// OpenRouter passes OpenAI's own filter on as a bare 400 (live, 27 October
+// 2026), and only its words tell it from a setting OpenAI does not take.
+func TestABare400FromTheSafetySystemIsARefusal(t *testing.T) {
+	for _, c := range []struct {
+		name, body string
+		want       jobs.Class
+	}{
+		{"OpenAI's safety system", `{"error":{"code":400,"message":"Your request was rejected by the safety system. If you believe this is an error, contact us at help.openai.com and include the request ID req_1.","metadata":{"provider_name":"OpenAI"}}}`, jobs.Moderation},
+		{"OpenAI's moderation code", `{"error":{"code":400,"message":"moderation_blocked: Your request was rejected","metadata":{"provider_name":"OpenAI"}}}`, jobs.Moderation},
+		{"a size OpenAI does not take", `{"error":{"code":400,"message":"Invalid value: '9x9'. Supported values are: '1024x1024'.","metadata":{"provider_name":"OpenAI"}}}`, jobs.Refused},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			p, _ := serve(t, reply(400, c.body))
+			_, err := p.Submit(context.Background(), job(nil))
+			if pe := classOf(t, err); pe.Class != c.want {
+				t.Errorf("class %s (%v), want %s", pe.Class, err, c.want)
+			}
+		})
+	}
+}
+
 func TestErrorsAreToldApart(t *testing.T) {
 	soon := time.Now().Add(90 * time.Second).UTC().Format(http.TimeFormat)
 	for _, c := range []struct {
