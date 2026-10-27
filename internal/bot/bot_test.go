@@ -40,6 +40,9 @@ type fakeStore struct {
 	noteErr error
 	notes   int
 	swept   []time.Time
+	// currency is what a person chose; currencyErr fails the read.
+	currency    map[int64]string
+	currencyErr error
 }
 
 type albumID struct{ chat, message int64 }
@@ -47,7 +50,7 @@ type albumID struct{ chat, message int64 }
 func newStore() *fakeStore {
 	return &fakeStore{
 		userLang: map[int64]string{}, chatLang: map[int64]string{}, fallback: map[int64]string{},
-		items: map[albumID]db.AlbumItem{},
+		items: map[albumID]db.AlbumItem{}, currency: map[int64]string{},
 	}
 }
 
@@ -93,6 +96,12 @@ func (f *fakeStore) DeleteAlbumItemsBefore(_ context.Context, t time.Time) (int6
 		}
 	}
 	return n, nil
+}
+
+func (f *fakeStore) Currency(_ context.Context, id int64) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.currency[id], f.currencyErr
 }
 
 func (f *fakeStore) Offset(context.Context) (int64, error) {
@@ -188,6 +197,15 @@ type fakeTelegram struct {
 	// members counts the GetChatMember calls, and memberErr makes them fail.
 	members   int
 	memberErr error
+	// menuButtons are the setChatMenuButton calls; menuErr fails them.
+	menuButtons []menuButton
+	menuErr     error
+}
+
+// menuButton is one setChatMenuButton call.
+type menuButton struct {
+	chatID int64
+	button tg.MenuButton
 }
 
 func newTelegram() *fakeTelegram {
@@ -286,6 +304,13 @@ func (f *fakeTelegram) SetMyCommandsForScope(_ context.Context, cmds []tg.BotCom
 	defer f.mu.Unlock()
 	f.commands[sc.Type+"/"+sc.LanguageCode] = cmds
 	return nil
+}
+
+func (f *fakeTelegram) SetChatMenuButton(_ context.Context, chatID int64, button tg.MenuButton) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.menuButtons = append(f.menuButtons, menuButton{chatID, button})
+	return f.menuErr
 }
 
 func (f *fakeTelegram) CallGet(_ context.Context, method string, values url.Values, out any) error {

@@ -86,11 +86,14 @@ func scopeOf(chat tg.Chat) scope {
 }
 
 // view is who a panel is drawn for: the language it is written in, the person
-// whose buttons these are, and where it sits.
+// whose buttons these are, and where it sits. account is read for the home
+// panel of a direct chat only; empty, that panel says nothing of the person
+// beyond their language.
 type view struct {
-	lang  string
-	owner int64
-	sc    scope
+	lang    string
+	owner   int64
+	sc      scope
+	account account
 }
 
 type row = []tg.InlineKeyboardButton
@@ -172,8 +175,9 @@ func (v view) closeButton() tg.InlineKeyboardButton {
 
 // home is two screens. The direct chat gets every tab, since there the panel
 // is the whole bot; a group gets what a group acts on, and its language only
-// for an admin, who is the only one who can change it. Nothing on either
-// screen leads yet, so no button is Primary (R4); generating will be.
+// for an admin, who is the only one who can change it. In a direct chat Open
+// framy leads, so it is the Primary button (R4); a group's panel has nothing
+// that leads yet, and generating will.
 func (v view) home(admin bool, groupLang string) (string, *tg.InlineKeyboardMarkup) {
 	if v.sc == scopeGroup {
 		text := panel(productName, "", v.t("home.hint"), quote(v.t("home.group"), v.t("home.soon")))
@@ -188,11 +192,16 @@ func (v view) home(admin bool, groupLang string) (string, *tg.InlineKeyboardMark
 		)
 		return text, markup(rows...)
 	}
-	text := panel(productName, "", v.t("home.hint"), quote(v.t("home.body"), v.t("home.soon")))
-	return text, markup(
+	text := panel(productName, "", v.t("home.hint"), quote(append(v.accountLines(), v.t("home.soon"))...))
+	var rows []row
+	if v.account.appURL != "" {
+		rows = append(rows, row{v.openButton(v.account.appURL)})
+	}
+	rows = append(rows,
 		row{v.button("btn.language", actLang), v.button("btn.help", actHelp)},
 		row{v.button("btn.about", actAbout)},
 	)
+	return text, markup(rows...)
 }
 
 func (v view) languageLabel(code string) string {

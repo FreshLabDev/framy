@@ -105,6 +105,17 @@ func LabelOf(code string) string {
 	return code
 }
 
+// NameOf returns the native name of a language without its flag, for a line
+// of text: a panel carries no emoji, and only the picker's labels have a flag
+// (core/docs/panels.md, R9).
+func NameOf(code string) string {
+	label := LabelOf(code)
+	if _, name, ok := strings.Cut(label, " "); ok {
+		return name
+	}
+	return label
+}
+
 // T returns the localized string for key in lang, interpolating {name}
 // placeholders from pairs (name, value, name, value, …). It falls back to
 // English, then to "[key]" so a missing string is visible rather than blank.

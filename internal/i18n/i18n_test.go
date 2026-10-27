@@ -120,7 +120,7 @@ func TestUkrainianAndBelarusianAreNotRussian(t *testing.T) {
 		if Resolve(code) != code {
 			t.Fatalf("%s resolved to %q", code, Resolve(code))
 		}
-		for _, key := range []string{"home.body", "help.body", "bot.description"} {
+		for _, key := range []string{"home.keys_none", "help.body", "bot.description"} {
 			if T(code, key) == T("ru", key) {
 				t.Fatalf("%s reuses the Russian %s", code, key)
 			}
@@ -148,6 +148,24 @@ func TestPickerIsTheFamilyList(t *testing.T) {
 		if o.Label == "" || o.Label == o.Code {
 			t.Errorf("%s has no native label", o.Code)
 		}
+	}
+}
+
+// A name in a line of text has no flag, whatever the label in the picker has.
+func TestNameOfLeavesTheFlagOut(t *testing.T) {
+	for _, o := range LANGUAGE_OPTIONS {
+		name := NameOf(o.Code)
+		if name == "" || name == o.Label || !strings.HasSuffix(o.Label, name) {
+			t.Errorf("%s: name %q from label %q", o.Code, name, o.Label)
+		}
+		for _, r := range name {
+			if r >= 0x1F000 {
+				t.Errorf("%s: %q still has a flag", o.Code, name)
+			}
+		}
+	}
+	if got := NameOf("xx"); got != "xx" {
+		t.Errorf("an unknown code is its own name, got %q", got)
 	}
 }
 

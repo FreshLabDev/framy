@@ -114,7 +114,6 @@ func run(log *slog.Logger) error {
 		return err
 	}
 	log.Info("telegram preflight passed", "username", me.Username, "bot_api", tg.BotAPI)
-	b := bot.New(store, client, log, me.Username, me.ID, version)
 
 	userAgent := "framy/" + version + " (+https://github.com/FreshLabDev/framy)"
 	files, work, err := openStorage(ctx, cfg, store, client, log)
@@ -166,6 +165,11 @@ func run(log *slog.Logger) error {
 	}
 	defer allowance.Wait()
 	jobsCfg.Admit = allowance
+	// The bot comes after the allowance and the keys: the home panel of a
+	// direct chat shows what is left of the one and what is connected of the
+	// other.
+	b := bot.New(store, client, log, me.Username, me.ID, version,
+		bot.WithAllowance(allowance), bot.WithConnections(people), bot.WithSiteURL(cfg.SiteURL))
 	queue, err := jobs.NewQueue(store.Pool(), jobsCfg)
 	if err != nil {
 		return err

@@ -43,6 +43,23 @@ func (b *Bot) publishProfile(ctx context.Context) {
 	b.log.Info("bot commands and descriptions published")
 }
 
+// publishMenuButton makes the button beside the input field of every direct
+// chat open the site as a Mini App. The label is the brand name, the same in
+// every language. Without a site address it does nothing, and does not reset a
+// button someone set by hand. A failure is logged: the button is a shortcut to
+// what the panel's own button opens.
+func (b *Bot) publishMenuButton(ctx context.Context) {
+	if b.appURL == "" {
+		return
+	}
+	button := tg.MenuButton{Type: tg.MenuWebApp, Text: productName, WebApp: &tg.WebAppInfo{URL: b.appURL}}
+	if err := b.tg.SetChatMenuButton(ctx, 0, button); err != nil {
+		b.log.Warn("menu button not published", "error", err)
+		return
+	}
+	b.log.Info("menu button published")
+}
+
 // setDescriptions writes the profile texts only where they differ from what
 // Telegram holds: a restart then costs reads, not writes, and Telegram limits
 // how often these change.

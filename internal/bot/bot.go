@@ -12,6 +12,8 @@ import (
 	"github.com/FreshLabDev/tg"
 
 	"github.com/FreshLabDev/framy/internal/db"
+	"github.com/FreshLabDev/framy/internal/free"
+	"github.com/FreshLabDev/framy/internal/keys"
 	"github.com/FreshLabDev/framy/internal/metrics"
 )
 
@@ -28,6 +30,21 @@ type Store interface {
 	NoteAlbumItem(context.Context, db.AlbumItem) error
 	AlbumItems(ctx context.Context, chatID int64, mediaGroupID string) ([]db.AlbumItem, error)
 	DeleteAlbumItemsBefore(context.Context, time.Time) (int64, error)
+	// Currency is the one the person chose, empty while they chose none.
+	Currency(context.Context, int64) (string, error)
+}
+
+// Allowance is what the home panel of a direct chat reads of the free
+// allowance: *free.Allowance.
+type Allowance interface {
+	Usage(ctx context.Context, userID int64) (free.Usage, error)
+}
+
+// Connections is what the home panel reads of a person's provider keys:
+// *keys.Service. A nil *keys.Service answers keys.ErrDisabled, which is a
+// framy with nothing connected.
+type Connections interface {
+	List(ctx context.Context, userID int64) ([]keys.Connection, error)
 }
 
 type Telegram interface {
@@ -43,6 +60,7 @@ type Telegram interface {
 	AnswerCallbackQueryAlert(ctx context.Context, callbackID, text string) error
 	GetChatMember(ctx context.Context, chatID, userID int64) (tg.ChatMember, error)
 	SetMyCommandsForScope(ctx context.Context, commands []tg.BotCommand, scope *tg.BotCommandScope) error
+	SetChatMenuButton(ctx context.Context, chatID int64, button tg.MenuButton) error
 	SetMyDescription(ctx context.Context, description, languageCode string) error
 	SetMyShortDescription(ctx context.Context, shortDescription, languageCode string) error
 	CallGet(ctx context.Context, method string, values url.Values, out any) error
@@ -56,16 +74,55 @@ type Bot struct {
 	selfID      int64
 	version     string
 	arrivals    *arrivals
+	allowance   Allowance
+	connections Connections
+	// appURL is where the Mini App opens, from the home panel's button and
+	// from the menu button. Empty: framy has none to offer.
+	appURL string
+	// readTimeout bounds what the home panel reads about the person.
+	readTimeout time.Duration
 	lastPoll    atomic.Int64
 	initialized atomic.Bool
 }
+
+// Option gives the bot what the home panel of a direct chat reads or opens.
+// Without one, the panel leaves that line or that button out.
+type Option func(*Bot)
+
+// WithAllowance shows the person what is left of the free allowance.
+func WithAllowance(a Allowance) Option { return func(b *Bot) { b.allowance = a } }
+
+// WithConnections shows which providers the person has connected.
+func WithConnections(c Connections) Option { return func(b *Bot) { b.connections = c } }
+
+// WithSiteURL is the site's origin (SITE_URL). The home panel gets an "Open
+// framy" button to it, and the menu button of a direct chat opens it as a Mini
+// App. Telegram takes only https for either, so any other address leaves both
+// out.
+func WithSiteURL(site string) Option { return func(b *Bot) { b.appURL = site } }
 
 // New takes the username and the id Preflight returned: the username tells a
 // command for framy from one for another bot in the same group, and the id is
 // what the bot's own rights in a chat are asked by. The build's version is for
 // the About card.
-func New(store Store, client Telegram, log *slog.Logger, username string, selfID int64, version string) *Bot {
-	return &Bot{store: store, tg: client, log: log, username: username, selfID: selfID, version: version, arrivals: newArrivals()}
+func New(store Store, client Telegram, log *slog.Logger, username string, selfID int64, version string, opts ...Option) *Bot {
+	b := &Bot{
+		store: store, tg: client, log: log, username: username, selfID: selfID, version: version,
+		arrivals: newArrivals(), readTimeout: homeReadTimeout,
+	}
+	for _, opt := range opts {
+		opt(b)
+	}
+	if b.appURL != "" && !isHTTPS(b.appURL) {
+		log.Warn("the site address is not https, so the Open framy button and the menu button are off")
+		b.appURL = ""
+	}
+	return b
+}
+
+func isHTTPS(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && u.Scheme == "https" && u.Host != ""
 }
 
 // LastPoll is when getUpdates last answered, for /healthz.
@@ -88,6 +145,7 @@ func (b *Bot) Run(ctx context.Context) error {
 	var side sync.WaitGroup
 	side.Go(func() { b.publishProfile(ctx) })
 	side.Go(func() { b.sweepAlbums(ctx, albumSweepEvery) })
+	side.Go(func() { b.publishMenuButton(ctx) })
 	defer side.Wait()
 
 	offset, err := b.store.Offset(ctx)

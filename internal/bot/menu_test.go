@@ -9,7 +9,9 @@ import (
 
 	"github.com/FreshLabDev/tg"
 
+	"github.com/FreshLabDev/framy/internal/free"
 	"github.com/FreshLabDev/framy/internal/i18n"
+	"github.com/FreshLabDev/framy/internal/keys"
 )
 
 // A Telegram user id is up to 52 bits; the longest owner keeps every callback
@@ -29,6 +31,17 @@ func everyPanel(v view) []drawn {
 	add("home", text, m)
 	text, m = v.home(false, "")
 	add("member home", text, m)
+	if v.sc == scopePrivate {
+		// The direct chat's home with everything it can say about the person.
+		v.account = account{
+			appURL:   "https://framy.example",
+			usage:    free.Usage{Images: free.Meter{Used: 5, Limit: 5}, Videos: free.Meter{Limit: 1}},
+			hasUsage: true, hasConnections: true, currency: "UAH",
+			connections: []keys.Connection{{Provider: "openrouter", Status: keys.NoCredits}, {Provider: "openai", Status: keys.Valid}},
+		}
+		text, m = v.home(false, "")
+		add("home with the person's facts", text, m)
+	}
 	text, m = v.help()
 	add("help", text, m)
 	text, m = v.about("v0.1.0")
@@ -260,7 +273,8 @@ func TestStartInADMIsAPanelInThePersonsLanguage(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := client.last()
-	if got.method != "sendMessage" || got.chatID != 7 || !strings.Contains(got.text, i18n.T("uk", "home.body")) {
+	if got.method != "sendMessage" || got.chatID != 7 || !strings.Contains(got.text, i18n.T("uk", "home.soon")) ||
+		!strings.Contains(got.text, i18n.NameOf("uk")) {
 		t.Fatalf("sent %+v", got)
 	}
 }

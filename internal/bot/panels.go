@@ -97,6 +97,7 @@ func (b *Bot) sendScreen(ctx context.Context, m *tg.Message, action string) erro
 	case actLang:
 		text, keyboard = v.language()
 	default:
+		v.account = b.readAccount(ctx, m.From.ID, v.lang)
 		text, keyboard = v.home(false, "")
 	}
 	if _, err := b.tg.SendMessage(ctx, m.Chat.ID, text, keyboard); err != nil {
@@ -222,6 +223,9 @@ func (b *Bot) runAction(ctx context.Context, cq *tg.CallbackQuery, action, raw s
 
 	switch action {
 	case actHome:
+		if v.sc == scopePrivate {
+			v.account = b.readAccount(ctx, cq.From.ID, v.lang)
+		}
 		return edit(v.home(admin, chatLang))
 	case actHelp:
 		return edit(v.help())
