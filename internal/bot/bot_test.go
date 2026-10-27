@@ -228,18 +228,20 @@ func (f *fakeTelegram) CallGet(_ context.Context, method string, values url.Valu
 	return json.Unmarshal(body, out)
 }
 
-func (f *fakeTelegram) Call(_ context.Context, _ string, req any, out any) error {
-	r := req.(map[string]any)
-	lang, _ := r["language_code"].(string)
+func (f *fakeTelegram) SetMyDescription(_ context.Context, text, lang string) error {
+	return f.setProfile("description", text, lang)
+}
+
+func (f *fakeTelegram) SetMyShortDescription(_ context.Context, text, lang string) error {
+	return f.setProfile("short_description", text, lang)
+}
+
+func (f *fakeTelegram) setProfile(field, text, lang string) error {
 	f.mu.Lock()
-	for _, field := range []string{"description", "short_description"} {
-		if text, ok := r[field].(string); ok {
-			f.profile[field+"/"+lang] = text
-		}
-	}
+	defer f.mu.Unlock()
+	f.profile[field+"/"+lang] = text
 	f.writes++
-	f.mu.Unlock()
-	return json.Unmarshal([]byte(`{"ok":true,"result":true}`), out)
+	return nil
 }
 
 func quiet() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }

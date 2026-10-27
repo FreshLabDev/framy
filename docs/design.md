@@ -657,6 +657,8 @@ Every change below is an issue in FreshLabDev/tg, [#2](https://github.com/FreshL
 
 ### Stage 1
 
+Released in tg v0.2.0-alpha.1 on 27 October 2026, and framy is on it.
+
 | Change | Why |
 |:--|:--|
 | `Message`: `media_group_id`, `live_photo`, `external_reply`, `has_media_spoiler` | albums; a live photo also fills `photo`. `Animation` and `Update.EditedMessage` are already in v0.1.1-alpha.1 |

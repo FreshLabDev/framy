@@ -46,10 +46,15 @@ func (b *Bot) publishProfile(ctx context.Context) {
 // setDescriptions writes the profile texts only where they differ from what
 // Telegram holds: a restart then costs reads, not writes, and Telegram limits
 // how often these change.
+//
+// tg has the setters; the getters still go through CallGet.
 func (b *Bot) setDescriptions(ctx context.Context, lang, description, short string) error {
-	for _, d := range []struct{ get, set, field, text string }{
-		{"getMyDescription", "setMyDescription", "description", description},
-		{"getMyShortDescription", "setMyShortDescription", "short_description", short},
+	for _, d := range []struct {
+		get, field, text string
+		set              func(ctx context.Context, text, lang string) error
+	}{
+		{"getMyDescription", "description", description, b.tg.SetMyDescription},
+		{"getMyShortDescription", "short_description", short, b.tg.SetMyShortDescription},
 	} {
 		q := url.Values{}
 		if lang != "" {
@@ -62,14 +67,7 @@ func (b *Bot) setDescriptions(ctx context.Context, lang, description, short stri
 		if err := b.tg.CallGet(ctx, d.get, q, &cur); err == nil && cur.OK && cur.Result[d.field] == d.text {
 			continue
 		}
-		req := map[string]any{d.field: d.text}
-		if lang != "" {
-			req["language_code"] = lang
-		}
-		var res struct {
-			OK bool `json:"ok"`
-		}
-		if err := b.tg.Call(ctx, d.set, req, &res); err != nil {
+		if err := d.set(ctx, d.text, lang); err != nil {
 			return err
 		}
 	}

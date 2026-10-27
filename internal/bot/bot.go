@@ -39,7 +39,8 @@ type Telegram interface {
 	AnswerCallbackQueryAlert(ctx context.Context, callbackID, text string) error
 	GetChatMember(ctx context.Context, chatID, userID int64) (tg.ChatMember, error)
 	SetMyCommandsForScope(ctx context.Context, commands []tg.BotCommand, scope *tg.BotCommandScope) error
-	Call(ctx context.Context, method string, req any, out any) error
+	SetMyDescription(ctx context.Context, description, languageCode string) error
+	SetMyShortDescription(ctx context.Context, shortDescription, languageCode string) error
 	CallGet(ctx context.Context, method string, values url.Values, out any) error
 }
 
