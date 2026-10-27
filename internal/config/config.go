@@ -62,6 +62,12 @@ type Config struct {
 	// as key. It is a path and never a value: an environment variable shows
 	// in docker inspect.
 	KEKFile string
+	// SiteURL is the site's public origin, https://framy.ws04.cc, from which
+	// the redirect URIs of sign-in are made. Empty is allowed until a feature
+	// that needs it is set up.
+	SiteURL string
+	// TelegramLogin is the client of sign-in on the site (internal/auth).
+	TelegramLogin TelegramLogin
 }
 
 // R2 is the bucket and the token limited to it.
@@ -140,6 +146,9 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("the KEK comes from FRAMY_KEK_FILE only: an environment variable shows in docker inspect")
 	}
 	cfg.KEKFile = valueOrDefault("FRAMY_KEK_FILE", "")
+	if cfg.SiteURL, cfg.TelegramLogin, err = loadSite(); err != nil {
+		return Config{}, err
+	}
 	if cfg.MetricsAddr == "off" {
 		cfg.MetricsAddr = ""
 	}
