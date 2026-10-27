@@ -218,6 +218,17 @@ was written from, and the skeleton of the service.
   `/?connect=openrouter&result=connected`, `cancelled`, `expired`, `signin`,
   `refused` or `unavailable`; the code, the verifier and the key are in no
   URL, log line or error. It needs `SITE_URL` and the KEK.
+- The job API the site and the Mini App will use, in `internal/api`, for
+  the signed-in person. `POST /api/uploads` takes one photo through the
+  storage pipeline. `POST /api/jobs` starts a job and answers 202 at once
+  with its price in the person's currency; a required `Idempotency-Key`
+  makes a repeated request return the same job. `GET /api/jobs/{id}` shows a
+  job to its owner only, and `GET /api/jobs/{id}/events` follows it over
+  SSE: the state now, then every change, a ping every 15 s, a resume from
+  `Last-Event-ID`, at most three streams per person. No request waits for a
+  generation, so Cloudflare's 125-second limit never cuts one. Changes come
+  from triggers on the job row (`pg_notify`), so every path that changes a
+  job is announced and a rolled-back change is not.
 - CI on every push and weekly: modules, gofmt, build, vet, race tests,
   database tests on PostgreSQL 17, govulncheck, the image build, the photo
   and storage tests inside the image, on the ffmpeg it ships, and the local
