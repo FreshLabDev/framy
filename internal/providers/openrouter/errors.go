@@ -113,6 +113,17 @@ func (e *APIError) class() jobs.Class {
 	return jobs.ProviderFailed
 }
 
+// KeyStatus tells internal/keys what the answer shows about the key. A 401 is
+// a key OpenRouter does not know. A 403 shows nothing: it can be a guardrail
+// on the model, with the key itself fine. Money errors need no hint; the
+// class says it.
+func (e *APIError) KeyStatus() string {
+	if e.Status == http.StatusUnauthorized || e.Type == "authentication" {
+		return "invalid"
+	}
+	return ""
+}
+
 // statusError reads an answer that is not a 200.
 func statusError(status int, h http.Header, data []byte) *jobs.Error {
 	e := &APIError{Status: status}

@@ -24,6 +24,7 @@ import (
 	"github.com/FreshLabDev/framy/internal/fx"
 	"github.com/FreshLabDev/framy/internal/health"
 	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/FreshLabDev/framy/internal/keys"
 	"github.com/FreshLabDev/framy/internal/media"
 	"github.com/FreshLabDev/framy/internal/metrics"
 	"github.com/FreshLabDev/framy/internal/price"
@@ -102,7 +103,8 @@ func run(log *slog.Logger) error {
 	// In a group the panel is an ephemeral reply; a server without ephemeral
 	// messages would leave /start there unanswered.
 	me, err := client.Preflight(ctx, tg.Needs{
-		Methods: []string{"editEphemeralMessageText", "deleteEphemeralMessage"},
+		// deleteMessage removes a key a person pasted into a direct chat.
+		Methods: []string{"editEphemeralMessageText", "deleteEphemeralMessage", "deleteMessage"},
 	})
 	if err != nil {
 		return err
@@ -115,15 +117,23 @@ func run(log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	// People's own keys (#13). Without a KEK file there are none, and a run
+	// that needs one fails as key. Track writes what each run shows about its
+	// key as the connection's status. OpenAI and Gemini adapters take
+	// people.JobKey as their Key and go through people.Track the same way.
+	people, err := openKeys(ctx, cfg, store, userAgent, log)
+	if err != nil {
+		return err
+	}
 	jobsCfg := jobs.Config{
 		Providers: map[string]jobs.Provider{
-			catalog.OpenRouter: openrouter.New(openrouter.Config{
+			catalog.OpenRouter: people.Track(openrouter.New(openrouter.Config{
 				Base:      cfg.OpenRouterAPIBase,
 				UserAgent: userAgent,
 				Referer:   "https://github.com/FreshLabDev/framy",
 				Title:     "framy",
-				Key:       openRouterKey(cfg.OpenRouterKey),
-			}),
+				Key:       openRouterKey(cfg.OpenRouterKey, people.JobKey),
+			})),
 			catalog.OpenAI: openai.New(openai.Config{
 				UserAgent: userAgent,
 				Key:       openAIKey(),
@@ -370,12 +380,13 @@ func sweepWork(ctx context.Context, work media.Work, log *slog.Logger) {
 }
 
 // openRouterKey pays for OpenRouter runs: framy's own key for the free
-// allowance. A person's connection pays for the rest once it exists (#13).
-func openRouterKey(own string) func(context.Context, jobs.Job) (string, error) {
-	return func(_ context.Context, j jobs.Job) (string, error) {
+// allowance, the person's connection for the rest. A run never falls back
+// from one to the other.
+func openRouterKey(own string, people func(context.Context, jobs.Job) (string, error)) func(context.Context, jobs.Job) (string, error) {
+	return func(ctx context.Context, j jobs.Job) (string, error) {
 		switch {
 		case !j.Free:
-			return "", &jobs.Error{Class: jobs.Key, Err: errors.New("the person has no OpenRouter connection")}
+			return people(ctx, j)
 		case own == "":
 			return "", &jobs.Error{Class: jobs.Key, Err: errors.New("OPENROUTER_API_KEY is not set, so the free allowance cannot run")}
 		}
@@ -428,4 +439,49 @@ func openAllowance(cfg config.Config, store *db.Store, client *tg.Client, userAg
 		return nil, nil, err
 	}
 	return allowance, watch, nil
+}
+
+// openKeys loads the KEK file and rotates what is wrapped under an older
+// version of it. Without a file it returns no service, which is a framy
+// that keeps no keys. A KEK file that cannot be read stops the start: it
+// is the operator's mistake, and running without it would look like every
+// stored key being gone.
+func openKeys(ctx context.Context, cfg config.Config, store *db.Store, userAgent string, log *slog.Logger) (*keys.Service, error) {
+	if cfg.KEKFile == "" {
+		log.Warn("no FRAMY_KEK_FILE: people cannot connect keys of their own, and a run on one fails as key")
+		return nil, nil
+	}
+	kek, err := keys.LoadKEKFile(cfg.KEKFile)
+	if err != nil {
+		return nil, err
+	}
+	if kek.Loose() {
+		log.Warn("the KEK file can be read by others; keep it at mode 0400", "path", cfg.KEKFile)
+	}
+	log = log.With("component", "keys")
+	svc, err := keys.New(keys.Config{
+		Pool:           store.Pool(),
+		KEK:            kek,
+		UserAgent:      userAgent,
+		OpenRouterBase: cfg.OpenRouterAPIBase,
+		Log:            log,
+	})
+	if err != nil {
+		return nil, err
+	}
+	// A failed rotation leaves every row readable under the version it had,
+	// so the service starts either way and says what is wrong.
+	res, err := svc.Rotate(ctx)
+	switch {
+	case err != nil:
+		log.Error("KEK rotation failed", "error", err, "kek_versions", kek.Versions())
+	case res.Failed > 0 || res.Unreadable > 0:
+		log.Error("stored keys cannot be read with this KEK file: people have to enter them again, or the lines for their versions have to come back",
+			"unreadable", res.Unreadable, "rewrap_failed", res.Failed, "rewrapped", res.Rewrapped, "kek_versions", kek.Versions())
+	case res.Rewrapped > 0:
+		log.Info("data keys rewrapped under the current KEK; the older lines of the file can go", "rewrapped", res.Rewrapped, "kek_version", res.Current)
+	default:
+		log.Info("keys ready", "kek_versions", kek.Versions(), "kek_version", res.Current)
+	}
+	return svc, nil
 }

@@ -16,11 +16,11 @@ careful with people's keys, and production-minded.
   polling that records people and chats in `core`, `Preflight`, `/healthz`,
   `/metrics` on its own listener, the family's panels on `/start`, the hourly
   model catalog sync, the price estimate, the currency rates, the job queue
-  on River, the free allowance, the OpenRouter, OpenAI and Gemini image
-  adapters, storage in R2 with the ffmpeg photo pipeline, the public HTTP
-  server's foundation (`internal/web`: security headers, CSRF, cache rules,
-  rate limits), and a clean stop on SIGTERM. Nothing reaches people yet: no
-  surface starts a job.
+  on River, the free allowance, the encrypted store of people's keys, the
+  OpenRouter, OpenAI and Gemini image adapters, storage in R2 with the ffmpeg
+  photo pipeline, the public HTTP server's foundation (`internal/web`:
+  security headers, CSRF, cache rules, rate limits), and a clean stop on
+  SIGTERM. Nothing reaches people yet: no surface starts a job.
 - The service will be one Go binary (module `github.com/FreshLabDev/framy`):
   the HTTP server (site, Mini App, API, SSE, OAuth callbacks, provider
   webhooks), the bot, the job workers, the hourly catalog sync and the
@@ -96,6 +96,12 @@ screen, a command or a table, check how the siblings do it.
   line, an error, a metric label, a job row or a message.
 - A message in a DM that looks like a key is deleted at once and nothing from
   it is saved.
+- An adapter gets its key from `keys.Service.JobKey` and runs behind
+  `Service.Track`, which writes what a run showed about the key as the
+  connection's status. An adapter's error can say more than its class by
+  having `KeyStatus() string` (`invalid`, `needs_billing`,
+  `needs_verification`, `no_credits`); without it only a Money error moves a
+  status, to `no_credits`.
 
 ## Product Boundaries
 
