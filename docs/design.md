@@ -483,6 +483,17 @@ In groups one run makes one result. Proposal: more than one only on the site and
 - **Video in large groups:** sending one can return `message_id = 0` while the server re-encodes. Such a message is not edited or deleted right away.
 - **Media to text:** media cannot become text again. Back to text means delete and send anew.
 
+### Loops and cards
+
+`internal/anim` draws the three pictures on the CPU, without a browser, and hands the bot a file with its size and length. Every picture is 720×720: the preview, the loop and the card are the same size, so the message does not jump when one turns into the next.
+
+- **Look.** The field colour of the Avatar proposal and white. The name in lowercase and the numbers are Sofia Sans Extra Condensed; the card's line is Sofia Sans, shaped with the person's language, because the font draws Bulgarian Cyrillic unless told it is Russian. Square corners, stripes 14 and gaps 8 (7 : 4). The viewfinder of four brackets is the frame of all three.
+- **Album preview.** One to ten photos, JPEG or PNG as `internal/media` writes them, 9 s. Each photo keeps its shape in rows chosen so that the smallest is as big as it can be, flies in from outside the frame, tilts a little and settles, and a white square with its number grows from its corner. The loop starts and ends in the hold, with all the photos in place: that is the frame Telegram shows as its still. In the middle the photos leave in order, the frame is empty but for the spark, and they fly in again.
+- **Generating loop.** 6 s, no text and no language: the brackets breathe, the spark turns a quarter of a turn, a glint runs round a ring of dots. It is drawn once, kept under a key that changes with the design, and sent by `file_id`.
+- **Error card.** A PNG with the cross in the viewfinder and the bot's line under it in at most three lines. The faces cover Latin and Cyrillic, which is thirteen of the sixteen languages. For Chinese, Japanese and Arabic the card has no line (`Media.TextDrawn` is false) and the bot puts the line in the caption.
+- **Encoding.** libx264, CRF 22, yuv420p, BT.709, `+faststart`, 30 fps, no sound track: what Telegram plays as an animation. ffmpeg runs with an empty environment and reads only the pipe the frames come through. Every loop is a whole number of turns or a hold, so its last frame leads into its first, and a test holds it to that.
+- **Measured** on 10 cores of an M1 Pro, ffmpeg included: the album of ten 2048 px photos in 0.7 to 0.9 s and 350 KB, the generating loop in 0.3 s and 134 KB, a card in 40 ms and 25 KB. With Go limited to one core (ffmpeg still uses all) the album takes 2 s and the loop 0.55 s.
+
 ## DM
 
 - **The same flow.** An album arrives whole here: collect by `media_group_id` with the same 1.5 s wait.
@@ -706,7 +717,7 @@ Cloudflare R2: bucket framy (inputs and results), bucket framy-backups
 Cloudflare Tunnel: framy.ws04.cc
 ```
 
-`maply/internal/anim` cannot be imported from another module. Proposal: copy what framy needs at first, and extract a shared module once both projects change it.
+`maply/internal/anim` cannot be imported from another module, so framy copied what it needs: the canvas, the text shaping and the encoder pipe. Proposal: extract a shared module once both projects change them.
 
 Main tables of the `framy` schema, created by a core migration with its own `framy_core` role, as maply's 018:
 

@@ -18,7 +18,8 @@ RUN CGO_ENABLED=0 go build -trimpath \
 
 FROM alpine:3.24
 
-# ffmpeg normalizes the photos people bring: HEIC, AVIF, WebP, JPEG, PNG.
+# ffmpeg normalizes the photos people bring: HEIC, AVIF, WebP, JPEG, PNG, and
+# encodes the loops of internal/anim with libx264.
 # Alpine 3.24 ships FFmpeg 8.1, whose scale filter converts Display P3.
 RUN apk add --no-cache ca-certificates tzdata ffmpeg \
     && adduser -D -H -u 10001 framy

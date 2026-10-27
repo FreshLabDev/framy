@@ -18,9 +18,10 @@ careful with people's keys, and production-minded.
   model catalog sync, the price estimate, the currency rates, the job queue
   on River, the free allowance, the encrypted store of people's keys, the
   OpenRouter, OpenAI and Gemini image adapters, storage in R2 with the ffmpeg
-  photo pipeline, the public HTTP server's foundation (`internal/web`:
-  security headers, CSRF, cache rules, rate limits), and a clean stop on
-  SIGTERM. Nothing reaches people yet: no surface starts a job.
+  photo pipeline, the renderer of the album preview, the generating loop and
+  the error card (`internal/anim`), the public HTTP server's foundation
+  (`internal/web`: security headers, CSRF, cache rules, rate limits), and a
+  clean stop on SIGTERM. Nothing reaches people yet: no surface starts a job.
 - The service will be one Go binary (module `github.com/FreshLabDev/framy`):
   the HTTP server (site, Mini App, API, SSE, OAuth callbacks, provider
   webhooks), the bot, the job workers, the hourly catalog sync and the
