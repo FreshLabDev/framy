@@ -51,6 +51,8 @@ type Config struct {
 	FFmpeg, FFprobe string
 	// OperatorChatID hears about the bucket's size; zero logs instead.
 	OperatorChatID int64
+	// Web is the public HTTP server's trust in its proxy (web.go).
+	Web Web
 }
 
 // R2 is the bucket and the token limited to it.
@@ -117,6 +119,9 @@ func Load() (Config, error) {
 		if cfg.OperatorChatID, err = strconv.ParseInt(v, 10, 64); err != nil || cfg.OperatorChatID == 0 {
 			return Config{}, fmt.Errorf("OPERATOR_CHAT_ID must be a Telegram chat id")
 		}
+	}
+	if cfg.Web, err = loadWeb(); err != nil {
+		return Config{}, err
 	}
 	if cfg.MetricsAddr == "off" {
 		cfg.MetricsAddr = ""

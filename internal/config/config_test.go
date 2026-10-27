@@ -18,6 +18,7 @@ func setBase(t *testing.T) {
 	}
 	t.Setenv("TELEGRAM_BOT_TOKEN", "123:abc")
 	t.Setenv("DATABASE_URL", "postgres://framy@localhost/framy")
+	t.Setenv("TRUSTED_PROXIES", "")
 }
 
 func TestLoadDefaults(t *testing.T) {
