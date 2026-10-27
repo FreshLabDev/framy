@@ -66,12 +66,12 @@ services:
       R2_PREFIX: test/
       R2_ACCESS_KEY_ID_FILE: /run/secrets/r2-access-key-id
       R2_SECRET_ACCESS_KEY_FILE: /run/secrets/r2-secret-access-key
-      WORK_DIR: /work
-      ANIM_CACHE_DIR: /anim
+      WORK_DIR: /var/lib/framy/work
+      ANIM_CACHE_DIR: /var/lib/framy/anim
     volumes:
       - ./secrets:/run/secrets:ro
-      - work:/work
-      - anim:/anim
+      - work:/var/lib/framy/work
+      - anim:/var/lib/framy/anim
     depends_on:
       postgres:
         condition: service_healthy

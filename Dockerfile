@@ -22,7 +22,13 @@ FROM alpine:3.24
 # encodes the loops of internal/anim with libx264.
 # Alpine 3.24 ships FFmpeg 8.1, whose scale filter converts Display P3.
 RUN apk add --no-cache ca-certificates tzdata ffmpeg \
-    && adduser -D -H -u 10001 framy
+    && adduser -D -H -u 10001 framy \
+    && install -d -o framy -g framy /var/lib/framy/work /var/lib/framy/anim
+
+# Where a stack mounts its volumes for WORK_DIR and ANIM_CACHE_DIR. Owned by
+# framy here, so a new named volume mounted on them is framy's too; a
+# volume mounted on a path the image lacks would be root's, and the service
+# could not write to it.
 
 WORKDIR /app
 
