@@ -183,6 +183,11 @@ func (f *fakeTelegram) DeleteEphemeralMessage(_ context.Context, chatID, receive
 	return nil
 }
 
+func (f *fakeTelegram) DeleteMessage(_ context.Context, chatID, messageID int64) error {
+	f.record(sent{method: "deleteMessage", chatID: chatID, id: messageID})
+	return nil
+}
+
 func (f *fakeTelegram) AnswerCallbackQuery(_ context.Context, id, _ string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

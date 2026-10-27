@@ -34,6 +34,7 @@ type Telegram interface {
 	SendEphemeralMessage(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, text string, markup *tg.InlineKeyboardMarkup) (tg.Message, error)
 	EditEphemeralMessageText(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, text string, markup *tg.InlineKeyboardMarkup) error
 	DeleteEphemeralMessage(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64) error
+	DeleteMessage(ctx context.Context, chatID, messageID int64) error
 	AnswerCallbackQuery(ctx context.Context, callbackID, text string) error
 	AnswerCallbackQueryAlert(ctx context.Context, callbackID, text string) error
 	GetChatMember(ctx context.Context, chatID, userID int64) (tg.ChatMember, error)

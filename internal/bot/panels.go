@@ -30,6 +30,9 @@ func (b *Bot) command(m *tg.Message) (string, bool) {
 }
 
 func (b *Bot) onMessage(ctx context.Context, m *tg.Message) error {
+	if handled, err := b.keyInChat(ctx, m); handled {
+		return err
+	}
 	cmd, ok := b.command(m)
 	if !ok {
 		return nil
