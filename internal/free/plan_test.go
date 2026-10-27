@@ -60,7 +60,7 @@ func TestAFreeRunIsTheFixedOne(t *testing.T) {
 		{"Klein with no resolution", with(ok(ImageKlein, 0), func(a *jobs.Admission) { delete(a.Settings, "resolution") }), "resolution must be 1K"},
 		{"a setting left empty", with(ok(ImageKlein, 0), func(a *jobs.Admission) { a.Settings["seed"] = nil }), ""},
 		{"a number that came from a document", with(ok(ImageKlein, 0), func(a *jobs.Admission) { a.Settings["n"] = float64(1) }), ""},
-		{"an image offer that says it is a video", jobs.Admission{UserID: 1, Offer: ImageMAI.Offer, Kind: catalog.Video, Settings: ImageMAI.Settings(), EstimateUSD: 0.02}, "is a image model"},
+		{"an image offer that says it is a video", jobs.Admission{UserID: 1, Offer: ImageMAI.Offer, Kind: catalog.Video, Settings: ImageMAI.Settings(), EstimateUSD: 0.02}, "makes images, not videos"},
 		{"no estimate", jobs.Admission{UserID: 1, Offer: ImageMAI.Offer, Kind: catalog.Image, Settings: ImageMAI.Settings()}, "no price estimate"},
 	}
 	for _, c := range cases {

@@ -120,7 +120,7 @@ func planOf(offer string) (Plan, bool) {
 // is needed because the budget is counted from it.
 func (p Plan) check(a jobs.Admission) error {
 	if a.Kind != "" && a.Kind != p.Kind {
-		return &NotFreeError{Reason: fmt.Sprintf("%s is a %s model", a.Offer, p.Kind)}
+		return &NotFreeError{Reason: fmt.Sprintf("%s makes %ss, not %ss", a.Offer, p.Kind, a.Kind)}
 	}
 	if a.Inputs < p.MinInputs || a.Inputs > p.MaxInputs {
 		return &NotFreeError{Reason: fmt.Sprintf("%s takes %s on the free allowance, not %d", a.Offer, inputsName(p), a.Inputs)}

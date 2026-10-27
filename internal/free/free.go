@@ -90,6 +90,11 @@ type Allowance struct {
 	log    *slog.Logger
 	now    func() time.Time
 	wg     sync.WaitGroup
+	// told is the UTC day, by fuse, this process has told the operator chat
+	// about, or is telling: a flood of refusals costs one query a day, not
+	// one each.
+	mu   sync.Mutex
+	told map[Fuse]time.Time
 	// pause runs after a request has passed every check, still under the
 	// locks: tests widen the window in which a missing lock would show.
 	pause func()
@@ -111,7 +116,7 @@ func New(cfg Config) (*Allowance, error) {
 	}
 	return &Allowance{
 		pool: cfg.Pool, budget: micro(cfg.DailyBudgetUSD), key: cfg.Key,
-		notify: cfg.Notify, log: cfg.Log, now: cfg.Now,
+		notify: cfg.Notify, log: cfg.Log, now: cfg.Now, told: map[Fuse]time.Time{},
 	}, nil
 }
 
@@ -330,7 +335,9 @@ func (a *Allowance) refused(err error) {
 		metrics.FreeRefused.Inc(string(closed.Fuse))
 		// The transaction is about to end, and it holds the locks: the notice
 		// goes on its own, after.
-		a.wg.Go(func() { a.announce(closed) })
+		if a.claimNotice(closed.Fuse) {
+			a.wg.Go(func() { a.announce(closed) })
+		}
 	case errors.As(err, &locked):
 		metrics.FreeRefused.Inc("not_free")
 	}
@@ -340,18 +347,45 @@ func (a *Allowance) refused(err error) {
 // was told each fuse had closed the tier.
 var alertDay = map[Fuse]string{FuseBudget: "free_budget_alert_day", FuseKey: "free_key_alert_day"}
 
-// announce tells the operator chat once a day per fuse. Two requests refused
-// at once tell it once: the day is swapped, not set. A notice that failed is
-// tried again by the next refusal.
+// today is the start of the UTC day the allowance's clock is in.
+func (a *Allowance) today() time.Time {
+	now := a.now().UTC()
+	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+// claimNotice says whether this process still has to look into telling the
+// chat that the fuse closed the tier today.
+func (a *Allowance) claimNotice(f Fuse) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	day := a.today()
+	if a.told[f].Equal(day) {
+		return false
+	}
+	a.told[f] = day
+	return true
+}
+
+// releaseNotice lets the next refusal try again.
+func (a *Allowance) releaseNotice(f Fuse) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	delete(a.told, f)
+}
+
+// announce tells the operator chat once a day per fuse, across restarts and
+// across processes: the day is swapped in runtime_state, not set, so two
+// refusals at once tell it once. A notice that failed is tried again by the
+// next refusal.
 func (a *Allowance) announce(c *ClosedError) {
 	ctx, cancel := context.WithTimeout(context.Background(), announceTimeout)
 	defer cancel()
-	now := a.now().UTC()
-	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	day := a.today()
 	col := alertDay[c.Fuse]
 	tag, err := a.pool.Exec(ctx, `UPDATE runtime_state SET `+col+` = $1::date, updated_at = now() WHERE `+col+` IS DISTINCT FROM $1::date`, day)
 	if err != nil {
 		a.log.Error("note the closing of the free tier", "fuse", c.Fuse, "error", err)
+		a.releaseNotice(c.Fuse)
 		return
 	}
 	if tag.RowsAffected() != 1 {
@@ -365,6 +399,7 @@ func (a *Allowance) announce(c *ClosedError) {
 	if err := a.notify(ctx, "framy: "+c.Error()); err != nil {
 		a.log.Error("tell the operator chat", "error", err)
 		_, _ = a.pool.Exec(ctx, `UPDATE runtime_state SET `+col+` = NULL WHERE `+col+` = $1::date`, day)
+		a.releaseNotice(c.Fuse)
 	}
 }
 
