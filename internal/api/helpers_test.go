@@ -188,11 +188,13 @@ type fakeStore struct {
 	rates    map[string]float64 // units per USD
 	noRate   bool
 	quoteErr error
+	cards    map[int64]db.Card
+	cardErr  error
 }
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
-		offers: map[string]catalog.Model{}, chosen: map[int64]string{}, lang: map[int64]string{},
+		offers: map[string]catalog.Model{}, chosen: map[int64]string{}, lang: map[int64]string{}, cards: map[int64]db.Card{},
 		rates: map[string]float64{fx.UAH: 41.5, fx.EUR: 0.86, fx.PLN: 3.65, fx.BYN: 3.3},
 	}
 }
@@ -224,6 +226,10 @@ func (s *fakeStore) Currency(_ context.Context, userID int64) (string, error) {
 
 func (s *fakeStore) UserLang(_ context.Context, userID int64) (string, error) {
 	return s.lang[userID], nil
+}
+
+func (s *fakeStore) Card(_ context.Context, userID int64) (db.Card, error) {
+	return s.cards[userID], s.cardErr
 }
 
 // image is an offer of an image model priced $0.04 an image.

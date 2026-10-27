@@ -245,6 +245,7 @@ func (a *Auth) finishLogin(r *http.Request, st loginState) (int64, *failure) {
 	if err := a.people.Touch(r.Context(), user, nil); err != nil {
 		return 0, &failure{reason: "failed", result: "site_error", err: fmt.Errorf("record the person in core: %w", err)}
 	}
+	a.setCard(r.Context(), user.ID, c.displayName(), c.Picture)
 	return user.ID, nil
 }
 
@@ -258,6 +259,19 @@ type claims struct {
 	FamilyName        string          `json:"family_name"`
 	PreferredUsername string          `json:"preferred_username"`
 	Locale            string          `json:"locale"`
+	Picture           string          `json:"picture"`
+}
+
+// displayName is the name the site shows: the whole name as Telegram wrote
+// it, else its parts, else the username.
+func (c claims) displayName() string {
+	if n := strings.TrimSpace(c.Name); n != "" {
+		return n
+	}
+	if n := strings.TrimSpace(c.GivenName + " " + c.FamilyName); n != "" {
+		return n
+	}
+	return c.PreferredUsername
 }
 
 // user builds the tg.User that core.touch takes. `id` is a number in

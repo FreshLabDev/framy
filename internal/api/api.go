@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package api is the JSON API the site and the Mini App talk to: photo
-// uploads, starting a job, reading it, and following it over SSE
-// (docs/design.md, Jobs). No request waits for a generation: POST /api/jobs
+// Package api is the JSON API the site and the Mini App talk to: who is
+// signed in, photo uploads, starting a job, reading it, and following it
+// over SSE (docs/design.md, Jobs). No request waits for a generation: POST /api/jobs
 // answers 202 at once and the client follows /api/jobs/{id}/events, with
 // GET /api/jobs/{id} as the fallback.
 //
@@ -35,6 +35,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/FreshLabDev/framy/internal/catalog"
+	"github.com/FreshLabDev/framy/internal/db"
 	"github.com/FreshLabDev/framy/internal/fx"
 	"github.com/FreshLabDev/framy/internal/jobs"
 	"github.com/FreshLabDev/framy/internal/keys"
@@ -88,6 +89,9 @@ type Store interface {
 	Currency(ctx context.Context, userID int64) (string, error)
 	// UserLang is the person's language in core, "" when it has none.
 	UserLang(ctx context.Context, userID int64) (string, error)
+	// Card is the name and photo of the person's last sign-in; a zero Card
+	// when there is none.
+	Card(ctx context.Context, userID int64) (db.Card, error)
 }
 
 // Uploads keeps a photo: *storage.Store.
@@ -209,6 +213,7 @@ func (a *API) Register(site *web.Server) {
 	site.HandleFunc("POST /api/jobs", a.create, web.Limit(web.ClassJob))
 	site.HandleFunc("GET /api/jobs/{id}", a.get)
 	site.HandleFunc("GET /api/jobs/{id}/events", a.events, web.Stream())
+	site.HandleFunc("GET /api/me", a.me)
 }
 
 // PersonKey makes web.Config.Person of the API's Person: the per-person rate

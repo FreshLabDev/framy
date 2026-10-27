@@ -12,7 +12,7 @@ import (
 const wantCSP = "default-src 'none'; " +
 	"script-src 'self' https://telegram.org/js/telegram-web-app.js; " +
 	"style-src 'self'; " +
-	"img-src 'self' data: blob: https://abc123.r2.cloudflarestorage.com; " +
+	"img-src 'self' data: blob: https://t.me https://*.telesco.pe https://abc123.r2.cloudflarestorage.com; " +
 	"media-src 'self' blob: https://abc123.r2.cloudflarestorage.com; " +
 	"connect-src 'self' https://abc123.r2.cloudflarestorage.com; " +
 	"font-src 'self'; " +

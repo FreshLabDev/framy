@@ -134,11 +134,32 @@ func (m *memSessions) lookupCount() int {
 	return m.lookups
 }
 
-// memPeople records who was touched.
+// memPeople records who was touched and the cards of their sign-ins.
 type memPeople struct {
 	mu      sync.Mutex
 	touched []tg.User
+	cards   map[int64][2]string // name, photo
 	err     error
+	cardErr error
+}
+
+func (p *memPeople) SetCard(_ context.Context, userID int64, name, photoURL string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.cardErr != nil {
+		return p.cardErr
+	}
+	if p.cards == nil {
+		p.cards = map[int64][2]string{}
+	}
+	p.cards[userID] = [2]string{name, photoURL}
+	return nil
+}
+
+func (p *memPeople) card(userID int64) [2]string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.cards[userID]
 }
 
 func (p *memPeople) Touch(_ context.Context, u tg.User, chat *tg.Chat) error {

@@ -39,7 +39,9 @@ var (
 
 // InitData is what a verified Mini App launch says.
 type InitData struct {
-	User     tg.User
+	User tg.User
+	// PhotoURL is the person's photo, when their privacy settings show it.
+	PhotoURL string
 	AuthDate time.Time
 	// StartParam is the signed startapp value of the link that opened the Mini
 	// App, if any.
@@ -107,7 +109,11 @@ func (v *Verifier) Verify(raw string) (InitData, error) {
 	if err := json.Unmarshal([]byte(values.Get("user")), &user); err != nil || user.ID <= 0 {
 		return InitData{}, fmt.Errorf("%w: user", ErrMalformed)
 	}
-	return InitData{User: user, AuthDate: authDate, StartParam: values.Get("start_param")}, nil
+	var photo struct {
+		URL string `json:"photo_url"`
+	}
+	_ = json.Unmarshal([]byte(values.Get("user")), &photo)
+	return InitData{User: user, PhotoURL: photo.URL, AuthDate: authDate, StartParam: values.Get("start_param")}, nil
 }
 
 func hmacSHA256(key, msg []byte) []byte {

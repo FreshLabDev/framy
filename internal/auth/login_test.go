@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -715,5 +716,30 @@ func TestNoSecretsInLogs(t *testing.T) {
 	// Telegram's refusal of a code is logged as a code, not as its body.
 	if strings.Contains(logs, "error_description") {
 		t.Errorf("the provider's response body is in the log:\n%s", logs)
+	}
+}
+
+// A sign-in keeps the name and the photo Telegram gave, for the site's
+// header, and one whose card cannot be written still signs the person in.
+func TestSignInKeepsTheNameAndPhoto(t *testing.T) {
+	h := newHarness(t)
+	h.idp.mu.Lock()
+	h.idp.claims = func(c map[string]any) {
+		c["name"] = "Olesya Kovalenko"
+		c["picture"] = "https://t.me/i/userpic/320/olesya_u.jpg"
+	}
+	h.idp.mu.Unlock()
+	b := h.browser()
+	b.signIn("/")
+	if got := h.people.(*memPeople).card(testUserID); got != [2]string{"Olesya Kovalenko", "https://t.me/i/userpic/320/olesya_u.jpg"} {
+		t.Fatalf("card = %q", got)
+	}
+
+	h2 := newHarness(t)
+	h2.people.(*memPeople).cardErr = errors.New("the database is gone")
+	b2 := h2.browser()
+	b2.signIn("/")
+	if _, ok := b2.signedIn(); !ok {
+		t.Fatal("a card that could not be written stopped the sign-in")
 	}
 }

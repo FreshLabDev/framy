@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/FreshLabDev/framy/internal/metrics"
 )
@@ -49,6 +50,11 @@ func (a *Auth) MiniApp() http.Handler {
 			writeError(w, http.StatusServiceUnavailable, "unavailable")
 			return
 		}
+		name := strings.TrimSpace(data.User.FirstName + " " + data.User.LastName)
+		if name == "" {
+			name = data.User.Username
+		}
+		a.setCard(r.Context(), data.User.ID, name, data.PhotoURL)
 		token, _, err := a.newSession(r.Context(), data.User.ID, KindMiniApp, MiniAppTokenLife)
 		if err != nil {
 			a.log.Error("start a Mini App session", "error", err)

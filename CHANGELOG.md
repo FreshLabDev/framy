@@ -203,8 +203,13 @@ was written from, and the skeleton of the service.
   returns to `/?sign_in=cancelled`, `expired` or `failed`. In the Mini App
   `POST /auth/miniapp` checks `initData` (at most an hour old) and answers
   with a bearer token for an hour, because cookies in the Telegram Web frame
-  are unreliable. Sign out ends one session; sign out everywhere ends all of
-  a person's sessions and tokens. The per-person rate limits now count the
+  are unreliable. It has a rate limit of its own, 120 a minute per address,
+  since everyone who opens the Mini App calls it and a carrier puts many of
+  them behind one address. Every sign-in keeps the name and photo Telegram
+  gave (migration 012), since framy may not read names from `core`; the
+  photo stays Telegram's link, and only links on `t.me` and Telegram's CDN
+  are kept, the only Telegram hosts the CSP lets images come from. Sign out ends one
+  session; sign out everywhere ends all of a person's sessions and tokens. The per-person rate limits now count the
   signed-in person. Without `TELEGRAM_LOGIN_CLIENT_ID` and
   `TELEGRAM_LOGIN_CLIENT_SECRET` the site's sign-in answers 503 and the rest
   runs.
@@ -219,8 +224,9 @@ was written from, and the skeleton of the service.
   `refused` or `unavailable`; the code, the verifier and the key are in no
   URL, log line or error. It needs `SITE_URL` and the KEK.
 - The job API the site and the Mini App will use, in `internal/api`, for
-  the signed-in person. `POST /api/uploads` takes one photo through the
-  storage pipeline. `POST /api/jobs` starts a job and answers 202 at once
+  the signed-in person. `GET /api/me` says who is signed in: the name and
+  photo of the last sign-in, the language, and the currency prices are shown
+  in. `POST /api/uploads` takes one photo through the storage pipeline. `POST /api/jobs` starts a job and answers 202 at once
   with its price in the person's currency; a required `Idempotency-Key`
   makes a repeated request return the same job. `GET /api/jobs/{id}` shows a
   job to its owner only, and `GET /api/jobs/{id}/events` follows it over

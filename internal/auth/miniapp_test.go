@@ -320,3 +320,15 @@ func TestCrossSitePostsAreRefused(t *testing.T) {
 		t.Error("a cross-site POST ended the session")
 	}
 }
+
+// The Mini App's sign-in keeps the name from initData and the photo, when
+// the person's privacy settings let Telegram send it.
+func TestMiniAppKeepsTheNameAndPhoto(t *testing.T) {
+	h := newHarness(t)
+	fields := miniAppFields(h.clock.Now(), testUserID)
+	fields["user"] = `{"id":` + strconv.FormatInt(testUserID, 10) + `,"first_name":"Olesya","last_name":"K","username":"olesya_u","photo_url":"https://t.me/i/userpic/320/olesya.svg"}`
+	h.mini(h.browser(), signInitData(testBotToken, fields), http.StatusOK)
+	if got := h.people.(*memPeople).card(testUserID); got != [2]string{"Olesya K", "https://t.me/i/userpic/320/olesya.svg"} {
+		t.Fatalf("card = %q", got)
+	}
+}

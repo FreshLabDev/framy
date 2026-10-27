@@ -77,10 +77,12 @@ const (
 	sweepGrace = 24 * time.Hour
 )
 
-// People records a person in core before anything references them. *db.Store
-// is one.
+// People records a person in core before anything references them, and
+// keeps the name and photo the site shows of them. *db.Store is one.
 type People interface {
 	Touch(ctx context.Context, user tg.User, chat *tg.Chat) error
+	// SetCard writes over the name and photo of the person's last sign-in.
+	SetCard(ctx context.Context, userID int64, name, photoURL string) error
 }
 
 // Config is what Auth needs. The Telegram Login client is optional; the
@@ -209,6 +211,15 @@ func (a *Auth) Mount(site *web.Server) {
 	site.Handle("POST /auth/logout/all", a.Require(a.LogoutAll()))
 	// initData is a kilobyte or two.
 	site.Handle("POST /auth/miniapp", a.MiniApp(), web.Body(16<<10))
+}
+
+// setCard keeps the name and photo of a sign-in for the site to show. It is
+// not worth refusing the sign-in for: a failure is logged, and the site
+// shows the person without them until the next sign-in.
+func (a *Auth) setCard(ctx context.Context, userID int64, name, photoURL string) {
+	if err := a.people.SetCard(ctx, userID, name, photoURL); err != nil {
+		a.log.Warn("keep the name and photo of a sign-in", "error", err)
+	}
 }
 
 // Person is the signed-in person behind the request: the Telegram user id

@@ -23,6 +23,11 @@ var telegramWeb = []string{"https://web.telegram.org", "https://webk.telegram.or
 // telegramScript is the one script that does not come from the site itself.
 const telegramScript = "https://telegram.org/js/telegram-web-app.js"
 
+// telegramPhotos are where a person's photo comes from: the link Telegram
+// gives at sign-in is on t.me and redirects to its CDN, and a CSP checks
+// the host after a redirect too. internal/db keeps no other link.
+var telegramPhotos = []string{"https://t.me", "https://*.telesco.pe"}
+
 // setStaticHeaders sets what every response carries, whatever the handler.
 //
 //   - nosniff: a body is the type its Content-Type says.
@@ -73,7 +78,7 @@ var cspDirectives = []cspDirective{
 	{name: "style-src", sources: []string{"'self'"}, extendable: true},
 	// blob: and data: are for a picture or clip the person has just picked,
 	// shown before it is uploaded.
-	{name: "img-src", sources: []string{"'self'", "data:", "blob:"}, r2: true, extendable: true},
+	{name: "img-src", sources: append([]string{"'self'", "data:", "blob:"}, telegramPhotos...), r2: true, extendable: true},
 	{name: "media-src", sources: []string{"'self'", "blob:"}, r2: true, extendable: true},
 	{name: "connect-src", sources: []string{"'self'"}, r2: true, extendable: true},
 	{name: "font-src", sources: []string{"'self'"}, extendable: true},
