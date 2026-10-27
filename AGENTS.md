@@ -217,6 +217,13 @@ The media tests need FFmpeg 8.0 or newer and skip without it; CI runs them
 inside the image with `FRAMY_MEDIA_TESTS=1`, which makes a skip a failure.
 `internal/media/testdata/make.swift` regenerates the iPhone fixtures on macOS.
 
+The live R2 check runs by hand against the real buckets, where the token is:
+`go test -tags r2live -run Live ./internal/r2` with `R2_ACCOUNT_ID`,
+`R2_ACCESS_KEY_ID_FILE` and `R2_SECRET_ACCESS_KEY_FILE`. It writes a few bytes
+under `incoming/` and removes them. Set `R2_FOREIGN_BUCKET` to a throwaway
+bucket of the same account to check the token is refused there. It prints no
+credential and no presigned URL; keep it that way.
+
 Verify the site and the Mini App in a browser at phone width (375×812 and
 320×568) and on a wide screen, with and without the Telegram emulation hash
 (`#tgWebAppData=…&tgWebAppVersion=9.0&tgWebAppPlatform=ios`), and check the

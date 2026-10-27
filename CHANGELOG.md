@@ -99,7 +99,8 @@ was written from, and the skeleton of the service.
   bucket passes another 10 GB. `R2_ACCOUNT_ID` (or `R2_ENDPOINT`),
   `R2_BUCKET`, `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` (both also as
   `_FILE`), `WORK_DIR` and `OPERATOR_CHAT_ID` configure it; the image ships
-  ffmpeg 8.1.
+  ffmpeg 8.1. `go test -tags r2live ./internal/r2` checks the real buckets
+  and their token by hand.
 - CI on every push and weekly: modules, gofmt, build, vet, race tests,
   database tests on PostgreSQL 17, govulncheck, the image build, the photo
   and storage tests inside the image, on the ffmpeg it ships, and the local
