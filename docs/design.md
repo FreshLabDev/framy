@@ -38,7 +38,12 @@ One account per Telegram user id. It is the same number in a bot update (`from.i
   - the nonce and the state checked by framy itself, since `Verify` does not check the nonce.
 
   Telegram issues no refresh token, so framy keeps its own session: a `__Host-` cookie, `HttpOnly; Secure; SameSite=Lax`, with only a hash of the session id in the database. The popup widget is not used: it breaks under `Cross-Origin-Opener-Policy: same-origin`.
+
+  This is `internal/auth`. `GET /auth/login` keeps the state, the nonce and the PKCE verifier in a ten-minute `__Host-` cookie (a table would need a write for every visitor), and `GET /auth/callback` clears it whatever happens. A refused sign-in sets no session and returns to `/?sign_in=cancelled`, `expired` or `failed`. A session lasts 30 days from sign-in and is not extended by use (the cookie's `Max-Age` is set once), so a person signs in again once a month. `POST /auth/logout` ends one session, `POST /auth/logout/all` every session and token of the person, and a person's deletion takes theirs with it. `return_to` is a path on the site or nothing. Without `TELEGRAM_LOGIN_CLIENT_ID` and `TELEGRAM_LOGIN_CLIENT_SECRET` (and `SITE_URL`, which makes the redirect URI) the two site routes answer 503 and the rest runs.
 - **Mini App.** `initData` is checked with HMAC as in `maply/internal/auth`, with `auth_date` at most an hour old. The server answers with a short-lived bearer token, because cookies in the Telegram Web iframe are unreliable. Since 20 July 2026 Mini App methods work only on the registered origin, so the site and the Mini App share one origin and one frontend.
+
+  `POST /auth/miniapp` takes `{"init_data": "<raw string>"}` and answers `{token, token_type, expires_in, user_id}`; the token is stored as a hash like the cookie and lasts an hour, as long as the same `initData` can still be exchanged. Telegram signs `initData` only when the Mini App opens, so one left open for more than an hour has to be opened again. It needs only the bot token, not the Login client.
+- **For code that needs the person.** `Auth.Person(r)` gives the Telegram user id from the cookie or from `Authorization: Bearer`, from a 30-second cache or one query on the primary key; a request with a bearer token is judged by it alone. `Auth.Require(h)` answers 401 `{"error":"sign_in"}` to nobody, and `Auth.PersonKey` is `Person` for `web.Config.Person`, so the per-person rate limits count the signed-in.
 - **Signed out.** The site shows the composer, the catalog and prices. "Generate" asks to sign in.
 
 ## Providers and keys
@@ -683,7 +688,7 @@ Details and sources in [research/build.md](research/build.md).
     | hook | `/hooks` | 20/s, burst 100 | none |
     | health | `/healthz` | 1/s, burst 10 | none |
 
-    The numbers are guesses to be set from real traffic. An IPv6 visitor is counted by its /64. The person is whoever `Config.Person` names, asked only on routes whose class has a per-person bucket; until sign-in exists it is nil and every limit is per address. A refusal is a 429 with `Retry-After` and `framy_http_rate_limited_total{class}`;
+    The numbers are guesses to be set from real traffic. An IPv6 visitor is counted by its /64. The person is whoever `Config.Person` names (`auth.PersonKey`), asked only on routes whose class has a per-person bucket; nobody signed in is counted by address alone. A refusal is a 429 with `Retry-After` and `framy_http_rate_limited_total{class}`;
   - quotas in Postgres;
   - the real IP from `CF-Connecting-IP`, believed only when the TCP peer is in `TRUSTED_PROXIES`, the addresses cloudflared connects from (its Docker network). From any other peer the header, `X-Forwarded-For` and the rest are ignored. The service must publish no port to the host, or the userland proxy hides the visitor behind the gateway address.
 

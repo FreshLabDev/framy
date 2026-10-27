@@ -20,8 +20,10 @@ careful with people's keys, and production-minded.
   OpenRouter, OpenAI and Gemini image adapters, storage in R2 with the ffmpeg
   photo pipeline, the renderer of the album preview, the generating loop and
   the error card (`internal/anim`), the public HTTP server's foundation
-  (`internal/web`: security headers, CSRF, cache rules, rate limits), and a
-  clean stop on SIGTERM. Nothing reaches people yet: no surface starts a job.
+  (`internal/web`: security headers, CSRF, cache rules, rate limits), sign-in
+  (`internal/auth`: Telegram Login on the site, `initData` in the Mini App,
+  sessions of which the database keeps only a hash), and a clean stop on
+  SIGTERM. Nothing reaches people yet: no surface starts a job.
 - The service will be one Go binary (module `github.com/FreshLabDev/framy`):
   the HTTP server (site, Mini App, API, SSE, OAuth callbacks, provider
   webhooks), the bot, the job workers, the hourly catalog sync and the
@@ -145,7 +147,11 @@ screen, a command or a table, check how the siblings do it.
   POST is a deliberate entry in `csrfBypass`. `CF-Connecting-IP` is believed
   only from `TRUSTED_PROXIES`.
 - Never log the bot token, provider keys, the KEK, R2 credentials, OAuth codes
-  and verifiers, a database URL with its password, or full Bot API URLs.
+  and verifiers, session ids and bearer tokens, `initData`, a database URL with
+  its password, or full Bot API URLs.
+- Who is asking comes from `auth.Person` (or `Require` around a handler),
+  never from a header or a body the client wrote. A session id is stored as its
+  SHA-256 only; the account is the `id` claim, never `sub`.
 - Connect with `search_path=framy` and call `core.touch` before domain writes
   that reference `core.person`.
 - Secrets live in `.env` and in file secrets, both outside git.
