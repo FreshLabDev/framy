@@ -229,6 +229,17 @@ was written from, and the skeleton of the service.
   generation, so Cloudflare's 125-second limit never cuts one. Changes come
   from triggers on the job row (`pg_notify`), so every path that changes a
   job is announced and a rolled-back change is not.
+- Video through OpenRouter (`POST /api/v1/videos`), with start and end
+  frames and references sent as presigned links. The provider's job id is
+  saved before the first poll, so a retry never pays twice; results are
+  downloaded with the key from `/videos/{id}/content`, never from links in
+  the answer. A poll every 30 s finishes every video. With `HOOK_PATH_SECRET`
+  set and an https `SITE_URL`, a request also carries a webhook address with
+  a path nobody can guess, and the webhook only brings the next poll
+  forward: it never carries a result. On framy's own key its signature is
+  checked when `OPENROUTER_WEBHOOK_SECRET` is set, and a repeated delivery
+  does nothing twice. The free video plans (HeyGen, Grok Lite, FLUX Video
+  Edit) run through it.
 - CI on every push and weekly: modules, gofmt, build, vet, race tests,
   database tests on PostgreSQL 17, govulncheck, the image build, the photo
   and storage tests inside the image, on the ffmpeg it ships, and the local
