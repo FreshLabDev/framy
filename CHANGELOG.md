@@ -188,12 +188,26 @@ was written from, and the skeleton of the service.
   `/auth`, `/oauth`, `/events` and `/hooks` are never stored; only a hashed
   file under `/assets/` is cached for a year; a person's page is never
   `public`. Cloudflare Free allows one rate-limit rule, so the limits are in
-  the service: a bucket per address (per person once sign-in exists), stricter
+  the service: a bucket per address and per signed-in person, stricter
   for sign-in, uploads and job creation, answering 429 with `Retry-After`.
   The visitor's address is read from `CF-Connecting-IP` only when the request
   comes from `TRUSTED_PROXIES`, the addresses cloudflared connects from. An
   event stream or a slow upload asks for longer deadlines per route. `/` is a
   placeholder page until the frontend lands.
+- Sign-in, in `internal/auth`. On the site it is Telegram Login, Telegram's
+  OpenID Connect with PKCE: framy checks the id token's signature, issuer,
+  audience, expiry, nonce and state, and takes the account from the `id`
+  claim, the same number a bot update carries. The session is framy's own,
+  since Telegram gives no refresh token: a `__Host-` cookie that lasts 30
+  days from sign-in, with only its hash in the database. A refused sign-in
+  returns to `/?sign_in=cancelled`, `expired` or `failed`. In the Mini App
+  `POST /auth/miniapp` checks `initData` (at most an hour old) and answers
+  with a bearer token for an hour, because cookies in the Telegram Web frame
+  are unreliable. Sign out ends one session; sign out everywhere ends all of
+  a person's sessions and tokens. The per-person rate limits now count the
+  signed-in person. Without `TELEGRAM_LOGIN_CLIENT_ID` and
+  `TELEGRAM_LOGIN_CLIENT_SECRET` the site's sign-in answers 503 and the rest
+  runs.
 - CI on every push and weekly: modules, gofmt, build, vet, race tests,
   database tests on PostgreSQL 17, govulncheck, the image build, the photo
   and storage tests inside the image, on the ffmpeg it ships, and the local
