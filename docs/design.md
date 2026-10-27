@@ -462,12 +462,13 @@ Video in chat uses the same command. Proposal: the preview has an Image / Video 
 
 Telegram sends each photo of an album as its own message with a shared `media_group_id`, and `reply_to_message` holds only the photo that was answered. There is no method to fetch a message by id, and a bot in privacy mode does not see the other photos at all.
 
-1. **framy as a group admin with no rights.** An admin bot receives every message. framy caches album items for 48 hours:
-   - `chat_id`, `media_group_id`, `message_id`, `file_id`, `file_unique_id`, size, author and date;
-   - never the text.
+1. **framy as a group admin with no rights.** An admin bot receives every message. framy caches album items in `album_item` for 48 hours, counted from the first time it saw the item, and deletes the older ones every hour:
+   - `chat_id`, `media_group_id`, `message_id`, `file_id`, `file_unique_id`, size, author and date, and the kind: `photo` (the largest size; a live photo is its still frame), `video`, or `document` when its MIME type is an image or a video;
+   - never the text or the caption, and nothing from a DM that looks like a key;
+   - every message of an album is noted, a command or not, in a group, a supergroup or a DM. An edited message is noted again, since an edit can swap the file, and a replayed update changes nothing.
 
-   When `/f` arrives together with an album or right after it, framy waits 1.5 s for the rest. framy asks to be made an admin at the first `/f` on an album, not when it is added. Privacy mode stays on: turning it off is global and makes the bot read every message of every group.
-2. **Without admin rights,** the preview shows the one photo and says "I see 1 photo of the album. Make framy an admin to take whole albums."
+   When `/f` arrives together with an album or right after it, framy waits for the rest. It keeps in memory when each album last got an item (and forgets an album after a minute), and waits until none has come for 1.5 s, but no longer than a cap the caller sets. An album that has been quiet longer is read at once, so a `/f` sent a minute later pays no wait. The wait runs beside polling and never holds it up. framy asks to be made an admin at the first `/f` on an album, not when it is added. Privacy mode stays on: turning it off is global and makes the bot read every message of every group.
+2. **Without admin rights,** the preview shows the one photo and says "I see 1 photo of the album. Make framy an admin to take whole albums." framy asks Telegram for its own status in the chat (administrator or creator) at every `/f` and caches nothing, since rights change. A DM needs no check: the album arrives whole.
 3. **Stage 3:** a `getMessages` method patched into our own `telegram-bot-api`. The server already calls TDLib's `getMessages` for `forwardMessages`, so the patch is about 40–60 lines of C++. Whether Telegram gives a bot messages it did not see is the open part.
 
 An album sent before framy became an admin is not in the cache. The preview always shows what was actually taken, so a wrong guess becomes the person's decision, not a silent error.
@@ -530,7 +531,7 @@ In groups one run makes one result. Proposal: more than one only on the site and
 
 ## DM
 
-- **The same flow.** An album arrives whole here: collect by `media_group_id` with the same 1.5 s wait.
+- **The same flow.** An album arrives whole here, but its items are still noted and waited for as in a group, with the same 1.5 s wait, because Telegram delivers them as separate messages.
 - **Confirmation.** Proposal: in a DM the person can turn confirmation off.
 - **`/start`:**
   - a panel with the free allowance left, the connected providers, the default models, the language and the currency;
@@ -766,7 +767,7 @@ Main tables of the `framy` schema, created by a core migration with its own `fra
 | `job` | requester (`user_id`), surface, chat and preview message, `dedupe_key`, offer, prompt, settings, `free`, status, idempotency key, River job, paid requests with `submitted_at` and `retry_at`, provider job id, the estimate with its lines, the actual cost, results, error class, the currency with `fx_rate` and `fx_date` |
 | `asset` | uploads and results: owner, job, storage key, size, type, picture size, SHA-256, `file_id`, `file_unique_id` |
 | `job_input` | the files a job takes, in order; an empty place is a file deleted before the run |
-| `album_item` | the 48-hour album cache |
+| `album_item` | the 48-hour album cache: chat, `media_group_id`, message, author, kind, `file_id`, `file_unique_id`, size and date, never the text; no foreign keys, since a DM is not a chat in core and a failed touch must not lose an item |
 | `fx_rate` | date, code, UAH per unit, source (`nbu` or `currency-api`), fetched at |
 | `oauth_state` | the hash of the OAuth state, the PKCE verifier and the person, for 10 minutes; one per person and provider |
 | `webhook_delivery` | per provider and job, the digests of the idempotency keys and signatures of webhooks already acted on, for 7 days |

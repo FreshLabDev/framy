@@ -249,6 +249,20 @@ was written from, and the skeleton of the service.
   5 minutes and the copy 3 more, where an image's call keeps its 3, so a
   large clip on a slow link is not cut off after it was paid. The free video
   plans (HeyGen, Grok Lite, FLUX Video Edit) run through it.
+- The album cache that `/f` in reply to one photo of an album will read.
+  Telegram sends every photo of an album as a message of its own, and a reply
+  names only one, so framy keeps the photos, videos and image or video
+  documents of the albums it sees (migration 013, table `album_item`): where
+  they are and the ids Telegram needs to hand each file over again, never the
+  text or the caption. A DM is always seen whole. A group is seen only while
+  framy is an admin, which needs no right at all, so privacy mode stays on.
+  Items are deleted 48 hours after framy first saw them, checked every hour.
+  `Bot.Album` returns an album once no new photo has come for 1.5 s, at most
+  a cap the caller sets, and `Bot.SeesEveryMessage` asks Telegram on every
+  call whether framy is an admin of the chat, so the preview can say how much
+  of the album it took. framy now also asks Telegram for `edited_message`,
+  since an edit can swap the photo of an item. Nothing sends an album to a
+  model yet: `/f` is the next change.
 - CI on every push and weekly: modules, gofmt, build, vet, race tests,
   database tests on PostgreSQL 17, govulncheck, the image build, the photo
   and storage tests inside the image, on the ffmpeg it ships, and the local
