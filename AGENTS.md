@@ -81,7 +81,8 @@ screen, a command or a table, check how the siblings do it.
   round in framy's favour, and always label an estimate as one.
 - The free allowance **(owner)**: 5 images in any 24 hours and 1 video in any
   7 days per Telegram user id, across every surface, on the models the design
-  names. It is counted from `job`, not stored separately, and a global daily
+  names. The video can instead be an edit of a clip up to 5 s on FLUX Video
+  Edit. It is counted from `job`, not stored separately, and a global daily
   budget closes it. Changing the counts, the windows or the models is the
   owner's call.
 - People's keys are encrypted at rest with AES-GCM under a KEK read from a file.

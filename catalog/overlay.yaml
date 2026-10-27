@@ -197,8 +197,10 @@ models:
 
   # Keeps the source's length, aspect ratio and sound; above 720p the source
   # is scaled down to 720p.
+  # The free video edit, a clip up to 5 s (owner, 27 October 2026).
   black-forest-labs/flux-video-edit:
     featured: true
+    free: true
     source_video: {required: true, max_seconds: 15, max_mib: 50, keeps_length: true}
 
   black-forest-labs/flux-video-upscale:

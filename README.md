@@ -72,7 +72,8 @@ after Yes does the message turn into a progress loop and then into the result.
 ## Free And Your Keys
 
 - **Free:** 5 images in any 24 hours and 1 video in any 7 days, on cheap models
-  that still edit well, paid by framy.
+  that still edit well, paid by framy. The video can instead be an edit of a
+  clip up to 5 seconds.
 - **Your keys:** connect OpenRouter with one button, or paste an OpenAI or a
   Gemini key. Every run then goes to the provider at its own price, and framy
   adds nothing.

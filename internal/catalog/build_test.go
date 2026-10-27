@@ -238,6 +238,9 @@ func TestBuildListsVideoEditors(t *testing.T) {
 			t.Errorf("%s = %+v; an editor is listed and runs only on an attached video", id, m)
 		}
 	}
+	if !modelByID(t, snap, "black-forest-labs/flux-video-edit").Free {
+		t.Error("flux video edit is the free video edit (owner, 27 October)")
+	}
 	edit := modelByID(t, snap, "black-forest-labs/flux-video-edit").Traits.SourceVideo
 	if *edit != (SourceVideo{Required: true, MaxSeconds: 15, MaxMiB: 50, KeepsLength: true}) {
 		t.Errorf("flux video edit source = %+v", *edit)

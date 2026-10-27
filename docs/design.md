@@ -259,10 +259,11 @@ Whether `CF-IPCountry` reaches the service through the Cloudflare Tunnel is not 
   | Images, more than 5 photos or a fallback | `black-forest-labs/flux-3-image-klein`, 1K | $0.009 | 1072 / 1043 | 10 | The cheapest model that edits decently; takes a whole album |
   | Video | `heygen/heygen-video-1`, 768p, 5 s | $0.18 | text to video 1157 (4th of 30) | start frame | The best rated video under $0.20 |
   | Video fallback | `x-ai/grok-imagine-video-1.5-lite`, 720p, 5 s | $0.15 | 990 | start frame | Cheaper and from another vendor, weaker |
+  | Video edit **(owner)** | `black-forest-labs/flux-video-edit`, a clip up to 5 s | $0.15 | not rated | the clip | Instead of the generated video; keeps the clip's length and sound |
 
   MAI 2.6 Flash is billed in tokens ($19 per million output tokens), and the price per image is Artificial Analysis's figure, not OpenRouter's. HeyGen at 480p costs $0.10 for 5 s if 768p turns out too expensive. Not chosen: `gpt-image-2.5-flare` at `low` ($0.0059) and `medium` ($0.0132), since nobody has rated those levels. `meta/muse-image` (1129 for $0.01) is not in the Images API.
 - **Fixed settings:** the image model at about 1K with one result; the video model at 5 s and 768p, with an optional start frame and no references. Other controls are locked with "with your key".
-- **Proposal:** the weekly video can instead be an edit of a clip up to 5 s on `flux-video-edit`, $0.15, cheaper than the generated one.
+- **Video edit (owner, 27 October):** the weekly video can instead be an edit of a clip up to 5 s on `flux-video-edit`, $0.15, cheaper than the generated one. Either one uses up the week. A longer clip is refused before the run with "up to 5 s free, longer with your key"; proposal: offer to take its first 5 s.
 - **Payer:** framy's own OpenRouter key: one bill, no OpenAI limit of 20 images a minute.
 - **Two fuses:**
   - a global daily budget: when it is spent, the free tier closes until 00:00 UTC with a plain message;
@@ -279,12 +280,13 @@ Cost per person who uses the whole allowance, per month:
 | | `flux-3-image-klein`, 1K | $0.009 | ≈ $1.35 |
 | 1 video a week | `heygen-video-1`, 768p, 5 s | $0.18 | ≈ $0.78 |
 | | `grok-imagine-video-1.5-lite`, 720p, 5 s | $0.15 | ≈ $0.65 |
+| | or an edit on `flux-video-edit`, 5 s | $0.15 | ≈ $0.65 |
 
 At most about $3.7 a month for a person who uses everything with the main models.
 
 A blind test confirms the choice before launch:
 - images: 20–30 typical prompts, half of them edits of photos with people, on MAI 2.6 Flash and FLUX.3 Klein, under $1. MAI is already chosen; the test measures its actual price per image and decides whether Klein is good enough for albums of more than 5 photos and as a fallback;
-- video: 10 prompts, 5 of them from a start frame, on HeyGen and Grok Lite, about $3.
+- video: 10 prompts, 5 of them from a start frame, on HeyGen and Grok Lite, about $3, and 3 edits of 5 s clips on FLUX Video Edit, $0.45.
 
 ## Jobs
 
