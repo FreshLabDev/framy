@@ -106,6 +106,21 @@ was written from, and the skeleton of the service.
   The actual cost is the usage tokens times the catalog's rates. Until
   people's keys are stored a run on Gemini fails as `key` before anything is
   paid.
+- The free allowance: 5 images in any 24 hours and 1 video in any 7 days per
+  Telegram user id, across every surface, counted from the job table. Free
+  runs go through framy's own OpenRouter key with fixed settings: MAI 2.6
+  Flash with one result, FLUX.3 Klein at 1K for albums of more than 5 photos,
+  and the weekly video models. Any other model, setting or number of files is
+  refused. A failed run does not count; a run refused for its content does.
+  The check and the insert are one transaction under a lock per person and
+  one for the budget, so two requests at once cannot both take the last slot.
+  Two fuses close the tier for everyone: a budget of `FREE_DAILY_BUDGET_USD`
+  ($1 by default) a day, until 00:00 UTC, and the limit on framy's OpenRouter
+  key, read every minute from `GET /api/v1/key`. A free run that fails for
+  lack of money pauses the tier for 15 minutes. The operator chat is told
+  once a day per fuse. A refusal is a typed error that says when the slot
+  frees up or until when the tier is closed, for the bot and the site to
+  word.
 - Storage in Cloudflare R2. A photo a person brings goes through one ffmpeg
   subprocess: its format is read from its bytes (JPEG, PNG, WebP, HEIC,
   AVIF), its size from its header, so anything above 64 MP is refused before
