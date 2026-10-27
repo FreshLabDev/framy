@@ -100,9 +100,12 @@ var (
 	HTTPRateLimited        = registerVec("framy_http_rate_limited_total", "Public HTTP requests answered 429, by rate class.", "class")
 	HTTPCrossOriginRefused = registerCounter("framy_http_cross_origin_refused_total", "Public HTTP requests refused as cross-origin.")
 
-	AuthResults    = registerVec("framy_auth_total", "Sign-in outcomes, by result: site_ok, site_denied, site_no_state, site_state, site_exchange, site_token, site_nonce, site_claims, site_provider, site_unavailable, site_error, miniapp_ok, miniapp_stale, miniapp_bad, miniapp_error.", "result")
-	OAuthStarted   = registerCounter("framy_oauth_started_total", "OpenRouter connect flows started: people sent to OpenRouter.")
-	OAuthCallbacks = registerVec("framy_oauth_callbacks_total", "OpenRouter connect callbacks, by result: connected, cancelled, expired, signin, refused, unavailable.", "result")
+	AuthResults      = registerVec("framy_auth_total", "Sign-in outcomes, by result: site_ok, site_denied, site_no_state, site_state, site_exchange, site_token, site_nonce, site_claims, site_provider, site_unavailable, site_error, miniapp_ok, miniapp_stale, miniapp_bad, miniapp_error.", "result")
+	OAuthStarted     = registerCounter("framy_oauth_started_total", "OpenRouter connect flows started: people sent to OpenRouter.")
+	OAuthCallbacks   = registerVec("framy_oauth_callbacks_total", "OpenRouter connect callbacks, by result: connected, cancelled, expired, signin, refused, unavailable.", "result")
+	StreamsOpened    = registerCounter("framy_sse_streams_total", "Job event streams opened.")
+	StreamsRefused   = registerCounter("framy_sse_streams_refused_total", "Job event streams refused because the person held the most allowed.")
+	EventsReconnects = registerCounter("framy_sse_listener_reconnects_total", "Times the job event listener lost its connection and made it again.")
 )
 
 // Handler serves the registry in Prometheus text exposition format.

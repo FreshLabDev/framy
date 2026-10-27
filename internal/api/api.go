@@ -1,0 +1,414 @@
+// SPDX-License-Identifier: Apache-2.0
+
+// Package api is the JSON API the site and the Mini App talk to: photo
+// uploads, starting a job, reading it, and following it over SSE
+// (docs/design.md, Jobs). No request waits for a generation: POST /api/jobs
+// answers 202 at once and the client follows /api/jobs/{id}/events, with
+// GET /api/jobs/{id} as the fallback.
+//
+// Who is asking is not decided here. Config.Person names the signed-in
+// person behind a request, or says there is none: main gives it
+// internal/auth's Person.
+// Every route answers 401 {"error":"sign_in"} without one, and a job is
+// visible to its owner only: anyone else gets 404, as for a job that does
+// not exist.
+//
+// Progress comes from the database. A trigger on framy.job bumps the job's
+// event_seq and does pg_notify('framy_events', …) in the transaction that
+// changes the row; one listener per process (Run) wakes the open streams,
+// and each stream rereads its job. The reread is the truth, the notice only
+// says when to look, so a lost or doubled notice costs nothing.
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/FreshLabDev/framy/internal/catalog"
+	"github.com/FreshLabDev/framy/internal/fx"
+	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/FreshLabDev/framy/internal/keys"
+	"github.com/FreshLabDev/framy/internal/storage"
+	"github.com/FreshLabDev/framy/internal/web"
+)
+
+// Defaults.
+const (
+	// DefaultMaxStreams is how many event streams one person may hold open
+	// (docs/design.md, Jobs). A fourth is refused with 429.
+	DefaultMaxStreams = 3
+	// DefaultPing is how often an idle stream writes a ": ping" comment. It
+	// has to stay well under the 100 s after which Cloudflare drops a
+	// connection that sends nothing.
+	DefaultPing = 15 * time.Second
+	// DefaultWriteTimeout is how long one write to a stream may take. A
+	// client that stops reading fills its socket buffer, and the write then
+	// blocks until this runs out.
+	DefaultWriteTimeout = 10 * time.Second
+	// DefaultUploadSlots is how many photos are converted at once: ffmpeg
+	// takes a core for every one of them.
+	DefaultUploadSlots = 4
+
+	// uploadRead and uploadWrite are the deadlines of POST /api/uploads,
+	// counted from the start of the request: a slow phone connection may take
+	// minutes to send 50 MB, and the answer comes after the conversion.
+	uploadRead  = 5 * time.Minute
+	uploadWrite = 6 * time.Minute
+	// uploadSlack is room above the largest photo for what the body may carry
+	// besides it, so the pipeline's own "too big" answer comes first.
+	uploadSlack = 1 << 20
+	// uploadWait is how long an upload waits for a free conversion slot.
+	uploadWait = 20 * time.Second
+	// retryMillis is the reconnect delay an event stream suggests.
+	retryMillis = 3000
+)
+
+// Queue starts jobs: *jobs.Queue.
+type Queue interface {
+	Enqueue(ctx context.Context, n jobs.New) (id int64, created bool, err error)
+}
+
+// Store is what the API asks the database about beyond jobs: *db.Store.
+type Store interface {
+	// Offer is an offer that is on and shown, with its model; db.ErrNoOffer
+	// for any other.
+	Offer(ctx context.Context, id string) (catalog.Model, catalog.Offer, error)
+	Quote(ctx context.Context, code string, day time.Time) (fx.Quote, error)
+	// Currency is the person's chosen currency, "" when they chose none.
+	Currency(ctx context.Context, userID int64) (string, error)
+	// UserLang is the person's language in core, "" when it has none.
+	UserLang(ctx context.Context, userID int64) (string, error)
+}
+
+// Uploads keeps a photo: *storage.Store.
+type Uploads interface {
+	Upload(ctx context.Context, userID int64, r io.Reader) (storage.Asset, error)
+}
+
+// Links presigns a file of the person's: *storage.Store.
+type Links interface {
+	Link(ctx context.Context, userID, assetID int64, filename string) (string, error)
+}
+
+// Connections lists the person's provider connections: *keys.Service. A nil
+// *keys.Service answers keys.ErrDisabled, which is no connection.
+type Connections interface {
+	List(ctx context.Context, userID int64) ([]keys.Connection, error)
+}
+
+// Config is the API's setup.
+type Config struct {
+	// Pool's search_path is framy. The API reads job and asset rows with it,
+	// and the listener opens its own connection from its configuration.
+	Pool  *pgxpool.Pool
+	Queue Queue
+	Store Store
+	// Uploads and Links are nil while framy keeps no files (no R2 token):
+	// uploading then answers 503, and a finished job lists its results
+	// without links.
+	Uploads Uploads
+	Links   Links
+	// Keys is nil without a KEK file, which is no connection for anyone.
+	Keys Connections
+	// Person names the signed-in person behind a request. No person: ok is
+	// false. It is asked on every request, so it has to be cheap.
+	Person func(*http.Request) (userID int64, ok bool)
+	Log    *slog.Logger
+
+	// MaxStreams per person, Ping, WriteTimeout and UploadSlots default to
+	// the constants above. MaxUpload is the largest photo the pipeline takes
+	// (storage.Config.MaxUpload); it sets the body cap of the upload route.
+	MaxStreams   int
+	Ping         time.Duration
+	WriteTimeout time.Duration
+	UploadSlots  int
+	// UploadWait is how long an upload waits for a free slot before it is
+	// sent away with 503.
+	UploadWait time.Duration
+	MaxUpload  int64
+	// Keepalive is how often the listener checks its connection while no
+	// notice comes; Backoff is the pause after the first lost connection,
+	// doubling up to 30 s. Tests shorten both.
+	Keepalive time.Duration
+	Backoff   time.Duration
+	Now       func() time.Time
+
+	// data replaces the reads of job and asset rows, and listening is told
+	// each time the listener is connected; tests only.
+	data      data
+	listening func()
+}
+
+// API serves the routes.
+type API struct {
+	cfg     Config
+	log     *slog.Logger
+	data    data
+	hub     *hub
+	streams *streamLimiter
+	slots   chan struct{}
+	now     func() time.Time
+	maxBody int64
+}
+
+// New checks cfg and fills its defaults.
+func New(cfg Config) (*API, error) {
+	switch {
+	case cfg.Queue == nil || cfg.Store == nil || cfg.Person == nil:
+		return nil, errors.New("api: the queue, the store and Person are needed")
+	case cfg.Pool == nil && cfg.data == nil:
+		return nil, errors.New("api: the pool is needed")
+	}
+	if cfg.Log == nil {
+		cfg.Log = slog.New(slog.DiscardHandler)
+	}
+	setDefault(&cfg.MaxStreams, DefaultMaxStreams)
+	setDefault(&cfg.Ping, DefaultPing)
+	setDefault(&cfg.WriteTimeout, DefaultWriteTimeout)
+	setDefault(&cfg.UploadSlots, DefaultUploadSlots)
+	setDefault(&cfg.UploadWait, uploadWait)
+	setDefault(&cfg.MaxUpload, storage.DefaultMaxUpload)
+	setDefault(&cfg.Keepalive, 30*time.Second)
+	setDefault(&cfg.Backoff, time.Second)
+	if cfg.Now == nil {
+		cfg.Now = time.Now
+	}
+	a := &API{
+		cfg: cfg, log: cfg.Log, data: cfg.data, hub: newHub(),
+		streams: newStreamLimiter(cfg.MaxStreams),
+		slots:   make(chan struct{}, cfg.UploadSlots),
+		now:     cfg.Now,
+		maxBody: cfg.MaxUpload + uploadSlack,
+	}
+	if a.data == nil {
+		a.data = pgData{pool: cfg.Pool}
+	}
+	return a, nil
+}
+
+func setDefault[T int | int64 | time.Duration](v *T, d T) {
+	if *v <= 0 {
+		*v = d
+	}
+}
+
+// Register puts the routes on the public server.
+func (a *API) Register(site *web.Server) {
+	site.HandleFunc("POST /api/uploads", a.upload,
+		web.Limit(web.ClassUpload), web.Body(a.maxBody), web.Deadlines(uploadRead, uploadWrite))
+	site.HandleFunc("POST /api/jobs", a.create, web.Limit(web.ClassJob))
+	site.HandleFunc("GET /api/jobs/{id}", a.get)
+	site.HandleFunc("GET /api/jobs/{id}/events", a.events, web.Stream())
+}
+
+// PersonKey makes web.Config.Person of the API's Person: the per-person rate
+// limits count by it.
+func PersonKey(person func(*http.Request) (int64, bool)) func(*http.Request) string {
+	return func(r *http.Request) string {
+		if id, ok := person(r); ok {
+			return strconv.FormatInt(id, 10)
+		}
+		return ""
+	}
+}
+
+// Run listens for job events until ctx ends, then ends every open stream.
+// A lost connection is made again, and the streams reread their jobs when it
+// is. Call it once, in its own goroutine.
+func (a *API) Run(ctx context.Context) {
+	defer a.hub.close()
+	if a.cfg.Pool == nil {
+		<-ctx.Done()
+		return
+	}
+	l := &listener{
+		cfg: a.cfg.Pool.Config().ConnConfig.Copy(), hub: a.hub, log: a.log.With("component", "events"),
+		keepalive: a.cfg.Keepalive, backoff: a.cfg.Backoff, connected: a.cfg.listening,
+	}
+	l.run(ctx)
+}
+
+// Close ends every open stream now. Run does it when its context ends; a
+// server that stops without cancelling that context calls Close.
+func (a *API) Close() { a.hub.close() }
+
+// ---- answers ----
+
+// Error codes. The frontend words them; message is English, for logs and
+// for whoever reads a curl answer.
+const (
+	codeSignIn            = "sign_in"
+	codeBadRequest        = "bad_request"
+	codeNotFound          = "not_found"
+	codeUnknownOffer      = "unknown_offer"
+	codeUnknownInput      = "unknown_input"
+	codeNotFree           = "not_free"
+	codeFreeLimit         = "free_limit"
+	codeFreeClosed        = "free_closed"
+	codeNoConnection      = "no_connection"
+	codeConnectionInvalid = "connection_invalid"
+	codeTooManyStreams    = "too_many_streams"
+	codeTooLarge          = "too_large"
+	codePictureTooLarge   = "picture_too_large"
+	codeUnsupportedType   = "unsupported_type"
+	codeUnreadable        = "unreadable"
+	codeStorageDown       = "storage_unavailable"
+	codeBusy              = "busy"
+	codeShuttingDown      = "shutting_down"
+	codeInternal          = "internal"
+)
+
+// apiError is an answer that is not a success.
+type apiError struct {
+	status  int
+	code    string
+	message string
+	// retryAfter, when positive, goes out as Retry-After in whole seconds.
+	retryAfter time.Duration
+	// extra is more fields of the body: frees_at, until, field, provider.
+	extra map[string]any
+}
+
+func (e *apiError) with(k string, v any) *apiError {
+	if e.extra == nil {
+		e.extra = map[string]any{}
+	}
+	e.extra[k] = v
+	return e
+}
+
+func newError(status int, code, message string) *apiError {
+	return &apiError{status: status, code: code, message: message}
+}
+
+func badRequest(field, message string) *apiError {
+	e := newError(http.StatusBadRequest, codeBadRequest, message)
+	if field != "" {
+		e.with("field", field)
+	}
+	return e
+}
+
+func (e *apiError) write(w http.ResponseWriter) {
+	body := map[string]any{"error": e.code, "message": e.message}
+	for k, v := range e.extra {
+		body[k] = v
+	}
+	if e.retryAfter > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(wholeSeconds(e.retryAfter)))
+	}
+	writeJSON(w, e.status, body)
+}
+
+// wholeSeconds rounds up, and is at least one.
+func wholeSeconds(d time.Duration) int {
+	return max(1, int((d+time.Second-1)/time.Second))
+}
+
+func signIn(w http.ResponseWriter) {
+	newError(http.StatusUnauthorized, codeSignIn, "sign in first").write(w)
+}
+
+func notFound(w http.ResponseWriter) {
+	newError(http.StatusNotFound, codeNotFound, "no such job").write(w)
+}
+
+func (a *API) internal(w http.ResponseWriter, r *http.Request, err error) {
+	a.log.Error("api request failed", "method", r.Method, "path", r.URL.Path, "error", err)
+	newError(http.StatusInternalServerError, codeInternal, "something went wrong; try again").write(w)
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_, _ = w.Write(append(b, '\n'))
+}
+
+// person is the signed-in person, or false after answering 401.
+func (a *API) person(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	id, ok := a.cfg.Person(r)
+	if !ok || id == 0 {
+		signIn(w)
+		return 0, false
+	}
+	return id, true
+}
+
+// language is the person's language for writing amounts: core's, else the
+// first tag of Accept-Language, else English.
+func (a *API) language(ctx context.Context, r *http.Request, userID int64) string {
+	lang, err := a.cfg.Store.UserLang(ctx, userID)
+	if err != nil {
+		a.log.Warn("user language", "error", err)
+	}
+	if lang == "" {
+		lang = firstTag(r.Header.Get("Accept-Language"))
+	}
+	if lang == "" {
+		lang = "en"
+	}
+	return lang
+}
+
+// firstTag is the first language of an Accept-Language value, without its
+// region: "uk-UA,uk;q=0.9,en;q=0.8" gives "uk". "*" and junk give "".
+func firstTag(h string) string {
+	first, _, _ := strings.Cut(h, ",")
+	first, _, _ = strings.Cut(first, ";")
+	tag, _, _ := strings.Cut(strings.ToLower(strings.TrimSpace(first)), "-")
+	if len(tag) < 2 || len(tag) > 3 {
+		return ""
+	}
+	for _, c := range tag {
+		if c < 'a' || c > 'z' {
+			return ""
+		}
+	}
+	return tag
+}
+
+// A mutex-guarded set of the streams a person holds.
+type streamLimiter struct {
+	mu  sync.Mutex
+	max int
+	n   map[int64]int
+}
+
+func newStreamLimiter(max int) *streamLimiter {
+	return &streamLimiter{max: max, n: map[int64]int{}}
+}
+
+// acquire takes one of the person's streams, or says there is none left.
+func (l *streamLimiter) acquire(userID int64) (release func(), ok bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.n[userID] >= l.max {
+		return nil, false
+	}
+	l.n[userID]++
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			l.mu.Lock()
+			defer l.mu.Unlock()
+			if l.n[userID]--; l.n[userID] <= 0 {
+				delete(l.n, userID)
+			}
+		})
+	}, true
+}

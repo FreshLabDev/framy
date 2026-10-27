@@ -16,6 +16,7 @@ import (
 	"github.com/FreshLabDev/tg"
 
 	catalogfiles "github.com/FreshLabDev/framy/catalog"
+	"github.com/FreshLabDev/framy/internal/api"
 	"github.com/FreshLabDev/framy/internal/auth"
 	"github.com/FreshLabDev/framy/internal/bot"
 	"github.com/FreshLabDev/framy/internal/catalog"
@@ -228,6 +229,25 @@ func run(log *slog.Logger) error {
 	} else {
 		log.Warn("connecting OpenRouter is off: it needs SITE_URL and FRAMY_KEK_FILE")
 	}
+
+	// The job API: uploads, starting a job, reading it, and following it over
+	// SSE (#16), for whoever sign-in names.
+	var uploads api.Uploads
+	var links api.Links
+	if files != nil {
+		uploads, links = files, files
+	}
+	jobAPI, err := api.New(api.Config{
+		Pool: store.Pool(), Queue: queue, Store: store, Uploads: uploads, Links: links, Keys: people,
+		Person: signIn.Person, Log: log.With("component", "api"),
+	})
+	if err != nil {
+		return err
+	}
+	jobAPI.Register(site)
+	// The listener ends with ctx, and ends every open stream with it, so that
+	// a stop is not held up by a connection that has no end of its own.
+	go jobAPI.Run(ctx)
 
 	servers := []*http.Server{site.HTTPServer(cfg.HTTPAddr)}
 	if cfg.MetricsAddr != "" {

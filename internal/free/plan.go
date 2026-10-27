@@ -106,6 +106,11 @@ func ForImages(photos int) (Plan, error) {
 	return Plan{}, &NotFreeError{Reason: fmt.Sprintf("%d photos are more than the free models take", photos)}
 }
 
+// PlanOf is the plan of an offer, or false when the offer is not on the
+// allowance. A surface that starts a free run fills the plan's settings in
+// (Plan.Settings), since the allowance refuses a run that lacks one.
+func PlanOf(offer string) (Plan, bool) { return planOf(offer) }
+
 // planOf finds the plan of an offer.
 func planOf(offer string) (Plan, bool) {
 	for _, p := range plans {
