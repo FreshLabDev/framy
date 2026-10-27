@@ -89,6 +89,9 @@ var (
 	FXFallbacks    = registerCounter("framy_fx_fallbacks_total", "Rate syncs that took currency-api because the NBU failed.")
 	FXSyncFailures = registerCounter("framy_fx_sync_failures_total", "Rate syncs that saved nothing; the last saved rates stay.")
 
+	FreeRefused = registerVec("framy_free_refused_total", "Free runs refused, by reason: image_limit, video_limit, budget, key, not_free.", "reason")
+	FreeClosed  = registerVec("framy_free_closed_total", "Times a fuse closed the free tier for a UTC day, by fuse: budget, key.", "fuse")
+
 	TelegramErrors  = registerVec("framy_telegram_errors_total", "Telegram API and transport errors, by method.", "method")
 	TelegramLimited = registerVec("framy_telegram_rate_limited_total", "Telegram 429 responses observed, by method.", "method")
 

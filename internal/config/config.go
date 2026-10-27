@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -53,6 +54,9 @@ type Config struct {
 	OperatorChatID int64
 	// Web is the public HTTP server's trust in its proxy (web.go).
 	Web Web
+	// FreeDailyBudgetUSD is the most the free tier may cost in a UTC day
+	// (owner, 27 October: $1). Zero closes the free tier.
+	FreeDailyBudgetUSD float64
 }
 
 // R2 is the bucket and the token limited to it.
@@ -122,6 +126,10 @@ func Load() (Config, error) {
 	}
 	if cfg.Web, err = loadWeb(); err != nil {
 		return Config{}, err
+	}
+	if cfg.FreeDailyBudgetUSD, err = strconv.ParseFloat(valueOrDefault("FREE_DAILY_BUDGET_USD", "1"), 64); err != nil ||
+		math.IsNaN(cfg.FreeDailyBudgetUSD) || math.IsInf(cfg.FreeDailyBudgetUSD, 0) || cfg.FreeDailyBudgetUSD < 0 {
+		return Config{}, fmt.Errorf("FREE_DAILY_BUDGET_USD must be a number of dollars, zero or more")
 	}
 	if cfg.MetricsAddr == "off" {
 		cfg.MetricsAddr = ""

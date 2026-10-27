@@ -20,6 +20,7 @@ import (
 	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/config"
 	"github.com/FreshLabDev/framy/internal/db"
+	"github.com/FreshLabDev/framy/internal/free"
 	"github.com/FreshLabDev/framy/internal/fx"
 	"github.com/FreshLabDev/framy/internal/health"
 	"github.com/FreshLabDev/framy/internal/jobs"
@@ -139,6 +140,13 @@ func run(log *slog.Logger) error {
 	if files != nil {
 		jobsCfg.Sink, jobsCfg.Inputs = files, files
 	}
+	// Every free job asks the allowance before it is created or queued.
+	allowance, keyWatch, err := openAllowance(cfg, store, client, userAgent, log)
+	if err != nil {
+		return err
+	}
+	defer allowance.Wait()
+	jobsCfg.Admit = allowance
 	queue, err := jobs.NewQueue(store.Pool(), jobsCfg)
 	if err != nil {
 		return err
@@ -212,6 +220,9 @@ func run(log *slog.Logger) error {
 		workers.Go(func() { rates.Run(ctx) })
 	}
 	workers.Go(func() { sweepWork(ctx, work, log) })
+	if keyWatch != nil {
+		workers.Go(func() { keyWatch.Run(ctx) })
+	}
 	workers.Go(func() {
 		log.Info("telegram polling starting")
 		if err := b.Run(ctx); err != nil {
@@ -386,4 +397,35 @@ func openAIKey() func(context.Context, jobs.Job) (string, error) {
 // paid. The free allowance never runs on Gemini.
 func geminiKey(context.Context, jobs.Job) (string, error) {
 	return "", &jobs.Error{Class: jobs.Key, Err: errors.New("no Gemini key connected yet")}
+}
+
+// openAllowance builds the free allowance. With framy's own OpenRouter key it
+// also builds the watch that reads the key's limit, which the caller runs.
+func openAllowance(cfg config.Config, store *db.Store, client *tg.Client, userAgent string, log *slog.Logger) (*free.Allowance, *free.KeyWatch, error) {
+	log = log.With("component", "free")
+	fc := free.Config{Pool: store.Pool(), DailyBudgetUSD: cfg.FreeDailyBudgetUSD, Log: log}
+	var watch *free.KeyWatch
+	if cfg.OpenRouterKey != "" {
+		reader := openrouter.New(openrouter.Config{Base: cfg.OpenRouterAPIBase, UserAgent: userAgent})
+		watch = free.NewKeyWatch(func(ctx context.Context) (free.KeyState, error) {
+			info, err := reader.KeyInfo(ctx, cfg.OpenRouterKey)
+			if err != nil || info.Remaining == nil {
+				// A key without a limit has none to run out of.
+				return free.KeyState{}, err
+			}
+			return free.KeyState{Limited: true, RemainingUSD: *info.Remaining, Daily: info.Reset == "daily"}, nil
+		}, free.DefaultKeyEvery, log)
+		fc.Key = watch
+	}
+	if cfg.OperatorChatID != 0 {
+		fc.Notify = func(ctx context.Context, text string) error {
+			_, err := client.SendPlainText(ctx, cfg.OperatorChatID, text)
+			return err
+		}
+	}
+	allowance, err := free.New(fc)
+	if err != nil {
+		return nil, nil, err
+	}
+	return allowance, watch, nil
 }

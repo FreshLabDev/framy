@@ -181,3 +181,24 @@ func TestCatalogSyncCanBeTurnedOff(t *testing.T) {
 		t.Fatalf("CatalogEvery = %v", cfg.CatalogEvery)
 	}
 }
+
+func TestLoadFreeDailyBudget(t *testing.T) {
+	setBase(t)
+	t.Setenv("FREE_DAILY_BUDGET_USD", "")
+	cfg, err := Load()
+	if err != nil || cfg.FreeDailyBudgetUSD != 1 {
+		t.Fatalf("the default = %v, %v; the owner set $1 a day", cfg.FreeDailyBudgetUSD, err)
+	}
+	for value, want := range map[string]float64{"2.5": 2.5, "0": 0, " 0.75 ": 0.75} {
+		t.Setenv("FREE_DAILY_BUDGET_USD", value)
+		if cfg, err := Load(); err != nil || cfg.FreeDailyBudgetUSD != want {
+			t.Errorf("FREE_DAILY_BUDGET_USD=%q = %v, %v; want %v", value, cfg.FreeDailyBudgetUSD, err, want)
+		}
+	}
+	for _, bad := range []string{"-1", "a lot", "NaN", "Inf", "$1"} {
+		t.Setenv("FREE_DAILY_BUDGET_USD", bad)
+		if _, err := Load(); err == nil {
+			t.Errorf("FREE_DAILY_BUDGET_USD=%q was accepted", bad)
+		}
+	}
+}

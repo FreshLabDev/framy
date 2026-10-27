@@ -114,6 +114,11 @@ models:
     price:
       tokens: {output_image: {"*": 1024}}
 
+  # The free allowance's model for albums of more than 5 photos, and its
+  # fallback; the blind test confirms it (docs/design.md, Free tier).
+  black-forest-labs/flux-3-image-klein:
+    free: true
+
   # Krea's dearer variants are for style references and moodboards, which
   # framy does not send.
   krea/krea-2-large:
@@ -233,11 +238,15 @@ models:
   minimax/hailuo-3-max:
     featured: true
 
+  # The free videos, a proposal until the blind test: HeyGen, and Grok Lite
+  # as the cheaper one from another vendor.
   x-ai/grok-imagine-video-1.5-lite:
     featured: true
+    free: true
 
   heygen/heygen-video-1:
     featured: true
+    free: true
 
   google/gemini-omni-1.1-flash:
     name: Gemini Omni 1.1 Flash

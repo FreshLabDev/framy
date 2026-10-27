@@ -86,7 +86,9 @@ screen, a command or a table, check how the siblings do it.
   7 days per Telegram user id, across every surface, on the models the design
   names. The video can instead be an edit of a clip up to 5 s on FLUX Video
   Edit. It is counted from `job`, not stored separately, and a global daily
-  budget closes it. Changing the counts, the windows or the models is the
+  budget ($1, `FREE_DAILY_BUDGET_USD`) and the limit on framy's OpenRouter key
+  close it. `internal/free` checks it inside the transaction that creates or
+  queues a free job. Changing the counts, the windows or the models is the
   owner's call.
 - People's keys are encrypted at rest with AES-GCM under a KEK read from a file.
   Only the last four characters are ever shown. A key never appears in a log

@@ -286,15 +286,16 @@ Whether `CF-IPCountry` reaches the service through the Cloudflare Tunnel is not 
   | Video edit **(owner)** | `black-forest-labs/flux-video-edit`, a clip up to 5 s | $0.15 | not rated | the clip | Instead of the generated video; keeps the clip's length and sound |
 
   MAI 2.6 Flash is billed in tokens ($19 per million output tokens), and the price per image is Artificial Analysis's figure, not OpenRouter's. HeyGen at 480p costs $0.10 for 5 s if 768p turns out too expensive. Not chosen: `gpt-image-2.5-flare` at `low` ($0.0059) and `medium` ($0.0132), since nobody has rated those levels. `meta/muse-image` (1129 for $0.01) is not in the Images API.
-- **Fixed settings:** the image model at about 1K with one result; the video model at 5 s and 768p, with an optional start frame and no references. Other controls are locked with "with your key".
+- **Fixed settings:** the image model at about 1K with one result; the video model at 5 s and 768p, with an optional start frame and no references. Other controls are locked with "with your key". The server holds the same line: a free job on another model, with another setting or with more files than the model takes is refused before anything is created.
 - **Video edit (owner, 27 October):** the weekly video can instead be an edit of a clip up to 5 s on `flux-video-edit`, $0.15, cheaper than the generated one. Either one uses up the week. A longer clip gets the same two ways out as above **(owner)**: pick 5 s of it, or pick a model that takes more, which runs on the person's own key.
 - **Payer:** framy's own OpenRouter key (`OPENROUTER_API_KEY`, or a file through `OPENROUTER_API_KEY_FILE`): one bill, no OpenAI limit of 20 images a minute. Without it a free run fails as `key` before anything is paid.
+- **Where it is checked.** The jobs queue asks `internal/free` inside the transaction that creates or queues a free job, under a lock per person and then one for the budget, so two requests at once cannot both take the last slot or the last cents. A draft takes no slot until "Generate", which checks again.
+- **What counts.** By the time the run was queued. A run takes a slot while it is queued or running, when it is done, and when the provider refused it for its content (`moderation`), so probing costs something. A run that failed otherwise, including one refused for a setting, was cancelled or expired takes nothing. A repeated request is the same run, not a second.
 - **Two fuses:**
-  - a global daily budget: when it is spent, the free tier closes until 00:00 UTC with a plain message;
-  - the limit with a daily reset on framy's OpenRouter key.
+  - **The day's budget (owner, 27 October):** $1 a day, about 50 free images (`FREE_DAILY_BUDGET_USD`). A run is refused when what the day's free runs have cost, plus its own estimate, would pass it, and the tier stays closed until 00:00 UTC with a plain message. A run costs its estimate while it is queued or running and what the provider charged once it ended. One that may have been paid and has no cost on the books (done with none reported, expired, or failed as a timeout, an interruption or an unreadable answer) keeps its estimate.
+  - **The limit on framy's OpenRouter key.** The owner sets a daily limit on the key in OpenRouter. framy reads `GET /api/v1/key` every minute and closes the tier when `limit_remaining`, less the free runs still on their way, cannot pay for the run: until 00:00 UTC for a daily limit, until the limit is raised for any other. A free run that fails as `money` closes it for 15 minutes too, which also covers an account out of credit. A reading older than five minutes is ignored, since OpenRouter's own refusal still stops a run.
 
-  Proposal: $5 a day to start, about 250 free images, raised as people arrive. The amount is the owner's call.
-- **What counts.** Proposal: a run that failed at the provider (not billed) does not count; a run blocked by moderation does, so probing costs something.
+  The operator chat (`OPERATOR_CHAT_ID`) is told the first time each fuse closes the tier on a UTC day, and a notice that failed is tried again by the next refusal. A refusal is a typed error that carries which limit, when a slot frees up or until when the tier is closed, and the surfaces word it.
 
 Cost per person who uses the whole allowance, per month:
 
@@ -766,11 +767,10 @@ Live tests on a test bot and the real tunnel (details in [research/telegram.md](
 
 ## Open questions
 
-Settled on 26 October: `/f` on anyone's photo, rolling windows, every file in R2 until the person deletes it, `mai-image-2.6-flash` as the free image model.
+Settled on 26 October: `/f` on anyone's photo, rolling windows, every file in R2 until the person deletes it, `mai-image-2.6-flash` as the free image model. Settled on 27 October: the global daily budget of the free tier, $1 a day.
 
 1. The free video models, and Klein for albums and as a fallback: confirm after the blind test.
-2. The global daily budget of the free tier.
-3. Pre-moderation of free-tier prompts with OpenAI's endpoint while the traffic goes to OpenRouter.
-4. Public result links and whether a public gallery exists.
-5. A permanent domain.
-6. Sign-in other than Telegram on the site: not planned now.
+2. Pre-moderation of free-tier prompts with OpenAI's endpoint while the traffic goes to OpenRouter.
+3. Public result links and whether a public gallery exists.
+4. A permanent domain.
+5. Sign-in other than Telegram on the site: not planned now.
