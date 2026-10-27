@@ -208,6 +208,16 @@ was written from, and the skeleton of the service.
   signed-in person. Without `TELEGRAM_LOGIN_CLIENT_ID` and
   `TELEGRAM_LOGIN_CLIENT_SECRET` the site's sign-in answers 503 and the rest
   runs.
+- Connect OpenRouter, the way in for people without a key to paste:
+  OpenRouter's OAuth with PKCE (S256). `GET /oauth/openrouter/start` sends a
+  signed-in person to OpenRouter (anyone else signs in first and comes back);
+  the callback checks a `__Host-` cookie against the state, so a flow can be
+  finished only in the browser that started it, by the same person, within
+  ten minutes, and once. The key OpenRouter issues is checked and encrypted
+  like a pasted one. Every outcome returns to
+  `/?connect=openrouter&result=connected`, `cancelled`, `expired`, `signin`,
+  `refused` or `unavailable`; the code, the verifier and the key are in no
+  URL, log line or error. It needs `SITE_URL` and the KEK.
 - CI on every push and weekly: modules, gofmt, build, vet, race tests,
   database tests on PostgreSQL 17, govulncheck, the image build, the photo
   and storage tests inside the image, on the ffmpeg it ships, and the local
