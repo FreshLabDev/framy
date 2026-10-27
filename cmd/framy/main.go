@@ -119,8 +119,7 @@ func run(log *slog.Logger) error {
 	}
 	// People's own keys (#13). Without a KEK file there are none, and a run
 	// that needs one fails as key. Track writes what each run shows about its
-	// key as the connection's status. OpenAI and Gemini adapters take
-	// people.JobKey as their Key and go through people.Track the same way.
+	// key as the connection's status.
 	people, err := openKeys(ctx, cfg, store, userAgent, log)
 	if err != nil {
 		return err
@@ -134,14 +133,16 @@ func run(log *slog.Logger) error {
 				Title:     "framy",
 				Key:       openRouterKey(cfg.OpenRouterKey, people.JobKey),
 			})),
-			catalog.OpenAI: openai.New(openai.Config{
+			// Only a person's own key pays at OpenAI and Gemini, never
+			// framy's: JobKey refuses a free run.
+			catalog.OpenAI: people.Track(openai.New(openai.Config{
 				UserAgent: userAgent,
-				Key:       openAIKey(),
-			}),
-			catalog.Gemini: gemini.New(gemini.Config{
+				Key:       people.JobKey,
+			})),
+			catalog.Gemini: people.Track(gemini.New(gemini.Config{
 				UserAgent: userAgent,
-				Key:       geminiKey,
-			}),
+				Key:       people.JobKey,
+			})),
 		},
 		Log:       log.With("component", "jobs"),
 		StopGrace: cfg.JobsStopGrace,
@@ -392,22 +393,6 @@ func openRouterKey(own string, people func(context.Context, jobs.Job) (string, e
 		}
 		return own, nil
 	}
-}
-
-// openAIKey pays for OpenAI runs. Only a person's own key does, never
-// framy's, and the store of people's keys does not exist yet (#13): until it
-// does, a run fails as key before anything is paid.
-func openAIKey() func(context.Context, jobs.Job) (string, error) {
-	return func(context.Context, jobs.Job) (string, error) {
-		return "", &jobs.Error{Class: jobs.Key, Err: errors.New("no OpenAI key connected yet")}
-	}
-}
-
-// geminiKey pays for Gemini runs: only a person's own key does, and the store
-// of keys (#13) does not exist yet, so a run fails as key before anything is
-// paid. The free allowance never runs on Gemini.
-func geminiKey(context.Context, jobs.Job) (string, error) {
-	return "", &jobs.Error{Class: jobs.Key, Err: errors.New("no Gemini key connected yet")}
 }
 
 // openAllowance builds the free allowance. With framy's own OpenRouter key it

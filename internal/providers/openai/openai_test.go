@@ -562,6 +562,29 @@ func TestAnUnverifiedOrganizationIsToldFromOtherForbiddens(t *testing.T) {
 	}
 }
 
+// What an answer proves about the key reaches the connection's status
+// through the interface internal/keys reads, without an import of it.
+func TestTheKeyStatusAnAnswerProves(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		body   string
+		want   string
+	}{
+		{401, `{"error":{"message":"Incorrect API key provided","type":"invalid_request_error","code":"invalid_api_key"}}`, "invalid"},
+		{403, `{"error":{"message":"Your organization must be verified to use the model.","type":"invalid_request_error"}}`, "needs_verification"},
+		{403, `{"error":{"message":"Project does not have access to model","code":"model_not_found"}}`, ""},
+		{429, `{"error":{"message":"You exceeded your current quota","type":"insufficient_quota","code":"insufficient_quota"}}`, ""},
+		{400, `{"error":{"message":"Invalid size","type":"invalid_request_error"}}`, ""},
+	} {
+		p, _ := serve(t, reply(tc.status, tc.body))
+		_, err := p.Submit(context.Background(), job(t, medium()))
+		var hint interface{ KeyStatus() string }
+		if !errors.As(err, &hint) || hint.KeyStatus() != tc.want {
+			t.Errorf("%d %s: %v, want status %q", tc.status, tc.body, err, tc.want)
+		}
+	}
+}
+
 func TestOnlyARefusalBeforeTheRunIsRetried(t *testing.T) {
 	retried := map[jobs.Class]bool{jobs.RateLimited: true, jobs.Unavailable: true}
 	for status, body := range map[int]string{

@@ -92,8 +92,7 @@ was written from, and the skeleton of the service.
   categories, apart from money, key, refused, timeout and provider failures;
   only a 429 for the rate, a 503 and a connection never made are retried. The
   actual cost is the usage tokens times the catalog's rates for text, image
-  input and image output. Until people's keys are stored a run on OpenAI
-  fails as `key` before anything is paid.
+  input and image output.
 - The Gemini adapter for images, for a person's own key. Nano Banana 2.1,
   3.1 Flash, 3.1 Flash Lite and 3 Pro run through the Interactions API, with
   `thinking_level` and Google Search grounding, which OpenRouter does not
@@ -103,9 +102,7 @@ was written from, and the skeleton of the service.
   kept for the person. A key from a project without billing (a 429 with
   `limit: 0`) fails at once as `key` with the status `needs_billing` and is
   never retried; a spent prepaid balance and a wrong key are told apart too.
-  The actual cost is the usage tokens times the catalog's rates. Until
-  people's keys are stored a run on Gemini fails as `key` before anything is
-  paid.
+  The actual cost is the usage tokens times the catalog's rates.
 - The free allowance: 5 images in any 24 hours and 1 video in any 7 days per
   Telegram user id, across every surface, counted from the job table. Free
   runs go through framy's own OpenRouter key with fixed settings: MAI 2.6

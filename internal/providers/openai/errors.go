@@ -105,6 +105,20 @@ var moneyCodes = map[string]bool{
 // class is what the queue does with the error. Only a refusal before the run
 // started is tried again: a 429 for the rate, a 503 for a busy engine. A 500
 // or a 502 is not: nobody can tell whether the run was paid.
+// KeyStatus tells the store of people's keys (internal/keys) what the answer
+// proves about the key: a 401 is a key OpenAI does not take, and a 403 that
+// asks for verification is an organization that has to verify. Money errors
+// need no hint; their class says it. Anything else proves nothing.
+func (e *APIError) KeyStatus() string {
+	switch {
+	case e.Status == http.StatusUnauthorized:
+		return "invalid"
+	case e.NeedsVerification():
+		return "needs_verification"
+	}
+	return ""
+}
+
 func (e *APIError) class() jobs.Class {
 	switch s := e.Status; {
 	case e.Moderated():
