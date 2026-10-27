@@ -177,15 +177,33 @@ func (r *Renderer) Generating(ctx context.Context) (Media, error) {
 // the cache directory under its key, so the same line is drawn once. The bot
 // sends it and does not delete it.
 func (r *Renderer) ErrorCard(ctx context.Context, text, lang string) (Media, error) {
+	card := NewCard(text, lang)
+	text = strings.Join(strings.Fields(text), " ")
+	m, err := r.picture(ctx, card, "error", digest("error", loopVersion, Field, Width, Height, text, lang))
+	m.TextDrawn = card.TextDrawn()
+	return m, err
+}
+
+// blank is the generating loop held at its first frame.
+type blank struct{}
+
+func (blank) Size() (int, int)          { return Width, Height }
+func (blank) Duration() float64         { return 0 }
+func (blank) Draw(c *Canvas, _ float64) { Generating{}.Draw(c, 0) }
+
+// Blank returns the preview of a run that takes no photo: the generating
+// loop's first frame as a PNG, so that Generate sets the same dots moving.
+func (r *Renderer) Blank(ctx context.Context) (Media, error) {
+	return r.picture(ctx, blank{}, "blank", digest("blank", loopVersion, Field, Width, Height))
+}
+
+// picture writes the still of s as a PNG in the cache under key, once.
+func (r *Renderer) picture(ctx context.Context, s Scene, name, key string) (Media, error) {
 	if r.Cache == "" {
 		return Media{}, errNoCache
 	}
-	card := NewCard(text, lang)
-	text = strings.Join(strings.Fields(text), " ")
-	key := digest("error", loopVersion, Field, Width, Height, text, lang)
-	path := filepath.Join(r.Cache, "error-"+key+".png")
-	if m, ok := cached(path, card, key); ok {
-		m.TextDrawn = card.TextDrawn()
+	path := filepath.Join(r.Cache, name+"-"+key+".png")
+	if m, ok := cached(path, s, key); ok {
 		return m, nil
 	}
 	if err := ctx.Err(); err != nil {
@@ -201,7 +219,7 @@ func (r *Renderer) ErrorCard(ctx context.Context, text, lang string) (Media, err
 		return Media{}, err
 	}
 	enc := png.Encoder{CompressionLevel: png.BestCompression}
-	err = enc.Encode(f, Still(card, 0))
+	err = enc.Encode(f, Still(s, 0))
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
@@ -211,8 +229,7 @@ func (r *Renderer) ErrorCard(ctx context.Context, text, lang string) (Media, err
 	if err := os.Rename(part, path); err != nil {
 		return Media{}, err
 	}
-	m, _ := cached(path, card, key)
-	m.TextDrawn = card.TextDrawn()
+	m, _ := cached(path, s, key)
 	return m, nil
 }
 

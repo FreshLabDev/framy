@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package anim draws the pictures framy puts in a chat before and instead of
-// a result (docs/design.md, "/f in a group"): the album preview, where the
-// numbered photos float together in a frame; the loop shown while a job
-// runs, where a halftone of dots keeps turning from one figure into the
-// next; and the card of an error. Every frame is painted on the CPU and the
-// loops are encoded to H.264 by ffmpeg, so no browser and no GPU are needed.
+// a result (docs/design.md, "`/img` and `/edit` in a group"): the album
+// preview, where the numbered photos float together in a frame; the loop
+// shown while a job runs, where a halftone of dots keeps turning from one
+// figure into the next; and the card of an error. Every frame is painted on
+// the CPU and the loops are encoded to H.264 by ffmpeg, so no browser and no
+// GPU are needed.
 //
 // The drawing code follows maply's internal/anim, which draws the same kind
 // of loops for the maply bot and is the owner's too.

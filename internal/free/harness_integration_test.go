@@ -67,7 +67,7 @@ func testPool(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("migrate: %v", err)
 	}
 	stmts := []string{
-		`TRUNCATE framy.job_input, framy.asset, framy.job, framy.river_job`,
+		`TRUNCATE framy.chat_run, framy.job_input, framy.asset, framy.job, framy.river_job`,
 		`UPDATE framy.runtime_state SET free_budget_alert_day = NULL, free_key_alert_day = NULL`,
 		fmt.Sprintf(`INSERT INTO core.person (telegram_user_id) SELECT 1000 + n FROM generate_series(1, %d) n ON CONFLICT DO NOTHING`, people),
 		`INSERT INTO framy.catalog_model (id, kind, name, maker) VALUES ('test/image', 'image', 'Test image', 'test') ON CONFLICT DO NOTHING`,

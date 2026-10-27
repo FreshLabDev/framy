@@ -95,7 +95,7 @@ func TestResolveFallsBackToEnglish(t *testing.T) {
 	}
 }
 
-// The line the /f preview shows when framy cannot see a whole album: said in
+// The line the /img preview shows when framy cannot see a whole album: said in
 // each language, with the bot's name in lowercase as the family writes it.
 func TestAlbumNotAdminIsSaidInEveryLanguage(t *testing.T) {
 	const english = "I see 1 photo of the album. Make framy an admin to take whole albums."

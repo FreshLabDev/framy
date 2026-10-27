@@ -48,6 +48,10 @@ type Config struct {
 	R2 R2
 	// WorkDir holds the working files of uploads and results.
 	WorkDir string
+	// AnimCache keeps the pictures every chat run shares: the generating
+	// loop, the still of a preview with no photo, the error cards. Nothing
+	// in it is a person's; it is drawn again when it is gone.
+	AnimCache string
 	// FFmpeg and FFprobe are the binaries that normalize photos.
 	FFmpeg, FFprobe string
 	// OperatorChatID hears about the bucket's size; zero logs instead.
@@ -132,6 +136,7 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	cfg.WorkDir = valueOrDefault("WORK_DIR", filepath.Join(os.TempDir(), "framy"))
+	cfg.AnimCache = valueOrDefault("ANIM_CACHE_DIR", filepath.Join(os.TempDir(), "framy-anim"))
 	cfg.FFmpeg = valueOrDefault("FFMPEG", "ffmpeg")
 	cfg.FFprobe = valueOrDefault("FFPROBE", "ffprobe")
 	if v := valueOrDefault("OPERATOR_CHAT_ID", ""); v != "" {

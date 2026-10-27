@@ -141,7 +141,7 @@ ever be true of either.
 framy has no release yet. The first line:
 
 ```text
-v0.1.0-alpha.N  the service, the site, the free images and /f
+v0.1.0-alpha.N  the service, the site, the free images and /img
 v0.1.0-beta.N   images work end to end on the site, in the Mini App and in groups
 v0.1.0-rc.N     a closed week with a few groups, only fixes land
 v0.1.0          first public MVP: images

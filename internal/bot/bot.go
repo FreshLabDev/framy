@@ -81,6 +81,8 @@ type Bot struct {
 	appURL string
 	// readTimeout bounds what the home panel reads about the person.
 	readTimeout time.Duration
+	// flow runs /img and /edit; nil leaves them unanswered.
+	flow        Flow
 	lastPoll    atomic.Int64
 	initialized atomic.Bool
 }
@@ -100,6 +102,19 @@ func WithConnections(c Connections) Option { return func(b *Bot) { b.connections
 // App. Telegram takes only https for either, so any other address leaves both
 // out.
 func WithSiteURL(site string) Option { return func(b *Bot) { b.appURL = site } }
+
+// Flow runs /img and /edit and the buttons of their previews: *chat.Flow.
+// Both calls return at once and work in the background, since the bot
+// handles one update at a time.
+type Flow interface {
+	Command(ctx context.Context, m *tg.Message, command, prompt string)
+	// Owns reports whether callback data is a run's button.
+	Owns(data string) bool
+	Callback(ctx context.Context, cq *tg.CallbackQuery)
+}
+
+// WithFlow answers /img and /edit.
+func WithFlow(f Flow) Option { return func(b *Bot) { b.flow = f } }
 
 // New takes the username and the id Preflight returned: the username tells a
 // command for framy from one for another bot in the same group, and the id is

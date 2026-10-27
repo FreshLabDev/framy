@@ -15,30 +15,51 @@ import (
 // is meant for framy. In a group a bare /start is for every bot there, and
 // /start@another is not ours.
 func (b *Bot) command(m *tg.Message) (string, bool) {
+	cmd, _, ok := b.commandArgs(m)
+	return cmd, ok
+}
+
+// commandArgs is command with the text after it. A photo's caption carries a
+// command as well: /img as the caption of one's own photo edits that photo.
+func (b *Bot) commandArgs(m *tg.Message) (cmd, rest string, ok bool) {
 	if m.From == nil || m.From.IsBot {
-		return "", false
+		return "", "", false
 	}
-	head, _, _ := strings.Cut(strings.TrimSpace(m.Text), " ")
+	text := m.Text
+	if text == "" {
+		text = m.Caption
+	}
+	text = strings.TrimSpace(text)
+	head, rest, _ := strings.Cut(text, " ")
+	// "/img\na fox" is a command too.
+	if h, r, found := strings.Cut(head, "\n"); found {
+		head, rest = h, r+" "+rest
+	}
 	if !strings.HasPrefix(head, "/") {
-		return "", false
+		return "", "", false
 	}
 	cmd, at, addressed := strings.Cut(head[1:], "@")
 	if addressed && !strings.EqualFold(at, b.username) {
-		return "", false
+		return "", "", false
 	}
-	return strings.ToLower(cmd), cmd != ""
+	return strings.ToLower(cmd), strings.TrimSpace(rest), cmd != ""
 }
 
 func (b *Bot) onMessage(ctx context.Context, m *tg.Message) error {
 	if handled, err := b.keyInChat(ctx, m); handled {
 		return err
 	}
-	cmd, ok := b.command(m)
+	cmd, rest, ok := b.commandArgs(m)
 	if !ok {
 		return nil
 	}
 	private := m.Chat.Type == "private"
 	switch cmd {
+	case "img", "edit":
+		if b.flow != nil {
+			b.flow.Command(ctx, m, cmd, rest)
+		}
+		return nil
 	case "start":
 		// In a group /start is registered as ephemeral, so the panel is seen
 		// by the one who asked. An ordinary /start there would put one
@@ -158,6 +179,10 @@ func addressable(m tg.Message) bool {
 }
 
 func (b *Bot) onCallback(ctx context.Context, cq *tg.CallbackQuery) error {
+	if b.flow != nil && b.flow.Owns(cq.Data) {
+		b.flow.Callback(ctx, cq)
+		return nil
+	}
 	owner, action, ok := parseMenuCB(cq.Data)
 	if !ok {
 		return b.tg.AnswerCallbackQuery(ctx, cq.ID, "")

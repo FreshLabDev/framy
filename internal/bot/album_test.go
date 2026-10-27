@@ -211,7 +211,7 @@ func TestEveryAlbumMessageIsNotedCommandOrNot(t *testing.T) {
 	b, store, client := newBot()
 	ctx := context.Background()
 	first := photoMessage(groupChat, 21, "g1")
-	first.Caption = "/f make it a painting"
+	first.Caption = "/img make it a painting"
 	second := photoMessage(groupChat, 22, "g1")
 	second.Caption = "my holiday"
 	third := photoMessage(dmChat, 23, "g2")

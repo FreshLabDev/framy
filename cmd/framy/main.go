@@ -16,10 +16,12 @@ import (
 	"github.com/FreshLabDev/tg"
 
 	catalogfiles "github.com/FreshLabDev/framy/catalog"
+	"github.com/FreshLabDev/framy/internal/anim"
 	"github.com/FreshLabDev/framy/internal/api"
 	"github.com/FreshLabDev/framy/internal/auth"
 	"github.com/FreshLabDev/framy/internal/bot"
 	"github.com/FreshLabDev/framy/internal/catalog"
+	"github.com/FreshLabDev/framy/internal/chat"
 	"github.com/FreshLabDev/framy/internal/config"
 	"github.com/FreshLabDev/framy/internal/db"
 	"github.com/FreshLabDev/framy/internal/free"
@@ -165,17 +167,29 @@ func run(log *slog.Logger) error {
 	}
 	defer allowance.Wait()
 	jobsCfg.Admit = allowance
-	// The bot comes after the allowance and the keys: the home panel of a
-	// direct chat shows what is left of the one and what is connected of the
-	// other.
-	b := bot.New(store, client, log, me.Username, me.ID, version,
-		bot.WithAllowance(allowance), bot.WithConnections(people), bot.WithSiteURL(cfg.SiteURL))
 	queue, err := jobs.NewQueue(store.Pool(), jobsCfg)
 	if err != nil {
 		return err
 	}
 	if err := queue.Start(ctx); err != nil {
 		return fmt.Errorf("start the job queue: %w", err)
+	}
+	// /img and /edit in chats (#24) make jobs on the queue and keep their
+	// photos in the bucket.
+	flow, err := openFlow(ctx, cfg, client, store, queue, files, work, allowance, people, log)
+	if err != nil {
+		return err
+	}
+	// The bot comes after the allowance, the keys and the flow: the home
+	// panel of a direct chat shows what is left of the one and what is
+	// connected of the other, and the flow answers /img.
+	opts := []bot.Option{bot.WithAllowance(allowance), bot.WithConnections(people), bot.WithSiteURL(cfg.SiteURL)}
+	if flow != nil {
+		opts = append(opts, bot.WithFlow(flow))
+	}
+	b := bot.New(store, client, log, me.Username, me.ID, version, opts...)
+	if flow != nil {
+		flow.SetAlbums(b)
 	}
 
 	// Sign-in (#18): the site through Telegram Login, the Mini App through its
@@ -313,6 +327,12 @@ func run(log *slog.Logger) error {
 	if keyWatch != nil {
 		workers.Go(func() { keyWatch.Run(ctx) })
 	}
+	if flow != nil {
+		workers.Go(func() {
+			flow.Run(ctx)
+			flow.Wait()
+		})
+	}
 	workers.Go(func() {
 		log.Info("telegram polling starting")
 		if err := b.Run(ctx); err != nil {
@@ -438,6 +458,25 @@ func openStorage(ctx context.Context, cfg config.Config, store *db.Store, client
 	}
 	log.Info("storage ready", "bucket", cfg.R2.Bucket, "work_dir", cfg.WorkDir)
 	return files, work, nil
+}
+
+// openFlow sets up /img and /edit. Without the bucket, or with an ffmpeg that
+// cannot draw the loops, they are off and the rest runs.
+func openFlow(ctx context.Context, cfg config.Config, client *tg.Client, store *db.Store, queue *jobs.Queue,
+	files *storage.Store, work media.Work, allowance *free.Allowance, people *keys.Service, log *slog.Logger) (*chat.Flow, error) {
+	if files == nil {
+		log.Warn("no bucket, so /img is off: the photos a run takes and its results are kept there")
+		return nil, nil
+	}
+	renderer := &anim.Renderer{FFmpeg: cfg.FFmpeg, Cache: cfg.AnimCache}
+	if err := renderer.Check(ctx); err != nil {
+		log.Error("the loops cannot be drawn, so /img is off", "error", err)
+		return nil, nil
+	}
+	return chat.New(chat.Config{
+		Telegram: client, Store: store, Queue: queue, Files: files, Allowance: allowance, Keys: people,
+		Renderer: renderer, Work: work, Log: log.With("component", "chat"),
+	})
 }
 
 // sweepWork clears working files a crash left behind: at start and every

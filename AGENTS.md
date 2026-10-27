@@ -114,10 +114,11 @@ screen, a command or a table, check how the siblings do it.
 - One account per Telegram user id: `from.id` in an update,
   `initData.user.id` in the Mini App, the `id` claim of Telegram Login on the
   site.
-- `/f` in a group: without a reply it makes an image from scratch; in reply to
-  a photo it edits that photo; in reply to a photo of an album it takes every
-  photo of the album with one instruction. Allowed on anyone's photo
-  **(owner)**. Nothing is generated until the requester presses Generate, and
+- `/img` in a group: without a reply it makes an image from scratch; in reply
+  to a photo it edits that photo; in reply to a photo of an album it takes
+  every photo of the album with one instruction. `/edit` does the same for a
+  video. In a DM a plain message is enough: framy asks whether it is for an
+  image or a video. Allowed on anyone's photo **(owner)**. Nothing is generated until the requester presses Generate, and
   only the requester can press the buttons of a preview.
 - The catalog is data: synced from OpenRouter every hour, plus hand-written
   descriptors for OpenAI and Gemini in `catalog/`, joined and annotated by

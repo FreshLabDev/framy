@@ -420,7 +420,9 @@ func TestProfileIsPublishedPerLanguageAndWrittenOnlyOnChange(t *testing.T) {
 		if len(private) != 1 || private[0].Command != "start" || private[0].IsEphemeral {
 			t.Fatalf("%q private commands = %+v", code, private)
 		}
-		if len(group) != 1 || group[0].Command != "start" || !group[0].IsEphemeral {
+		// A group's menu leads with what makes things; /start is ephemeral.
+		if len(group) != 3 || group[0].Command != "img" || group[1].Command != "edit" ||
+			group[2].Command != "start" || group[0].IsEphemeral || group[1].IsEphemeral || !group[2].IsEphemeral {
 			t.Fatalf("%q group commands = %+v", code, group)
 		}
 	}

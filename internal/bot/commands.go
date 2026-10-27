@@ -30,7 +30,11 @@ func (b *Bot) publishProfile(ctx context.Context) {
 			b.log.Warn("bot commands not published", "scope", "all_private_chats", "language", code, "error", err)
 			return
 		}
-		group := []tg.BotCommand{{Command: "start", Description: i18n.T(lang, "cmd.start_group"), IsEphemeral: true}}
+		group := []tg.BotCommand{
+			{Command: "img", Description: i18n.T(lang, "cmd.img")},
+			{Command: "edit", Description: i18n.T(lang, "cmd.edit")},
+			{Command: "start", Description: i18n.T(lang, "cmd.start_group"), IsEphemeral: true},
+		}
 		if err := b.tg.SetMyCommandsForScope(ctx, group, &tg.BotCommandScope{Type: "all_group_chats", LanguageCode: code}); err != nil {
 			b.log.Warn("bot commands not published", "scope", "all_group_chats", "language", code, "error", err)
 			return

@@ -64,7 +64,7 @@ func testPool(t *testing.T) *pgxpool.Pool {
 		sql  string
 		args []any
 	}{
-		{`TRUNCATE framy.job_input, framy.asset, framy.job, framy.river_job`, nil},
+		{`TRUNCATE framy.chat_run, framy.job_input, framy.asset, framy.job, framy.river_job`, nil},
 		{`INSERT INTO core.person (telegram_user_id) VALUES ($1) ON CONFLICT DO NOTHING`, []any{person}},
 		{`INSERT INTO framy.catalog_model (id, kind, name, maker) VALUES ($1, 'image', $2, 'OpenAI') ON CONFLICT DO NOTHING`, []any{m.ID, m.Name}},
 		{`INSERT INTO framy.catalog_offer (id, model_id, provider, provider_model_id, name, params, routes, fetched_at)

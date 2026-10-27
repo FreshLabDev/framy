@@ -64,6 +64,7 @@ var (
 // Bucket is where the files are: *r2.Client.
 type Bucket interface {
 	Put(ctx context.Context, key, contentType string, body io.ReaderAt, size int64, sum string) error
+	Get(ctx context.Context, key string) (io.ReadCloser, error)
 	Delete(ctx context.Context, key string) error
 	PresignGet(key string, ttl time.Duration, disposition string) (string, error)
 }
@@ -144,6 +145,13 @@ type Asset struct {
 // picture framy takes comes back as media.ErrUnsupported, ErrTooLarge or
 // ErrUnreadable, one over the limit as ErrTooBig.
 func (s *Store) Upload(ctx context.Context, userID int64, r io.Reader) (Asset, error) {
+	return s.UploadCopy(ctx, userID, r, "")
+}
+
+// UploadCopy is Upload that also leaves a copy of the normalized picture at
+// copyTo, a path of the caller's, when it is set: the chat draws its preview
+// from the same picture the provider gets.
+func (s *Store) UploadCopy(ctx context.Context, userID int64, r io.Reader, copyTo string) (Asset, error) {
 	dir, done, err := s.work.Dir("upload")
 	if err != nil {
 		return Asset{}, err
@@ -166,6 +174,11 @@ func (s *Store) Upload(ctx context.Context, userID int64, r io.Reader) (Asset, e
 	img, err := s.media.Normalize(ctx, dir)
 	if err != nil {
 		return Asset{}, err
+	}
+	if copyTo != "" {
+		if err := copyFile(img.Path, copyTo); err != nil {
+			return Asset{}, fmt.Errorf("copy the upload: %w", err)
+		}
 	}
 	a := Asset{
 		UserID: userID, Kind: "upload", Key: fmt.Sprintf("u/%d/in/%s%s", userID, random(), ext(img.ContentType)),
@@ -402,6 +415,32 @@ func (s *Store) DeleteResults(ctx context.Context, userID, jobID int64) (int, er
 	return len(ids), nil
 }
 
+// Results are the files job id made, in order.
+func (s *Store) Results(ctx context.Context, jobID int64) ([]Asset, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, user_id, object_key, content_type, bytes, COALESCE(width, 0), COALESCE(height, 0), sha256, created_at
+		FROM asset WHERE job_id=$1 AND kind='result' ORDER BY id`, jobID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Asset
+	for rows.Next() {
+		a := Asset{Kind: "result", JobID: jobID}
+		if err := rows.Scan(&a.ID, &a.UserID, &a.Key, &a.ContentType, &a.Bytes, &a.Width, &a.Height, &a.SHA256, &a.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// Open reads a file the bot is about to send to its owner's chat. The
+// caller closes it.
+func (s *Store) Open(ctx context.Context, a Asset) (io.ReadCloser, error) {
+	return s.bucket.Get(ctx, a.Key)
+}
+
 // Link is a presigned link to a file of the person's, for the person only,
 // living minutes. With a file name the file downloads under it.
 func (s *Store) Link(ctx context.Context, userID, assetID int64, filename string) (string, error) {
@@ -548,4 +587,23 @@ func (h *headBuffer) Write(p []byte) (int, error) {
 		h.b = append(h.b, p[:min(room, len(p))]...)
 	}
 	return len(p), nil
+}
+
+// copyFile copies src to dst, which must not exist.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		os.Remove(dst)
+		return err
+	}
+	return out.Close()
 }

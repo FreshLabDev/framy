@@ -32,7 +32,7 @@ framy is deliberately narrow:
 | One place to make an image or a video | One prompt line and every model your keys unlock |
 | Changing a video you already have | Attach it like a photo, uploaded or made in framy; the editing models are in the same list |
 | An honest price | The provider's price before every run, in USD and in your currency; the actual cost after |
-| Telegram as a first-class place | `/f` in any group, whole albums as input, a preview to confirm, the result in place |
+| Telegram as a first-class place | `/img` and `/edit` in any group, whole albums as input, a preview to confirm, the result in place |
 | Models that change every month | The catalog is data synced from OpenRouter every hour, not code |
 | Not another credit reseller | A small free allowance; everything else runs on your own keys with nothing added |
 | Familiar stack | Go, the family's `tg` client, shared Asterfield `core`, one service |
@@ -44,7 +44,7 @@ framy is deliberately narrow:
 | Channel | Version | Meaning |
 |:--|:--|:--|
 | Stable | — | Nothing released yet |
-| Next | `v0.1.0-alpha.1` | The service, the site, the free images and `/f` |
+| Next | `v0.1.0-alpha.1` | The service, the site, the free images and `/img` |
 
 The design and the research behind it are here. The Go service connects to
 the database as `framy_core`, polls Telegram, records people and groups in
@@ -61,8 +61,8 @@ OpenRouter every hour. It makes nothing yet. Work is tracked on the
 |:--|:--|
 | Site | Composer, model picker with prices, history, settings, provider connections. The main interface |
 | Mini App | The same frontend, opened from the bot |
-| Group | `/f a prompt`: an image from scratch, or an edit when it replies to a photo or an album |
-| DM | The same as a group, plus settings and results made on the site |
+| Group | `/img a prompt`: an image from scratch, or an edit when it replies to a photo or an album. `/edit a prompt` in reply to a video |
+| DM | A plain message, then a choice of image or video; settings and results made on the site |
 
 In a group, framy first shows which photos it took and asks "Generate?". Only
 after Yes does the message turn into a progress loop and then into the result.
@@ -92,7 +92,7 @@ API server.
 
 ```text
 http server -> site and Mini App, API, progress over SSE, OAuth, webhooks
-bot         -> /f in groups and DMs, album cache, delivery
+bot         -> /img and /edit in groups and DMs, album cache, delivery
 workers     -> jobs in Postgres, OpenRouter / OpenAI / Gemini adapters
 catalog     -> hourly OpenRouter sync, descriptors, daily currency rates
 ```
@@ -103,7 +103,7 @@ catalog     -> hourly OpenRouter sync, descriptors, daily currency rates
 
 | Document | Purpose |
 |:--|:--|
-| [Design](docs/design.md) | The product: surfaces, accounts, keys, catalog, prices, the free allowance, jobs, `/f`, storage, security |
+| [Design](docs/design.md) | The product: surfaces, accounts, keys, catalog, prices, the free allowance, jobs, `/img` and `/edit`, storage, security |
 | [Research](docs/research/README.md) | Models, providers, Telegram and the build, with sources (in Russian) |
 | [Versioning](docs/versioning.md) | Pre-release and stable version line |
 | [Release process](docs/releases.md) | Changelog, GitHub Release, deploying |

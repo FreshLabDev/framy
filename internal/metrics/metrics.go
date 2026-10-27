@@ -81,7 +81,7 @@ var (
 	UpdatesFailed  = registerCounter("framy_updates_failed_total", "Telegram updates whose handler returned an error.")
 	PollFailures   = registerCounter("framy_poll_failures_total", "getUpdates calls that failed.")
 	TouchFailures  = registerCounter("framy_core_touch_failures_total", "core.touch calls that failed.")
-	AlbumFailures  = registerCounter("framy_album_note_failures_total", "Album items that could not be saved, so /f may take fewer photos than the album has.")
+	AlbumFailures  = registerCounter("framy_album_note_failures_total", "Album items that could not be saved, so /img may take fewer photos than the album has.")
 
 	CatalogSyncs        = registerCounter("framy_catalog_syncs_total", "Catalog syncs saved.")
 	CatalogSyncFailures = registerCounter("framy_catalog_sync_failures_total", "Catalog syncs that failed and changed nothing.")

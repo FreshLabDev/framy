@@ -1,8 +1,8 @@
 -- SPDX-License-Identifier: Apache-2.0
--- The items of albums that passed through a chat (docs/design.md, `/f` in a
--- group, Albums). Telegram sends every photo of an album as a message of its
+-- The items of albums that passed through a chat (docs/design.md, `/img` and
+-- `/edit` in a group, Albums). Telegram sends every photo of an album as a message of its
 -- own and a reply names only one of them, so framy keeps what it sees and
--- reads the whole album back when someone answers one photo with /f. A bot
+-- reads the whole album back when someone answers one photo with /img. A bot
 -- sees every message of a group only as an admin, and always in a DM.
 --
 -- This is a cache, not a record: rows go after 48 hours (the bot deletes them

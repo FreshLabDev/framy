@@ -78,7 +78,7 @@ func pg(t *testing.T) (*db.Store, *pgxpool.Pool) {
 		t.Fatalf("migrate: %v", err)
 	}
 	for _, stmt := range []string{
-		`TRUNCATE framy.job_input, framy.asset, framy.job, framy.river_job, framy.fx_rate, framy.profile`,
+		`TRUNCATE framy.chat_run, framy.job_input, framy.asset, framy.job, framy.river_job, framy.fx_rate, framy.profile`,
 		`UPDATE framy.runtime_state SET bucket_alert_step = 0`,
 		`INSERT INTO core.person (telegram_user_id) VALUES (1001), (1002) ON CONFLICT DO NOTHING`,
 		`INSERT INTO framy.catalog_model (id, kind, name, maker, free) VALUES

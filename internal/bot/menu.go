@@ -180,7 +180,7 @@ func (v view) closeButton() tg.InlineKeyboardButton {
 // that leads yet, and generating will.
 func (v view) home(admin bool, groupLang string) (string, *tg.InlineKeyboardMarkup) {
 	if v.sc == scopeGroup {
-		text := panel(productName, "", v.t("home.hint"), quote(v.t("home.group"), v.t("home.soon")))
+		text := panel(productName, "", v.t("home.hint"), quote(v.t("home.group")))
 		var rows []row
 		if admin {
 			rows = append(rows, row{{Text: v.t("btn.group_language", "language", v.languageLabel(groupLang)), CallbackData: cb(v.owner, actGroupLang)}})

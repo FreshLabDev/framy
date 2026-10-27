@@ -16,8 +16,8 @@ import (
 
 // Telegram sends every photo of an album as a message of its own, and a
 // reply holds only the photo that was answered. So the bot keeps the items of
-// albums as they pass (docs/design.md, `/f` in a group, Albums) and /f reads
-// the rest back. It sees them all in a direct chat, and in a group only while
+// albums as they pass (docs/design.md, `/img` and `/edit` in a group,
+// Albums) and /img reads the rest back. It sees them all in a direct chat, and in a group only while
 // it is an admin: Telegram hides the other messages from a bot in privacy
 // mode, and admin rights open them without any right to act.
 //
@@ -81,7 +81,7 @@ func (a *arrivals) at(k albumKey) time.Time {
 
 // albumItem is what the cache keeps of a message: the file to fetch again,
 // and never the text. It reports false for a message that is not in an album,
-// is not in a direct chat, a group or a supergroup, or carries nothing /f
+// is not in a direct chat, a group or a supergroup, or carries nothing /img
 // could use.
 func albumItem(m *tg.Message) (db.AlbumItem, bool) {
 	if m.MediaGroupID == "" {
@@ -160,7 +160,7 @@ func imageOrVideo(mime string) bool {
 }
 
 // noteAlbumItem keeps the item a message carries, command or not. A failure
-// is logged and counted and never stops the update: /f will take fewer
+// is logged and counted and never stops the update: /img will take fewer
 // photos and the preview says how many it took.
 //
 // A direct message that looks like a key is deleted on arrival and nothing
@@ -187,7 +187,7 @@ func (b *Bot) noteAlbumItem(ctx context.Context, m *tg.Message) {
 // that stopped growing earlier, or that the bot has not seen grow in the last
 // minute, is read at once.
 //
-// The update loop keeps noting items while Album waits, so the flow of /f
+// The update loop keeps noting items while Album waits, so the flow of /img
 // calls it from a goroutine of its own. Called from inside the loop it would
 // hold the loop up, and nothing new could arrive meanwhile. It returns what
 // the bot saw, which is the whole album only when the bot sees every message

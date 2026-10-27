@@ -231,6 +231,6 @@ FRAMY_TEST_DATABASE_URL=postgres://framy:framy@localhost:5432/framy_test?sslmode
 CI additionally runs `go mod verify`, `govulncheck` and the Docker build.
 
 For `beta`, `rc`, and stable, on the test bot: a free image on the site, in the
-Mini App and by `/f` on an album in a group; a run on a pasted key and one on an
-OpenRouter connection; the estimate shown before each run compared with the
+Mini App and by `/img` on an album in a group; a run on a pasted key and one on
+an OpenRouter connection; the estimate shown before each run compared with the
 cost the provider reported after it.

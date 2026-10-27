@@ -266,7 +266,7 @@ was written from, and the skeleton of the service.
   5 minutes and the copy 3 more, where an image's call keeps its 3, so a
   large clip on a slow link is not cut off after it was paid. The free video
   plans (HeyGen, Grok Lite, FLUX Video Edit) run through it.
-- The album cache that `/f` in reply to one photo of an album will read.
+- The album cache that `/img` in reply to one photo of an album reads.
   Telegram sends every photo of an album as a message of its own, and a reply
   names only one, so framy keeps the photos, videos and image or video
   documents of the albums it sees (migration 013, table `album_item`): where
@@ -278,8 +278,29 @@ was written from, and the skeleton of the service.
   a cap the caller sets, and `Bot.SeesEveryMessage` asks Telegram on every
   call whether framy is an admin of the chat, so the preview can say how much
   of the album it took. framy now also asks Telegram for `edited_message`,
-  since an edit can swap the photo of an item. Nothing sends an album to a
-  model yet: `/f` is the next change.
+  since an edit can swap the photo of an item.
+- `/img` in groups and DMs, the first way to make an image from Telegram.
+  `/img a prompt` alone makes one from scratch; in reply to a photo, an image
+  document or a photo of an album, or as the caption of one's own photos, it
+  edits them, up to 10 photos. framy answers the command with a preview: the
+  photos floating in their frame (or the empty frame), the prompt, the model,
+  what was taken and what was left out, and the price. Nothing runs until the
+  requester presses Generate, and No deletes the preview. Generate turns the
+  preview into the generating loop, with the elapsed time in the caption and
+  a Stop button; a result ready within 25 s replaces the loop in place, a
+  slower one comes as a reply, and a failed run becomes a card that names the
+  reason. The reaction on the command says where the run stands: 👀, then ✍,
+  then 👌 (Telegram does not let a bot react with ✅). Only the requester can
+  press the buttons. A run is paid from the free allowance first (MAI Image
+  2.6 Flash up to 5 photos, FLUX.3 Klein up to 10) and from the person's own
+  OpenRouter key when the allowance is used up or paused. framy keeps every
+  run in `chat_run` (migration 014), so a restart picks it up where it was.
+  `/edit` is in the group menu for video and answers that video in chats is
+  not open yet. Model, Settings, Again and Animate come later.
+- `/img` is off, and the log says why, when there is no R2 bucket or ffmpeg
+  lacks libx264. The loops and cards are kept in `ANIM_CACHE_DIR` (by default
+  `framy-anim` in the system temp directory), outside `WORK_DIR`, which is
+  swept every hour.
 - CI on every push and weekly: modules, gofmt, build, vet, race tests,
   database tests on PostgreSQL 17, govulncheck, the image build, the photo
   and storage tests inside the image, on the ffmpeg it ships, and the local
@@ -289,9 +310,9 @@ was written from, and the skeleton of the service.
 
 - `docs/design.md`: what framy is, the surfaces (site, Mini App, groups, DMs),
   accounts through Telegram, providers and people's keys, the model catalog,
-  prices in USD and the person's currency, the free allowance, jobs, `/f` in a
-  group with albums, storage in Cloudflare R2, security and operations, the
-  changes framy needs in `tg`, and the stages.
+  prices in USD and the person's currency, the free allowance, jobs, `/img`
+  and `/edit` in a group with albums, storage in Cloudflare R2, security and
+  operations, the changes framy needs in `tg`, and the stages.
 - `docs/research/`: the research of 26 October 2026 behind the design, in
   Russian, with sources: image and video models, providers, Telegram, and how
   to build and run the service.

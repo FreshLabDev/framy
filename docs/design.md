@@ -12,7 +12,7 @@ Marks used below: **(owner)** is a decision of the owner of 26 October 2026; **P
 |:--|:--|
 | One place to make an image or a video | A site with one prompt line and every model the person's keys unlock |
 | Honest price | The provider's price before every run, in USD and in the person's currency; the actual cost after |
-| Telegram is not an afterthought | `/f` in any group, whole albums as input, a preview to confirm, the result in place |
+| Telegram is not an afterthought | `/img` and `/edit` in any group, whole albums as input, a preview to confirm, the result in place |
 | Models change every month | The catalog is data pulled from OpenRouter every hour, not code |
 | framy is not a credit reseller | Free: 5 images a day and 1 video a week **(owner)**; the rest on the person's keys **(owner)** |
 | Familiar stack | Go, the family's `tg` client, shared Asterfield `core`, one service on ws04 |
@@ -23,7 +23,7 @@ Marks used below: **(owner)** is a decision of the owner of 26 October 2026; **P
 |:--|:--|:--|
 | Site | Composer, model picker, history, settings, provider connections. The main interface **(owner)** | 1 |
 | Mini App | The same frontend on the same origin, opened from the bot | 1, polished in 3 |
-| Group chat | `/f` with a preview, confirmation, progress and the result in the chat **(owner)** | 1 |
+| Group chat | `/img` and `/edit` with a preview, confirmation, progress and the result in the chat **(owner)** | 1 |
 | DM | The same as a group, plus settings and delivery of results made on the site | 1 |
 | Inline mode | The person's past results by `file_id`, a button into the Mini App | 3 |
 | Guest mode | `@framyin_bot …` in reply to a photo in a chat where framy is not a member | 3 |
@@ -442,21 +442,23 @@ A message OpenAI echoes with the start of a wrong key is cut of it before it is 
 
 **Stop.** A queued job is cancelled, and its River job with it. A running image cannot be stopped at the provider: it finishes, goes to the history and is not posted to the chat. Whether OpenRouter can cancel a video job has not been checked. A stop of the process waits for runs in progress up to `JOBS_STOP_GRACE` (3 min 30 s, longer than an image call), and the container's `stop_grace_period` is 4 minutes; a run cut short anyway fails as `interrupted`.
 
-## `/f` in a group
+## `/img` and `/edit` in a group
 
-### What the command does
+### What the commands do
+
+Two commands **(owner, 27 October)**: `/img` makes or edits images, `/edit` edits a video. In a DM the person needs neither: a plain message gets a question, image or video, and the answer starts the same flow (see DM).
 
 | Message | Result |
 |:--|:--|
-| `/f text`, not a reply | an image from scratch **(owner)** |
-| `/f text` in reply to a photo or an image document | that image edited **(owner)** |
-| `/f text` in reply to a photo from an album | all photos of the album with one instruction **(owner)** |
-| `/f text` in reply to a video or a video document, or as the caption of one's own video | that video edited on the person's video editor, `flux-video-edit` by default **(owner)** |
-| `/f text` as the caption of one's own photo or album | those photos edited (proposal) |
+| `/img text`, not a reply | an image from scratch **(owner)** |
+| `/img text` in reply to a photo or an image document | that image edited **(owner)** |
+| `/img text` in reply to a photo from an album | all photos of the album with one instruction **(owner)** |
+| `/img text` as the caption of one's own photo or album | those photos edited |
+| `/edit text` in reply to a video or a video document, or as the caption of one's own video | that video edited on the person's video editor, `flux-video-edit` by default **(owner)** |
 | a plain reply to a framy result | the result refined; this reaches the bot even in privacy mode (proposal) |
-| `/f` with no text | the preview asks what to do; the next reply to it becomes the prompt (proposal) |
+| `/img` with no text | a short answer with an example of the command |
 
-Video in chat uses the same command. Proposal: the preview has an Image / Video switch, and every image result has "Animate".
+Video in chats is not open yet: `/edit`, and `/img` on a video, answer so. Proposal: every image result has "Animate".
 
 ### Albums
 
@@ -467,48 +469,52 @@ Telegram sends each photo of an album as its own message with a shared `media_gr
    - never the text or the caption, and nothing from a DM that looks like a key;
    - every message of an album is noted, a command or not, in a group, a supergroup or a DM. An edited message is noted again, since an edit can swap the file, and a replayed update changes nothing.
 
-   When `/f` arrives together with an album or right after it, framy waits for the rest. It keeps in memory when each album last got an item (and forgets an album after a minute), and waits until none has come for 1.5 s, but no longer than a cap the caller sets. An album that has been quiet longer is read at once, so a `/f` sent a minute later pays no wait. The wait runs beside polling and never holds it up. framy asks to be made an admin at the first `/f` on an album, not when it is added. Privacy mode stays on: turning it off is global and makes the bot read every message of every group.
-2. **Without admin rights,** the preview shows the one photo and says "I see 1 photo of the album. Make framy an admin to take whole albums." framy asks Telegram for its own status in the chat (administrator or creator) at every `/f` and caches nothing, since rights change. A DM needs no check: the album arrives whole.
+   When `/img` arrives together with an album or right after it, framy waits for the rest. It keeps in memory when each album last got an item (and forgets an album after a minute), and waits until none has come for 1.5 s, but no longer than 5 s. An album that has been quiet longer is read at once, so a `/img` sent a minute later pays no wait. The wait runs beside polling and never holds it up. framy asks to be made an admin at the first `/img` on an album, not when it is added. Privacy mode stays on: turning it off is global and makes the bot read every message of every group.
+2. **Without admin rights,** the preview shows the one photo and says "I see 1 photo of the album. Make framy an admin to take whole albums." framy asks Telegram for its own status in the chat (administrator or creator) at every `/img` and caches nothing, since rights change. A DM needs no check: the album arrives whole.
 3. **Stage 3:** a `getMessages` method patched into our own `telegram-bot-api`. The server already calls TDLib's `getMessages` for `forwardMessages`, so the patch is about 40–60 lines of C++. Whether Telegram gives a bot messages it did not see is the open part.
 
 An album sent before framy became an admin is not in the cache. The preview always shows what was actually taken, so a wrong guess becomes the person's decision, not a silent error.
 
 ### Step by step
 
-1. **The command arrives.** framy puts a 👀 reaction on it (`setMessageReaction`) and sends `upload_photo` (`sendChatAction`).
+What `internal/chat` does today, and what comes later. The bot handles updates one at a time, so a command (at most 4 at once) and a press each run beside polling. Every run is a row of `framy.chat_run` next to its job, so a restart picks it up where it was.
+
+1. **The command arrives.** framy puts 👀 on it (`setMessageReaction`) and sends `upload_photo` (`sendChatAction`). A bot may react only with emoji from Telegram's list, and ✅ is not on it, so the reactions are 👀 when the command is taken, ✍ while the model works, 👌 when the result is posted, and none after a failure, No or Stop. A replayed update makes no second draft: the job's key is `tg:<chat>:<message>`.
 2. **The sources are collected:**
-   - the reply, or the album from the cache;
+   - the reply, the album from the cache, or the photos the command is the caption of;
    - downloaded through the local Bot API server (`getFile`, then read from disk);
-   - normalized (see Storage);
-   - checked against the model's reference limit. Extra photos are dropped, and the preview says so.
-3. **A job is created** as a draft. It holds the chat, the topic, the requester, the command, the sources by `file_unique_id`, the prompt, the offer, the settings, and an expiry 10 minutes ahead.
+   - normalized and kept in R2 as the person's uploads (see Storage);
+   - at most 10 photos. The rest are left out, and the preview says how many.
+3. **A job is created** as a draft with an expiry 10 minutes ahead. It holds the chat, the topic, the requester, the command, the sources, the prompt, the offer and the settings. Who pays:
+   - the free allowance first, on its plan for the number of photos: MAI Image 2.6 Flash up to 5, FLUX.3 Klein up to 10;
+   - when the allowance is used up or paused, the person's OpenRouter key, if one is connected and not invalid;
+   - otherwise the reason is the answer, with the way on: "Connect your own OpenRouter key on the site".
 4. **The preview is sent as a reply to the command** **(owner)**:
-   - **For an album:** a short loop where the photos, numbered 1…N, float together in a frame (`internal/anim`).
-   - **For one photo or none:** a drawn card.
-   - **The caption:** the prompt (in an expandable quote when long), the model, what was taken ("3 photos from the album"), and the price for the requester ("free · 4 of 5 left" or "$0.034 · 1.53 ₴ · OpenRouter").
-   - **The buttons:**
-     - **Generate** (`style: success`) and **No** (`style: danger`);
-     - **Model**, **Settings** and **Image / Video**;
-     - **Open on the site**: a link to `t.me/framyin_bot/app?startapp=<signed job id>`, because `web_app` buttons work only in DMs.
-5. **No:** `deleteMessage` on the preview, and the job is cancelled **(owner)**.
-6. **Model or Settings:** `editMessageReplyMarkup` with the choices, and `editMessageCaption` for the new price. Nothing new is posted. Stage 3, if framy is an admin: an ephemeral panel only the requester sees.
-7. **Generate:** `editMessageMedia` turns the preview into the prepared "generating" loop by its `file_id`, with no upload **(owner)**. The caption says "generating · model · usually ~40 s", and the only button is Stop.
-8. **While it runs:** `sendChatAction` every 4–5 s, and the caption shows the elapsed time at most every 10 s.
+   - **With photos:** a short loop where the photos, numbered 1…N, float together in a frame (`internal/anim`), for one photo too.
+   - **With none:** the still empty frame.
+   - **The caption:** the prompt (in an expandable quote when long), the model, what was taken and what was not ("Photos of the album I see: 3"), and the price for the requester ("free · 4 of 5 left" or "$0.034 · ₴1.42 · your OpenRouter key").
+   - **The buttons today:** **Generate** (`style: success`) and **No** (`style: danger`).
+   - **Later:** **Model**, **Settings** and **Image / Video**; **Open on the site**, a link to `t.me/framyin_bot/app?startapp=<signed job id>`, because `web_app` buttons work only in DMs.
+5. **No:** `deleteMessage` on the preview, the job is cancelled and the reaction taken off **(owner)**.
+6. **Model or Settings (later):** `editMessageReplyMarkup` with the choices, and `editMessageCaption` for the new price. Nothing new is posted. Stage 3, if framy is an admin: an ephemeral panel only the requester sees.
+7. **Generate:** the job is queued, and `editMessageMedia` turns the preview into the generating loop by its `file_id`, with no upload **(owner)**. The loop is drawn when framy starts, uploaded on its first use and sent by `file_id` after that. The caption says "generating · model", and the only button is Stop.
+8. **While it runs:** `sendChatAction` every 4.5 s, and the caption shows the elapsed time every 10 s. framy reads the open runs every 2 s.
 9. **Done:**
-   - An image ready within about 25 s: `editMessageMedia` turns the loop into the result in place **(owner)**.
-   - A video, or a slower image: a new message as a reply to the command, and the loop is deleted **(owner)**. An edit makes no notification; a reply does.
-   - The caption holds the prompt and the model.
-   - The buttons are **Again**, **Animate**, **Original** (a full-size `sendDocument` on demand) and **Open on the site**.
-   - The reaction on the command becomes ✅.
-   - The result's `file_id` and `file_unique_id` are kept, and so is `(chat, message_id) → generation` for replies.
-10. **Failure:** `editMessageMedia` into a static error card (media cannot turn back into text). The card gives the reason in plain words: moderation, no credits, the key, the model. The buttons are **Retry** and **Change model**.
-11. **An unconfirmed preview** is deleted after 10 minutes.
+   - A result ready within 25 s of Generate: `editMessageMedia` turns the loop into it in place **(owner)**.
+   - A slower one: a new message as a reply to the command, and the loop is deleted **(owner)**. An edit makes no notification; a reply does.
+   - A picture Telegram would not take as a photo (over 10 MB, width plus height over 10000, or sides over 20 : 1) goes as a document.
+   - The caption holds the prompt and the model. The reaction on the command becomes 👌.
+   - The result's `file_id` and `file_unique_id` are kept in `chat_run`.
+   - **Later:** the buttons **Again**, **Animate**, **Original** (a full-size `sendDocument` on demand) and **Open on the site**, and `(chat, message_id) → generation` for replies.
+10. **Failure:** `editMessageMedia` into the error card (media cannot turn back into text). The card gives the reason in plain words: the model refused, the key is out of credits, the provider refused the key, the model took too long, or the model could not make it. **Later:** **Retry** and **Change model**.
+11. **Stop:** a queued job is cancelled and the loop deleted. A running one cannot be stopped at the provider: it finishes in the person's history and is not posted, and the answer to the press says so.
+12. **An unconfirmed preview** expires with its draft after 10 minutes and is deleted.
 
 In groups one run makes one result. Proposal: more than one only on the site and in DMs, since an album cannot carry buttons.
 
 ### Who can press
 
-- Only the requester can press Generate, Model and Settings. Anyone else gets a short note from `answerCallbackQuery`.
+- Only the requester can press Generate, No and Stop (and later Model and Settings). Anyone else gets a short alert from `answerCallbackQuery`.
 - Proposal: group admins can also press No, to clean up.
 - State changes are compare-and-set, so a double tap cannot start two runs.
 
@@ -531,6 +537,7 @@ In groups one run makes one result. Proposal: more than one only on the site and
 
 ## DM
 
+- **No command needed (owner, 27 October).** A plain message, with or without photos or a video, gets a question: an image or a video. The answer starts the same flow as `/img` or `/edit` in a group, with the message as the prompt and its media as the sources. Not built yet: today `/img` works in a DM as in a group, and a plain message is not answered.
 - **The same flow.** An album arrives whole here, but its items are still noted and waited for as in a group, with the same 1.5 s wait, because Telegram delivers them as separate messages.
 - **Confirmation.** Proposal: in a DM the person can turn confirmation off.
 - **`/start`:**
@@ -599,7 +606,7 @@ Temporary domain `framy.ws04.cc`. Mobile first; on a wide screen the composer an
 
   A refusal is shown with its stage and category.
 - **Faces.** Some models refuse photos of real people (Omni, Seedance, Veo with `personGeneration`). The picker marks them, so the refusal is not a surprise.
-- **`/f` on a photo someone else sent** is allowed as it is **(owner)**: any member can reply with `/f` to any photo in the chat. The result is a reply to the command, so the chat sees who asked for it.
+- **`/img` on a photo someone else sent** is allowed as it is **(owner)**: any member can reply with `/img` to any photo in the chat. The result is a reply to the command, so the chat sees who asked for it.
 
 ## Storage and retention
 
@@ -649,7 +656,7 @@ Temporary domain `framy.ws04.cc`. Mobile first; on a wide screen the composer an
 
 - **Bot:** register `@framyin_bot` (`framybot` and `framy_bot` are taken).
 - **BotFather:**
-  - the `/f` command, also through `setMyCommands` for `all_group_chats`;
+  - the `/img` and `/edit` commands, also through `setMyCommands` for `all_group_chats`;
   - inline mode with feedback;
   - Main Mini App;
   - the Login Widget client with the site's URLs, which gives the client id and secret;
@@ -750,7 +757,7 @@ Details and sources in [research/build.md](research/build.md).
 ```text
 framy (Go, one service on ws04)
   ├─ HTTP: site and Mini App statics, API, SSE, OAuth callbacks, provider webhooks
-  ├─ bot: long polling through tg, /f, album cache, delivery
+  ├─ bot: long polling through tg, /img and /edit, album cache, delivery
   ├─ workers: jobs in Postgres, provider adapters (openrouter, openai, gemini), result download
   ├─ catalog: hourly OpenRouter sync, local descriptors and overlay, daily FX rates
   ├─ price: the estimate before a run, from the catalog's rates
@@ -797,7 +804,7 @@ framy **(owner)**: a frame is both a still and a shot. Written in lowercase ever
    - The site: sign-in, composer, catalog sync, picker with prices and currency, history, settings.
    - OpenRouter connect and pasted OpenAI and Gemini keys.
    - The free images.
-   - `/f` in groups and DMs: preview, Generate and No, the loop, the result, the album cache through admin rights.
+   - `/img` in groups and DMs: preview, Generate and No, the loop, the result, the album cache through admin rights.
 2. **Video.**
    - Editing an attached video, from an upload, a result or a reply in chat; continuing one.
    - Start, end and reference slots, duration, sound, the wait.
@@ -828,7 +835,7 @@ Live tests on a test bot and the real tunnel (details in [research/telegram.md](
 
 ## Open questions
 
-Settled on 26 October: `/f` on anyone's photo, rolling windows, every file in R2 until the person deletes it, `mai-image-2.6-flash` as the free image model. Settled on 27 October: the global daily budget of the free tier, $1 a day.
+Settled on 26 October: the chat command (now `/img`) on anyone's photo, rolling windows, every file in R2 until the person deletes it, `mai-image-2.6-flash` as the free image model. Settled on 27 October: the global daily budget of the free tier, $1 a day.
 
 1. The free video models, and Klein for albums and as a fallback: confirm after the blind test.
 2. Pre-moderation of free-tier prompts with OpenAI's endpoint while the traffic goes to OpenRouter.
