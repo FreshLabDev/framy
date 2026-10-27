@@ -176,10 +176,27 @@ const (
 	FacesAdults = "adults"
 )
 
+// SourceVideo is what a model needs from an attached video: an uploaded one,
+// or a finished result through "Edit". Any model whose offer takes video
+// input works on one; this says more only where a source does.
+type SourceVideo struct {
+	// Required: the model runs only on an attached video, as editors and
+	// upscalers do.
+	Required bool `json:"required,omitempty" yaml:"required,omitempty"`
+	// MaxSeconds and MaxMiB are the longest and the largest source the model
+	// takes, checked before the run.
+	MaxSeconds int `json:"max_seconds,omitempty" yaml:"max_seconds,omitempty"`
+	MaxMiB     int `json:"max_mib,omitempty" yaml:"max_mib,omitempty"`
+	// KeepsLength: the result is as long as the source, so the source's
+	// length sets the price.
+	KeepsLength bool `json:"keeps_length,omitempty" yaml:"keeps_length,omitempty"`
+}
+
 // Traits is what the overlay knows about a model and no API says.
 type Traits struct {
-	Effort     *Effort     `json:"effort,omitempty"`
-	References *References `json:"references,omitempty"`
+	Effort      *Effort      `json:"effort,omitempty"`
+	References  *References  `json:"references,omitempty"`
+	SourceVideo *SourceVideo `json:"source_video,omitempty"`
 	// Continue: a finished result can be continued or edited on the same
 	// model, through previous_job_id or Omni's previous_interaction_id.
 	Continue bool   `json:"continue,omitempty"`

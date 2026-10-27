@@ -178,16 +178,31 @@ models:
     featured: true
     # previous_interaction_id of the Interactions API.
     continue: true
+    # An uploaded video goes through the Files API, up to 10 s, and not in
+    # the EEA, Switzerland and the UK; its own results have no such limit.
+    source_video: {max_seconds: 10}
     # No recognizable people, and no minors in the EEA, Switzerland and the UK.
     faces: adults
 
-  # Editing, upscaling and talking heads take other inputs: they will be
-  # actions on a result, not models of the video form.
+  # Editors and upscalers run on an attached video: an uploaded one, or a
+  # finished one through "Edit". They are in the same video list, dimmed
+  # until a video is attached. Other models that take video input (Seedance
+  # 2.x, Hailuo 3, Wan 3.0, FLUX 3 Video, HeyGen Video) need no entry for it.
+
+  # Text instructions and keyframes; whether the result keeps the source's
+  # length is not published. At least 56 cents a run.
   runway/aleph-2:
-    hide: an action on a finished video, not a model of the video form
+    featured: true
+    source_video: {required: true}
+
+  # Keeps the source's length, aspect ratio and sound; above 720p the source
+  # is scaled down to 720p.
   black-forest-labs/flux-video-edit:
-    hide: an action on a finished video, not a model of the video form
+    featured: true
+    source_video: {required: true, max_seconds: 15, max_mib: 50, keeps_length: true}
+
   black-forest-labs/flux-video-upscale:
-    hide: an action on a finished video, not a model of the video form
+    source_video: {required: true, keeps_length: true}
+
   heygen/avatar-iv:
-    hide: a talking head from a photo and a voice, not a model of the video form
+    hide: a talking head from a photo and a voice; the composer takes no voice yet

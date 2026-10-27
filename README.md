@@ -30,6 +30,7 @@ framy is deliberately narrow:
 | Need | framy approach |
 |:--|:--|
 | One place to make an image or a video | One prompt line and every model your keys unlock |
+| Changing a video you already have | Attach it like a photo, uploaded or made in framy; the editing models are in the same list |
 | An honest price | The provider's price before every run, in USD and in your currency; the actual cost after |
 | Telegram as a first-class place | `/f` in any group, whole albums as input, a preview to confirm, the result in place |
 | Models that change every month | The catalog is data synced from OpenRouter every hour, not code |

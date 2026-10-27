@@ -69,7 +69,9 @@ func TestCatalogSaveShowsNanoBananaWithTwoOffers(t *testing.T) {
 	seedance.ExpiresOn = &expires
 	preview := model("google/gemini-3-pro-image-preview", orOffer("google/gemini-3-pro-image-preview", catalog.Image))
 	preview.Hidden = "a preview id"
-	snap := catalog.Snapshot{Models: []catalog.Model{nanoBanana(), model("bytedance/seedance-1-5-pro", seedance), preview}}
+	seedanceModel := model("bytedance/seedance-1-5-pro", seedance)
+	seedanceModel.Traits.SourceVideo = &catalog.SourceVideo{MaxSeconds: 15, KeepsLength: true}
+	snap := catalog.Snapshot{Models: []catalog.Model{nanoBanana(), seedanceModel, preview}}
 
 	saved, err := store.SaveCatalog(ctx, snap, now)
 	if err != nil {
@@ -100,6 +102,9 @@ func TestCatalogSaveShowsNanoBananaWithTwoOffers(t *testing.T) {
 	}
 	if got := models[1].Offers[0].ExpiresOn; got == nil || !got.Equal(expires) {
 		t.Fatalf("expires_on = %v", got)
+	}
+	if got := models[1].Traits.SourceVideo; got == nil || *got != (catalog.SourceVideo{MaxSeconds: 15, KeepsLength: true}) {
+		t.Fatalf("source_video did not survive the round trip: %+v", got)
 	}
 	if at, err := store.CatalogSyncedAt(ctx); err != nil || !at.Equal(now) {
 		t.Fatalf("synced at = %v, %v", at, err)

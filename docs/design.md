@@ -127,7 +127,7 @@ In the catalog of 27 October only GPT Image 2.5 and the direct Gemini models hav
 - Models on the OpenAI and Google deprecation pages. Proposal: the service reads both pages weekly and posts changes to the operator chat.
 - Duplicates and wrappers: `*-preview` Gemini ids, `openai/gpt-5*-image*`, `openai/gpt-image-1*`, `meta/muse-image` (an eval slug), `openrouter/auto*`.
 - An offer with no route, such as `meta/muse-image`, whose endpoint list on the Images API is empty.
-- The actions on a finished video listed under "Featured at launch".
+- `heygen/avatar-iv`, a talking head from a photo and a voice, until the composer takes a voice.
 
 Until the weekly reader of the deprecation pages exists, the overlay hides such models by hand, `gemini-2.5-flash-image` among them.
 
@@ -138,9 +138,9 @@ To be reviewed after the blind tests.
 | Kind | Models |
 |:--|:--|
 | Image | `gpt-image-2.5-sunburst`, `gpt-image-2.5-flare`, Nano Banana 2.1, `gemini-3-pro-image`, `mai-image-2.6`, `flux-3-image`, `seedream-5-0-pro`, `hy-image-v3.5-preview` (20 references), `recraft-v4.1-vector` (SVG), `riverflow-v2.5-pro` (fonts) |
-| Video | Veo 3.1 / Fast / Lite (OpenRouter only, through Vertex), `kling-v3.0-pro`, `seedance-2.0`, `seedance-2.5`, `wan-3.0`, `hailuo-3-max`, `grok-imagine-video-1.5-lite`, `heygen-video-1`, `gemini-omni-1.1-flash` |
+| Video | Veo 3.1 / Fast / Lite (OpenRouter only, through Vertex), `kling-v3.0-pro`, `seedance-2.0`, `seedance-2.5`, `wan-3.0`, `hailuo-3-max`, `grok-imagine-video-1.5-lite`, `heygen-video-1`, `gemini-omni-1.1-flash`, `flux-video-edit`, `aleph-2` |
 
-Video editing, upscaling and talking heads (`runway/aleph-2`, `flux-video-edit`, `flux-video-upscale`, `heygen/avatar-iv`) take other inputs and are separate actions on a result, not models in the video form.
+The video editors and the upscaler (`runway/aleph-2`, `flux-video-edit`, `flux-video-upscale`) are in the same video list. The overlay marks them `source_video.required`: they run only on an attached video.
 
 ## Composer
 
@@ -156,6 +156,8 @@ Two tabs, Images and Video, with search. Featured models come first. A row shows
 - one line per connected provider.
 
 Proposal: models that need a provider the person has not connected stay in the list, dimmed, with "Connect OpenRouter", so it is visible what a key would unlock.
+
+With a video attached, the models that take one come first and the rest are dimmed with "takes no video". With none, the editors are dimmed with "attach a video". Nothing else changes: it is the same page and the same list.
 
 ### Images
 
@@ -179,10 +181,11 @@ The mode follows from what is attached **(owner: clear start, end and reference 
 
 | Attached | Mode | Models |
 |:--|:--|:--|
-| nothing | text to video | all |
-| an image in "Start" | first frame | all video models |
+| nothing | text to video | all but the editors |
+| an image in "Start" | first frame | all video models but the editors |
 | images in "Start" and "End" | first and last frame | Veo, Kling, Seedance, Wan 3.0, Hailuo 3, FLUX 3 Video, Omni |
 | images in "References" | reference to video | Seedance 2.x, Wan 3.0, HappyHorse, Hailuo 3, HeyGen, Veo 3.1 and Fast (up to 3), Omni |
+| a video: uploaded, or a finished one through "Edit" | edit the video | `flux-video-edit` (up to 15 s and 50 MiB, scaled to 720p, keeps the length and the sound), `aleph-2`, `flux-video-upscale`, Seedance 2.5, Hailuo 3, Omni (up to 10 s when uploaded); FLUX 3 Video continues it |
 | video or audio in "References" | reference video or sound | Seedance 2.x, HeyGen, Omni (video only); Wan 3.0 and Hailuo 3 accept video and audio too, but what they do with them is not checked |
 
 The other controls:
@@ -195,12 +198,14 @@ The other controls:
 
 Omni has no duration control. It says "length chosen by the model, 3 to 10 s", and its price is "up to".
 
+A video is attached like a photo: dropped into the composer, picked from history, or sent there by "Edit" on a result. On OpenRouter it goes as a presigned R2 URL in `input_references` with `type: video_url`, the only video field of the API; a video OpenRouter made can go as `previous_job_id` instead, on the same model. framy reads its length and size with `ffprobe` and refuses one above the model's `source_video` limits before the run, not after.
+
 Nobody reports progress in percent. The wait shows elapsed time and the model's typical time, measured by framy from its own runs.
 
 ### Actions on a result
 
 - Again: the same settings, a new seed.
-- Edit: the result becomes a reference.
+- Edit: the result becomes a reference; a video becomes the attached video, with the editors first.
 - **Animate:** an image becomes the start frame of a video, and the video tab opens.
 - Continue: only where the overlay confirms `previous_job_id` or Omni's `previous_interaction_id`.
 - Download the original.
@@ -220,7 +225,12 @@ Five ways models are billed, each a `pricing_spec` kind:
 | per second by resolution and sound | video | exact |
 | dynamic | Riverflow 2.5, Omni | "up to" |
 
-Input images add their own price: per reference at Grok, Seedream Pro, Qwen 3 and K3 Edit, as tokens at OpenAI and Gemini. After the run framy records the actual cost:
+Input images add their own price: per reference at Grok, Seedream Pro, Qwen 3 and K3 Edit, as tokens at OpenAI and Gemini. An attached video changes the price too:
+- a model that keeps the source's length (`source_video.keeps_length`) is priced by that length, so the estimate is exact;
+- Seedance switches to its `with_video_input` rate, FLUX 3 Video to its continuation rate;
+- Aleph 2 costs at least $0.56 a run.
+
+After the run framy records the actual cost:
 - OpenRouter: `usage.cost`;
 - OpenAI and Gemini: usage tokens times the rates.
 
@@ -252,6 +262,7 @@ Whether `CF-IPCountry` reaches the service through the Cloudflare Tunnel is not 
 
   MAI 2.6 Flash is billed in tokens ($19 per million output tokens), and the price per image is Artificial Analysis's figure, not OpenRouter's. HeyGen at 480p costs $0.10 for 5 s if 768p turns out too expensive. Not chosen: `gpt-image-2.5-flare` at `low` ($0.0059) and `medium` ($0.0132), since nobody has rated those levels. `meta/muse-image` (1129 for $0.01) is not in the Images API.
 - **Fixed settings:** the image model at about 1K with one result; the video model at 5 s and 768p, with an optional start frame and no references. Other controls are locked with "with your key".
+- **Proposal:** the weekly video can instead be an edit of a clip up to 5 s on `flux-video-edit`, $0.15, cheaper than the generated one.
 - **Payer:** framy's own OpenRouter key: one bill, no OpenAI limit of 20 images a minute.
 - **Two fuses:**
   - a global daily budget: when it is spent, the free tier closes until 00:00 UTC with a plain message;
@@ -333,6 +344,7 @@ River's listener needs a real Postgres session, not PgBouncer in transaction mod
 | `/f text`, not a reply | an image from scratch **(owner)** |
 | `/f text` in reply to a photo or an image document | that image edited **(owner)** |
 | `/f text` in reply to a photo from an album | all photos of the album with one instruction **(owner)** |
+| `/f text` in reply to a video or a video document, or as the caption of one's own video | that video edited; proposal: on the person's video editor, `flux-video-edit` by default |
 | `/f text` as the caption of one's own photo or album | those photos edited (proposal) |
 | a plain reply to a framy result | the result refined; this reaches the bot even in privacy mode (proposal) |
 | `/f` with no text | the preview asks what to do; the next reply to it becomes the prompt (proposal) |
@@ -570,7 +582,7 @@ Details and sources in [research/build.md](research/build.md).
   - the real IP from `CF-Connecting-IP`, trusted only because the service publishes no port to the host.
 
   Bot Fight Mode stays off for the framy hostname, or OpenRouter's webhook POSTs get challenged.
-- **Uploads** through Cloudflare are at most 100 MB per request. Photos come to the service. Video references above that are out of scope until video lands.
+- **Uploads** through Cloudflare are at most 100 MB per request. Photos come to the service; videos go by presigned PUT straight into R2 (see "Storage and retention").
 - **Outgoing requests** to URLs from providers go through a dialer that refuses private addresses (SSRF).
 - **Backups:** a daily `pg_dump -Fc -n framy`, encrypted with `age`, into the R2 bucket `framy-backups` with a 30-day lifecycle, and a monthly restore test. Objects in `framy` are not backed up: R2 is their copy off the home server. The KEK is stored apart from the dumps. The files of `telegram-bot-api` need cleaning by age; how much it keeps is not checked.
 - **Metrics** on an internal port:
@@ -631,6 +643,7 @@ framy **(owner)**: a frame is both a still and a shot. Written in lowercase ever
    - The free images.
    - `/f` in groups and DMs: preview, Generate and No, the loop, the result, the album cache through admin rights.
 2. **Video.**
+   - Editing an attached video, from an upload, a result or a reply in chat; continuing one.
    - Start, end and reference slots, duration, sound, the wait.
    - Animate, the weekly free video, delivery to Telegram.
    - OpenRouter polling and webhooks, Omni.
@@ -638,7 +651,7 @@ framy **(owner)**: a frame is both a still and a shot. Written in lowercase ever
    - Inline history, the ephemeral settings panel, guest mode.
    - The `getMessages` patch.
    - DM drafts with Stop.
-   - The mask editor, continuing and editing video.
+   - The mask editor.
 
 ## Before code
 
@@ -655,6 +668,7 @@ Live tests on a test bot and the real tunnel (details in [research/telegram.md](
 9. **Files:** HEIC from real iPhones (Portrait, Live Photo, HDR) through the ffmpeg in framy's image; the final MP4s on iOS, Android, Desktop and Web.
 10. **OpenRouter webhooks:** `callback_url` with an OAuth key, and whether Bot Fight Mode lets the POST through.
 11. **Cloudflare:** "Respect Existing Headers" on Free, checked with `curl -I`; whether `downloadFile` follows a redirect.
+12. **Video editing:** one short clip through each editor and Seedance 2.5, as `input_references` and as `previous_job_id`; which field each one honours, whether Aleph 2 keeps the length, about $2.
 
 ## Open questions
 

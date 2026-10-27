@@ -60,6 +60,7 @@ type ModelOverlay struct {
 	// setting only if one of its routes accepts it.
 	Passthrough map[string]Param `yaml:"passthrough"`
 	References  *References      `yaml:"references"`
+	SourceVideo *SourceVideo     `yaml:"source_video"`
 	Continue    bool             `yaml:"continue"`
 	Faces       string           `yaml:"faces"`
 }
@@ -245,6 +246,14 @@ func (f Files) validate() error {
 		}
 		if m.Faces != "" && m.Faces != FacesRejected && m.Faces != FacesAdults {
 			return fmt.Errorf("overlay: model %s: faces must be %s or %s", id, FacesRejected, FacesAdults)
+		}
+		if s := m.SourceVideo; s != nil {
+			if *s == (SourceVideo{}) {
+				return fmt.Errorf("overlay: model %s: source_video says nothing", id)
+			}
+			if s.MaxSeconds < 0 || s.MaxMiB < 0 {
+				return fmt.Errorf("overlay: model %s: source_video limits cannot be negative", id)
+			}
 		}
 	}
 	for _, offer := range f.Offers {

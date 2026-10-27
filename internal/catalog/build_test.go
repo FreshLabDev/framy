@@ -114,7 +114,7 @@ func TestBuildHides(t *testing.T) {
 		"openai/gpt-image-1-mini":               "closes gpt-image-1-mini",
 		"meta/muse-image":                       "evaluation slug",
 		"google/gemini-2.5-flash-image":         "deprecation",
-		"runway/aleph-2":                        "action",
+		"heygen/avatar-iv":                      "talking head",
 	} {
 		if m := modelByID(t, snap, id); !strings.Contains(m.Hidden, why) {
 			t.Errorf("%s hidden = %q, want a reason with %q", id, m.Hidden, why)
@@ -189,6 +189,7 @@ models:
   google/veo-3.1:
     passthrough:
       notAccepted: {type: text}
+    source_video: {max_seconds: 8}
 hide:
   - match: openai/gpt-image-1*
     why: closed
@@ -203,6 +204,8 @@ hide:
 		"no offer has the effort parameter thinking",
 		"model openai/gpt-image-1 is featured but hidden: closed",
 		"no offer accepts the pass-through setting notAccepted",
+		"model google/veo-3.1: source_video is set, but no offer takes a video",
+		"openrouter:black-forest-labs/flux-video-edit takes only text and video; mark source_video.required",
 	} {
 		if !slices.ContainsFunc(snap.Warnings, func(w string) bool { return strings.Contains(w, want) }) {
 			t.Errorf("no warning %q in %q", want, snap.Warnings)
@@ -222,8 +225,30 @@ func TestBuildKeepsTheModelOfAPartialOffer(t *testing.T) {
 		t.Fatal(err)
 	}
 	snap := Build(up, f, fixtureDay)
-	if !slices.Equal(snap.Keep, up.Partial) || len(snap.Warnings) != 0 {
+	if !slices.Equal(snap.Keep, up.Partial) || slices.ContainsFunc(snap.Warnings, func(w string) bool { return strings.Contains(w, "krea") }) {
 		t.Fatalf("keep = %v, warnings = %v", snap.Keep, snap.Warnings)
+	}
+}
+
+func TestBuildListsVideoEditors(t *testing.T) {
+	snap := Build(fixtureUpstream(t), embeddedFiles(t), fixtureDay)
+	for _, id := range []string{"runway/aleph-2", "black-forest-labs/flux-video-edit", "black-forest-labs/flux-video-upscale"} {
+		m := modelByID(t, snap, id)
+		if m.Hidden != "" || m.Kind != Video || m.Traits.SourceVideo == nil || !m.Traits.SourceVideo.Required {
+			t.Errorf("%s = %+v; an editor is listed and runs only on an attached video", id, m)
+		}
+	}
+	edit := modelByID(t, snap, "black-forest-labs/flux-video-edit").Traits.SourceVideo
+	if *edit != (SourceVideo{Required: true, MaxSeconds: 15, MaxMiB: 50, KeepsLength: true}) {
+		t.Errorf("flux video edit source = %+v", *edit)
+	}
+	omni := modelByID(t, snap, "google/gemini-omni-1.1-flash").Traits.SourceVideo
+	if omni == nil || omni.Required || omni.MaxSeconds != 10 {
+		t.Errorf("omni source = %+v; it takes a video of up to 10 s but does not need one", omni)
+	}
+	// A model that takes video among other inputs needs no entry.
+	if m := modelByID(t, snap, "bytedance/seedance-2.5"); m.Traits.SourceVideo != nil || !slices.Contains(m.Offers[0].InputModalities, "video") {
+		t.Errorf("seedance 2.5 = %+v", m)
 	}
 }
 

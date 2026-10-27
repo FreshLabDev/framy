@@ -40,9 +40,13 @@ was written from, and the skeleton of the service.
   joins the offers of one model, so Nano Banana 2.1 comes from Gemini and from
   OpenRouter. The overlay also gives display names, the featured and free
   flags, the effort setting, values not to offer such as OpenAI's `auto`,
-  pass-through settings, reference counts, continuation and the face policy.
-  Hidden: models within 14 days of leaving, Google's preview ids, wrappers,
-  closed OpenAI models and the actions on a finished video. A model gone
+  pass-through settings, reference counts, what a model needs from an
+  attached video, continuation and the face policy. The video editors and the
+  upscaler (Aleph 2, FLUX Video Edit, FLUX Video Upscale) are in the video
+  list and run only on an attached video; FLUX Video Edit takes up to 15 s and
+  50 MiB. Hidden: models within 14 days of leaving, Google's preview ids,
+  wrappers, closed OpenAI models and the talking-head model, which needs a
+  voice the composer does not take yet. A model gone
   upstream gets `disabled_at` and comes back when it returns. A failed sync
   changes nothing, and one that would disable more than half of OpenRouter's
   offers is refused. `CATALOG_SYNC_INTERVAL` (`1h`, or `off`) and

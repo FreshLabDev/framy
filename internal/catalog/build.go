@@ -64,6 +64,9 @@ func Build(up Upstream, files Files, now time.Time) Snapshot {
 		if e := m.Traits.Effort; e != nil {
 			checkEffort(id, *e, offers, warn)
 		}
+		if kind == Video && m.Hidden == "" {
+			checkSourceVideo(id, m.Traits.SourceVideo, offers, warn)
+		}
 		for _, name := range slices.Sorted(maps.Keys(o.Models[id].Passthrough)) {
 			if !slices.ContainsFunc(offers, func(of Offer) bool { _, ok := of.Params[name]; return ok }) {
 				warn("model %s: no offer accepts the pass-through setting %s", id, name)
@@ -91,10 +94,11 @@ func describe(id string, kind Kind, offers []Offer, ov ModelOverlay) Model {
 		Free:     ov.Free,
 		Offers:   offers,
 		Traits: Traits{
-			Effort:     ov.Effort,
-			References: ov.References,
-			Continue:   ov.Continue,
-			Faces:      ov.Faces,
+			Effort:      ov.Effort,
+			References:  ov.References,
+			SourceVideo: ov.SourceVideo,
+			Continue:    ov.Continue,
+			Faces:       ov.Faces,
 		},
 	}
 	for _, of := range offers {
@@ -222,6 +226,25 @@ func checkEffort(model string, e Effort, offers []Offer, warn func(string, ...an
 	}
 	if !found {
 		warn("model %s: no offer has the effort parameter %s", model, e.Parameter)
+	}
+}
+
+// checkSourceVideo warns when the overlay's source_video and the offers'
+// inputs disagree, and when a new model looks like an editor the overlay has
+// not marked: one that takes text and video and nothing else.
+func checkSourceVideo(model string, s *SourceVideo, offers []Offer, warn func(string, ...any)) {
+	takes := func(of Offer) bool { return slices.Contains(of.InputModalities, "video") }
+	if s != nil && !slices.ContainsFunc(offers, takes) {
+		warn("model %s: source_video is set, but no offer takes a video", model)
+	}
+	if s != nil && s.Required {
+		return
+	}
+	for _, of := range offers {
+		if of.Hidden == "" && takes(of) && !slices.Contains(of.InputModalities, "image") {
+			warn("model %s: %s takes only text and video; mark source_video.required", model, of.ID)
+			return
+		}
 	}
 }
 
