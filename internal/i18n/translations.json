@@ -71,6 +71,24 @@
     "ja": "OpenRouter、OpenAI、Google のモデルで画像を。",
     "ar": "صور بنماذج OpenRouter وOpenAI وGoogle."
   },
+  "album.not_admin": {
+    "en": "I see 1 photo of the album. Make framy an admin to take whole albums.",
+    "ru": "Я вижу 1 фото из альбома. Сделай framy админом, чтобы брать альбомы целиком.",
+    "uk": "Я бачу 1 фото з альбому. Зроби framy адміном, щоб брати альбоми повністю.",
+    "es": "Veo 1 foto del álbum. Haz admin a framy para tomar álbumes enteros.",
+    "fr": "Je vois 1 photo de l’album. Nomme framy admin pour prendre les albums en entier.",
+    "de": "Ich sehe 1 Foto aus dem Album. Mach framy zum Admin, damit ich ganze Alben nehmen kann.",
+    "it": "Vedo 1 foto dell’album. Rendi framy admin per prendere gli album interi.",
+    "pl": "Widzę 1 zdjęcie z albumu. Ustaw framy jako admina, żeby brać całe albumy.",
+    "cs": "Vidím 1 fotku z alba. Udělej z framy správce, ať můžu brát celá alba.",
+    "tr": "Albümden 1 fotoğraf görüyorum. Tüm albümleri alabilmem için framy’yi yönetici yap.",
+    "sv": "Jag ser 1 foto från albumet. Gör framy till admin så att jag kan ta hela album.",
+    "be": "Я бачу 1 фота з альбома. Зрабі framy адмінам, каб браць альбомы цалкам.",
+    "ca": "Veig 1 foto de l’àlbum. Fes framy admin per poder agafar àlbums sencers.",
+    "zh": "我看到相册中的 1 张照片。把 framy 设为管理员，就能获取整个相册。",
+    "ja": "アルバムの写真が 1 枚見えています。framy を管理者にすると、アルバムをまるごと取り込めます。",
+    "ar": "أرى صورة واحدة من الألبوم. اجعل framy مشرفًا لأتمكن من أخذ الألبومات كاملة."
+  },
   "bot.description": {
     "en": "framy makes images with the models of OpenRouter, OpenAI and Google. Five images every 24 hours are free. For more, connect your own key: you pay the provider’s price, and framy adds nothing to it.",
     "ru": "framy делает картинки моделями OpenRouter, OpenAI и Google. Пять картинок за сутки бесплатно. Для большего подключи свой ключ: платишь цену провайдера, framy ничего к ней не добавляет.",

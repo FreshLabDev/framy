@@ -95,6 +95,24 @@ func TestResolveFallsBackToEnglish(t *testing.T) {
 	}
 }
 
+// The line the /f preview shows when framy cannot see a whole album: said in
+// each language, with the bot's name in lowercase as the family writes it.
+func TestAlbumNotAdminIsSaidInEveryLanguage(t *testing.T) {
+	const english = "I see 1 photo of the album. Make framy an admin to take whole albums."
+	if got := T("en", "album.not_admin"); got != english {
+		t.Fatalf("English = %q", got)
+	}
+	for _, code := range Codes() {
+		got := T(code, "album.not_admin")
+		if code != "en" && got == english {
+			t.Errorf("%s is not translated", code)
+		}
+		if n := strings.Count(got, "framy"); n != 1 || strings.Count(strings.ToLower(got), "framy") != n {
+			t.Errorf("%s does not name framy once, in lowercase: %q", code, got)
+		}
+	}
+}
+
 // Ukrainian and Belarusian are their own languages, not Russian with another
 // flag.
 func TestUkrainianAndBelarusianAreNotRussian(t *testing.T) {
