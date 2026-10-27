@@ -51,10 +51,32 @@ type Plan struct {
 	// fixed is every setting of the run, with its value. A job may not set
 	// another, or the same to another value.
 	fixed map[string]any
+	// startFrame: the run's one optional file is the video's first frame. The
+	// job says so with frame_images, since the adapter would otherwise send
+	// the photo as a reference, which OpenRouter prices apart (HeyGen at
+	// $0.10 a second against $0.036) and the budget was not counted with.
+	startFrame bool
 }
 
-// Settings returns the settings the run goes with, to put in the job.
-func (p Plan) Settings() map[string]any { return maps.Clone(p.fixed) }
+// Settings returns the settings the run goes with when it takes no file, to
+// put in the job.
+func (p Plan) Settings() map[string]any { return p.SettingsFor(0) }
+
+// SettingsFor returns the settings the run goes with when it takes the given
+// number of files: the same, and for a video from a start frame, the
+// frame_images setting that names the file as one.
+func (p Plan) SettingsFor(inputs int) map[string]any {
+	return maps.Clone(p.fixedFor(inputs))
+}
+
+func (p Plan) fixedFor(inputs int) map[string]any {
+	if !p.startFrame || inputs != 1 {
+		return p.fixed
+	}
+	with := maps.Clone(p.fixed)
+	with["frame_images"] = []string{"first_frame"}
+	return with
+}
 
 func openRouterPlan(model string, kind catalog.Kind, minInputs, maxInputs int, fixed map[string]any) Plan {
 	return Plan{
@@ -72,9 +94,9 @@ var (
 	ImageKlein = openRouterPlan("black-forest-labs/flux-3-image-klein", catalog.Image, 0, 10, map[string]any{"n": 1, "resolution": "1K"})
 	// VideoHeyGen is the weekly video: 5 s at 768p, with an optional start
 	// frame and no references. A proposal until the blind test.
-	VideoHeyGen = openRouterPlan("heygen/heygen-video-1", catalog.Video, 0, 1, map[string]any{"duration": 5, "resolution": "768p"})
+	VideoHeyGen = startFrameOf(openRouterPlan("heygen/heygen-video-1", catalog.Video, 0, 1, map[string]any{"duration": 5, "resolution": "768p"}))
 	// VideoGrok is the cheaper video from another vendor, if HeyGen fails.
-	VideoGrok = openRouterPlan("x-ai/grok-imagine-video-1.5-lite", catalog.Video, 0, 1, map[string]any{"duration": 5, "resolution": "720p"})
+	VideoGrok = startFrameOf(openRouterPlan("x-ai/grok-imagine-video-1.5-lite", catalog.Video, 0, 1, map[string]any{"duration": 5, "resolution": "720p"}))
 	// VideoEdit is the weekly video as an edit of a clip up to 5 s (owner,
 	// 27 October). The clip is the run's one input; its length is the
 	// surface's to check, since the price follows it.
@@ -82,6 +104,11 @@ var (
 
 	plans = []Plan{ImageMAI, ImageKlein, VideoHeyGen, VideoGrok, VideoEdit}
 )
+
+func startFrameOf(p Plan) Plan {
+	p.startFrame = true
+	return p
+}
 
 // Models are the OpenRouter ids of the models the allowance runs; the overlay
 // marks them `free`.
@@ -136,8 +163,9 @@ func (p Plan) check(a jobs.Admission) error {
 			set[name] = v
 		}
 	}
+	fixed := p.fixedFor(a.Inputs)
 	for name, v := range set {
-		want, ok := p.fixed[name]
+		want, ok := fixed[name]
 		if !ok {
 			return &NotFreeError{Reason: name + " is locked on the free allowance"}
 		}
@@ -145,7 +173,7 @@ func (p Plan) check(a jobs.Admission) error {
 			return &NotFreeError{Reason: fmt.Sprintf("%s is locked to %v on the free allowance", name, want)}
 		}
 	}
-	for name, want := range p.fixed {
+	for name, want := range fixed {
 		if _, ok := set[name]; !ok {
 			return &NotFreeError{Reason: fmt.Sprintf("%s must be %v on the free allowance", name, want)}
 		}

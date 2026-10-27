@@ -31,10 +31,9 @@ func TestImagesGoToMAIUntilMoreThanFivePhotosComeIn(t *testing.T) {
 
 func TestAFreeRunIsTheFixedOne(t *testing.T) {
 	ok := func(p Plan, inputs int) jobs.Admission {
-		return jobs.Admission{UserID: 1, Offer: p.Offer, Kind: p.Kind, Settings: p.Settings(), Inputs: inputs, EstimateUSD: 0.02}
+		return jobs.Admission{UserID: 1, Offer: p.Offer, Kind: p.Kind, Settings: p.SettingsFor(inputs), Inputs: inputs, EstimateUSD: 0.02}
 	}
 	with := func(a jobs.Admission, f func(*jobs.Admission)) jobs.Admission {
-		a.Settings = ImageKlein.Settings()
 		f(&a)
 		return a
 	}
@@ -49,6 +48,10 @@ func TestAFreeRunIsTheFixedOne(t *testing.T) {
 		{"Klein with an album", ok(ImageKlein, 10), ""},
 		{"Klein with eleven photos", ok(ImageKlein, 11), "at most 10 files"},
 		{"the weekly video from a start frame", ok(VideoHeyGen, 1), ""},
+		{"the cheaper weekly video from a start frame", ok(VideoGrok, 1), ""},
+		{"a start frame that is not named as one", with(ok(VideoHeyGen, 1), func(a *jobs.Admission) { a.Settings = VideoHeyGen.Settings() }), "frame_images must be [first_frame]"},
+		{"a start frame named a last frame", with(ok(VideoHeyGen, 1), func(a *jobs.Admission) { a.Settings["frame_images"] = []any{"last_frame"} }), "frame_images is locked to [first_frame]"},
+		{"a frame named with no file", with(ok(VideoHeyGen, 0), func(a *jobs.Admission) { a.Settings["frame_images"] = []string{"first_frame"} }), "frame_images is locked"},
 		{"the weekly video with references", ok(VideoHeyGen, 2), "at most 1 file"},
 		{"the video edit on a clip", ok(VideoEdit, 1), ""},
 		{"the video edit with no clip", ok(VideoEdit, 0), "takes 1 file"},
@@ -90,6 +93,42 @@ func TestPlanSettingsAreACopy(t *testing.T) {
 	s["resolution"] = "4K"
 	if ImageKlein.Settings()["resolution"] != "1K" {
 		t.Fatal("a surface changed the plan's settings")
+	}
+}
+
+// A video from a start frame names the file as one, so the adapter sends it as
+// a frame and OpenRouter prices it as one; no other run does.
+func TestOnlyAVideoFromAStartFrameNamesItsFile(t *testing.T) {
+	for _, tc := range []struct {
+		plan   Plan
+		inputs int
+		frames bool
+	}{
+		{VideoHeyGen, 0, false},
+		{VideoHeyGen, 1, true},
+		{VideoGrok, 0, false},
+		{VideoGrok, 1, true},
+		{VideoEdit, 1, false},
+		{ImageMAI, 0, false},
+		{ImageMAI, 3, false},
+	} {
+		got, has := tc.plan.SettingsFor(tc.inputs)["frame_images"]
+		if has != tc.frames {
+			t.Errorf("%s with %d files: frame_images %v", tc.plan.Model, tc.inputs, got)
+		}
+		if tc.frames && len(got.([]string)) != 1 {
+			t.Errorf("%s: frame_images %v, want one frame", tc.plan.Model, got)
+		}
+	}
+	// Settings is the same as no file, and every call is a copy.
+	s := VideoHeyGen.SettingsFor(1)
+	s["frame_images"].([]string)[0] = "last_frame"
+	s["duration"] = 15
+	if again := VideoHeyGen.SettingsFor(1); again["frame_images"].([]string)[0] != "first_frame" || again["duration"] != 5 {
+		t.Fatal("a surface changed the plan's settings")
+	}
+	if _, has := VideoHeyGen.Settings()["frame_images"]; has {
+		t.Error("Settings() names a frame with no file")
 	}
 }
 
