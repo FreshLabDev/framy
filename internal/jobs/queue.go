@@ -75,7 +75,12 @@ type Config struct {
 	Sink      Sink
 	// Inputs finds the files a job takes; nil while framy keeps none.
 	Inputs Inputs
-	Log    *slog.Logger
+	// Admit decides whether a free job may start, in the transaction that
+	// creates or queues it. Every free job passes it, so framy sets it
+	// wherever its own key can pay; nil, as in tests of the queue alone,
+	// lets every free job through.
+	Admit Admitter
+	Log   *slog.Logger
 	// MaxRunning is how many jobs one person runs at once; 2 by default.
 	MaxRunning int
 	// Workers per queue; DefaultWorkers by default.
@@ -187,6 +192,9 @@ func (q *Queue) Stop(ctx context.Context) error {
 // with the same dedupe key is returned instead, and nothing starts.
 func (q *Queue) Enqueue(ctx context.Context, n New) (id int64, created bool, err error) {
 	err = pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
+		if err := q.admitNew(ctx, tx, n); err != nil {
+			return err
+		}
 		id, created, err = q.insert(ctx, tx, n, Queued)
 		if err != nil || !created {
 			return err
@@ -199,6 +207,11 @@ func (q *Queue) Enqueue(ctx context.Context, n New) (id int64, created bool, err
 // Draft creates a job that waits for "Generate", as a chat preview does.
 func (q *Queue) Draft(ctx context.Context, n New) (id int64, created bool, err error) {
 	err = pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
+		// A draft takes no slot of the allowance, but a preview that could
+		// never run is not offered.
+		if err := q.admitNew(ctx, tx, n); err != nil {
+			return err
+		}
 		id, created, err = q.insert(ctx, tx, n, Draft)
 		return err
 	})
@@ -209,6 +222,9 @@ func (q *Queue) Draft(ctx context.Context, n New) (id int64, created bool, err e
 // cancelled gives ErrNotDraft, so a repeated press starts nothing.
 func (q *Queue) Generate(ctx context.Context, id int64) error {
 	return pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
+		if err := q.admitDraft(ctx, tx, id); err != nil {
+			return err
+		}
 		var provider, kind string
 		err := tx.QueryRow(ctx, `
 			UPDATE job SET status='queued', queued_at=now(), updated_at=now()
@@ -222,6 +238,47 @@ func (q *Queue) Generate(ctx context.Context, id int64) error {
 		}
 		return q.schedule(ctx, tx, id, provider, catalog.Kind(kind))
 	})
+}
+
+// admitNew asks the allowance about a free job about to be created.
+func (q *Queue) admitNew(ctx context.Context, tx pgx.Tx, n New) error {
+	if !n.Free || q.cfg.Admit == nil {
+		return nil
+	}
+	a := Admission{
+		UserID: n.UserID, DedupeKey: n.DedupeKey, Offer: n.Offer.ID, Kind: n.Offer.Kind,
+		Settings: n.Settings, Inputs: len(n.Inputs),
+	}
+	if n.Estimate != nil {
+		a.EstimateUSD = n.Estimate.USD
+	}
+	return q.cfg.Admit.Admit(ctx, tx, a)
+}
+
+// admitDraft asks the allowance about a free draft about to be queued. The
+// draft is read first and queued after, both under the allowance's locks. A
+// draft that cannot be queued is left to Generate's own update to refuse.
+func (q *Queue) admitDraft(ctx context.Context, tx pgx.Tx, id int64) error {
+	if q.cfg.Admit == nil {
+		return nil
+	}
+	a := Admission{}
+	var free bool
+	var estimate *float64
+	err := tx.QueryRow(ctx, `
+		SELECT user_id, offer_id, kind, settings, free, estimate_usd::float8,
+		       (SELECT count(*) FROM job_input WHERE job_id = job.id)
+		FROM job
+		WHERE id=$1 AND status='draft' AND created_at > now() - make_interval(secs => $2)`, id, draftTTL.Seconds()).Scan(
+		&a.UserID, &a.Offer, &a.Kind, &a.Settings, &free, &estimate, &a.Inputs)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !free) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	a.EstimateUSD = deref(estimate)
+	return q.cfg.Admit.Admit(ctx, tx, a)
 }
 
 // Cancel ends a draft or a queued job. A running one gives ErrRunning; one

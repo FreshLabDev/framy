@@ -21,6 +21,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/fx"
 	"github.com/FreshLabDev/framy/internal/price"
@@ -136,6 +138,34 @@ type Input struct {
 // anything is paid; any other error is tried again.
 type Inputs interface {
 	Inputs(ctx context.Context, j Job) ([]Input, error)
+}
+
+// Admission is a free job about to be created or queued, as the free
+// allowance sees it. It is asked inside the transaction that creates or
+// queues the job, so the answer and the job are one step.
+type Admission struct {
+	UserID int64
+	// DedupeKey is set for a job about to be created, so a request that
+	// started a job already is not asked again; empty for a draft being
+	// queued.
+	DedupeKey string
+	// Offer is the offer's id, and Kind its kind.
+	Offer string
+	Kind  catalog.Kind
+	// Settings and Inputs are what the run was given: the settings, and how
+	// many of the person's files it takes.
+	Settings map[string]any
+	Inputs   int
+	// EstimateUSD is the price shown before the run; zero when there is none.
+	EstimateUSD float64
+}
+
+// Admitter decides whether a free job may start: the free allowance
+// (internal/free). An error refuses the job and ends the transaction, so
+// nothing is created or queued; Enqueue, Draft and Generate return it as it
+// is.
+type Admitter interface {
+	Admit(ctx context.Context, tx pgx.Tx, a Admission) error
 }
 
 // SafetyID is how a provider tells framy's people apart in its abuse checks,
