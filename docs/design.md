@@ -56,7 +56,15 @@ Each run uses one **offer**: a model at a provider, paid either by the free allo
 | OpenAI | Paste a key | `GET /v1/models` | `gpt-image-2.5-sunburst`, `gpt-image-2.5-flare`, `gpt-image-2`; no video, Sora closed on 24 September 2026 |
 | Gemini | Paste a key from a project with billing | `GET /v1beta/models` | Nano Banana 2.1, 3.1 Flash, 3.1 Flash Lite, 3 Pro; video only `gemini-omni-1.1-flash` |
 
-OpenRouter OAuth: the server stores `code_verifier` and `state` for 10 minutes, the callback goes to `https://<domain>/oauth/openrouter/callback`, and the code is exchanged at `POST /api/v1/auth/keys` for an ordinary `sk-or-v1-…` key paid from the person's credits. In the Mini App the flow opens in the external browser through `openLink`. This button is the main door for people without keys, so it gets built first and tested end to end.
+OpenRouter OAuth (`internal/oauth`, `SITE_URL` for the callback, a KEK file for the key):
+
+- `GET /oauth/openrouter/start` for a signed-in person makes a random `code_verifier` and `state`, keeps the verifier and a hash of the state in `oauth_state` for 10 minutes (one open flow per person; starting again replaces it), puts the state in a `__Host-` cookie too (`HttpOnly; Secure; SameSite=Lax`), and redirects to `openrouter.ai/auth` with the S256 challenge, `state`, `key_label=framy` and `callback_url=<SITE_URL>/oauth/openrouter/callback`. Nobody signed in: a redirect to `/auth/login?return_to=/oauth/openrouter/start`. It is a GET because `openLink` and the redirect after sign-in cannot post; it only opens a flow of the visitor's own, bound to their own browser by the cookie.
+- The callback spends the flow of the cookie's state first, whatever follows, then needs the `state` in the URL to equal the cookie, the flow to be under 10 minutes old and the person signed in now to be the person who started it. The cookie is what stops a victim's browser from finishing an attacker's flow, or an attacker's browser from receiving a victim's key.
+- Then it exchanges the code at `POST /api/v1/auth/keys` and saves the ordinary `sk-or-v1-…` key through `keys.Service.Save` (checked with `GET /api/v1/key`, encrypted, paid from the person's credits). It replaces a key the person had, pasted or not. No code, verifier or key is logged, or put in a URL or an error.
+- Every callback ends in a redirect to the site: `/?connect=openrouter&result=<result>`, with `connected`, `cancelled`, `expired` (no flow this browser can finish: older than 10 minutes, replaced, used, or someone else's), `signin` (nobody signed in), `refused` (OpenRouter or the key check said no) or `unavailable` (try later). The frontend reads it, removes it from the address and shows the settings. Disconnecting is `keys.Service.Delete`; the person revokes the key at openrouter.ai/settings/keys, since OpenRouter has no revoke without a management key.
+- In the Mini App the flow opens in the external browser through `openLink`. That browser has no session, so it passes through sign-in once and comes back to the start route.
+
+This button is the main door for people without keys, so it gets built first and tested end to end.
 
 A connection has a status that framy can actually back up:
 
@@ -736,7 +744,7 @@ Main tables of the `framy` schema, created by a core migration with its own `fra
 | `job_input` | the files a job takes, in order; an empty place is a file deleted before the run |
 | `album_item` | the 48-hour album cache |
 | `fx_rate` | date, code, UAH per unit, source (`nbu` or `currency-api`), fetched at |
-| `oauth_state` | PKCE verifier and state for 10 minutes |
+| `oauth_state` | the hash of the OAuth state, the PKCE verifier and the person, for 10 minutes; one per person and provider |
 
 The free allowance is counted from `job`, not stored separately.
 

@@ -3,6 +3,7 @@ package config
 
 import (
 	"net/netip"
+	"strings"
 	"testing"
 )
 
@@ -51,6 +52,50 @@ func TestTrustedProxiesRejects(t *testing.T) {
 			t.Setenv("TRUSTED_PROXIES", value)
 			if _, err := Load(); err == nil {
 				t.Fatalf("%q was accepted", value)
+			}
+		})
+	}
+}
+
+func TestSiteURL(t *testing.T) {
+	setBase(t)
+	for _, tc := range []struct{ in, want string }{
+		{"", ""},
+		{"https://framy.ws04.cc", "https://framy.ws04.cc"},
+		{" https://framy.ws04.cc/ ", "https://framy.ws04.cc"},
+		{"HTTPS://Framy.WS04.cc:8443", "https://framy.ws04.cc:8443"},
+		{"http://localhost:8080", "http://localhost:8080"},
+		{"http://127.0.0.1:8080/", "http://127.0.0.1:8080"},
+		{"http://[::1]:8080", "http://[::1]:8080"},
+	} {
+		t.Run(tc.in, func(t *testing.T) {
+			t.Setenv("SITE_URL", tc.in)
+			cfg, err := Load()
+			if err != nil || cfg.SiteURL != tc.want {
+				t.Fatalf("SITE_URL=%q: %q, %v; want %q", tc.in, cfg.SiteURL, err, tc.want)
+			}
+		})
+	}
+	for _, bad := range []string{
+		"framy.ws04.cc",                  // no scheme
+		"http://framy.ws04.cc",           // OpenRouter takes https or localhost only
+		"ftp://framy.ws04.cc",            // not a web origin
+		"https://framy.ws04.cc/app",      // links are built by adding to it
+		"https://framy.ws04.cc?x=1",      // a query
+		"https://framy.ws04.cc/?",        // an empty query is still one
+		"https://framy.ws04.cc#top",      // a fragment
+		"https://user:pw@framy.ws04.cc",  // a login in it
+		"https://",                       // no host
+		"http://localhost.evil.example/", // looks like localhost
+	} {
+		t.Run("rejects "+bad, func(t *testing.T) {
+			t.Setenv("SITE_URL", bad)
+			_, err := Load()
+			if err == nil {
+				t.Fatalf("SITE_URL=%q was accepted", bad)
+			}
+			if strings.Contains(err.Error(), "pw@") {
+				t.Error("the error names the login")
 			}
 		})
 	}

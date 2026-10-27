@@ -17,9 +17,10 @@ careful with people's keys, and production-minded.
   `/metrics` on its own listener, the family's panels on `/start`, the hourly
   model catalog sync, the price estimate, the currency rates, the job queue
   on River, the free allowance, the encrypted store of people's keys, the
-  OpenRouter, OpenAI and Gemini image adapters, storage in R2 with the ffmpeg
-  photo pipeline, the renderer of the album preview, the generating loop and
-  the error card (`internal/anim`), the public HTTP server's foundation
+  OpenRouter, OpenAI and Gemini image adapters, connecting OpenRouter with
+  OAuth PKCE (`internal/oauth`), storage in R2 with the ffmpeg photo
+  pipeline, the renderer of the album preview, the generating loop and the
+  error card (`internal/anim`), the public HTTP server's foundation
   (`internal/web`: security headers, CSRF, cache rules, rate limits), sign-in
   (`internal/auth`: Telegram Login on the site, `initData` in the Mini App,
   sessions of which the database keeps only a hash), and a clean stop on

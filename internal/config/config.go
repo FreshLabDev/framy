@@ -62,9 +62,11 @@ type Config struct {
 	// as key. It is a path and never a value: an environment variable shows
 	// in docker inspect.
 	KEKFile string
-	// SiteURL is the site's public origin, https://framy.ws04.cc, from which
-	// the redirect URIs of sign-in are made. Empty is allowed until a feature
-	// that needs it is set up.
+	// SiteURL is the site's public origin, https://framy.ws04.cc (SITE_URL).
+	// The redirect URI of sign-in and the OAuth callback URL given to
+	// OpenRouter are built from it, and so is every other absolute link the
+	// service makes. Empty: sign-in on the site and the OpenRouter connect
+	// are off.
 	SiteURL string
 	// TelegramLogin is the client of sign-in on the site (internal/auth).
 	TelegramLogin TelegramLogin

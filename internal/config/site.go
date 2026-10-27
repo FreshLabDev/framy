@@ -49,7 +49,7 @@ func loadSite() (string, TelegramLogin, error) {
 // is accepted for localhost only, where browsers take a Secure cookie.
 func ParseSiteURL(raw string) (string, error) {
 	u, err := url.Parse(strings.TrimRight(strings.TrimSpace(raw), "/"))
-	if err != nil || u.Host == "" || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.User != nil || u.Opaque != "" {
+	if err != nil || u.Host == "" || u.Path != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.User != nil || u.Opaque != "" {
 		return "", errors.New("must be an origin such as https://framy.ws04.cc, with no path")
 	}
 	switch u.Scheme {
@@ -63,5 +63,6 @@ func ParseSiteURL(raw string) (string, error) {
 	default:
 		return "", errors.New("must be an https URL")
 	}
-	return u.Scheme + "://" + u.Host, nil
+	// OpenRouter names an app by the host of its callback: one spelling.
+	return u.Scheme + "://" + strings.ToLower(u.Host), nil
 }

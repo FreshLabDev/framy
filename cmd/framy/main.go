@@ -28,6 +28,7 @@ import (
 	"github.com/FreshLabDev/framy/internal/keys"
 	"github.com/FreshLabDev/framy/internal/media"
 	"github.com/FreshLabDev/framy/internal/metrics"
+	"github.com/FreshLabDev/framy/internal/oauth"
 	"github.com/FreshLabDev/framy/internal/price"
 	"github.com/FreshLabDev/framy/internal/providers/gemini"
 	"github.com/FreshLabDev/framy/internal/providers/openai"
@@ -203,6 +204,30 @@ func run(log *slog.Logger) error {
 	site.Handle("/healthz", health.New(store, b.LastPoll, b.Initialized, started, health.Build{
 		Version: version, Commit: commit, Date: date,
 	}, log))
+	// Connect OpenRouter with OAuth PKCE (#12). The routes exist when the
+	// callback URL is known (SITE_URL) and the key they end with can be kept
+	// (a KEK file).
+	if cfg.SiteURL != "" && people != nil {
+		connect, err := oauth.New(oauth.Config{
+			Store: oauth.NewPGStore(store.Pool()),
+			Keys:  people,
+			// Nobody signed in is sent to /auth/login and comes back here.
+			Person:    signIn.Person,
+			SiteURL:   cfg.SiteURL,
+			APIBase:   cfg.OpenRouterAPIBase,
+			UserAgent: userAgent,
+			Log:       log.With("component", "oauth"),
+		})
+		if err != nil {
+			return err
+		}
+		site.HandleFunc("GET "+oauth.StartPath, connect.Start)
+		// The callback exchanges the code and checks the key, two calls to
+		// OpenRouter: more than the server's ten seconds to answer.
+		site.HandleFunc("GET "+oauth.CallbackPath, connect.Callback, web.Deadlines(10*time.Second, 45*time.Second))
+	} else {
+		log.Warn("connecting OpenRouter is off: it needs SITE_URL and FRAMY_KEK_FILE")
+	}
 
 	servers := []*http.Server{site.HTTPServer(cfg.HTTPAddr)}
 	if cfg.MetricsAddr != "" {
