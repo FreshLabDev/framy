@@ -340,7 +340,11 @@ draft ──Generate──> queued ──> running ──> done
 
 `draft` exists only for a chat preview waiting for "Generate".
 
-**API.** `POST /api/jobs` answers 202 with the job id at once, and the client follows `/api/jobs/{id}/events` over SSE, with polling as the fallback. Cloudflare answers 524 when the origin sends nothing for 125 seconds, and an OpenAI image can take two minutes, so no request waits for a generation.
+**API** (`internal/api`). `POST /api/jobs` answers 202 with the job at once, and the client follows `/api/jobs/{id}/events` over SSE, with polling as the fallback. Cloudflare answers 524 when the origin sends nothing for 125 seconds, and an OpenAI image can take two minutes, so no request waits for a generation. The person comes from the sign-in (`Config.Person`); nobody gets 401 `{"error":"sign_in"}`. Errors are `{"error": code, "message": …}` plus fields of their own.
+- `POST /api/uploads`: the photo as the raw body, one per request, 201 `{id, content_type, bytes, width, height}`. At most 4 are converted at once; a fifth waits 20 s, then 503 `busy`. The upload route has longer deadlines than the rest.
+- `POST /api/jobs`: `{offer, prompt, settings, inputs, pay: "free"|"key"}` and a required `Idempotency-Key` header, which with the person is the job's `dedupe_key`: a repeat answers the same job with `Idempotent-Replayed: true`. The answer is the job (as `GET` gives it) with an `estimate` quoted in the person's currency: their own choice, else the country Cloudflare saw (believed only through the trusted proxy), else the language, else USD. The rate used is kept on the job.
+- `GET /api/jobs/{id}`: status, a message fit to show when it failed, the estimate, the actual cost and links to the results. A job of someone else is a 404 on every route.
+- Refusals: `free_limit` 429 (with `frees_at`), `free_closed` 503 (with `until`), `not_free` 422, `no_connection` and `connection_invalid` 402, `unknown_offer` and `unknown_input` 422, `bad_request` 400, `too_many_streams` 429.
 
 **SSE through the Tunnel.** cloudflared flushes every write for `text/event-stream`, and Cloudflare does not compress it. The handler:
 - sends the headers at once (`Content-Type: text/event-stream`, `Cache-Control: no-cache, no-transform`);
@@ -349,7 +353,7 @@ draft ──Generate──> queued ──> running ──> done
 - has no `WriteTimeout` on this route: `web.Stream()` removes the read and write deadlines, and the handler sets a write deadline of its own before each write, so a client that stops reading cannot hold it;
 - resumes from `Last-Event-ID`.
 
-`EventSource` cannot send an `Authorization` header, so the Mini App streams with `fetch`. Proposal: at most 3 open streams per person.
+Every event is `id: <n>`, `event: job` and the whole job as `data`, as `GET /api/jobs/{id}` gives it. `n` is the job's `event_seq` (migration 009), which grows with every change a person can see, so a stream that reconnects gets only what is newer than its id, and one that comes back to a finished job it has seen to the end gets 204, which stops `EventSource`. The first event is the state now; the stream ends after the final one. A burst of changes may arrive as one event: each is the whole state, never a difference. At most 3 streams per person; the 4th gets 429 `too_many_streams`. `EventSource` cannot send an `Authorization` header, so the Mini App streams with `fetch`.
 
 **Queue.** River OSS (v0.49.0, MPL-2.0) in the `framy` schema, in `internal/jobs`. A job is a row in `framy.job`, which the surfaces read, and a River job that works it, inserted in one transaction (`InsertTx`). River's migrations run at start under framy's migration lock, since they take none of their own. River's listener needs a real Postgres session, not PgBouncer in transaction mode.
 - Queues with their own `MaxWorkers` per process: `openai` 4, `gemini` 4, `openrouter_image` 8, `openrouter_video` 4. `ffmpeg` and `telegram_send` come with their features.
@@ -358,7 +362,7 @@ draft ──Generate──> queued ──> running ──> done
 - River rescues a job whose worker died after 5 minutes; one attempt may take 4.
 - A sweep every minute cancels drafts older than 10 minutes and fails a job River gave up on without working it.
 
-Progress for SSE goes through `pg_notify('framy_events', …)` in the transaction that changes the state, with one listener per process.
+Progress for SSE goes through `pg_notify('framy_events', …)` in the transaction that changes the state, with one listener per process. Triggers on `framy.job` do both the numbering and the notice, so every path that changes a job is covered and a rollback announces nothing. The payload is only `{job, user, seq, status}`; a stream rereads its job when woken. The listener holds its own connection, reconnects with a growing delay and wakes every stream after each connection, and a stream rereads on its ping, so a lost notice delays an event and never drops it.
 
 **Workers.**
 - **Images:** one provider call inside the worker, with a 180 s timeout.
