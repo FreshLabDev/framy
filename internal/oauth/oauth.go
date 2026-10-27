@@ -20,9 +20,9 @@
 // is exchanged until all of these hold:
 //
 //   - the browser has the cookie, and the state in the URL is the cookie's;
-//   - the store has the flow of that state, and has not yet spent it: the
-//     callback spends it before it checks anything else, so no callback can
-//     use a state twice, and a wrong one burns the flow it hit;
+//   - the store has the flow of the cookie's state, and has not yet spent it:
+//     the callback spends it before it checks anything else, so no callback
+//     can use a state twice, and a wrong one burns the flow it hit;
 //   - the flow has not expired;
 //   - the person signed in now is the person the flow was started for.
 //
@@ -31,12 +31,14 @@
 // browser is sent on to the site, always, with a result the frontend reads
 // (Result); a key, a code or a verifier is in no URL, log line or error.
 //
-// The cookie is what ties the flow to the browser that started it. Without
-// it, someone could start a flow for their own account, get a callback URL
-// with a valid state, and have a victim's browser open it, or have a victim
-// authorize the attacker's flow and receive the victim's key. PKCE alone
-// stops the first (the code would not match the victim's verifier); the
-// cookie and the person check stop the second.
+// Four things tie the end of a flow to its start, and none stands in for
+// another. PKCE: the code is useless without this server's verifier, so a code
+// made for someone else's challenge exchanges for nothing. The person: a flow
+// cannot be finished in the session of another account. The cookie: only the
+// browser that started the flow can finish it, so a state that leaked in a URL
+// or a log, or a second browser of the same person, finishes nothing. The
+// single use: whatever a callback finds wrong, it has spent the flow, so there
+// is nothing left to retry or guess at.
 package oauth
 
 import (
