@@ -164,6 +164,16 @@ was written from, and the skeleton of the service.
   person's language writes it and never rounds down, with the rate's date
   beside it, and a job keeps the rate its price was shown with. `FX_SYNC=off`
   stops the sync.
+- The pictures framy puts in a chat before and instead of a result, drawn on
+  the CPU without a browser: the album preview, where the photos (one to ten)
+  fly into a frame and get numbers 1 to N; the loop shown while a job runs;
+  and a card for a job that failed, with the bot's line in the person's
+  language. The loops are 720×720 H.264 with no sound track, which Telegram
+  plays as animations, and each ends on its own first frame, so they have no
+  seam. A ten-photo album renders in under a second and the loop in a third
+  of one. The loop and the cards are kept on disk under a key that changes
+  with the design, so each is drawn and uploaded once. The card has no line
+  in Chinese, Japanese and Arabic, whose letters the bundled fonts lack.
 - The public listener's foundation, in `internal/web`: the site, the API, the
   event streams, the OAuth callbacks and the providers' webhooks all register
   on one server that gives them the same rules. Every HTML response carries
