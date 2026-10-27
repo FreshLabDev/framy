@@ -189,6 +189,7 @@ With a video attached, the models that take one come first and the rest are dimm
 | Transparent background | OpenAI, Riverflow 2.5 |
 | Format | OpenAI (png, jpeg, webp), FLUX.2, Riverflow, Recraft vector (svg) |
 | Seed | FLUX.2, Seedream, Krea, Qwen, Hy |
+| Input detail | Gemini models, Nano Banana included (`media_resolution`, see Input detail) |
 | Model groups | Gemini search, Recraft style, Krea styles and moodboards, FLUX.2 steps and guidance |
 
 No image model takes a negative prompt, so there is no such field. A real mask exists only at OpenAI; the mask editor is a stage 3 feature.
@@ -218,9 +219,9 @@ Omni has no duration control. It says "length chosen by the model, 3 to 10 s", a
 
 A video is attached like a photo: dropped into the composer, picked from history, or sent there by "Edit" on a result. On OpenRouter it goes as a presigned R2 URL in `input_references` with `type: video_url`, the only video field of the API; a video OpenRouter made can go as `previous_job_id` instead, on the same model. framy reads its length and size with `ffprobe` before the run.
 
-A clip longer than the model takes is not simply refused **(owner, 27 October)**. The composer offers two ways out:
-- pick a part of the allowed length on the clip's timeline, which framy cuts before the run;
-- pick a model that takes the whole clip, on the person's own key.
+A clip longer than the model takes is not simply refused, and it is not cut silently either: the length is the person's choice **(owner, 27 October)**. The composer offers two ways out:
+- the mini editor: the clip's timeline with a window of the allowed length that the person moves, and framy cuts that part before the run;
+- a model that takes the whole clip, on the person's own key.
 
 In chat there is no timeline, so the preview offers "First N s", "Pick in framy" (the Mini App opens on the clip's timeline) and the models that take the whole clip. Proposal: a file above a model's size limit but within its length is re-encoded smaller instead, since FLUX Video Edit scales its input to 720p anyway.
 
@@ -236,6 +237,39 @@ Nobody reports progress in percent. The wait shows elapsed time and the model's 
 - Send to Telegram: the bot sends it to the DM, or `shareMessage` in the Mini App.
 - Copy the prompt.
 - Delete.
+
+### Attachments stay in the browser until Generate
+
+**(owner, 27 October)**
+
+- **Before Generate.** A photo or a video dropped, pasted or picked into the composer stays in the browser: a `File` with an object URL for its thumbnail. The client reads what the price needs and sends only that to the quote: the type sniffed from the first bytes, the size in bytes, the picture size, and a video's length and frame rate (from a `<video>` element's metadata). The server answers with the price and what it will do with the file: convert it, scale it, or ask for a cut.
+- **On Generate** the files go up. The browser first scales a photo above 2048 px on the long side down to it, as the server would anyway, so a 48 MP photo does not cross the home uplink whole. Video goes by presigned PUT into `incoming/` (see Storage).
+- **The server trusts no number from the browser.** It checks the real files as it does any upload (Storage) and prices the run again. When the real price is higher than the one shown, the run does not start: the composer shows the new price and waits for another press. A lower price runs as it is.
+- A file picked from the history is already in R2 and goes by its id, with no upload. The Mini App works the same way.
+- An upload that no job took within an hour (a Generate that failed half way, a chat command that failed after keeping its photos) is deleted with its object.
+
+### Fitting a file to the model
+
+framy changes on its own anything that does not change what the person expects of the result, and asks about anything that does **(owner, 27 October)**.
+
+| Silently | The person decides |
+|:--|:--|
+| Format and container: HEIC, AVIF or WebP to JPEG or PNG, MOV to MP4 | The length of a clip: the mini editor or another model (see Video) |
+| Codec, bitrate, frame rate, rotation | A crop to another aspect ratio: offered in the same mini editor, never made silently |
+| Resolution down to what the model takes, or to 2048 px for a photo | Photos over the model's limit: the preview says how many are left out, and Generate is the consent |
+| A photo below the model's minimum scaled up | Another model, or a price higher than the one shown |
+| A file above the model's size limit but within its length, re-encoded smaller | |
+
+The quote names what will change silently only where it shows in the result's price, such as a lower input resolution.
+
+### Input detail
+
+Gemini takes `media_resolution` for every input picture: `low`, `medium`, `high` or `ultra_high` cost 280, 560, 1120 or 2240 tokens on Gemini 3 and later, and `high` is the default. `ultra_high` exists only per item. A lower level costs less and sees fewer details.
+
+- **Where.** Nano Banana is Gemini, so the setting goes to Nano Banana 2.1, 3.1 Flash, Lite and 3 Pro as well **(owner, 27 October)**: as a field of each part on the direct Gemini API, and through OpenRouter only if it passes the field on. Google documents it for the models that read; one run per model at launch checks that the image models take it and that `promptTokenCount` on the bill drops.
+- **How it shows.** A setting "Input detail" next to the references, with the saving beside it, only on the models where the check passed. The default is `high`, so a result is never worse than the provider's own.
+- **What it saves.** Most of an image model's price is the picture it makes. One reference on Nano Banana 3 Pro saves about 1–2%; 14 references about 20%.
+- **Elsewhere.** OpenAI's `gpt-image-2` has no such setting: its input is always read in full. The price estimate counts input tokens at the level chosen.
 
 ## Price and currency
 
@@ -260,7 +294,7 @@ Where OpenRouter's rates are not enough, a model's `price` in `catalog/overlay.y
 
 `picks_length` is the range of a model that picks its own length. The build warns about a hint that matches no route; every sync logs the price lines and SKUs the estimate cannot read (`catalog price not understood`), so a new kind of price shows up before someone sees it as "about".
 
-Input images add their own price: per reference at Grok, Seedream Pro, Qwen 3 and K3 Edit, as tokens at OpenAI and Gemini. An attached video changes the price too:
+Input images add their own price: per reference at Grok, Seedream Pro, Qwen 3 and K3 Edit, as tokens at OpenAI and Gemini, where the tokens follow the Input detail level. An attached video changes the price too:
 - a model that keeps the source's length (`source_video.keeps_length`) is priced by that length, so the estimate is exact;
 - Seedance switches to its `with_video_input` rate, FLUX 3 Video to its continuation rate;
 - Aleph 2 costs at least $0.56 a run.
@@ -641,7 +675,7 @@ Temporary domain `framy.ws04.cc`. Mobile first; on a wide screen the composer an
 - **Serving:**
   - private results go through presigned GET URLs, which framy issues per view with a short expiry. They work only on `<account>.r2.cloudflarestorage.com`, which has no Cloudflare cache, but its egress is free too;
   - public result links, if they come, use a custom domain on the bucket. It must be a first-level name such as `framy-media.ws04.cc`, since Universal SSL does not cover `media.framy.ws04.cc`.
-- **Uploads from the site:**
+- **Uploads from the site** happen on Generate, not on attach (see Attachments):
   - photos come through the service, under Cloudflare's 100 MB per request;
   - video references go by presigned PUT straight into `incoming/`, which a lifecycle rule clears after a day. framy checks the size with HEAD and the content by its bytes before taking it.
 - **To providers**, input photos go as presigned R2 URLs instead of base64, where the API takes a URL (OpenRouter's `input_references`, OpenAI's `images[].image_url`).
