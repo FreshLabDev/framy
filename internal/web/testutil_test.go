@@ -83,6 +83,7 @@ func newSite(t *testing.T, cfg Config) *site {
 		_, _ = w.Write([]byte(": ping\n\n"))
 	})
 	srv.HandleFunc("/auth/login", json)
+	srv.HandleFunc("/auth/miniapp", json)
 	srv.HandleFunc("/oauth/openrouter/callback", json)
 	srv.HandleFunc("/events/x", json)
 	srv.HandleFunc("/hooks/or/{job}", json)

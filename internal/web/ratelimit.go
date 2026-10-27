@@ -33,6 +33,10 @@ const (
 	ClassDefault Class = "default"
 	// ClassAuth is sign-in and the OAuth callbacks: /auth and /oauth.
 	ClassAuth Class = "auth"
+	// ClassMiniApp is the Mini App's sign-in, POST /auth/miniapp. It checks
+	// an HMAC, so there is nothing to guess, and everyone who opens the Mini
+	// App calls it, many of them from behind one carrier address.
+	ClassMiniApp Class = "miniapp"
 	// ClassUpload is the routes that take a photo.
 	ClassUpload Class = "upload"
 	// ClassJob is the routes that start a generation.
@@ -46,6 +50,8 @@ const (
 // classOfPath gives a route its class from its path when Limit does not.
 func classOfPath(p string) Class {
 	switch {
+	case p == "/auth/miniapp":
+		return ClassMiniApp
 	case underPath(p, "/auth"), underPath(p, "/oauth"):
 		return ClassAuth
 	case underPath(p, "/hooks"):
@@ -80,6 +86,7 @@ func DefaultLimits() Limits {
 	return Limits{
 		ClassDefault: {IP: perSecond(30, 120)},
 		ClassAuth:    {IP: perMinute(20, 10)},
+		ClassMiniApp: {IP: perMinute(120, 60)},
 		ClassUpload:  {IP: perMinute(40, 40), Person: perMinute(20, 20)},
 		ClassJob:     {IP: perMinute(20, 20), Person: perMinute(10, 10)},
 		ClassHook:    {IP: perSecond(20, 100)},

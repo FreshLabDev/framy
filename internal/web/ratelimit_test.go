@@ -117,6 +117,7 @@ func TestStricterClassesAreByPathAndOption(t *testing.T) {
 	}{
 		{"sign-in, by its path", ClassAuth, req{method: "POST", target: "/auth/login"}, 10, Limits{ClassDefault: {IP: wide}}},
 		{"the OAuth callback, by its path", ClassAuth, req{target: "/oauth/openrouter/callback"}, 10, Limits{ClassDefault: {IP: wide}}},
+		{"the Mini App's sign-in, by its path", ClassMiniApp, req{method: "POST", target: "/auth/miniapp"}, 60, Limits{ClassDefault: {IP: wide}}},
 		{"a webhook, by its path", ClassHook, req{method: "POST", target: "/hooks/or/job1"}, 100, Limits{ClassDefault: {IP: wide}}},
 		{"health, by its path", ClassHealth, req{target: "/healthz"}, 10, Limits{ClassDefault: {IP: wide}}},
 		{"job creation, by Limit", ClassJob, req{method: "POST", target: "/api/jobs"}, 20, Limits{ClassDefault: {IP: wide}}},
