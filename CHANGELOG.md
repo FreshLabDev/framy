@@ -94,6 +94,18 @@ was written from, and the skeleton of the service.
   actual cost is the usage tokens times the catalog's rates for text, image
   input and image output. Until people's keys are stored a run on OpenAI
   fails as `key` before anything is paid.
+- The Gemini adapter for images, for a person's own key. Nano Banana 2.1,
+  3.1 Flash, 3.1 Flash Lite and 3 Pro run through the Interactions API, with
+  `thinking_level` and Google Search grounding, which OpenRouter does not
+  pass. References are fetched from their links and sent inline, so no link
+  reaches Google, and the run is sent with `store: false`. A block or a
+  `NO_IMAGE` answer is a refusal, not a failure, and the model's own words are
+  kept for the person. A key from a project without billing (a 429 with
+  `limit: 0`) fails at once as `key` with the status `needs_billing` and is
+  never retried; a spent prepaid balance and a wrong key are told apart too.
+  The actual cost is the usage tokens times the catalog's rates. Until
+  people's keys are stored a run on Gemini fails as `key` before anything is
+  paid.
 - Storage in Cloudflare R2. A photo a person brings goes through one ffmpeg
   subprocess: its format is read from its bytes (JPEG, PNG, WebP, HEIC,
   AVIF), its size from its header, so anything above 64 MP is refused before
