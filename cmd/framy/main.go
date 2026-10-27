@@ -14,7 +14,9 @@ import (
 
 	"github.com/FreshLabDev/tg"
 
+	catalogfiles "github.com/FreshLabDev/framy/catalog"
 	"github.com/FreshLabDev/framy/internal/bot"
+	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/config"
 	"github.com/FreshLabDev/framy/internal/db"
 	"github.com/FreshLabDev/framy/internal/health"
@@ -43,6 +45,11 @@ func main() {
 
 func run(log *slog.Logger) error {
 	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	// A broken catalog file stops the start, not a sync an hour later.
+	catalogFiles, err := catalog.LoadFiles(catalogfiles.FS)
 	if err != nil {
 		return err
 	}
@@ -126,6 +133,22 @@ func run(log *slog.Logger) error {
 				errCh <- err
 			}
 		})
+	}
+	if cfg.CatalogEvery > 0 {
+		syncer := &catalog.Syncer{
+			Source: &catalog.OpenRouterSource{
+				Base:      cfg.OpenRouterAPIBase,
+				HTTP:      &http.Client{Timeout: 30 * time.Second},
+				UserAgent: "framy/" + version + " (+https://github.com/FreshLabDev/framy)",
+				Parallel:  4,
+			},
+			Files: catalogFiles,
+			Store: store,
+			Log:   log.With("component", "catalog"),
+			Every: cfg.CatalogEvery,
+			Retry: 10 * time.Minute,
+		}
+		workers.Go(func() { syncer.Run(ctx) })
 	}
 	workers.Go(func() {
 		log.Info("telegram polling starting")

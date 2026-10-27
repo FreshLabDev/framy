@@ -47,8 +47,9 @@ framy is deliberately narrow:
 
 The design and the research behind it are here. The Go service connects to
 the database as `framy_core`, polls Telegram, records people and groups in
-`core`, and answers `/start` with the family's panels (home, help, about, the
-shared language) in sixteen languages. It makes nothing yet. Work is tracked on the
+`core`, answers `/start` with the family's panels (home, help, about, the
+shared language) in sixteen languages, and keeps the model catalog in step with
+OpenRouter every hour. It makes nothing yet. Work is tracked on the
 [project board](https://github.com/orgs/FreshLabDev/projects/3).
 
 ---

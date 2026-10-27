@@ -1,0 +1,193 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# What no API says about the models, laid over OpenRouter's catalogs and the
+# hand-written openai.yaml and gemini.yaml. The fields are explained in
+# docs/design.md, "Model catalog", and in internal/catalog/files.go.
+#
+# A model's id is its OpenRouter id. A model OpenRouter does not carry gets an
+# id here. Every hand-written offer is listed under its model: names are not
+# guessed, so gemini:gemini-3-pro-image joins google/gemini-3-pro-image only
+# because this file says so.
+#
+# A model that leaves OpenRouter is disabled by the sync, not by editing this
+# file; an entry for it only turns into a warning in the log.
+
+hide_expiring_within_days: 14
+
+hide:
+  - match: google/*-preview
+    why: a preview id Google shut down on 25 June 2026; the released model is listed
+  - match: openai/gpt-5*-image*
+    why: a chat model wrapped around GPT Image; the image models are listed themselves
+  - match: openai/gpt-image-1*
+    why: OpenAI shut gpt-image-1 down on 23 October 2026 and closes gpt-image-1-mini on 1 December 2026
+  - match: meta/muse-image
+    why: an evaluation slug, reachable only through chat completions
+  - match: openrouter/auto*
+    why: a router, not a model
+
+models:
+  # Images.
+
+  openai/gpt-image-2.5-sunburst:
+    offers: [openai:gpt-image-2.5-sunburst]
+    featured: true
+    effort: {parameter: quality, values: [low, medium, high, xhigh, max]}
+    # Neither price can be known before the run.
+    exclude: {quality: [auto], aspect_ratio: [auto]}
+
+  openai/gpt-image-2.5-flare:
+    offers: [openai:gpt-image-2.5-flare]
+    featured: true
+    effort: {parameter: quality, values: [low, medium, high, xhigh, max]}
+    exclude: {quality: [auto], aspect_ratio: [auto]}
+
+  openai/gpt-image-2:
+    offers: [openai:gpt-image-2]
+    exclude: {quality: [auto], aspect_ratio: [auto]}
+
+  google/gemini-nano-banana-2.1:
+    offers: [gemini:gemini-nano-banana-2.1]
+    featured: true
+    # Only the direct offer has thinking_level.
+    effort: {parameter: thinking_level, values: [minimal, medium, high]}
+
+  google/gemini-3.1-flash-image:
+    name: Nano Banana 2
+    offers: [gemini:gemini-3.1-flash-image]
+    effort: {parameter: thinking_level, values: [minimal, high]}
+
+  google/gemini-3.1-flash-lite-image:
+    name: Nano Banana 2 Lite
+    offers: [gemini:gemini-3.1-flash-lite-image]
+    effort: {parameter: thinking_level, values: [minimal, high]}
+
+  google/gemini-3-pro-image:
+    name: Nano Banana Pro
+    offers: [gemini:gemini-3-pro-image]
+    featured: true
+
+  google/gemini-2.5-flash-image:
+    hide: on Google's deprecation page, and its own pages disagree on the shutdown date
+
+  microsoft/mai-image-2.6:
+    featured: true
+
+  # The free image model (owner, 26 October 2026).
+  microsoft/mai-image-2.6-flash:
+    free: true
+
+  black-forest-labs/flux-3-image:
+    featured: true
+
+  bytedance-seed/seedream-5-0-pro:
+    featured: true
+
+  # Up to 20 references.
+  tencent/hy-image-v3.5-preview:
+    featured: true
+
+  # SVG output.
+  recraft/recraft-v4.1-vector:
+    featured: true
+
+  # Draws text in the fonts it is given. Its reasoning setting is not on
+  # OpenRouter's Images API, neither as a parameter nor as a pass-through, so
+  # it has no effort here.
+  sourceful/riverflow-v2.5-pro:
+    featured: true
+
+  # Video. Reference counts, continuation and the face policy are filled in
+  # only where a source says so (docs/research/video.md, sections 5.4 and 6);
+  # the rest waits for the tests of the video stage.
+
+  google/veo-3.1:
+    featured: true
+    references: {image: 3}
+    faces: adults
+    passthrough:
+      negativePrompt: {type: text}
+
+  google/veo-3.1-fast:
+    featured: true
+    references: {image: 3}
+    faces: adults
+    passthrough:
+      negativePrompt: {type: text}
+
+  # Lite takes no reference images.
+  google/veo-3.1-lite:
+    featured: true
+    faces: adults
+    passthrough:
+      negativePrompt: {type: text}
+
+  kwaivgi/kling-v3.0-pro:
+    featured: true
+    passthrough:
+      negative_prompt: {type: text}
+
+  kwaivgi/kling-v3.0-std:
+    passthrough:
+      negative_prompt: {type: text}
+
+  kwaivgi/kling-video-o1:
+    passthrough:
+      negative_prompt: {type: text}
+
+  # Real faces in references are refused, by third-party reports; BytePlus's
+  # own page was not reached.
+  bytedance/seedance-2.0:
+    featured: true
+    faces: rejected
+
+  bytedance/seedance-2.5:
+    featured: true
+    faces: rejected
+
+  bytedance/seedance-2.0-fast:
+    faces: rejected
+
+  bytedance/seedance-2.0-mini:
+    faces: rejected
+
+  alibaba/wan-3.0:
+    featured: true
+
+  alibaba/wan-2.7:
+    passthrough:
+      negative_prompt: {type: text}
+
+  alibaba/wan-2.6:
+    passthrough:
+      negative_prompt: {type: text}
+
+  minimax/hailuo-3-max:
+    featured: true
+
+  x-ai/grok-imagine-video-1.5-lite:
+    featured: true
+
+  heygen/heygen-video-1:
+    featured: true
+
+  google/gemini-omni-1.1-flash:
+    name: Gemini Omni 1.1 Flash
+    maker: Google
+    offers: [gemini:gemini-omni-1.1-flash]
+    featured: true
+    # previous_interaction_id of the Interactions API.
+    continue: true
+    # No recognizable people, and no minors in the EEA, Switzerland and the UK.
+    faces: adults
+
+  # Editing, upscaling and talking heads take other inputs: they will be
+  # actions on a result, not models of the video form.
+  runway/aleph-2:
+    hide: an action on a finished video, not a model of the video form
+  black-forest-labs/flux-video-edit:
+    hide: an action on a finished video, not a model of the video form
+  black-forest-labs/flux-video-upscale:
+    hide: an action on a finished video, not a model of the video form
+  heygen/avatar-iv:
+    hide: a talking head from a photo and a voice, not a model of the video form

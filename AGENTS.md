@@ -14,8 +14,9 @@ careful with people's keys, and production-minded.
 - The Go service so far: configuration from the environment and file
   secrets (`NAME_FILE`), PostgreSQL with embedded migrations, Telegram long
   polling that records people and chats in `core`, `Preflight`, `/healthz`,
-  `/metrics` on its own listener, the family's panels on `/start`, and a clean
-  stop on SIGTERM. It makes nothing for people yet.
+  `/metrics` on its own listener, the family's panels on `/start`, the hourly
+  model catalog sync, and a clean stop on SIGTERM. It makes nothing for people
+  yet.
 - The service will be one Go binary (module `github.com/FreshLabDev/framy`):
   the HTTP server (site, Mini App, API, SSE, OAuth callbacks, provider
   webhooks), the bot, the job workers, the hourly catalog sync and the
@@ -100,7 +101,10 @@ screen, a command or a table, check how the siblings do it.
   **(owner)**. Nothing is generated until the requester presses Generate, and
   only the requester can press the buttons of a preview.
 - The catalog is data: synced from OpenRouter every hour, plus hand-written
-  descriptors for OpenAI and Gemini. A new model must not need a code change.
+  descriptors for OpenAI and Gemini in `catalog/`, joined and annotated by
+  `catalog/overlay.yaml`. A new model must not need a code change. A model's
+  id is its OpenRouter id, every hand-written offer is listed under a model in
+  the overlay, and catalog rows are disabled, never deleted.
 - Interface text lives in `i18n`, never inline. framy speaks the family's
   sixteen languages, and they ship together; a key missing in one language is
   a bug.

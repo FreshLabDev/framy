@@ -33,6 +33,20 @@ was written from, and the skeleton of the service.
   start, and a description is written only when it changed.
 - `/metrics` with framy's counters in the Prometheus text format, on its own
   listener (`METRICS_ADDR`, `:9090` by default), apart from the public one.
+- The model catalog. Every hour framy reads OpenRouter's public catalogs: the
+  image models with the price of every upstream route, the video models, and
+  their expiration dates. OpenAI's and Gemini's models are written by hand in
+  `catalog/openai.yaml` and `catalog/gemini.yaml`, and `catalog/overlay.yaml`
+  joins the offers of one model, so Nano Banana 2.1 comes from Gemini and from
+  OpenRouter. The overlay also gives display names, the featured and free
+  flags, the effort setting, values not to offer such as OpenAI's `auto`,
+  pass-through settings, reference counts, continuation and the face policy.
+  Hidden: models within 14 days of leaving, Google's preview ids, wrappers,
+  closed OpenAI models and the actions on a finished video. A model gone
+  upstream gets `disabled_at` and comes back when it returns. A failed sync
+  changes nothing, and one that would disable more than half of OpenRouter's
+  offers is refused. `CATALOG_SYNC_INTERVAL` (`1h`, or `off`) and
+  `OPENROUTER_API_BASE` configure it.
 - CI on every push and weekly: modules, gofmt, build, vet, race tests,
   database tests on PostgreSQL 17, govulncheck, the image build and the local
   Compose file. A tag publishes the image to GHCR and the GitHub Release only

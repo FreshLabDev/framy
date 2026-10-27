@@ -7,6 +7,7 @@ go 1.27.3
 require (
 	github.com/FreshLabDev/tg v0.1.0
 	github.com/jackc/pgx/v5 v5.9.2
+	go.yaml.in/yaml/v3 v3.0.5
 )
 
 require (

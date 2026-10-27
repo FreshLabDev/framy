@@ -168,4 +168,6 @@ A change is breaking — and needs a `Breaking` changelog entry — when it affe
 - the free allowance: what counts, its windows, its models
 - the layout of objects in the R2 bucket and the lifetime of presigned links
 - the HTTP API the site and the Mini App call
+- the ids of catalog models and offers, which jobs and links refer to, and the
+  form of `catalog/*.yaml`
 - Docker Compose or deployment assumptions

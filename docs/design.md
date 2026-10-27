@@ -76,13 +76,15 @@ Who pays in a chat: always the person who sent the command, from their free allo
 
 ### Sources
 
-- OpenRouter publishes its catalogs without a key: `GET /api/v1/images/models`, `GET /api/v1/images/models/{id}/endpoints` (the exact price per endpoint) and `GET /api/v1/videos/models`. framy pulls them every hour.
+- OpenRouter publishes its catalogs without a key: `GET /api/v1/images/models`, `GET /api/v1/images/models/{id}/endpoints` (the exact price per endpoint) and `GET /api/v1/videos/models`. Only `GET /api/v1/models` carries `expiration_date`, so it is read too. framy pulls all of them every hour, about 65 requests.
 - Direct OpenAI and Gemini have no such catalog. Their models are described by hand in the repository in the same schema (`catalog/openai.yaml`, `catalog/gemini.yaml`).
 - An overlay file (`catalog/overlay.yaml`) adds what no API says: which offers are the same model, reference limits by kind for video, which models accept `previous_job_id`, pass-through parameters with their allowed values, the face policy, display names, the effort mapping, the featured flag, the free-tier flag.
 
 ### Models and offers
 
-A model such as Nano Banana 2.1 has offers `gemini:gemini-nano-banana-2.1` and `openrouter:google/gemini-nano-banana-2.1`. The overlay maps them explicitly; names are not guessed.
+A model such as Nano Banana 2.1 has offers `gemini:gemini-nano-banana-2.1` and `openrouter:google/gemini-nano-banana-2.1`. The overlay maps them explicitly; names are not guessed. A model's id is its OpenRouter id, so it stays when a direct offer joins later; a model OpenRouter does not carry, such as Gemini Omni, gets its id in the overlay.
+
+The sync never deletes. An offer that leaves its source gets `disabled_at`, and a model with no offer left is disabled with it; one that comes back is restored. A failed listing changes nothing, a model whose endpoints fail keeps its last row, and a sync that would disable more than half of OpenRouter's offers is refused as a broken answer.
 
 Prices of the same model at different providers are usually equal: OpenRouter charges the provider's price per request and takes its fee of about 5.5% when credits are bought. What differs is where the money comes from and which settings exist:
 
@@ -115,13 +117,19 @@ The owner asked for effort settings. Four models have them, each under its own n
 | Riverflow 2.5 | `reasoning` | `low`, `medium`, `high`; Pro also `xhigh` | dynamic price |
 | Krea K3 Edit | `thinking_mode` | values not documented | +$0.02 on high |
 
-`quality=auto` and `size=auto` of OpenAI are not offered: their price cannot be known before the run.
+`quality=auto` and `size=auto` of OpenAI are not offered: their price cannot be known before the run. Neither is `aspect_ratio=auto` of OpenAI's models on OpenRouter, for the same reason.
+
+In the catalog of 27 October only GPT Image 2.5 and the direct Gemini models have effort: Riverflow's `reasoning` is on OpenRouter's Images API neither as a parameter nor as a pass-through, and Krea's values are not documented.
 
 ### Hidden
 
 - Models with an OpenRouter `expiration_date` less than 14 days away.
 - Models on the OpenAI and Google deprecation pages. Proposal: the service reads both pages weekly and posts changes to the operator chat.
 - Duplicates and wrappers: `*-preview` Gemini ids, `openai/gpt-5*-image*`, `openai/gpt-image-1*`, `meta/muse-image` (an eval slug), `openrouter/auto*`.
+- An offer with no route, such as `meta/muse-image`, whose endpoint list on the Images API is empty.
+- The actions on a finished video listed under "Featured at launch".
+
+Until the weekly reader of the deprecation pages exists, the overlay hides such models by hand, `gemini-2.5-flash-image` among them.
 
 ### Featured at launch
 
@@ -598,7 +606,7 @@ Main tables of the `framy` schema, created by a core migration with its own `fra
 |:--|:--|
 | `profile` | `user_id`, currency, default models, delivery to Telegram (the interface language is core's, shared with the other bots) |
 | `connection` | provider, encrypted key, `last4`, status, last success, last error class |
-| `catalog_model`, `catalog_offer` | synced and hand-written models, offers, `pricing_spec`, flags, `fetched_at` |
+| `catalog_model`, `catalog_offer` | models with the overlay's flags and traits; offers with their parameters, routes and prices, `expires_on`, `hidden`, `fetched_at`, `disabled_at` |
 | `job` | requester, surface, chat and preview message, offer, prompt, settings, status, provider job id, estimate, actual, FX |
 | `asset` | inputs and results: storage key, size, type, `file_id`, `file_unique_id` |
 | `album_item` | the 48-hour album cache |

@@ -82,6 +82,9 @@ var (
 	PollFailures   = registerCounter("framy_poll_failures_total", "getUpdates calls that failed.")
 	TouchFailures  = registerCounter("framy_core_touch_failures_total", "core.touch calls that failed.")
 
+	CatalogSyncs        = registerCounter("framy_catalog_syncs_total", "Catalog syncs saved.")
+	CatalogSyncFailures = registerCounter("framy_catalog_sync_failures_total", "Catalog syncs that failed and changed nothing.")
+
 	TelegramErrors  = registerVec("framy_telegram_errors_total", "Telegram API and transport errors, by method.", "method")
 	TelegramLimited = registerVec("framy_telegram_rate_limited_total", "Telegram 429 responses observed, by method.", "method")
 )

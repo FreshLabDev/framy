@@ -23,7 +23,8 @@ RUN apk add --no-cache ca-certificates tzdata \
 
 WORKDIR /app
 
-# Migrations are embedded in the binary; there is nothing else to copy.
+# Migrations and the catalog files are embedded in the binary; there is
+# nothing else to copy.
 COPY --from=build /out/framy /app/framy
 
 # docker inspect answers which build is running without starting it.

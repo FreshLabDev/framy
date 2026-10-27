@@ -6,12 +6,17 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // DefaultTelegramAPIBase is Telegram's own server, enough for local work.
 // Production points TELEGRAM_API_BASE at the family's telegram-bot-api in
 // --local mode, which lifts the 20 MB download and 50 MB upload caps.
 const DefaultTelegramAPIBase = "https://api.telegram.org"
+
+// DefaultOpenRouterAPIBase is where the catalog sync reads OpenRouter's
+// public catalogs.
+const DefaultOpenRouterAPIBase = "https://openrouter.ai/api/v1"
 
 type Config struct {
 	TelegramBotToken string
@@ -23,6 +28,10 @@ type Config struct {
 	// public with the site. Empty turns it off.
 	MetricsAddr string
 	LogLevel    string
+	// OpenRouterAPIBase and CatalogEvery drive the catalog sync; a zero
+	// CatalogEvery turns it off.
+	OpenRouterAPIBase string
+	CatalogEvery      time.Duration
 }
 
 func Load() (Config, error) {
@@ -31,6 +40,8 @@ func Load() (Config, error) {
 		HTTPAddr:        valueOrDefault("HTTP_ADDR", ":8080"),
 		MetricsAddr:     valueOrDefault("METRICS_ADDR", ":9090"),
 		LogLevel:        valueOrDefault("LOG_LEVEL", "info"),
+
+		OpenRouterAPIBase: strings.TrimRight(valueOrDefault("OPENROUTER_API_BASE", DefaultOpenRouterAPIBase), "/"),
 	}
 	var err error
 	if cfg.TelegramBotToken, err = secret("TELEGRAM_BOT_TOKEN"); err != nil {
@@ -44,6 +55,14 @@ func Load() (Config, error) {
 	}
 	if !strings.HasPrefix(cfg.TelegramAPIBase, "http://") && !strings.HasPrefix(cfg.TelegramAPIBase, "https://") {
 		return Config{}, fmt.Errorf("TELEGRAM_API_BASE must be an http or https URL")
+	}
+	if !strings.HasPrefix(cfg.OpenRouterAPIBase, "https://") && !strings.HasPrefix(cfg.OpenRouterAPIBase, "http://") {
+		return Config{}, fmt.Errorf("OPENROUTER_API_BASE must be an http or https URL")
+	}
+	if every := valueOrDefault("CATALOG_SYNC_INTERVAL", "1h"); every != "off" {
+		if cfg.CatalogEvery, err = time.ParseDuration(every); err != nil || cfg.CatalogEvery < time.Minute {
+			return Config{}, fmt.Errorf("CATALOG_SYNC_INTERVAL must be a duration of at least 1m, or off")
+		}
 	}
 	if cfg.MetricsAddr == "off" {
 		cfg.MetricsAddr = ""
