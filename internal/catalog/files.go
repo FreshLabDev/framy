@@ -61,6 +61,8 @@ type ModelOverlay struct {
 	Passthrough map[string]Param `yaml:"passthrough"`
 	References  *References      `yaml:"references"`
 	SourceVideo *SourceVideo     `yaml:"source_video"`
+	PicksLength *Length          `yaml:"picks_length"`
+	Price       *PriceHints      `yaml:"price"`
 	Continue    bool             `yaml:"continue"`
 	Faces       string           `yaml:"faces"`
 }
@@ -255,6 +257,12 @@ func (f Files) validate() error {
 				return fmt.Errorf("overlay: model %s: source_video limits cannot be negative", id)
 			}
 		}
+		if l := m.PicksLength; l != nil && (l.Min <= 0 || l.Max < l.Min) {
+			return fmt.Errorf("overlay: model %s: picks_length needs 0 < min <= max", id)
+		}
+		if err := m.Price.validate(); err != nil {
+			return fmt.Errorf("overlay: model %s: %w", id, err)
+		}
 	}
 	for _, offer := range f.Offers {
 		if _, ok := owner[offer.ID]; !ok {
@@ -276,4 +284,39 @@ func (o Overlay) modelOf(offer Offer) string {
 		}
 	}
 	return offer.ProviderModelID
+}
+
+func (h *PriceHints) validate() error {
+	if h == nil {
+		return nil
+	}
+	if len(h.Tokens) == 0 && len(h.OpenAITokens) == 0 && len(h.Variants) == 0 && len(h.Skip) == 0 && h.From == "" {
+		return errors.New("price says nothing")
+	}
+	for billable, counts := range h.Tokens {
+		if len(counts) == 0 {
+			return fmt.Errorf("price.tokens.%s lists no counts", billable)
+		}
+		for res, n := range counts {
+			if n <= 0 {
+				return fmt.Errorf("price.tokens.%s.%s must be above zero", billable, res)
+			}
+		}
+	}
+	for quality, n := range h.OpenAITokens {
+		if n <= 0 {
+			return fmt.Errorf("price.openai_tokens.%s must be above zero", quality)
+		}
+	}
+	for variant, when := range h.Variants {
+		if len(when) == 0 {
+			return fmt.Errorf("price.variants.%s lists no settings", variant)
+		}
+	}
+	for billable, why := range h.Skip {
+		if why == "" {
+			return fmt.Errorf("price.skip.%s needs a reason", billable)
+		}
+	}
+	return nil
 }

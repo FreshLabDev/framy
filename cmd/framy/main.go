@@ -21,6 +21,7 @@ import (
 	"github.com/FreshLabDev/framy/internal/db"
 	"github.com/FreshLabDev/framy/internal/health"
 	"github.com/FreshLabDev/framy/internal/metrics"
+	"github.com/FreshLabDev/framy/internal/price"
 	"github.com/FreshLabDev/framy/migrations"
 )
 
@@ -147,6 +148,7 @@ func run(log *slog.Logger) error {
 			Log:   log.With("component", "catalog"),
 			Every: cfg.CatalogEvery,
 			Retry: 10 * time.Minute,
+			Check: price.Check,
 		}
 		workers.Go(func() { syncer.Run(ctx) })
 	}

@@ -41,6 +41,9 @@ type Syncer struct {
 	Every  time.Duration
 	Retry  time.Duration
 	Now    func() time.Time
+	// Check lists what the price estimate cannot read in a snapshot; the
+	// sync logs each line as a warning and saves the snapshot anyway.
+	Check func(Snapshot) []string
 }
 
 // Run syncs until ctx ends. After a restart it waits out what is left of the
@@ -84,6 +87,13 @@ func (s *Syncer) SyncOnce(ctx context.Context) error {
 	for _, id := range snap.Keep {
 		s.Log.Warn("catalog offer not refreshed; kept as it was", "offer", id)
 	}
+	var unpriced []string
+	if s.Check != nil {
+		unpriced = s.Check(snap)
+	}
+	for _, w := range unpriced {
+		s.Log.Warn("catalog price not understood", "detail", w)
+	}
 	saved, err := s.Store.SaveCatalog(ctx, snap, started)
 	if err != nil {
 		metrics.CatalogSyncFailures.Inc()
@@ -94,7 +104,7 @@ func (s *Syncer) SyncOnce(ctx context.Context) error {
 	s.Log.Info("catalog synced",
 		"models", saved.Models, "offers", saved.Offers,
 		"added", saved.Added, "restored", saved.Restored, "disabled", saved.Disabled,
-		"kept", len(snap.Keep), "warnings", len(snap.Warnings),
+		"kept", len(snap.Keep), "warnings", len(snap.Warnings), "unpriced", len(unpriced),
 		"took", s.now().Sub(started).Round(time.Millisecond).String())
 	return nil
 }

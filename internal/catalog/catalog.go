@@ -192,11 +192,44 @@ type SourceVideo struct {
 	KeepsLength bool `json:"keeps_length,omitempty" yaml:"keeps_length,omitempty"`
 }
 
+// Length is a range of seconds.
+type Length struct {
+	Min int `json:"min" yaml:"min"`
+	Max int `json:"max" yaml:"max"`
+}
+
+// Any stands for any value: of the resolution in PriceHints.Tokens, of a
+// setting in PriceHints.Variants.
+const Any = "*"
+
+// PriceHints is what the price estimate needs beyond the listed rates.
+type PriceHints struct {
+	// Tokens is how many tokens a billable takes per image, by the value of
+	// the resolution setting, or Any. Output video counts per second.
+	Tokens map[string]map[string]int `json:"tokens,omitempty" yaml:"tokens"`
+	// OpenAITokens is the base of OpenAI's image token formula by quality,
+	// from the official calculator.
+	OpenAITokens map[string]int `json:"openai_tokens,omitempty" yaml:"openai_tokens"`
+	// Variants says when a price variant applies: when every listed setting
+	// has its value, Any meaning any value. A variant not listed applies when
+	// its parts are chosen values, as low_1k is quality low at resolution 1K.
+	Variants map[string]map[string]any `json:"variants,omitempty" yaml:"variants"`
+	// Skip names billables framy never sends, with the reason.
+	Skip map[string]string `json:"skip,omitempty" yaml:"skip"`
+	// From: the listed rates are the least a run costs, and the provider
+	// sets the rest after it, as Riverflow 2.5 does.
+	From string `json:"from,omitempty" yaml:"from"`
+}
+
 // Traits is what the overlay knows about a model and no API says.
 type Traits struct {
 	Effort      *Effort      `json:"effort,omitempty"`
 	References  *References  `json:"references,omitempty"`
 	SourceVideo *SourceVideo `json:"source_video,omitempty"`
+	// PicksLength: the model chooses the video's length within this range,
+	// so the price is known only up to its top.
+	PicksLength *Length     `json:"picks_length,omitempty"`
+	Price       *PriceHints `json:"price,omitempty"`
 	// Continue: a finished result can be continued or edited on the same
 	// model, through previous_job_id or Omni's previous_interaction_id.
 	Continue bool   `json:"continue,omitempty"`

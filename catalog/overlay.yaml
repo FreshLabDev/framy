@@ -29,53 +29,119 @@ hide:
 models:
   # Images.
 
+  # price.openai_tokens is the base of the token formula in OpenAI's own
+  # calculator, by quality (docs/research/images.md, section 3.1).
   openai/gpt-image-2.5-sunburst:
     offers: [openai:gpt-image-2.5-sunburst]
     featured: true
     effort: {parameter: quality, values: [low, medium, high, xhigh, max]}
     # Neither price can be known before the run.
     exclude: {quality: [auto], aspect_ratio: [auto]}
+    price:
+      openai_tokens: {low: 16, medium: 24, high: 48, xhigh: 64, max: 96}
 
   openai/gpt-image-2.5-flare:
     offers: [openai:gpt-image-2.5-flare]
     featured: true
     effort: {parameter: quality, values: [low, medium, high, xhigh, max]}
     exclude: {quality: [auto], aspect_ratio: [auto]}
+    price:
+      openai_tokens: {low: 16, medium: 24, high: 48, xhigh: 64, max: 96}
 
   openai/gpt-image-2:
     offers: [openai:gpt-image-2]
     exclude: {quality: [auto], aspect_ratio: [auto]}
+    price:
+      openai_tokens: {low: 16, medium: 48, high: 96}
 
+  # price.tokens of the Gemini models is Google's count of tokens per image,
+  # by resolution (docs/research/images.md, section 4.1).
   google/gemini-nano-banana-2.1:
     offers: [gemini:gemini-nano-banana-2.1]
     featured: true
     # Only the direct offer has thinking_level.
     effort: {parameter: thinking_level, values: [minimal, medium, high]}
+    price:
+      # The guide says 2,520 tokens at 4K; the pricing page, which bills,
+      # says 3,780 ($0.113).
+      tokens: {output_image: {1K: 1120, 2K: 1680, 4K: 3780}}
 
   google/gemini-3.1-flash-image:
     name: Nano Banana 2
     offers: [gemini:gemini-3.1-flash-image]
     effort: {parameter: thinking_level, values: [minimal, high]}
+    price:
+      tokens: {output_image: {"512": 747, 1K: 1120, 2K: 1680, 4K: 2520}}
 
   google/gemini-3.1-flash-lite-image:
     name: Nano Banana 2 Lite
     offers: [gemini:gemini-3.1-flash-lite-image]
     effort: {parameter: thinking_level, values: [minimal, high]}
+    price:
+      tokens: {output_image: {1K: 1120}}
 
   google/gemini-3-pro-image:
     name: Nano Banana Pro
     offers: [gemini:gemini-3-pro-image]
     featured: true
+    price:
+      tokens:
+        output_image: {1K: 1120, 2K: 1120, 4K: 2000}
+        input_image: {"*": 560}
 
   google/gemini-2.5-flash-image:
     hide: on Google's deprecation page, and its own pages disagree on the shutdown date
 
+  # Microsoft publishes no token count. About 1,024 a 1024x1024 image is
+  # Artificial Analysis's price per image divided by the rate, on all four
+  # models: $0.0195, $0.0389, $0.048 and $0.108.
+  microsoft/mai-image-2.5:
+    price:
+      tokens: {output_image: {"*": 1024}}
+
+  microsoft/mai-image-2.5-pro:
+    price:
+      tokens: {output_image: {"*": 1024}}
+
   microsoft/mai-image-2.6:
     featured: true
+    price:
+      tokens: {output_image: {"*": 1024}}
 
   # The free image model (owner, 26 October 2026).
   microsoft/mai-image-2.6-flash:
     free: true
+    price:
+      tokens: {output_image: {"*": 1024}}
+
+  # Krea's dearer variants are for style references and moodboards, which
+  # framy does not send.
+  krea/krea-2-large:
+    price:
+      variants: {style_references: {image_style_references: "*"}, moodboards: {moodboards: "*"}}
+  krea/krea-2-medium:
+    price:
+      variants: {style_references: {image_style_references: "*"}, moodboards: {moodboards: "*"}}
+  krea/krea-2-medium-turbo:
+    price:
+      variants: {style_references: {image_style_references: "*"}, moodboards: {moodboards: "*"}}
+  krea/k3-edit:
+    price:
+      variants: {high_thinking_surcharge: {thinking_mode: high}}
+
+  sourceful/riverflow-v2-pro:
+    price:
+      skip:
+        input_reference: super-resolution references, which framy does not send
+        input_font: font files, which framy does not send yet
+  sourceful/riverflow-v2-fast:
+    price:
+      skip:
+        input_reference: super-resolution references, which framy does not send
+        input_font: font files, which framy does not send yet
+  sourceful/riverflow-v2.5-fast:
+    price:
+      from: the price grows with reasoning, resolution and the image's complexity
 
   black-forest-labs/flux-3-image:
     featured: true
@@ -96,6 +162,8 @@ models:
   # it has no effort here.
   sourceful/riverflow-v2.5-pro:
     featured: true
+    price:
+      from: the price grows with reasoning, resolution and the image's complexity
 
   # Video. Reference counts, continuation and the face policy are filled in
   # only where a source says so (docs/research/video.md, sections 5.4 and 6);
@@ -178,6 +246,11 @@ models:
     featured: true
     # previous_interaction_id of the Interactions API.
     continue: true
+    # The model picks the length; Google counts 5,792 tokens a second of
+    # 720p, about $0.10. Other resolutions have no published count.
+    picks_length: {min: 3, max: 10}
+    price:
+      tokens: {output_video: {720p: 5792}}
     # An uploaded video goes through the Files API, up to 10 s, and not in
     # the EEA, Switzerland and the UK; its own results have no such limit.
     source_video: {max_seconds: 10}

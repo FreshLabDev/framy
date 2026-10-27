@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -69,6 +70,28 @@ func TestSyncOnceSavesTheBuiltSnapshot(t *testing.T) {
 	nb := modelByID(t, store.saves[0], "google/gemini-nano-banana-2.1")
 	if len(nb.Offers) != 2 {
 		t.Fatalf("nano banana offers = %v", offerIDs(nb))
+	}
+}
+
+func TestSyncOnceLogsWhatThePriceCannotRead(t *testing.T) {
+	var logged strings.Builder
+	store := &fakeStore{}
+	s := &Syncer{
+		Source: &fakeSource{up: fixtureUpstream(t)},
+		Files:  embeddedFiles(t),
+		Store:  store,
+		Log:    slog.New(slog.NewTextHandler(&logged, nil)),
+		Now:    func() time.Time { return fixtureDay },
+		Check:  func(Snapshot) []string { return []string{"price: a/b bills output_hologram"} },
+	}
+	if err := s.SyncOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.saves) != 1 {
+		t.Fatalf("saves = %d; a price the estimate cannot read must not stop the sync", len(store.saves))
+	}
+	if !strings.Contains(logged.String(), "output_hologram") || !strings.Contains(logged.String(), "unpriced=1") {
+		t.Fatalf("log:\n%s", logged.String())
 	}
 }
 

@@ -67,6 +67,9 @@ func Build(up Upstream, files Files, now time.Time) Snapshot {
 		if kind == Video && m.Hidden == "" {
 			checkSourceVideo(id, m.Traits.SourceVideo, offers, warn)
 		}
+		if h := m.Traits.Price; h != nil {
+			checkPrice(id, *h, offers, warn)
+		}
 		for _, name := range slices.Sorted(maps.Keys(o.Models[id].Passthrough)) {
 			if !slices.ContainsFunc(offers, func(of Offer) bool { _, ok := of.Params[name]; return ok }) {
 				warn("model %s: no offer accepts the pass-through setting %s", id, name)
@@ -97,6 +100,8 @@ func describe(id string, kind Kind, offers []Offer, ov ModelOverlay) Model {
 			Effort:      ov.Effort,
 			References:  ov.References,
 			SourceVideo: ov.SourceVideo,
+			PicksLength: ov.PicksLength,
+			Price:       ov.Price,
 			Continue:    ov.Continue,
 			Faces:       ov.Faces,
 		},
@@ -264,4 +269,50 @@ func plain(s string) string {
 func day(t time.Time) time.Time {
 	y, m, d := t.UTC().Date()
 	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+}
+
+// checkPrice warns when the overlay's price hints name what no offer bills or
+// offers, so a renamed variant or a new resolution shows up in the log.
+func checkPrice(model string, h PriceHints, offers []Offer, warn func(string, ...any)) {
+	bills := func(match func(Price) bool) bool {
+		for _, of := range offers {
+			for _, r := range of.Routes {
+				if slices.ContainsFunc(r.Prices, match) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	offered := func(param string, value string) bool {
+		return slices.ContainsFunc(offers, func(of Offer) bool {
+			p, ok := of.Params[param]
+			return ok && slices.ContainsFunc(p.Values, func(v any) bool { return sameValue(v, value) })
+		})
+	}
+	for _, billable := range slices.Sorted(maps.Keys(h.Tokens)) {
+		if !bills(func(p Price) bool { return p.Billable == billable && p.Unit == "token" }) {
+			warn("model %s: price.tokens.%s, but no offer bills %s in tokens", model, billable, billable)
+		}
+		for _, res := range slices.Sorted(maps.Keys(h.Tokens[billable])) {
+			if res != Any && !offered("resolution", res) {
+				warn("model %s: price.tokens.%s.%s, but no offer has that resolution", model, billable, res)
+			}
+		}
+	}
+	for _, quality := range slices.Sorted(maps.Keys(h.OpenAITokens)) {
+		if !offered("quality", quality) {
+			warn("model %s: price.openai_tokens.%s, but no offer has that quality", model, quality)
+		}
+	}
+	for _, variant := range slices.Sorted(maps.Keys(h.Variants)) {
+		if !bills(func(p Price) bool { return p.Variant == variant }) {
+			warn("model %s: price.variants.%s, but no offer has that variant", model, variant)
+		}
+	}
+	for _, billable := range slices.Sorted(maps.Keys(h.Skip)) {
+		if !bills(func(p Price) bool { return p.Billable == billable }) {
+			warn("model %s: price.skip.%s, but no offer bills it", model, billable)
+		}
+	}
 }

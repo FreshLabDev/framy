@@ -16,9 +16,7 @@ import (
 )
 
 // The fixtures are OpenRouter's answers of 27 October 2026, descriptions cut
-// short: the three listings in full, and the endpoints of the image models
-// the tests look at closely. Any other model's endpoints are made up from
-// its listing, with a placeholder price.
+// short: the three listings and the endpoints of every image model.
 const fixtures = "testdata/openrouter"
 
 // fixtureServer serves the fixtures; override replaces a path's answer.
@@ -29,13 +27,6 @@ func fixtureServer(t *testing.T, override map[string]http.HandlerFunc) *httptest
 		"/api/v1/images/models": "images.json",
 		"/api/v1/videos/models": "videos.json",
 	}
-	var images struct {
-		Data []struct {
-			ID                  string           `json:"id"`
-			SupportedParameters map[string]Param `json:"supported_parameters"`
-		} `json:"data"`
-	}
-	readJSON(t, filepath.Join(fixtures, "images.json"), &images)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if h, ok := override[r.URL.Path]; ok {
 			h(w, r)
@@ -50,23 +41,7 @@ func fixtureServer(t *testing.T, override map[string]http.HandlerFunc) *httptest
 			http.NotFound(w, r)
 			return
 		}
-		file := filepath.Join(fixtures, "endpoints", strings.ReplaceAll(id, "/", "_")+".json")
-		if _, err := os.Stat(file); err == nil {
-			http.ServeFile(w, r, file)
-			return
-		}
-		for _, m := range images.Data {
-			if m.ID == id {
-				_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "endpoints": []any{map[string]any{
-					"provider_slug":                  "fixture",
-					"supported_parameters":           m.SupportedParameters,
-					"allowed_passthrough_parameters": []string{},
-					"pricing":                        []Price{{Billable: "output_image", Unit: "image", CostUSD: 0.01}},
-				}}})
-				return
-			}
-		}
-		http.NotFound(w, r)
+		http.ServeFile(w, r, filepath.Join(fixtures, "endpoints", strings.ReplaceAll(id, "/", "_")+".json"))
 	}))
 	t.Cleanup(srv.Close)
 	return srv

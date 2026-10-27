@@ -51,6 +51,15 @@ was written from, and the skeleton of the service.
   changes nothing, and one that would disable more than half of OpenRouter's
   offers is refused. `CATALOG_SYNC_INTERVAL` (`1h`, or `off`) and
   `OPENROUTER_API_BASE` configure it.
+- The price estimate. Before a run framy works out its price from the
+  catalog's rates and the run's settings: OpenRouter's price lines and video
+  SKUs, OpenAI's token formula, Gemini's tokens per size, Seedance's video
+  tokens, per-reference charges and Aleph's minimum. Each estimate says
+  whether it is exact, about, up to, from, or known only after the run, and
+  keeps the rates and quantities it used. It agrees with OpenAI's published
+  gpt-image-2 prices, OpenRouter's 16:9 example and BytePlus's Seedance 2.0
+  example. The overlay's `price` hints fill in what the rates leave out, and
+  every sync logs the price lines the estimate cannot read.
 - CI on every push and weekly: modules, gofmt, build, vet, race tests,
   database tests on PostgreSQL 17, govulncheck, the image build and the local
   Compose file. A tag publishes the image to GHCR and the GitHub Release only

@@ -221,15 +221,26 @@ Nobody reports progress in percent. The wait shows elapsed time and the model's 
 
 ## Price and currency
 
-Five ways models are billed, each a `pricing_spec` kind:
+The composer shows the price before the run. `internal/price` works it out from the rates of the offer's routes and the run's settings, and labels it with one of five kinds:
 
-| Kind | Models | Shown before the run |
+| Kind | Shown as | When |
 |:--|:--|:--|
-| table by size and quality | FLUX.3, Seedream, Krea, Qwen, Recraft, Grok, Riverflow 2 | exact |
-| per megapixel | FLUX.2 | exact |
-| tokens by formula | OpenAI (formula from the official calculator), Gemini (tokens per size) | "about" |
-| per second by resolution and sound | video | exact |
-| dynamic | Riverflow 2.5, Omni | "up to" |
+| `exact` | the price | the rates and the quantities are known: tables by size and quality (FLUX.3, Seedream, Krea, Qwen, Recraft, Grok, Riverflow 2), video seconds by resolution and sound, Seedance's video tokens |
+| `about` | "about" | a formula or a rounding decides: OpenAI's and Gemini's tokens, FLUX.2's megapixels, the prompt's tokens, routes at different prices, two video rates that both fit (Kling's sound) |
+| `up_to` | "up to" the most | a setting is not chosen yet, or the model picks it: Omni's 3 to 10 s, FLUX Video Upscale's factor, Seedream Pro's high resolution |
+| `from` | "from" the least | the provider sets the price after the run: Riverflow 2.5 |
+| `unknown` | "known after the run" | nothing says how many output tokens a run makes: Tencent HY Image, Omni at 1080p |
+
+An estimate never rounds in framy's favour, and an approximate one says so. An offer with several routes is priced by the cheapest, and the dearest is the most it can cost, since OpenRouter may fall back to it. The estimate keeps its lines: each billable or SKU, its rate and the quantity.
+
+Where OpenRouter's rates are not enough, a model's `price` in `catalog/overlay.yaml` fills in:
+- `tokens`: tokens per output image by resolution (Gemini, MAI), per input image, per second of video (Omni);
+- `openai_tokens`: the base of OpenAI's formula by quality;
+- `variants`: the settings a dearer rate is for, such as Krea's style references, so it is not taken otherwise;
+- `skip`: a billable framy never sends, with the reason, such as Riverflow 2's fonts;
+- `from`: why the price is only a floor.
+
+`picks_length` is the range of a model that picks its own length. The build warns about a hint that matches no route; every sync logs the price lines and SKUs the estimate cannot read (`catalog price not understood`), so a new kind of price shows up before someone sees it as "about".
 
 Input images add their own price: per reference at Grok, Seedream Pro, Qwen 3 and K3 Edit, as tokens at OpenAI and Gemini. An attached video changes the price too:
 - a model that keeps the source's length (`source_video.keeps_length`) is priced by that length, so the estimate is exact;
@@ -240,7 +251,7 @@ After the run framy records the actual cost:
 - OpenRouter: `usage.cost`;
 - OpenAI and Gemini: usage tokens times the rates.
 
-A generation keeps `estimate_usd`, `actual_usd`, `fx_rate` and `fx_date`. An actual cost more than 20% off the estimate is logged: that is how a price change shows up.
+A generation keeps `estimate_usd` with the estimate's lines, `actual_usd`, `fx_rate` and `fx_date`. An actual cost more than 20% off the estimate is logged: that is how a price change shows up.
 
 **Currency** **(owner: USD and the person's currency, chosen or by IP)**:
 - **Default on the site and in the Mini App:** the country from `CF-IPCountry` maps to a currency (UA → UAH, BY → BYN, PL → PLN, euro area → EUR), otherwise USD.
@@ -610,6 +621,7 @@ framy (Go, one service on ws04)
   ├─ bot: long polling through tg, /f, album cache, delivery
   ├─ workers: jobs in Postgres, provider adapters (openrouter, openai, gemini), result download
   ├─ catalog: hourly OpenRouter sync, local descriptors and overlay, daily FX rates
+  ├─ price: the estimate before a run, from the catalog's rates
   └─ renderer: loops and previews (internal/anim, from maply), error and preview cards
 
 telegram-bot-api (--local), sharing a volume with framy
