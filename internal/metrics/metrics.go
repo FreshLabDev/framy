@@ -91,6 +91,8 @@ var (
 
 	FreeRefused = registerVec("framy_free_refused_total", "Free runs refused, by reason: image_limit, video_limit, budget, key, not_free.", "reason")
 	FreeClosed  = registerVec("framy_free_closed_total", "Times a fuse closed the free tier for a UTC day, by fuse: budget, key.", "fuse")
+	KeyDecryptFailures = registerCounter("framy_key_decrypt_failures_total", "Stored keys that could not be decrypted: a lost or wrong KEK, or a row that was tampered with.")
+	KeysInChat         = registerCounter("framy_keys_in_chat_total", "Direct messages that looked like a key and were deleted.")
 
 	TelegramErrors  = registerVec("framy_telegram_errors_total", "Telegram API and transport errors, by method.", "method")
 	TelegramLimited = registerVec("framy_telegram_rate_limited_total", "Telegram 429 responses observed, by method.", "method")

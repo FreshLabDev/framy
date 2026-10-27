@@ -57,6 +57,11 @@ type Config struct {
 	// FreeDailyBudgetUSD is the most the free tier may cost in a UTC day
 	// (owner, 27 October: $1). Zero closes the free tier.
 	FreeDailyBudgetUSD float64
+	// KEKFile is the path of the key-encryption key file (internal/keys).
+	// Empty: framy keeps no keys of people's, and a run that needs one fails
+	// as key. It is a path and never a value: an environment variable shows
+	// in docker inspect.
+	KEKFile string
 }
 
 // R2 is the bucket and the token limited to it.
@@ -131,6 +136,10 @@ func Load() (Config, error) {
 		math.IsNaN(cfg.FreeDailyBudgetUSD) || math.IsInf(cfg.FreeDailyBudgetUSD, 0) || cfg.FreeDailyBudgetUSD < 0 {
 		return Config{}, fmt.Errorf("FREE_DAILY_BUDGET_USD must be a number of dollars, zero or more")
 	}
+	if os.Getenv("FRAMY_KEK") != "" {
+		return Config{}, fmt.Errorf("the KEK comes from FRAMY_KEK_FILE only: an environment variable shows in docker inspect")
+	}
+	cfg.KEKFile = valueOrDefault("FRAMY_KEK_FILE", "")
 	if cfg.MetricsAddr == "off" {
 		cfg.MetricsAddr = ""
 	}

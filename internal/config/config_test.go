@@ -202,3 +202,26 @@ func TestLoadFreeDailyBudget(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadKEKFile(t *testing.T) {
+	setBase(t)
+	t.Setenv("FRAMY_KEK", "")
+	t.Setenv("FRAMY_KEK_FILE", "")
+	cfg, err := Load()
+	if err != nil || cfg.KEKFile != "" {
+		t.Fatalf("default: %q, %v", cfg.KEKFile, err)
+	}
+	t.Setenv("FRAMY_KEK_FILE", "/run/secrets/kek")
+	if cfg, err = Load(); err != nil || cfg.KEKFile != "/run/secrets/kek" {
+		t.Fatalf("the path: %q, %v", cfg.KEKFile, err)
+	}
+	// The KEK is never read from a variable: docker inspect would show it.
+	t.Setenv("FRAMY_KEK", "1:the-kek-itself")
+	_, err = Load()
+	if err == nil {
+		t.Fatal("a KEK in the environment was accepted")
+	}
+	if strings.Contains(err.Error(), "the-kek-itself") {
+		t.Error("the error names the KEK")
+	}
+}
