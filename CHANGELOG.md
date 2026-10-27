@@ -118,6 +118,22 @@ was written from, and the skeleton of the service.
   once a day per fuse. A refusal is a typed error that says when the slot
   frees up or until when the tier is closed, for the bot and the site to
   word.
+- Provider keys that people paste in: OpenAI, Gemini and OpenRouter. A key is
+  checked with the provider when it is saved (the list of models, which costs
+  nothing) and kept only encrypted: a new data key for every record,
+  AES-256-GCM with the person, the provider and the connection as associated
+  data, and the data key wrapped by a key-encryption key read from a file
+  (`FRAMY_KEK_FILE`), apart from the database and its backups. A new line in
+  that file starts a rotation at the next start: only the data keys are
+  rewrapped, the encrypted keys stay as they are. A connection shows its last
+  four characters and a status: valid, verified, needs billing, needs
+  verification, no credits or invalid. The list of models cannot tell the
+  last three apart from a key that works, so those are set by what a run
+  shows. A run on OpenRouter, OpenAI or Gemini pays from the person's own
+  connection and never falls back to framy's key.
+- A key pasted into a direct chat is deleted at once and the bot says that
+  keys go in the settings, in all sixteen languages. If Telegram refuses the
+  delete, the bot says the message stayed.
 - Storage in Cloudflare R2. A photo a person brings goes through one ffmpeg
   subprocess: its format is read from its bytes (JPEG, PNG, WebP, HEIC,
   AVIF), its size from its header, so anything above 64 MP is refused before
