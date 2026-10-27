@@ -31,6 +31,23 @@ was written from, and the skeleton of the service.
   a pick writes a manual observation and Follow Telegram withdraws it. The
   command menu and the profile descriptions are published per language at
   start, and a description is written only when it changed.
+- The home panel of a direct chat says where the person stands: how many of
+  the free images (5 in any 24 hours) and the free video (1 in any 7 days)
+  are left, which providers they have connected, their language, and the
+  currency prices are shown in. A provider is named with a word beside it
+  only when something is wrong with the key (invalid, needs billing, needs
+  verification, no credits); no part of a key is ever shown. The currency is
+  the person's choice, else the language's (Ukrainian, Belarusian and Polish
+  map to UAH, BYN and PLN), else USD, since the bot has no country to go by.
+  Each part is read when the panel is drawn, all under a 3-second deadline;
+  one that cannot be read is left out and `/start` still answers. A group's
+  panel shows none of this. With an https `SITE_URL` the panel gets an Open
+  framy button that opens the site as a Mini App, and at start the menu
+  button of every direct chat is set to open it, labelled framy. Without
+  `SITE_URL`, or with one that is not https (Telegram refuses it), neither is
+  set and the menu button is left as it was. The default models are not
+  shown yet, since nothing stores them. The text that described the free
+  allowance in words is gone from the panel, replaced by the numbers.
 - `/metrics` with framy's counters in the Prometheus text format, on its own
   listener (`METRICS_ADDR`, `:9090` by default), apart from the public one.
 - The model catalog. Every hour framy reads OpenRouter's public catalogs: the

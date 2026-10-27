@@ -537,6 +537,13 @@ In groups one run makes one result. Proposal: more than one only on the site and
   - a panel with the free allowance left, the connected providers, the default models, the language and the currency;
   - "Open framy" as a `web_app` button.
   - The menu button opens the Mini App.
+- **What the panel shows today** (`internal/bot`, a direct chat only; a group's panel shows nothing about the person):
+  - the free images and videos left, as `free.Usage` counts them: "4 of 5 left in any 24 hours", "1 of 1 left in any 7 days". The windows are words in the strings, so a test fails when `free.ImageWindow` or `free.VideoWindow` changes;
+  - the connected providers by name (OpenRouter, OpenAI, Gemini) in the order of the About card, with a status word only where the status is `invalid`, `needs_billing`, `needs_verification` or `no_credits`, and "none yet" while nothing is connected, which includes a framy without a KEK file. Not a character of a key is shown, not even the last four;
+  - the language by its name, without the flag, and the currency: the person's choice, else the language's (`uk`, `be`, `pl`), else USD. The bot has no country;
+  - the default models are left out, since nothing stores them yet.
+- The reads are made when the panel is drawn, on `/start` and on Back, under one 3-second deadline. A read that fails is logged and its line is left out, so the panel always answers.
+- "Open framy" is the one Primary button of the panel, above the tabs. Telegram takes `web_app` buttons only in a private chat, so a group's panel has none. It and the menu button need an https `SITE_URL`; without one the button is left out and the menu button is left as it was. At start the bot sets the default menu button (`setChatMenuButton` without a chat), a `web_app` button labelled "framy" in every language.
 - **Results made on the site** come here when the person has allowed it (`telegram:bot_access` at sign-in, or `/start`).
 - **Message effects.** A finished result can carry a message effect (DMs only).
 - **Stage 3:** progress through `sendRichMessageDraft` with Stop (`can_stop`, Bot API 10.3).
