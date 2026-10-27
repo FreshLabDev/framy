@@ -3,8 +3,10 @@
 // Package storage keeps people's files in R2 (docs/design.md, Storage and
 // retention): the photos they bring, normalized, and what their runs make,
 // copied the moment a run ends since a provider's link lives an hour or
-// two. A file stays until its owner deletes it. The host keeps only working
-// files, in a directory per upload or result that goes when the work does.
+// two. A file stays until its owner deletes it, except an upload no job
+// took within an hour, which is left from a failure. The host keeps only
+// working files, in a directory per upload or result that goes when the
+// work does.
 //
 // The object is written before its row and removed before it, so a row
 // never names an object that was not written, and a failed delete can be
@@ -52,6 +54,10 @@ const (
 	DefaultAlertStep = 10_000_000_000
 	// DefaultFetchTimeout bounds the download of one result.
 	DefaultFetchTimeout = 5 * time.Minute
+	// UploadTTL is how long an upload waits for a job to take it. The site
+	// uploads on Generate and the chat right before its draft, so an upload
+	// older than this that no job took is left from a failure.
+	UploadTTL = time.Hour
 )
 
 var (
@@ -394,6 +400,53 @@ func (s *Store) Delete(ctx context.Context, userID, assetID int64) error {
 	}
 	_, err = s.pool.Exec(ctx, `DELETE FROM asset WHERE id=$1 AND user_id=$2`, assetID, userID)
 	return err
+}
+
+// SweepUploads deletes the uploads no job took within age, the object and
+// then the row, and returns how many went. The row is locked while its
+// object goes, so a job taking the file at that moment either waits and
+// finds it gone, or holds it first and the sweep passes it by.
+func (s *Store) SweepUploads(ctx context.Context, age time.Duration) (int, error) {
+	n := 0
+	for {
+		gone, err := s.sweepUpload(ctx, age)
+		if err != nil || !gone {
+			return n, err
+		}
+		n++
+	}
+}
+
+// sweepUpload deletes the oldest upload no job took within age, and reports
+// false when there is none.
+func (s *Store) sweepUpload(ctx context.Context, age time.Duration) (bool, error) {
+	var gone bool
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		var id int64
+		var key string
+		err := tx.QueryRow(ctx, `
+			SELECT a.id, a.object_key FROM asset a
+			WHERE a.kind = 'upload' AND a.created_at <= now() - make_interval(secs => $1)
+			  AND NOT EXISTS (SELECT 1 FROM job_input i WHERE i.asset_id = a.id)
+			ORDER BY a.id
+			LIMIT 1
+			FOR UPDATE SKIP LOCKED`, age.Seconds()).Scan(&id, &key)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if err := s.bucket.Delete(ctx, key); err != nil {
+			return fmt.Errorf("delete the upload %d: %w", id, err)
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM asset WHERE id=$1`, id); err != nil {
+			return err
+		}
+		gone = true
+		return nil
+	})
+	return gone, err
 }
 
 // DeleteResults removes every result of a job of the person's and returns

@@ -324,6 +324,9 @@ func run(log *slog.Logger) error {
 		workers.Go(func() { rates.Run(ctx) })
 	}
 	workers.Go(func() { sweepWork(ctx, work, log) })
+	if files != nil {
+		workers.Go(func() { sweepUploads(ctx, files, log) })
+	}
 	if keyWatch != nil {
 		workers.Go(func() { keyWatch.Run(ctx) })
 	}
@@ -477,6 +480,25 @@ func openFlow(ctx context.Context, cfg config.Config, client *tg.Client, store *
 		Telegram: client, Store: store, Queue: queue, Files: files, Allowance: allowance, Keys: people,
 		Renderer: renderer, Work: work, Log: log.With("component", "chat"),
 	})
+}
+
+// sweepUploads deletes the uploads no job took within storage.UploadTTL:
+// at start and every hour.
+func sweepUploads(ctx context.Context, files *storage.Store, log *slog.Logger) {
+	tick := time.NewTicker(time.Hour)
+	defer tick.Stop()
+	for {
+		if n, err := files.SweepUploads(ctx, storage.UploadTTL); err != nil {
+			log.Error("sweep uploads no job took", "swept", n, "error", err)
+		} else if n > 0 {
+			log.Info("swept uploads no job took", "count", n)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
 }
 
 // sweepWork clears working files a crash left behind: at start and every

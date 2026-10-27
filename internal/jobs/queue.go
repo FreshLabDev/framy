@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
@@ -372,6 +373,11 @@ func (q *Queue) insert(ctx context.Context, tx pgx.Tx, n New, status Status) (in
 			FROM unnest($2::bigint[]) WITH ORDINALITY AS u(id, ord)
 			JOIN asset a ON a.id = u.id AND a.user_id = $3`,
 			id, n.Inputs, n.UserID)
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			// The sweep deleted a file no job had taken while this one read it.
+			return 0, false, ErrNoInput
+		}
 		if err != nil {
 			return 0, false, fmt.Errorf("insert job inputs: %w", err)
 		}

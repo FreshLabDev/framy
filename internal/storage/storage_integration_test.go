@@ -622,3 +622,177 @@ func TestAWorkingFileGoesWhenItsWorkFails(t *testing.T) {
 	}
 	h.workIsEmpty(t)
 }
+
+// aged makes an upload look as old as age.
+func aged(t *testing.T, h *harness, id int64, age time.Duration) {
+	t.Helper()
+	if _, err := h.pool.Exec(context.Background(),
+		`UPDATE framy.asset SET created_at = now() - make_interval(secs => $2) WHERE id=$1`, id, age.Seconds()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// takenBy makes a job of status that lists the files, as the queue would.
+func takenBy(t *testing.T, h *harness, status string, ids ...int64) int64 {
+	t.Helper()
+	ctx := context.Background()
+	var job int64
+	err := h.pool.QueryRow(ctx, `
+		INSERT INTO framy.job (user_id, surface, offer_id, model_id, provider, kind, prompt, status, finished_at)
+		VALUES ($1, 'site', 'openrouter:test/image', 'test/image', 'openrouter', 'image', 'x', $2,
+		        CASE WHEN $2 IN ('done', 'failed', 'cancelled', 'expired') THEN now() END)
+		RETURNING id`, alice, status).Scan(&job)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, id := range ids {
+		if _, err := h.pool.Exec(ctx, `INSERT INTO framy.job_input (job_id, position, asset_id) VALUES ($1, $2, $3)`, job, i, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return job
+}
+
+func (h *harness) assetExists(t *testing.T, id int64) bool {
+	t.Helper()
+	var n int
+	if err := h.pool.QueryRow(context.Background(), `SELECT count(*) FROM framy.asset WHERE id=$1`, id).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n == 1
+}
+
+func TestAnUploadNoJobTookGoesAfterAnHour(t *testing.T) {
+	h := newHarness(t, storage.Config{})
+	ctx := context.Background()
+	img := pngBytes(t, 8, 8, 255)
+	left := upload(t, h, alice, "u/3001/in/left.png", img)
+	fresh := upload(t, h, alice, "u/3001/in/fresh.png", img)
+	taken := upload(t, h, alice, "u/3001/in/taken.png", img)
+	declined := upload(t, h, bob, "u/3002/in/declined.png", img)
+	aged(t, h, left, 2*time.Hour)
+	aged(t, h, fresh, 50*time.Minute)
+	aged(t, h, taken, 2*time.Hour)
+	aged(t, h, declined, 2*time.Hour)
+	takenBy(t, h, "queued", taken)
+	// A draft someone said No to still took its file: it stays until the
+	// person deletes it, as every file does.
+	takenBy(t, h, "cancelled", declined)
+
+	n, err := h.store.SweepUploads(ctx, storage.UploadTTL)
+	if err != nil || n != 1 {
+		t.Fatalf("swept %d, %v; want 1", n, err)
+	}
+	if h.assetExists(t, left) {
+		t.Error("the row of the upload no job took is still there")
+	}
+	if _, ok := h.bucket.Get("u/3001/in/left.png"); ok {
+		t.Error("the object of the upload no job took is still there")
+	}
+	for _, id := range []int64{fresh, taken, declined} {
+		if !h.assetExists(t, id) {
+			t.Errorf("asset %d went", id)
+		}
+	}
+	for _, key := range []string{"u/3001/in/fresh.png", "u/3001/in/taken.png", "u/3002/in/declined.png"} {
+		if _, ok := h.bucket.Get(key); !ok {
+			t.Errorf("%s went", key)
+		}
+	}
+	if n, err := h.store.SweepUploads(ctx, storage.UploadTTL); err != nil || n != 0 {
+		t.Fatalf("a second sweep: %d, %v", n, err)
+	}
+}
+
+func TestTheSweepPassesByAnUploadAJobIsTaking(t *testing.T) {
+	h := newHarness(t, storage.Config{})
+	ctx := context.Background()
+	id := upload(t, h, alice, "u/3001/in/now.png", pngBytes(t, 8, 8, 255))
+	aged(t, h, id, 2*time.Hour)
+
+	// A job inserting its job_input holds this lock on the file until it
+	// commits; nothing is committed yet, so the sweep cannot see the job.
+	tx, err := h.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM framy.asset WHERE id=$1 FOR KEY SHARE`, id); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := h.store.SweepUploads(ctx, storage.UploadTTL); err != nil || n != 0 {
+		t.Fatalf("swept %d, %v while a job held the file", n, err)
+	}
+	if _, ok := h.bucket.Get("u/3001/in/now.png"); !ok {
+		t.Fatal("the object went while a job held the file")
+	}
+	// The job did not happen after all.
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := h.store.SweepUploads(ctx, storage.UploadTTL); err != nil || n != 1 {
+		t.Fatalf("swept %d, %v after the job let go", n, err)
+	}
+}
+
+func TestAJobCannotTakeAnUploadTheSweepIsDeleting(t *testing.T) {
+	h := newHarness(t, storage.Config{})
+	ctx := context.Background()
+	id := upload(t, h, alice, "u/3001/in/late.png", pngBytes(t, 8, 8, 255))
+	aged(t, h, id, 2*time.Hour)
+	q, err := jobs.NewQueue(h.pool, jobs.Config{Providers: map[string]jobs.Provider{"openrouter": &provider{}}, Sink: h.store, Inputs: h.store})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The sweep's lock, held while the object goes.
+	tx, err := h.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM framy.asset WHERE id=$1 FOR UPDATE`, id); err != nil {
+		t.Fatal(err)
+	}
+	enqueued := make(chan error, 1)
+	go func() {
+		_, _, err := q.Enqueue(ctx, jobs.New{UserID: alice, Surface: jobs.Site, Offer: offer, Prompt: "x", Inputs: []int64{id}})
+		enqueued <- err
+	}()
+	time.Sleep(200 * time.Millisecond)
+	if _, err := tx.Exec(ctx, `DELETE FROM framy.asset WHERE id=$1`, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-enqueued:
+		if !errors.Is(err, jobs.ErrNoInput) {
+			t.Fatalf("enqueue: %v, want ErrNoInput", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the enqueue never ended")
+	}
+	var made int
+	if err := h.pool.QueryRow(ctx, `SELECT count(*) FROM framy.job`).Scan(&made); err != nil || made != 0 {
+		t.Fatalf("%d jobs made, %v", made, err)
+	}
+}
+
+func TestAnObjectThatWouldNotGoKeepsItsRow(t *testing.T) {
+	h := newHarness(t, storage.Config{})
+	ctx := context.Background()
+	id := upload(t, h, alice, "u/3001/in/stuck.png", pngBytes(t, 8, 8, 255))
+	aged(t, h, id, 2*time.Hour)
+	h.bucket.FailNext(403)
+	if n, err := h.store.SweepUploads(ctx, storage.UploadTTL); err == nil || n != 0 {
+		t.Fatalf("swept %d, %v; want an error", n, err)
+	}
+	if !h.assetExists(t, id) {
+		t.Fatal("the row went before its object")
+	}
+	if n, err := h.store.SweepUploads(ctx, storage.UploadTTL); err != nil || n != 1 {
+		t.Fatalf("the next sweep: %d, %v", n, err)
+	}
+}

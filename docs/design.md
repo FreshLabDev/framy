@@ -685,6 +685,7 @@ Temporary domain `framy.ws04.cc`. Mobile first; on a wide screen the composer an
 - **How long (owner):** until the person deletes it: one result, or the whole account from the settings. Deleting removes the objects and the rows at once; the `file_id`s go with them.
 - **Accounting.** framy sums the bytes per person in `asset`, shows it in the settings and tells the operator chat (`OPERATOR_CHAT_ID`) each time the bucket passes another 10 GB, the first being where the free allowance ends. The last step told is kept in `runtime_state`; two writes crossing it at once tell it once, and a message that failed is tried again by the next write.
 - **Working files** live under `WORK_DIR`, a directory per upload or result removed when its work ends, failed or not. Whatever is older than an hour is swept at start and every hour.
+- **Uploads no job took** are deleted after an hour, the object first and then its row, at start and every hour (`Store.SweepUploads`). An upload is taken once a job lists it in `job_input`, a cancelled draft's included, and then it stays until the person deletes it like any file. The sweep locks the row while the object goes, so a job taking the file at that moment either keeps it or is refused as if the file were not the person's.
 
 ## Telegram setup
 

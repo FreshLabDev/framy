@@ -297,6 +297,12 @@ was written from, and the skeleton of the service.
   run in `chat_run` (migration 014), so a restart picks it up where it was.
   `/edit` is in the group menu for video and answers that video in chats is
   not open yet. Model, Settings, Again and Animate come later.
+- An upload that no job took within an hour is deleted, object and row,
+  checked at start and every hour. The site will upload on Generate and the
+  chat uploads right before its draft, so such a file is left from a
+  failure. A file a job took, a cancelled draft's included, stays until the
+  person deletes it. A job that tries to take a file at the moment the sweep
+  deletes it is refused as if the file were not the person's.
 - `/img` is off, and the log says why, when there is no R2 bucket or ffmpeg
   lacks libx264. The loops and cards are kept in `ANIM_CACHE_DIR` (by default
   `framy-anim` in the system temp directory), outside `WORK_DIR`, which is
