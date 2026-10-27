@@ -20,6 +20,7 @@ import (
 	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/config"
 	"github.com/FreshLabDev/framy/internal/db"
+	"github.com/FreshLabDev/framy/internal/fx"
 	"github.com/FreshLabDev/framy/internal/health"
 	"github.com/FreshLabDev/framy/internal/jobs"
 	"github.com/FreshLabDev/framy/internal/media"
@@ -189,6 +190,14 @@ func run(log *slog.Logger) error {
 			Check: price.Check,
 		}
 		workers.Go(func() { syncer.Run(ctx) })
+	}
+	if cfg.FXSync {
+		rates := &fx.Syncer{
+			Source: &fx.Client{HTTP: &http.Client{Timeout: 20 * time.Second}, UserAgent: userAgent},
+			Store:  store,
+			Log:    log.With("component", "fx"),
+		}
+		workers.Go(func() { rates.Run(ctx) })
 	}
 	workers.Go(func() { sweepWork(ctx, work, log) })
 	workers.Go(func() {

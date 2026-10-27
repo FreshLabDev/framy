@@ -33,6 +33,9 @@ type Config struct {
 	// CatalogEvery turns it off.
 	OpenRouterAPIBase string
 	CatalogEvery      time.Duration
+	// FXSync keeps the currency rates (internal/fx); off for work without
+	// the network.
+	FXSync bool
 	// OpenRouterKey is framy's own key, which pays for the free allowance;
 	// empty, the free allowance cannot run.
 	OpenRouterKey string
@@ -93,6 +96,13 @@ func Load() (Config, error) {
 		if cfg.CatalogEvery, err = time.ParseDuration(every); err != nil || cfg.CatalogEvery < time.Minute {
 			return Config{}, fmt.Errorf("CATALOG_SYNC_INTERVAL must be a duration of at least 1m, or off")
 		}
+	}
+	switch v := valueOrDefault("FX_SYNC", "on"); v {
+	case "on":
+		cfg.FXSync = true
+	case "off":
+	default:
+		return Config{}, fmt.Errorf("FX_SYNC must be on or off")
 	}
 	if cfg.JobsStopGrace, err = time.ParseDuration(valueOrDefault("JOBS_STOP_GRACE", "3m30s")); err != nil || cfg.JobsStopGrace < time.Second {
 		return Config{}, fmt.Errorf("JOBS_STOP_GRACE must be a duration of at least 1s")

@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/FreshLabDev/framy/internal/catalog"
+	"github.com/FreshLabDev/framy/internal/fx"
 	"github.com/FreshLabDev/framy/internal/price"
 )
 
@@ -78,6 +79,9 @@ type New struct {
 	Free bool
 	// Estimate is the price shown before the run (internal/price).
 	Estimate *price.Estimate
+	// FX is the rate the estimate was shown in the person's currency with;
+	// nil when it was shown in USD alone.
+	FX *fx.Quote
 	// Inputs are the person's files the run takes, in order: ids of
 	// framy.asset rows that are theirs.
 	Inputs []int64

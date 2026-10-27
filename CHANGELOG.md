@@ -101,6 +101,16 @@ was written from, and the skeleton of the service.
   `_FILE`), `WORK_DIR` and `OPERATOR_CHAT_ID` configure it; the image ships
   ffmpeg 8.1. `go test -tags r2live ./internal/r2` checks the real buckets
   and their token by hand.
+- Prices in the person's currency: USD, UAH, EUR, PLN or BYN. Rates come
+  from the NBU every day, and the next day's after 15:35 Kyiv, with
+  `fawazahmed0/currency-api` behind it and for BYN, which the NBU does not
+  list; when both fail the last saved rate stays. The sync asks only when the
+  saved rates are behind, so a restart costs no request. The default currency
+  comes from the country on the site and from the language in the bot, and a
+  person's choice is kept in `profile`. An amount is written the way the
+  person's language writes it and never rounds down, with the rate's date
+  beside it, and a job keeps the rate its price was shown with. `FX_SYNC=off`
+  stops the sync.
 - CI on every push and weekly: modules, gofmt, build, vet, race tests,
   database tests on PostgreSQL 17, govulncheck, the image build, the photo
   and storage tests inside the image, on the ffmpeg it ships, and the local

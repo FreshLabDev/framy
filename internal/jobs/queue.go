@@ -265,16 +265,25 @@ func (q *Queue) insert(ctx context.Context, tx pgx.Tx, n New, status Status) (in
 	if settings == nil {
 		settings = map[string]any{}
 	}
+	var currency *string
+	var fxRate *float64
+	var fxDate *time.Time
+	if n.FX != nil {
+		currency, fxRate = &n.FX.Code, &n.FX.PerUSD
+		if !n.FX.Date.IsZero() {
+			fxDate = &n.FX.Date
+		}
+	}
 	var id int64
 	err := tx.QueryRow(ctx, `
 		INSERT INTO job (user_id, surface, chat_id, message_id, dedupe_key, offer_id, model_id, provider, kind,
-		                 prompt, settings, free, status, estimate_usd, estimate, queued_at)
+		                 prompt, settings, free, status, estimate_usd, estimate, currency, fx_rate, fx_date, queued_at)
 		VALUES ($1, $2, NULLIF($3, 0), NULLIF($4, 0), NULLIF($5, ''), $6, $7, $8, $9,
-		        $10, $11, $12, $13, $14, $15, CASE WHEN $13 = 'queued' THEN now() END)
+		        $10, $11, $12, $13, $14, $15, $16, $17, $18::date, CASE WHEN $13 = 'queued' THEN now() END)
 		ON CONFLICT (dedupe_key) DO NOTHING
 		RETURNING id`,
 		n.UserID, n.Surface, n.ChatID, n.MessageID, n.DedupeKey, n.Offer.ID, n.Offer.ModelID, n.Offer.Provider, n.Offer.Kind,
-		n.Prompt, settings, n.Free, status, estimateUSD, n.Estimate).Scan(&id)
+		n.Prompt, settings, n.Free, status, estimateUSD, n.Estimate, currency, fxRate, fxDate).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = tx.QueryRow(ctx, `SELECT id FROM job WHERE dedupe_key=$1`, n.DedupeKey).Scan(&id)
 		return id, false, err

@@ -24,6 +24,7 @@ import (
 
 	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/db"
+	"github.com/FreshLabDev/framy/internal/fx"
 	"github.com/FreshLabDev/framy/internal/price"
 	"github.com/FreshLabDev/framy/migrations"
 )
@@ -376,6 +377,29 @@ func TestAFinishedJobHasItsEstimateAndItsCost(t *testing.T) {
 	}
 	if results := scalar[int](t, pool, `SELECT results FROM framy.job WHERE id=$1`, id); results != 1 {
 		t.Fatalf("results = %d", results)
+	}
+}
+
+func TestAJobKeepsTheRateItsPriceWasShownWith(t *testing.T) {
+	q, pool := testQueue(t, newFake())
+	n := job(alice, imageOffer)
+	n.Estimate = &price.Estimate{Offer: imageOffer.ID, USD: 0.0195, MaxUSD: 0.0195, Kind: price.Exact}
+	n.FX = &fx.Quote{Code: fx.UAH, PerUSD: 45.5382, Date: time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC), Source: fx.NBU}
+	id := enqueue(t, q, n)
+	if got := scalar[string](t, pool, `SELECT currency || ' ' || fx_rate::text || ' ' || fx_date::text FROM framy.job WHERE id=$1`, id); got != "UAH 45.5382000000 2026-10-27" {
+		t.Fatalf("fx kept as %q", got)
+	}
+
+	n = job(alice, imageOffer)
+	n.FX = &fx.Dollar
+	id = enqueue(t, q, n)
+	if got := scalar[string](t, pool, `SELECT currency || ' ' || fx_rate::text || ' ' || coalesce(fx_date::text, 'no date') FROM framy.job WHERE id=$1`, id); got != "USD 1.0000000000 no date" {
+		t.Fatalf("USD kept as %q", got)
+	}
+
+	id = enqueue(t, q, job(alice, imageOffer))
+	if got := scalar[bool](t, pool, `SELECT currency IS NULL AND fx_rate IS NULL AND fx_date IS NULL FROM framy.job WHERE id=$1`, id); !got {
+		t.Fatal("a job shown in no currency has a rate")
 	}
 }
 

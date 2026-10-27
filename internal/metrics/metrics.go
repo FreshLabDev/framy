@@ -85,6 +85,10 @@ var (
 	CatalogSyncs        = registerCounter("framy_catalog_syncs_total", "Catalog syncs saved.")
 	CatalogSyncFailures = registerCounter("framy_catalog_sync_failures_total", "Catalog syncs that failed and changed nothing.")
 
+	FXSyncs        = registerCounter("framy_fx_syncs_total", "Currency rate syncs saved.")
+	FXFallbacks    = registerCounter("framy_fx_fallbacks_total", "Rate syncs that took currency-api because the NBU failed.")
+	FXSyncFailures = registerCounter("framy_fx_sync_failures_total", "Rate syncs that saved nothing; the last saved rates stay.")
+
 	TelegramErrors  = registerVec("framy_telegram_errors_total", "Telegram API and transport errors, by method.", "method")
 	TelegramLimited = registerVec("framy_telegram_rate_limited_total", "Telegram 429 responses observed, by method.", "method")
 )

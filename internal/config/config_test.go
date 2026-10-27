@@ -11,7 +11,7 @@ import (
 
 func setBase(t *testing.T) {
 	t.Helper()
-	for _, k := range []string{"TELEGRAM_BOT_TOKEN", "TELEGRAM_BOT_TOKEN_FILE", "DATABASE_URL", "DATABASE_URL_FILE", "TELEGRAM_API_BASE", "AUTO_MIGRATE", "HTTP_ADDR", "METRICS_ADDR", "LOG_LEVEL", "OPENROUTER_API_BASE", "CATALOG_SYNC_INTERVAL", "JOBS_STOP_GRACE", "OPENROUTER_API_KEY", "OPENROUTER_API_KEY_FILE",
+	for _, k := range []string{"TELEGRAM_BOT_TOKEN", "TELEGRAM_BOT_TOKEN_FILE", "DATABASE_URL", "DATABASE_URL_FILE", "TELEGRAM_API_BASE", "AUTO_MIGRATE", "HTTP_ADDR", "METRICS_ADDR", "LOG_LEVEL", "OPENROUTER_API_BASE", "CATALOG_SYNC_INTERVAL", "FX_SYNC", "JOBS_STOP_GRACE", "OPENROUTER_API_KEY", "OPENROUTER_API_KEY_FILE",
 		"R2_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID_FILE", "R2_SECRET_ACCESS_KEY", "R2_SECRET_ACCESS_KEY_FILE", "R2_ENDPOINT", "R2_ACCOUNT_ID", "R2_BUCKET",
 		"WORK_DIR", "FFMPEG", "FFPROBE", "OPERATOR_CHAT_ID"} {
 		t.Setenv(k, "")
@@ -29,7 +29,7 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.TelegramAPIBase != DefaultTelegramAPIBase || cfg.HTTPAddr != ":8080" || cfg.MetricsAddr != ":9090" || !cfg.AutoMigrate || cfg.LogLevel != "info" ||
 		cfg.OpenRouterAPIBase != DefaultOpenRouterAPIBase || cfg.CatalogEvery != time.Hour || cfg.JobsStopGrace != 210*time.Second ||
 		cfg.OpenRouterKey != "" || cfg.R2.Enabled() || cfg.R2.Bucket != "framy" || cfg.FFmpeg != "ffmpeg" || cfg.FFprobe != "ffprobe" ||
-		cfg.WorkDir != filepath.Join(os.TempDir(), "framy") || cfg.OperatorChatID != 0 {
+		cfg.WorkDir != filepath.Join(os.TempDir(), "framy") || cfg.OperatorChatID != 0 || !cfg.FXSync {
 		t.Fatalf("defaults = %+v", cfg)
 	}
 }
@@ -124,6 +124,7 @@ func TestLoadRejects(t *testing.T) {
 		{"bad catalog interval", map[string]string{"CATALOG_SYNC_INTERVAL": "hourly"}},
 		{"catalog interval too short", map[string]string{"CATALOG_SYNC_INTERVAL": "5s"}},
 		{"bad stop grace", map[string]string{"JOBS_STOP_GRACE": "soon"}},
+		{"bad fx sync", map[string]string{"FX_SYNC": "daily"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			setBase(t)
@@ -144,6 +145,15 @@ func TestSecretErrorsDoNotLeakTheValue(t *testing.T) {
 	_, err := Load()
 	if err == nil || strings.Contains(err.Error(), "very-secret") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestFXSyncCanBeTurnedOff(t *testing.T) {
+	setBase(t)
+	t.Setenv("FX_SYNC", "off")
+	cfg, err := Load()
+	if err != nil || cfg.FXSync {
+		t.Fatalf("FX_SYNC=off: %+v, %v", cfg.FXSync, err)
 	}
 }
 

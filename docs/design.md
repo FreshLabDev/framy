@@ -254,11 +254,16 @@ After the run framy records the actual cost:
 A generation keeps `estimate_usd` with the estimate's lines, `actual_usd`, `fx_rate` and `fx_date`. An actual cost more than 20% off the estimate is logged: that is how a price change shows up.
 
 **Currency** **(owner: USD and the person's currency, chosen or by IP)**:
-- **Default on the site and in the Mini App:** the country from `CF-IPCountry` maps to a currency (UA → UAH, BY → BYN, PL → PLN, euro area → EUR), otherwise USD.
-- **In the bot:** it falls back to the language (`uk` → UAH, `be` → BYN), otherwise USD.
-- **Choice:** the person changes the currency in the settings.
+- **Currencies:** USD, UAH, EUR, PLN and BYN.
+- **Default on the site and in the Mini App:** the country from `CF-IPCountry` maps to a currency (UA → UAH, BY → BYN, PL → PLN, a country that pays in euro → EUR), otherwise USD. "XX" and Tor's "T1" are no country.
+- **In the bot:** it falls back to the language (`uk` → UAH, `be` → BYN, `pl` → PLN), otherwise USD. Russian is spoken in too many countries to say.
+- **Choice:** the person changes the currency in the settings; `profile.currency` keeps it, and empty means the default.
 
-Rates come from the NBU API (UAH per unit, cross rates through the hryvnia) once a day and again after 15:30 Kyiv, when the NBU publishes the next day's rate. The fallbacks are `fawazahmed0/currency-api` (jsDelivr, then pages.dev), then the last saved rate. The tooltip shows the rate's date.
+Rates come from the NBU API, UAH per unit, and a cross rate goes through the hryvnia (`internal/fx`). The NBU has no BYN, so BYN always comes from `fawazahmed0/currency-api`, anchored on the NBU's USD of the same day, which makes a price in BYN the USD price times currency-api's rate. currency-api is read from jsDelivr and from pages.dev and the newer day wins, since jsDelivr's cache can be a day behind. It also stands in when the NBU fails, as a warning, not an error; after that the last saved rate stays. A currency-api row never replaces the NBU's for the same day.
+
+The sync asks only when the saved rates are behind: today's rate from midnight Kyiv, and the next day's from 15:35, five minutes after the NBU sets it. A restart costs no request. A day counts as saved when it has every currency; a source that fails is asked again in 15 minutes, one a day behind in an hour. A price uses the latest rate up to today, so the rate fetched in the afternoon applies from midnight. `FX_SYNC=off` stops the sync for work without the network.
+
+Amounts are written in the person's language (`0,89 ₴`, `$0.02`, `0.077 zł`) and never round down: two decimals from 1 up, and below 1 enough decimals, at most four, for two significant digits. The tooltip shows the rate's date. A job keeps the currency its price was shown in, `fx_rate` as units per USD and `fx_date`.
 
 Whether `CF-IPCountry` reaches the service through the Cloudflare Tunnel is not checked yet; until it is, nothing but this default depends on it.
 
@@ -669,14 +674,14 @@ Main tables of the `framy` schema, created by a core migration with its own `fra
 
 | Table | What it stores |
 |:--|:--|
-| `profile` | `user_id`, currency, default models, delivery to Telegram (the interface language is core's, shared with the other bots) |
+| `profile` | `user_id`, currency, default models, delivery to Telegram (the interface language is core's, shared with the other bots); the currency is there since #8, the rest comes with the settings |
 | `connection` | provider, encrypted key, `last4`, status, last success, last error class |
 | `catalog_model`, `catalog_offer` | models with the overlay's flags and traits; offers with their parameters, routes and prices, `expires_on`, `hidden`, `fetched_at`, `disabled_at` |
-| `job` | requester (`user_id`), surface, chat and preview message, `dedupe_key`, offer, prompt, settings, `free`, status, idempotency key, River job, paid requests with `submitted_at` and `retry_at`, provider job id, the estimate with its lines, the actual cost, results, error class; FX comes with the currency (#8) |
+| `job` | requester (`user_id`), surface, chat and preview message, `dedupe_key`, offer, prompt, settings, `free`, status, idempotency key, River job, paid requests with `submitted_at` and `retry_at`, provider job id, the estimate with its lines, the actual cost, results, error class, the currency with `fx_rate` and `fx_date` |
 | `asset` | uploads and results: owner, job, storage key, size, type, picture size, SHA-256, `file_id`, `file_unique_id` |
 | `job_input` | the files a job takes, in order; an empty place is a file deleted before the run |
 | `album_item` | the 48-hour album cache |
-| `fx_rate` | date, code, UAH per unit, source |
+| `fx_rate` | date, code, UAH per unit, source (`nbu` or `currency-api`), fetched at |
 | `oauth_state` | PKCE verifier and state for 10 minutes |
 
 The free allowance is counted from `job`, not stored separately.
