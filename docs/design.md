@@ -373,6 +373,26 @@ Progress for SSE goes through `pg_notify('framy_events', …)` in the transactio
 
 The moderation's reasons and the provider's name go into the job's error; the flagged text itself does not. OpenRouter's documentation calls a 502 a model that is down or an answer it could not read; whether a run that ended in a 502 is ever billed is not checked.
 
+**OpenAI images** (`internal/providers/openai`). A person's own key pays, never framy's, so until the store of keys exists (#13) the adapter is registered with a key function that fails the run as `key` before anything is paid. A run is one call:
+- without references `POST /v1/images/generations`; with references `POST /v1/images/edits` with a JSON body, each reference an `images[].image_url`: the presigned R2 link, which OpenAI fetches, or a data URL. The files framy keeps are PNG or JPEG with the long side at most 2048 px, well inside OpenAI's 50 MB and 16 images; a type OpenAI does not take is refused;
+- `quality` is always one of the offer's levels, `low` to `max`. `auto` and no quality at all are refused before the call, since OpenAI would choose how much to spend. `size` is always `WxH` within OpenAI's rules (sides in multiples of 16, a side up to 3840, a ratio up to 3:1, 655,360 to 8,294,400 pixels): any such size goes, not only the catalog's list, which is what the composer draws. A run with no size goes at 1024×1024, the size the estimate assumes. Other settings go as fields when the offer lists them and allows the value. `moderation` stays at OpenAI's default, `auto`;
+- `safety_identifier` is `jobs.SafetyID`, the same hash as OpenRouter's `user`: SHA-256 of `framy:` and the Telegram id, the first 16 bytes in hex. OpenAI asks for a stable identifier per person, so that an abusive person is told apart from the key's owner and the whole key is not blocked; the hash gives it without handing over the Telegram id. Being a plain hash of a small number it hides the id from a casual reader, not from someone who tries every id;
+- the actual cost is the answer's usage tokens times the offer's own rates: text input, image input (the references) and image output tokens, the lines the estimate is made from. Input tokens the usage does not split are priced at the dearer input rate, so the cost is never below the bill. A refusal or a failure inside a 200 keeps the cost when the answer has a usage.
+
+| OpenAI's answer | Class | Retried |
+|:--|:--|:--|
+| `moderation_blocked`, with `moderation_stage` (`input`, `output`) and the categories when OpenAI gives them | `moderation` | no |
+| a code or type of credit or a limit: `insufficient_quota`, `credit_balance_exhausted`, `billing_hard_limit_reached`, `organization_spend_limit_exceeded`, `project_spend_limit_exceeded`, `organization_usage_limit_exceeded` | `money` | no |
+| 401; 403, such as a project without the model or an organization that is not verified; 404 `model_not_found` | `key` | no |
+| 403 `unsupported_country_region_territory`: framy's server is where OpenAI does not serve | `provider` | no |
+| other 4xx, such as a setting or a link OpenAI cannot fetch | `refused` | no |
+| 429 for the rate | `rate_limited` | after `Retry-After` |
+| 503, a connection that was never made | `unavailable` | after `Retry-After` or 5 s × requests² |
+| 408, 504, Cloudflare's 524 | `timeout` | no: the run may go on and be paid |
+| 500, 502, an answer that cannot be read | `provider` | no |
+
+A message OpenAI echoes with the start of a wrong key is cut of it before it is stored. `APIError.NeedsVerification` tells the 403 about an unverified organization from other 403s, for the connection's `needs_verification` status.
+
 **Paid requests.** Before a paid request goes out, the job records `submitted_at`. An attempt that finds it set, with no provider job id and no result, fails as `interrupted` and sends nothing: a worker that died mid-call never pays twice. The person can run it again.
 
 **Results.** A result is copied into framy's storage the moment it is ready. Provider links live from one hour to 48 hours, and OpenRouter's unsigned URLs need the key.
@@ -559,7 +579,7 @@ Temporary domain `framy.ws04.cc`. Mobile first; on a wide screen the composer an
 - **Uploads from the site:**
   - photos come through the service, under Cloudflare's 100 MB per request;
   - video references go by presigned PUT straight into `incoming/`, which a lifecycle rule clears after a day. framy checks the size with HEAD and the content by its bytes before taking it.
-- **To providers**, input photos go as presigned R2 URLs instead of base64, where the API takes a URL (OpenRouter's `input_references`).
+- **To providers**, input photos go as presigned R2 URLs instead of base64, where the API takes a URL (OpenRouter's `input_references`, OpenAI's `images[].image_url`).
 - **The bucket's CORS** allows PUT from the site and GET for the Telegram Web origins, so `downloadFile` works. `Content-Disposition` comes through `response-content-disposition` in the presigned URL.
 - **Keys:** an R2 API token limited to the two buckets, as a file secret like the KEK. The account token `framy` (27 October) has Object Read & Write on `framy` and `framy-backups` only, no expiry and no client IP filter, since the links it signs are opened from people's browsers. Its halves are `r2-access-key-id` and `r2-secret-access-key` in the stack's secrets on the home server, root-only. `go test -tags r2live ./internal/r2` checks it against the real buckets: objects, presigned links with the browsers' `Origin`, and a refusal in a third bucket.
 - **Turned on:** R2 was activated on 26 October as a $0 subscription on the account that holds `ws04.cc`, with the card already on file. Usage above the free allowance is billed to that card monthly.

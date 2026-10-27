@@ -26,6 +26,7 @@ import (
 	"github.com/FreshLabDev/framy/internal/media"
 	"github.com/FreshLabDev/framy/internal/metrics"
 	"github.com/FreshLabDev/framy/internal/price"
+	"github.com/FreshLabDev/framy/internal/providers/openai"
 	"github.com/FreshLabDev/framy/internal/providers/openrouter"
 	"github.com/FreshLabDev/framy/internal/r2"
 	"github.com/FreshLabDev/framy/internal/safehttp"
@@ -120,12 +121,16 @@ func run(log *slog.Logger) error {
 				Title:     "framy",
 				Key:       openRouterKey(cfg.OpenRouterKey),
 			}),
+			catalog.OpenAI: openai.New(openai.Config{
+				UserAgent: userAgent,
+				Key:       openAIKey(),
+			}),
 		},
 		Log:       log.With("component", "jobs"),
 		StopGrace: cfg.JobsStopGrace,
 	}
 	// Without a bucket a job ends as storage before anything is paid.
-	// OpenAI and Gemini have no adapter yet (#10, #11).
+	// Gemini has no adapter yet (#11).
 	if files != nil {
 		jobsCfg.Sink, jobsCfg.Inputs = files, files
 	}
@@ -357,5 +362,14 @@ func openRouterKey(own string) func(context.Context, jobs.Job) (string, error) {
 			return "", &jobs.Error{Class: jobs.Key, Err: errors.New("OPENROUTER_API_KEY is not set, so the free allowance cannot run")}
 		}
 		return own, nil
+	}
+}
+
+// openAIKey pays for OpenAI runs. Only a person's own key does, never
+// framy's, and the store of people's keys does not exist yet (#13): until it
+// does, a run fails as key before anything is paid.
+func openAIKey() func(context.Context, jobs.Job) (string, error) {
+	return func(context.Context, jobs.Job) (string, error) {
+		return "", &jobs.Error{Class: jobs.Key, Err: errors.New("no OpenAI key connected yet")}
 	}
 }

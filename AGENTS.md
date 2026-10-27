@@ -16,7 +16,7 @@ careful with people's keys, and production-minded.
   polling that records people and chats in `core`, `Preflight`, `/healthz`,
   `/metrics` on its own listener, the family's panels on `/start`, the hourly
   model catalog sync, the price estimate, the currency rates, the job queue
-  on River, the OpenRouter image adapter, storage in R2 with the ffmpeg photo
+  on River, the OpenRouter and OpenAI image adapters, storage in R2 with the ffmpeg photo
   pipeline, and a clean stop on SIGTERM. Nothing reaches people yet: no surface starts a
   job.
 - The service will be one Go binary (module `github.com/FreshLabDev/framy`):
