@@ -64,10 +64,10 @@ type stack struct {
 
 type rigOptions struct {
 	pollEvery time.Duration
-	// noCallbacks leaves the callbacks off, as when PUBLIC_URL is not set.
+	// noCallbacks leaves the callbacks off, as without HOOK_PATH_SECRET.
 	noCallbacks bool
-	// maxResponse bounds a finished video; the adapter's default when zero.
-	maxResponse int64
+	// maxVideo bounds a finished video; the adapter's default when zero.
+	maxVideo int64
 }
 
 func newStack(t *testing.T, o rigOptions) *stack {
@@ -99,11 +99,11 @@ func newStack(t *testing.T, o rigOptions) *stack {
 	}
 	log := slog.New(slog.NewTextHandler(r.logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	adapter := New(Config{
-		Base:        r.f.base(),
-		HTTP:        r.f.srv.Client(),
-		Title:       "framy",
-		Callbacks:   r.cb,
-		MaxResponse: o.maxResponse,
+		Base:      r.f.base(),
+		HTTP:      r.f.srv.Client(),
+		Title:     "framy",
+		Callbacks: r.cb,
+		MaxVideo:  o.maxVideo,
 		// A free run is paid with framy's key, any other with the person's.
 		Key: func(_ context.Context, j jobs.Job) (string, error) {
 			if j.Free {
@@ -333,7 +333,7 @@ func TestAVideoFinishesWhenTheWebhookArrives(t *testing.T) {
 	}
 }
 
-// Without PUBLIC_URL there is no callback and no hook; the 30 s poll (here
+// Without HOOK_PATH_SECRET there is no callback and no hook; the 30 s poll (here
 // 150 ms) does everything.
 func TestAVideoFinishesByPollingAlone(t *testing.T) {
 	r := newStack(t, rigOptions{pollEvery: 150 * time.Millisecond, noCallbacks: true})
@@ -587,7 +587,7 @@ func TestVideoFailuresThroughTheQueue(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			r := newStack(t, rigOptions{pollEvery: 100 * time.Millisecond, noCallbacks: true, maxResponse: 1 << 20})
+			r := newStack(t, rigOptions{pollEvery: 100 * time.Millisecond, noCallbacks: true, maxVideo: 1 << 20})
 			tc.setup(r)
 			id := r.enqueue(true, nil)
 			j := r.settled(id)

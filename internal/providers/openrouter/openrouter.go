@@ -30,6 +30,11 @@ const DefaultBase = "https://openrouter.ai/api/v1"
 // and a run may return several.
 const DefaultMaxResponse = 256 << 20
 
+// DefaultMaxVideo bounds a finished video, which is held in memory while it
+// is copied to R2. Four video workers then hold 512 MiB at most; a 10 s 1080p
+// clip of today's models is 10 to 30 MB.
+const DefaultMaxVideo = 128 << 20
+
 // Config is how the adapter reaches OpenRouter.
 type Config struct {
 	// Base is the API root, DefaultBase when empty.
@@ -47,9 +52,11 @@ type Config struct {
 	// class; any other error fails the job as internal. The key never reaches
 	// a log or an error.
 	Key func(ctx context.Context, j jobs.Job) (string, error)
-	// MaxResponse bounds an answer, and a finished video, which is held in
-	// memory while it is copied: DefaultMaxResponse when zero.
+	// MaxResponse bounds an answer: DefaultMaxResponse when zero.
 	MaxResponse int64
+	// MaxVideo bounds a finished video: DefaultMaxVideo when zero. A larger
+	// one fails the run as Storage, after it was paid.
+	MaxVideo int64
 	// Fetch downloads finished videos, HTTP when nil. A download may be
 	// redirected to a link OpenRouter signed, so framy points this at the
 	// client that refuses private addresses (safehttp.Client). The key goes
@@ -76,6 +83,9 @@ func New(cfg Config) *Provider {
 	}
 	if cfg.MaxResponse <= 0 {
 		cfg.MaxResponse = DefaultMaxResponse
+	}
+	if cfg.MaxVideo <= 0 {
+		cfg.MaxVideo = DefaultMaxVideo
 	}
 	return &Provider{cfg: cfg}
 }

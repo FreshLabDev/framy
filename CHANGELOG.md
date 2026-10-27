@@ -244,8 +244,11 @@ was written from, and the skeleton of the service.
   a path nobody can guess, and the webhook only brings the next poll
   forward: it never carries a result. On framy's own key its signature is
   checked when `OPENROUTER_WEBHOOK_SECRET` is set, and a repeated delivery
-  does nothing twice. The free video plans (HeyGen, Grok Lite, FLUX Video
-  Edit) run through it.
+  does nothing twice. A finished video may be at most 128 MiB, since it is
+  held in memory while it is copied to R2. The poll that downloads it gets
+  5 minutes and the copy 3 more, where an image's call keeps its 3, so a
+  large clip on a slow link is not cut off after it was paid. The free video
+  plans (HeyGen, Grok Lite, FLUX Video Edit) run through it.
 - CI on every push and weekly: modules, gofmt, build, vet, race tests,
   database tests on PostgreSQL 17, govulncheck, the image build, the photo
   and storage tests inside the image, on the ffmpeg it ships, and the local

@@ -18,6 +18,9 @@ import (
 
 type generateArgs struct {
 	JobID int64 `json:"job_id"`
+	// Video gives the attempt a video's limits. A River job written before
+	// the field existed has false, and an image's limits.
+	Video bool `json:"video,omitempty"`
 }
 
 func (generateArgs) Kind() string { return "framy_generate" }
@@ -25,6 +28,15 @@ func (generateArgs) Kind() string { return "framy_generate" }
 type generateWorker struct {
 	river.WorkerDefaults[generateArgs]
 	q *Queue
+}
+
+// Timeout is the attempt's limit: the client's for an image, longer for a
+// video, whose last poll downloads it and copies it to R2.
+func (w *generateWorker) Timeout(rj *river.Job[generateArgs]) time.Duration {
+	if rj.Args.Video {
+		return videoAttempt
+	}
+	return 0
 }
 
 func (w *generateWorker) Work(ctx context.Context, rj *river.Job[generateArgs]) error {
@@ -162,7 +174,7 @@ func (q *Queue) submit(ctx context.Context, p Provider, j Job) error {
 	cancel()
 
 	// What came back is written down even when a stop has begun.
-	ctx, done := detach(ctx)
+	ctx, done := detachFor(ctx, settleLimit(j))
 	defer done()
 	if pe != nil {
 		if pe.retryable() && j.Submits < maxSubmits {
@@ -213,7 +225,11 @@ func (q *Queue) requeue(ctx context.Context, j Job, pe *Error) error {
 // poll asks about a run in the background. Asking costs nothing, so any
 // trouble short of a definite answer means asking again later.
 func (q *Queue) poll(ctx context.Context, p Provider, j Job) error {
-	call, cancel := context.WithTimeout(ctx, videoCall)
+	limit := videoCall
+	if j.Kind == catalog.Video {
+		limit = videoPoll
+	}
+	call, cancel := context.WithTimeout(ctx, limit)
 	out, err := p.Poll(call, j)
 	var pe *Error
 	if err != nil {
@@ -221,7 +237,7 @@ func (q *Queue) poll(ctx context.Context, p Provider, j Job) error {
 	}
 	cancel()
 
-	ctx, done := detach(ctx)
+	ctx, done := detachFor(ctx, settleLimit(j))
 	defer done()
 	late := j.SubmittedAt != nil && q.now().Sub(*j.SubmittedAt) > runDeadline
 	switch {
@@ -342,7 +358,20 @@ func (q *Queue) wake(ctx context.Context, tx pgx.Tx, userID int64) error {
 // detach keeps ctx's values without its cancellation, with a short limit of
 // its own, for the writes that must follow a paid call.
 func detach(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	return detachFor(ctx, settleWrites)
+}
+
+func detachFor(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), d)
+}
+
+// settleLimit is how long what follows a call of j's may take: a video's
+// result is copied to R2 in it.
+func settleLimit(j Job) time.Duration {
+	if j.Kind == catalog.Video {
+		return videoKeep
+	}
+	return settleWrites
 }
 
 // clip keeps an error message to a size a row can hold.

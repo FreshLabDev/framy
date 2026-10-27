@@ -428,7 +428,7 @@ func (p *Provider) download(ctx context.Context, key, id string, index int) (job
 	if strings.HasPrefix(contentType, "text/") || contentType == "application/json" {
 		return jobs.Result{}, fmt.Errorf("download the video: OpenRouter sent %s, not a video", contentType)
 	}
-	limit := p.cfg.MaxResponse
+	limit := p.cfg.MaxVideo
 	if resp.ContentLength > limit {
 		return jobs.Result{}, &tooLargeError{limit}
 	}

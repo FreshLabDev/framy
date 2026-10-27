@@ -665,7 +665,7 @@ func TestAVideoAboveTheLimitEndsTheRunWithItsCost(t *testing.T) {
 					}
 				}
 			}
-			p := fakeProvider(f, testCallbacks(), func(c *Config) { c.MaxResponse = 1000 })
+			p := fakeProvider(f, testCallbacks(), func(c *Config) { c.MaxVideo = 1000 })
 			out, err := p.Poll(context.Background(), pollJob())
 			if err != nil {
 				t.Fatal(err)

@@ -55,9 +55,24 @@ var DefaultWorkers = map[string]int{
 // Timings. The image call's limit is the design's; River rescues a job whose
 // worker died after RescueAfter, which has to outlast the longest attempt.
 const (
-	imageCall    = 180 * time.Second
-	videoCall    = 60 * time.Second
+	imageCall = 180 * time.Second
+	// videoCall bounds sending a video request and asking about a run that
+	// is not done.
+	videoCall = 60 * time.Second
+	// videoPoll bounds a poll of a video run: the one that finds the video
+	// done downloads it in the same call, up to 128 MiB.
+	videoPoll = 5 * time.Minute
+	// videoKeep bounds what follows that poll: copying the video to R2 and
+	// ending the job. A poll may come back after a stop has begun, so this
+	// runs apart from the attempt's own limit.
+	videoKeep = 3 * time.Minute
+	// settleWrites bounds the writes that follow any other call.
+	settleWrites = 30 * time.Second
 	attemptLimit = 4 * time.Minute
+	// videoAttempt is a video job's attempt: the poll, the copy, a margin.
+	// River leaves a job alone until its own limit has passed, however old
+	// rescueAfter says it is, so the images keep the shorter rescue.
+	videoAttempt = videoPoll + videoKeep + time.Minute
 	rescueAfter  = 5 * time.Minute
 	// maxSubmits caps the paid requests refused before the run started.
 	maxSubmits = 5
@@ -370,7 +385,7 @@ func (q *Queue) insert(ctx context.Context, tx pgx.Tx, n New, status Status) (in
 // schedule inserts the River job that works job id, in the same
 // transaction.
 func (q *Queue) schedule(ctx context.Context, tx pgx.Tx, id int64, provider string, kind catalog.Kind) error {
-	res, err := q.river.InsertTx(ctx, tx, generateArgs{JobID: id}, &river.InsertOpts{
+	res, err := q.river.InsertTx(ctx, tx, generateArgs{JobID: id, Video: kind == catalog.Video}, &river.InsertOpts{
 		Queue:      QueueFor(provider, kind),
 		UniqueOpts: river.UniqueOpts{ByArgs: true},
 	})

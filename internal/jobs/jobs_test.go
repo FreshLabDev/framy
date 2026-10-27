@@ -4,6 +4,8 @@ package jobs
 import (
 	"strings"
 	"testing"
+
+	"github.com/riverqueue/river"
 )
 
 func TestRedactTakesPresignedLinksOut(t *testing.T) {
@@ -20,5 +22,23 @@ func TestRedactTakesPresignedLinksOut(t *testing.T) {
 	}
 	if got := redact("rate_limited: 429 from https://openrouter.ai/api/v1/images"); got != "rate_limited: 429 from https://openrouter.ai/api/v1/images" {
 		t.Errorf("an ordinary link was taken: %q", got)
+	}
+}
+
+// The limits have to fit inside each other: a call inside its attempt, an
+// attempt inside the time after which River rescues it.
+func TestTheLimitsFitTogether(t *testing.T) {
+	if imageCall+settleWrites >= attemptLimit || attemptLimit >= rescueAfter {
+		t.Errorf("an image: call %v and writes %v, attempt %v, rescue %v", imageCall, settleWrites, attemptLimit, rescueAfter)
+	}
+	if videoPoll+videoKeep >= videoAttempt {
+		t.Errorf("a video: poll %v and copy %v, attempt %v", videoPoll, videoKeep, videoAttempt)
+	}
+	w := &generateWorker{}
+	if got := w.Timeout(&river.Job[generateArgs]{Args: generateArgs{JobID: 1, Video: true}}); got != videoAttempt {
+		t.Errorf("a video's attempt has %v", got)
+	}
+	if got := w.Timeout(&river.Job[generateArgs]{Args: generateArgs{JobID: 1}}); got != 0 {
+		t.Errorf("an image's attempt has %v, not the client's", got)
 	}
 }

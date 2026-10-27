@@ -361,7 +361,7 @@ Every event is `id: <n>`, `event: job` and the whole job as `data`, as `GET /api
 - Queues with their own `MaxWorkers` per process: `openai` 4, `gemini` 4, `openrouter_image` 8, `openrouter_video` 4. `ffmpeg` and `telegram_send` come with their features.
 - A repeated update starts nothing: a job keeps a unique `dedupe_key` (`tg:<update_id>`, or the request's key on the site), and "Generate" queues a draft once.
 - A background run waits snoozed (`JobSnooze`), which spends no attempt and holds no worker. It is asked every 30 s and expires after an hour.
-- River rescues a job whose worker died after 5 minutes; one attempt may take 4.
+- River rescues a job whose worker died after 5 minutes; one attempt may take 4. A video's attempt may take 9 (the worker's `Timeout`, marked by `video` in the River job's args): the poll that finds it done downloads it in the same call, which gets 5 minutes, and copying it to R2 gets 3 more. River leaves a job alone until its own limit has passed, so images keep the shorter rescue.
 - A sweep every minute cancels drafts older than 10 minutes and fails a job River gave up on without working it.
 
 Progress for SSE goes through `pg_notify('framy_events', …)` in the transaction that changes the state, with one listener per process. Triggers on `framy.job` do both the numbering and the notice, so every path that changes a job is covered and a rollback announces nothing. The payload is only `{job, user, seq, status}`; a stream rereads its job when woken. The listener holds its own connection, reconnects with a growing delay and wakes every stream after each connection, and a stream rereads on its ping, so a lost notice delays an event and never drops it.
@@ -370,8 +370,9 @@ Progress for SSE goes through `pg_notify('framy_events', …)` in the transactio
 - **Images:** one provider call inside the worker, with a 180 s timeout.
 - **Video:**
   - submit, then poll. OpenRouter `GET /api/v1/videos/{id}` every 30 s; Omni with `background: true` and `GET /interactions/{id}`.
+  - A finished video is held in memory while it is copied, so it may be at most 128 MiB: four workers hold 512 MiB at most, and a 10 s 1080p clip is 10 to 30 MB. A larger one fails the run as `storage`, after it was paid.
   - The provider job id is written to the database right after the paid submit, before any polling. Otherwise a retry after a crash pays for the video twice. If the id cannot be saved, the retry fails the job as `interrupted` and sends nothing, and the log has the id.
-  - An OpenRouter video request carries a `callback_url` with a path nobody can guess, `/hooks/or/<job>/<mac>`, when `PUBLIC_URL` and `HOOK_PATH_SECRET` are set (see "OpenRouter video"). Without them the poll alone finishes every video.
+  - An OpenRouter video request carries a `callback_url` with a path nobody can guess, `/hooks/or/<job>/<mac>`, when `HOOK_PATH_SECRET` and an https `SITE_URL` are set (see "OpenRouter video"). Without them the poll alone finishes every video.
     - **framy's own key:** the `X-OpenRouter-Signature` check, an HMAC-SHA256 of `t + "," + raw body` with a 300 s window.
     - **A person's key:** the workspace secret belongs to the person, so the webhook is only a signal, and framy rereads the status with that key.
   - Webhooks are deduplicated by `X-OpenRouter-Idempotency-Key`. Polling every 30 s stays as the fallback. Whether `callback_url` works with OAuth keys at all is not checked; open check 10 says how to check it.

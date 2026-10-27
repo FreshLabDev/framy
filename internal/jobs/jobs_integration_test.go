@@ -123,6 +123,8 @@ type fakeProvider struct {
 	inFlight map[int64]int
 	most     map[int64]int
 	kept     map[int64]int
+	// onKeep, when set, sees the context results are kept with.
+	onKeep func(context.Context, Job)
 }
 
 func newFake() *fakeProvider {
@@ -159,9 +161,12 @@ func (f *fakeProvider) Poll(ctx context.Context, j Job) (Outcome, error) {
 	return run(ctx, j)
 }
 
-func (f *fakeProvider) Keep(_ context.Context, j Job, results []Result) error {
+func (f *fakeProvider) Keep(ctx context.Context, j Job, results []Result) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.onKeep != nil {
+		f.onKeep(ctx, j)
+	}
 	f.kept[j.ID] += len(results)
 	return nil
 }

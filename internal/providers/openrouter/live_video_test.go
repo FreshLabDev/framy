@@ -127,7 +127,7 @@ func checkVideo(t *testing.T, out jobs.Outcome) {
 }
 
 // A video from submit to download by polling alone, with no callback: what
-// framy does when PUBLIC_URL is not set. About $0.02.
+// framy does without HOOK_PATH_SECRET. About $0.02.
 func TestLiveVideoByPolling(t *testing.T) {
 	p := liveVideoProvider(liveKey(t), Callbacks{})
 	j := liveVideoJob(1)
