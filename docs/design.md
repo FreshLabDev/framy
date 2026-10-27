@@ -711,7 +711,7 @@ Every change below is an issue in FreshLabDev/tg, [#2](https://github.com/FreshL
 
 ### Stage 1
 
-Released in tg v0.2.0-alpha.1 on 27 October 2026, and framy is on it.
+Released in tg v0.2.0-alpha.1 on 27 October 2026. framy is on v0.2.0-alpha.2, which adds the ephemeral media of Stage 3.
 
 | Change | Why |
 |:--|:--|
