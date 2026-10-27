@@ -35,7 +35,6 @@ type call struct {
 	text      string // text or caption
 	markup    *tg.InlineKeyboardMarkup
 	file      string // "upload:<name>" or the file_id sent
-	reaction  string
 	action    string
 }
 
@@ -119,15 +118,6 @@ func (f *fakeTelegram) EditMessageCaption(_ context.Context, chatID, messageID i
 
 func (f *fakeTelegram) DeleteMessage(_ context.Context, chatID, messageID int64) error {
 	_, err := f.record(call{method: "deleteMessage", chatID: chatID, messageID: messageID})
-	return err
-}
-
-func (f *fakeTelegram) SetMessageReaction(_ context.Context, chatID, messageID int64, r []tg.ReactionType) error {
-	c := call{method: "setMessageReaction", chatID: chatID, messageID: messageID}
-	if len(r) > 0 {
-		c.reaction = r[0].Emoji
-	}
-	_, err := f.record(c)
 	return err
 }
 

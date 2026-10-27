@@ -167,7 +167,6 @@ func (f *Flow) command(ctx context.Context, m *tg.Message, command, prompt strin
 	if src.video {
 		return f.reply(ctx, m, t(lang, "run.video_soon"))
 	}
-	f.react(ctx, m.Chat.ID, m.MessageID, reactSeen)
 	thread := threadOf(m)
 	if err := f.cfg.Telegram.SendChatAction(ctx, m.Chat.ID, thread, "upload_photo"); err != nil {
 		f.log.Debug("chat action not sent", "chat", m.Chat.ID, "error", err)
@@ -183,7 +182,6 @@ func (f *Flow) command(ctx context.Context, m *tg.Message, command, prompt strin
 		return f.fail(ctx, m, lang, err)
 	}
 	if refusal != "" {
-		f.react(ctx, m.Chat.ID, m.MessageID, "")
 		return f.reply(ctx, m, refusal)
 	}
 	if d.id == 0 {
@@ -207,10 +205,9 @@ func (f *Flow) command(ctx context.Context, m *tg.Message, command, prompt strin
 	return nil
 }
 
-// fail tells the chat a command could not be worked and takes the reaction
-// off. The error goes on to the log.
+// fail tells the chat a command could not be worked. The error goes on to
+// the log.
 func (f *Flow) fail(ctx context.Context, m *tg.Message, lang string, err error) error {
-	f.react(ctx, m.Chat.ID, m.MessageID, "")
 	if rerr := f.reply(ctx, m, errorText(lang, err)); rerr != nil {
 		f.log.Warn("failure not told", "chat", m.Chat.ID, "error", rerr)
 	}

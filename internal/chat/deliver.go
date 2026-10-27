@@ -202,7 +202,6 @@ func (f *Flow) deliver(ctx context.Context, run db.ChatRun) {
 		f.log.Error("run not finished", "job", run.JobID, "error", err)
 		return
 	}
-	f.react(ctx, run.ChatID, run.CommandMessageID, reactDone)
 	f.forget(run.JobID)
 }
 
@@ -293,6 +292,5 @@ func (f *Flow) failed(ctx context.Context, run db.ChatRun, key string) {
 		f.log.Error("run not finished", "job", run.JobID, "error", err)
 		return
 	}
-	f.react(ctx, run.ChatID, run.CommandMessageID, "")
 	f.forget(run.JobID)
 }

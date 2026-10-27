@@ -52,9 +52,6 @@ func TestATextCommandShowsAPreviewOfTheFreeRun(t *testing.T) {
 	if err != nil || run.Stage != db.StagePreview || run.PreviewMessageID == 0 || run.CommandMessageID != 10 || run.Lang != "en" {
 		t.Fatalf("run = %+v, %v", run, err)
 	}
-	if r := h.tg.methods("setMessageReaction"); len(r) != 1 || r[0].reaction != reactSeen {
-		t.Fatalf("reactions = %+v", r)
-	}
 }
 
 // A card the faces cannot label, as in Japanese, leaves the price to the
@@ -177,9 +174,6 @@ func TestPastTheFreeTierWithoutAKeyTheReasonIsTheAnswer(t *testing.T) {
 	got := h.tg.methods("sendMessage")
 	if len(got) != 1 || got[0].text != i18n.T("en", "run.limit", "limit", "5") || got[0].messageID != 10 {
 		t.Fatalf("answer = %+v", got)
-	}
-	if r := h.tg.methods("setMessageReaction"); r[len(r)-1].reaction != "" {
-		t.Fatal("the reaction stayed")
 	}
 }
 
@@ -335,9 +329,6 @@ func TestGenerateTurnsThePreviewIntoTheLoop(t *testing.T) {
 	if !strings.Contains(edits[0].text, i18n.T("en", "run.generating", "model", "<b>MAI Image 2.6 Flash</b>")) {
 		t.Fatalf("caption = %q", edits[0].text)
 	}
-	if r := h.tg.methods("setMessageReaction"); len(r) != 1 || r[0].reaction != reactGenerating || r[0].messageID != 10 {
-		t.Fatalf("reactions = %+v", r)
-	}
 	// A second press starts nothing.
 	if err := h.press(id, 7, actGenerate); err != nil {
 		t.Fatal(err)
@@ -455,9 +446,6 @@ func TestAQuickResultReplacesTheLoop(t *testing.T) {
 	}
 	if h.store.stage(id) != db.StageDone || len(h.tg.methods("deleteMessage")) != 0 {
 		t.Fatalf("stage %s, calls %+v", h.store.stage(id), h.tg.calls)
-	}
-	if r := h.tg.methods("setMessageReaction"); len(r) != 1 || r[0].reaction != reactDone {
-		t.Fatalf("reactions = %+v", r)
 	}
 }
 

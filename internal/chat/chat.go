@@ -46,7 +46,6 @@ type Telegram interface {
 	EditMessageMediaMessage(ctx context.Context, chatID, messageID int64, media tg.InputMedia, markup *tg.InlineKeyboardMarkup) (tg.Message, error)
 	EditMessageCaption(ctx context.Context, chatID, messageID int64, caption string, opts tg.EditCaptionOptions) (tg.Message, error)
 	DeleteMessage(ctx context.Context, chatID, messageID int64) error
-	SetMessageReaction(ctx context.Context, chatID, messageID int64, reactions []tg.ReactionType) error
 	SendChatAction(ctx context.Context, chatID int64, threadID int, action string) error
 	GetFile(ctx context.Context, fileID string) (tg.File, error)
 	DownloadToFile(ctx context.Context, filePath, dst string, maxBytes int64) error
@@ -299,26 +298,6 @@ func threadOf(m *tg.Message) int {
 	}
 	return 0
 }
-
-// react sets the bot's reaction on the command; "" takes it off. A chat that
-// allows no reactions refuses, which is nothing to stop for.
-func (f *Flow) react(ctx context.Context, chatID, messageID int64, emoji string) {
-	var r []tg.ReactionType
-	if emoji != "" {
-		r = []tg.ReactionType{{Type: tg.ReactionEmoji, Emoji: emoji}}
-	}
-	if err := f.cfg.Telegram.SetMessageReaction(ctx, chatID, messageID, r); err != nil {
-		f.log.Debug("reaction not set", "chat", chatID, "error", err)
-	}
-}
-
-// Reactions on the command. Telegram allows a bot only its own list of
-// emoji: ✅ is not on it.
-const (
-	reactSeen       = "👀"
-	reactGenerating = "✍"
-	reactDone       = "👌"
-)
 
 // errorText is the reason a person reads for an error before a preview.
 func errorText(lang string, err error) string {

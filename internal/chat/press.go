@@ -84,7 +84,6 @@ func (f *Flow) generate(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRu
 		// The delivery moves a queued job's run itself.
 		f.log.Warn("run not moved to generating", "job", run.JobID, "error", err)
 	}
-	f.react(ctx, run.ChatID, run.CommandMessageID, reactGenerating)
 	f.showLoop(ctx, run)
 	return nil
 }
@@ -134,7 +133,6 @@ func (f *Flow) stop(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun) e
 		}
 		_ = f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, t(run.Lang, "run.stopped"))
 		f.deleteMessage(ctx, run.ChatID, run.PreviewMessageID)
-		f.react(ctx, run.ChatID, run.CommandMessageID, "")
 		f.forget(run.JobID)
 		return nil
 	case err != nil:
@@ -147,7 +145,7 @@ func (f *Flow) stop(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun) e
 }
 
 // close ends a run that leaves nothing in the chat: the preview or the loop
-// is deleted and the reaction taken off.
+// is deleted.
 func (f *Flow) close(ctx context.Context, run db.ChatRun, from string) {
 	moved, err := f.cfg.Store.MoveChatRun(ctx, run.JobID, from, db.StageGone)
 	if err != nil {
@@ -158,6 +156,5 @@ func (f *Flow) close(ctx context.Context, run db.ChatRun, from string) {
 		return
 	}
 	f.deleteMessage(ctx, run.ChatID, run.PreviewMessageID)
-	f.react(ctx, run.ChatID, run.CommandMessageID, "")
 	f.forget(run.JobID)
 }

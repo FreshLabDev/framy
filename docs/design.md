@@ -513,7 +513,7 @@ An album sent before framy became an admin is not in the cache. The preview alwa
 
 What `internal/chat` does today, and what comes later. The bot handles updates one at a time, so a command (at most 4 at once) and a press each run beside polling. Every run is a row of `framy.chat_run` next to its job, so a restart picks it up where it was.
 
-1. **The command arrives.** framy puts 👀 on it (`setMessageReaction`) and sends `upload_photo` (`sendChatAction`). A bot may react only with emoji from Telegram's list, and ✅ is not on it, so the reactions are 👀 when the command is taken, ✍ while the model works, 👌 when the result is posted, and none after a failure, No or Stop. A replayed update makes no second draft: the job's key is `tg:<chat>:<message>`.
+1. **The command arrives.** framy sends `upload_photo` (`sendChatAction`) and puts no reaction on the command: the preview comes within a second or two and says the same. A replayed update makes no second draft: the job's key is `tg:<chat>:<message>`.
 2. **The sources are collected:**
    - the reply, the album from the cache, or the photos the command is the caption of;
    - downloaded through the local Bot API server (`getFile`, then read from disk);
@@ -528,7 +528,7 @@ What `internal/chat` does today, and what comes later. The bot handles updates o
    - **The caption:** the prompt (in an expandable quote when long) and what was not taken ("Photos of the album I see: 3"). Where the faces cannot draw the card's label (Chinese, Japanese and Arabic), the price line comes in the caption as well ("free · 4 of 5 left").
    - **The buttons today:** **Generate** (`style: success`) and **No** (`style: danger`).
    - **Later:** **Model**, **Settings** and **Image / Video**; **Open on the site**, a link to `t.me/framyin_bot/app?startapp=<signed job id>`, because `web_app` buttons work only in DMs.
-5. **No:** `deleteMessage` on the preview, the job is cancelled and the reaction taken off **(owner)**.
+5. **No:** `deleteMessage` on the preview and the job is cancelled **(owner)**.
 6. **Model or Settings (later):** `editMessageReplyMarkup` with the choices, and `editMessageCaption` for the new price. Nothing new is posted. Stage 3, if framy is an admin: an ephemeral panel only the requester sees.
 7. **Generate:** the job is queued, and `editMessageMedia` turns the preview into the generating loop by its `file_id`, with no upload **(owner)**. The loop is drawn when framy starts, uploaded on its first use and sent by `file_id` after that. The caption says "generating · model", and the only button is Stop.
 8. **While it runs:** `sendChatAction` every 4.5 s, and the caption shows the elapsed time every 10 s. framy reads the open runs every 2 s.
@@ -536,7 +536,7 @@ What `internal/chat` does today, and what comes later. The bot handles updates o
    - A result ready within 25 s of Generate: `editMessageMedia` turns the loop into it in place **(owner)**.
    - A slower one: a new message as a reply to the command, and the loop is deleted **(owner)**. An edit makes no notification; a reply does.
    - A picture Telegram would not take as a photo (over 10 MB, width plus height over 10000, or sides over 20 : 1) goes as a document.
-   - The caption holds the prompt and the model. The reaction on the command becomes 👌.
+   - The caption holds the prompt and the model.
    - The result's `file_id` and `file_unique_id` are kept in `chat_run`.
    - **Later:** the buttons **Again**, **Animate**, **Original** (a full-size `sendDocument` on demand) and **Open on the site**, and `(chat, message_id) → generation` for replies.
 10. **Failure:** `editMessageMedia` into the error card (media cannot turn back into text). The card gives the reason in plain words: the model refused, the key is out of credits, the provider refused the key, the model took too long, or the model could not make it. **Later:** **Retry** and **Change model**.
@@ -716,11 +716,10 @@ Released in tg v0.2.0-alpha.1 on 27 October 2026, and framy is on it.
 | `EditMessageMedia` returns the `Message` | the `file_id` of an uploaded result |
 | `EditMessageMedia` takes HTML captions, `show_caption_above_media`, `has_spoiler` | captions in the same call |
 | `EditMessageCaption` | the price and the elapsed time |
-| `SetMessageReaction`, `DeleteMessageReaction` | 👀 and ✅ on the command |
 | `DeleteMessages` | cleaning up expired previews |
 | `InlineKeyboardButton`: `web_app`, `login_url`, `copy_text` | "Open framy" in DMs, sign-in to the site from the bot, copy the prompt |
 | `SetChatMenuButton`, `SetMyDescription`, `SetMyShortDescription` | moved from maply |
-| `probeSafe`: `sendAnimation`, `setMessageReaction`, `deleteMessageReaction`, `deleteMessages` | Preflight can require them; `editMessageCaption` is already there |
+| `probeSafe`: `sendAnimation`, `deleteMessages` | Preflight can require them; `editMessageCaption` is already there |
 | Downloads emit an `Event` | downloads are the slowest thing framy does |
 
 ### Stage 2

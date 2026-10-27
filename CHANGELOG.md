@@ -291,10 +291,9 @@ was written from, and the skeleton of the service.
   preview into the generating loop, with the elapsed time in the caption and
   a Stop button; a result ready within 25 s replaces the loop in place, a
   slower one comes as a reply, and a failed run becomes a card that names the
-  reason. The reaction on the command says where the run stands: 👀, then ✍,
-  then 👌 (Telegram does not let a bot react with ✅). Only the requester can
-  press the buttons. A run is paid from the free allowance first (MAI Image
-  2.6 Flash up to 5 photos, FLUX.3 Klein up to 10) and from the person's own
+  reason. Only the requester can press the buttons. A run is paid from the
+  free allowance first (MAI Image 2.6 Flash up to 5 photos, FLUX.3 Klein up
+  to 10) and from the person's own
   OpenRouter key when the allowance is used up or paused. framy keeps every
   run in `chat_run` (migration 014), so a restart picks it up where it was.
   `/edit` is in the group menu for video and answers that video in chats is
