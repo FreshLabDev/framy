@@ -53,7 +53,7 @@ func TestAChatRunFollowsItsJob(t *testing.T) {
 	if _, err := store.ChatRun(ctx, job); err != ErrNoRun {
 		t.Fatalf("before: %v", err)
 	}
-	run := ChatRun{JobID: job, ChatID: -100, ThreadID: 3, CommandMessageID: 10, PreviewMessageID: 11, Lang: "uk", Taken: 2, Album: 4, Note: "run.album_part"}
+	run := ChatRun{JobID: job, ChatID: -1003712830340, ThreadID: 3, CommandMessageID: 10, PreviewMessageID: 3_000_000_000, Lang: "uk", Taken: 2, Album: 4, Note: "run.album_part"}
 	if err := store.AddChatRun(ctx, run); err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestAChatRunFollowsItsJob(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.PreviewMessageID != 11 || got.Stage != StagePreview || got.ThreadID != 3 || got.Lang != "uk" || got.Taken != 2 ||
+	if got.PreviewMessageID != 3_000_000_000 || got.ChatID != -1003712830340 || got.Stage != StagePreview || got.ThreadID != 3 || got.Lang != "uk" || got.Taken != 2 ||
 		got.Album != 4 || got.Note != "run.album_part" || !got.GenerateAt.IsZero() {
 		t.Fatalf("run = %+v", got)
 	}
@@ -92,7 +92,7 @@ func TestAChatRunFollowsItsJob(t *testing.T) {
 	if _, err := store.FinishChatRun(ctx, job, StageGenerating, ChatResult{}); err == nil {
 		t.Fatal("generating taken as an end")
 	}
-	res := ChatResult{MessageID: 12, FileID: "file", FileUniqueID: "unique"}
+	res := ChatResult{MessageID: 3_000_000_001, FileID: "file", FileUniqueID: "unique"}
 	if done, err := store.FinishChatRun(ctx, job, StageDone, res); err != nil || !done {
 		t.Fatalf("finish: %v %v", done, err)
 	}
@@ -102,7 +102,7 @@ func TestAChatRunFollowsItsJob(t *testing.T) {
 	var msg int64
 	var file, unique string
 	if err := store.pool.QueryRow(ctx, `SELECT result_message_id, result_file_id, result_file_unique_id FROM chat_run WHERE job_id=$1`, job).
-		Scan(&msg, &file, &unique); err != nil || msg != 12 || file != "file" || unique != "unique" {
+		Scan(&msg, &file, &unique); err != nil || msg != 3_000_000_001 || file != "file" || unique != "unique" {
 		t.Fatalf("result = %d %q %q, %v", msg, file, unique, err)
 	}
 	if open, _ := store.OpenChatRuns(ctx); len(open) != 0 {

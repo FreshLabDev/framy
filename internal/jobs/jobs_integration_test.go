@@ -259,6 +259,25 @@ func TestADuplicateUpdateStartsNothing(t *testing.T) {
 	}
 }
 
+// A supergroup's id is below the smallest int4, and NULLIF($n, 0) would
+// type its parameter as one.
+func TestASupergroupsJobKeepsItsChat(t *testing.T) {
+	q, pool := testQueue(t, newFake())
+	ctx := context.Background()
+	n := job(alice, imageOffer)
+	n.Surface, n.ChatID, n.MessageID = Group, -1003712830340, 3_000_000_000
+	id, _, err := q.Draft(ctx, n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chat := scalar[int64](t, pool, `SELECT chat_id FROM framy.job WHERE id=$1`, id); chat != -1003712830340 {
+		t.Fatalf("chat = %d", chat)
+	}
+	if msg := scalar[int64](t, pool, `SELECT message_id FROM framy.job WHERE id=$1`, id); msg != 3_000_000_000 {
+		t.Fatalf("message = %d", msg)
+	}
+}
+
 func TestTheThirdJobOfAPersonWaits(t *testing.T) {
 	p := newFake()
 	release := make(chan struct{})

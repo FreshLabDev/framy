@@ -351,7 +351,7 @@ func (q *Queue) insert(ctx context.Context, tx pgx.Tx, n New, status Status) (in
 	err := tx.QueryRow(ctx, `
 		INSERT INTO job (user_id, surface, chat_id, message_id, dedupe_key, offer_id, model_id, provider, kind,
 		                 prompt, settings, free, status, estimate_usd, estimate, currency, fx_rate, fx_date, queued_at)
-		VALUES ($1, $2, NULLIF($3, 0), NULLIF($4, 0), NULLIF($5, ''), $6, $7, $8, $9,
+		VALUES ($1, $2, NULLIF($3::bigint, 0), NULLIF($4::bigint, 0), NULLIF($5, ''), $6, $7, $8, $9,
 		        $10, $11, $12, $13, $14, $15, $16, $17, $18::date, CASE WHEN $13 = 'queued' THEN now() END)
 		ON CONFLICT (dedupe_key) DO NOTHING
 		RETURNING id`,

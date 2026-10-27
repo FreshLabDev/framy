@@ -79,7 +79,7 @@ func scanChatRun(row pgx.Row) (ChatRun, error) {
 func (s *Store) AddChatRun(ctx context.Context, r ChatRun) error {
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO chat_run (job_id, chat_id, thread_id, command_message_id, preview_message_id, lang, taken, album, note)
-		VALUES ($1, $2, $3, $4, NULLIF($5, 0), $6, $7, $8, $9)
+		VALUES ($1, $2, $3, $4, NULLIF($5::bigint, 0), $6, $7, $8, $9)
 		ON CONFLICT (job_id) DO NOTHING`,
 		r.JobID, r.ChatID, r.ThreadID, r.CommandMessageID, r.PreviewMessageID, r.Lang, r.Taken, r.Album, r.Note)
 	if err != nil {
@@ -161,7 +161,7 @@ func (s *Store) FinishChatRun(ctx context.Context, jobID int64, stage string, re
 	}
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE chat_run SET stage = $2, updated_at = now(),
-		       result_message_id = NULLIF($3, 0), result_file_id = NULLIF($4, ''), result_file_unique_id = NULLIF($5, '')
+		       result_message_id = NULLIF($3::bigint, 0), result_file_id = NULLIF($4, ''), result_file_unique_id = NULLIF($5, '')
 		WHERE job_id = $1 AND stage = 'generating'`, jobID, stage, res.MessageID, res.FileID, res.FileUniqueID)
 	if err != nil {
 		return false, fmt.Errorf("finish the chat run of job %d: %w", jobID, err)
