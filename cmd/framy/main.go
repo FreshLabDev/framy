@@ -32,6 +32,7 @@ import (
 	"github.com/FreshLabDev/framy/internal/r2"
 	"github.com/FreshLabDev/framy/internal/safehttp"
 	"github.com/FreshLabDev/framy/internal/storage"
+	"github.com/FreshLabDev/framy/internal/web"
 	"github.com/FreshLabDev/framy/migrations"
 )
 
@@ -147,20 +148,22 @@ func run(log *slog.Logger) error {
 	}
 
 	started := time.Now()
-	mux := http.NewServeMux()
-	mux.Handle("/healthz", health.New(store, b.LastPoll, b.Initialized, started, health.Build{
+	// Every route of the public listener is registered on site: it adds the
+	// security headers, the CSRF check, the cache rules and the rate limits.
+	site, err := web.New(web.Config{
+		Log:            log.With("component", "web"),
+		R2Endpoint:     cfg.R2.Endpoint,
+		TrustedProxies: cfg.Web.TrustedProxies,
+	})
+	if err != nil {
+		return err
+	}
+	site.Handle("GET /{$}", web.Placeholder())
+	site.Handle("/healthz", health.New(store, b.LastPoll, b.Initialized, started, health.Build{
 		Version: version, Commit: commit, Date: date,
 	}, log))
-	srv := &http.Server{
-		Addr:              cfg.HTTPAddr,
-		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      10 * time.Second,
-		IdleTimeout:       60 * time.Second,
-	}
 
-	servers := []*http.Server{srv}
+	servers := []*http.Server{site.HTTPServer(cfg.HTTPAddr)}
 	if cfg.MetricsAddr != "" {
 		metricsMux := http.NewServeMux()
 		metricsMux.Handle("GET /metrics", metrics.Handler())

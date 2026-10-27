@@ -330,7 +330,7 @@ draft ──Generate──> queued ──> running ──> done
 - sends the headers at once (`Content-Type: text/event-stream`, `Cache-Control: no-cache, no-transform`);
 - flushes after every event through `http.NewResponseController`;
 - writes a `: ping` comment every 15–20 s;
-- has no `WriteTimeout` on this route;
+- has no `WriteTimeout` on this route: `web.Stream()` removes the read and write deadlines, and the handler sets a write deadline of its own before each write, so a client that stops reading cannot hold it;
 - resumes from `Last-Event-ID`.
 
 `EventSource` cannot send an `Authorization` header, so the Mini App streams with `fetch`. Proposal: at most 3 open streams per person.
@@ -647,18 +647,31 @@ Uploads are held in memory whole (`docs/limitations.md`). framy sends large file
 
 Details and sources in [research/build.md](research/build.md).
 
-- **Headers.** One CSP for every HTML route. It has `frame-ancestors https://web.telegram.org https://webk.telegram.org https://weba.telegram.org` and no `X-Frame-Options`, which would conflict with the Mini App iframe. `img-src`, `media-src` and `connect-src` allow `https://<account>.r2.cloudflarestorage.com` for presigned files and uploads. `Referrer-Policy: no-referrer` on pages with a token in the URL. HSTS. Before launch, check that Rocket Loader, Web Analytics and email obfuscation do not inject scripts the CSP would block.
-- **CSRF:** `http.CrossOriginProtection` from Go 1.25 around the mux, with a bypass for `/hooks/…`. No state changes on GET.
+- **Headers.** One CSP for every HTML route. It has `frame-ancestors https://web.telegram.org https://webk.telegram.org https://weba.telegram.org` and no `X-Frame-Options`, which would conflict with the Mini App iframe. `img-src`, `media-src` and `connect-src` allow `https://<account>.r2.cloudflarestorage.com` for presigned files and uploads. `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff` and `Cross-Origin-Opener-Policy: same-origin` on every response, and HSTS for a year. Before launch, check that Rocket Loader, Web Analytics and email obfuscation do not inject scripts the CSP would block.
+  - `internal/web` builds the policy once at start and adds it to any response that is HTML, XHTML, SVG or names no type. There is no nonce: the frontend's scripts and styles are files served from the site's own `/assets/`, and an inline block is added by hash (`web.InlineHash`, `Config.CSPExtra`). Besides the R2 origin, `script-src` has `https://telegram.org/js/telegram-web-app.js` and nothing else from outside.
+- **CSRF:** `http.CrossOriginProtection` from Go 1.25 around the mux, with a bypass for `/hooks/…`. No state changes on GET. A browser that sends neither `Sec-Fetch-Site` nor `Origin` is taken for a client that is not a browser, and one that sends only `Origin` is checked against `Host`, so the tunnel must pass the original `Host` on. A route that has to take a cross-site POST is added to `csrfBypass` in `internal/web`.
 - **Cache.** By default Cloudflare caches by extension, not by cookie:
-  - `/api`, `/auth`, `/events` and `/hooks` send `no-store`;
-  - hashed assets and public result images send `public, max-age=31536000, immutable`;
-  - private results send `private, no-store` and never `public`;
+  - `/api`, `/auth`, `/oauth` (the OAuth callbacks), `/events` and `/hooks` send `no-store`, whatever the handler says;
+  - hashed assets send `public, max-age=31536000, immutable`: files under `/assets/` with eight or more hex digits before the extension (`app.3f9a1c2b.js`) or a hex `?v=`, on a 200, 206 or 304 only. An unhashed file there is `no-cache` and an error `no-store`. Public result images follow once they exist (`PublicCache`);
+  - private results send `private, no-store` and never `public`: `public` from a handler is rewritten unless its route opted in;
+  - HTML with no `Cache-Control` of its own gets `no-cache` (revalidate by ETag) and everything else `no-store`, so nothing is cached because nobody said;
   - the zone's Browser Cache TTL is "Respect Existing Headers", as maply's `?v=hash` lesson showed.
 - **`downloadFile` in the Mini App:** `Content-Disposition: attachment` and `Access-Control-Allow-Origin` for the Telegram Web origins, from the bucket's CORS for files in R2 and reflected with `Vary: Origin` for anything the service serves.
 - **Rate limits.** Cloudflare Free gives one rate-limit rule and 5 WAF rules, and Bot Fight Mode cannot be skipped by rules. So the limits live in framy:
-  - token buckets per person and per IP (`x/time/rate`), stricter on sign-in, uploads and job creation;
+  - token buckets per person and per IP (`x/time/rate`, in memory, in `internal/web`). Every request is counted in the default class by address; a route in another class is counted there too:
+
+    | Class | Routes | Per address | Per person |
+    |:--|:--|:--|:--|
+    | default | everything | 30/s, burst 120 | none |
+    | auth | `/auth`, `/oauth` | 20/min, burst 10 | none |
+    | upload | `Limit(ClassUpload)` | 40/min, burst 40 | 20/min, burst 20 |
+    | job | `Limit(ClassJob)` | 20/min, burst 20 | 10/min, burst 10 |
+    | hook | `/hooks` | 20/s, burst 100 | none |
+    | health | `/healthz` | 1/s, burst 10 | none |
+
+    The numbers are guesses to be set from real traffic. An IPv6 visitor is counted by its /64. The person is whoever `Config.Person` names, asked only on routes whose class has a per-person bucket; until sign-in exists it is nil and every limit is per address. A refusal is a 429 with `Retry-After` and `framy_http_rate_limited_total{class}`;
   - quotas in Postgres;
-  - the real IP from `CF-Connecting-IP`, trusted only because the service publishes no port to the host.
+  - the real IP from `CF-Connecting-IP`, believed only when the TCP peer is in `TRUSTED_PROXIES`, the addresses cloudflared connects from (its Docker network). From any other peer the header, `X-Forwarded-For` and the rest are ignored. The service must publish no port to the host, or the userland proxy hides the visitor behind the gateway address.
 
   Bot Fight Mode stays off for the framy hostname, or OpenRouter's webhook POSTs get challenged.
 - **Uploads** through Cloudflare are at most 100 MB per request. Photos come to the service; videos go by presigned PUT straight into R2 (see "Storage and retention").

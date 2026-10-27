@@ -190,7 +190,8 @@ a patch that fixes what went wrong; never retag or delete the bad release.
 | Networks | `core_net` (core-postgres), the Cloudflare Tunnel network for `framy.ws04.cc`, the network of the self-hosted `telegram-bot-api` |
 | Storage | R2 buckets `framy` (inputs and results) and `framy-backups`; a working volume shared with `telegram-bot-api` |
 | Database | core migration `019_framy.sql` applied, `FRAMY_CORE_PASSWORD` in core's `.env` and framy's |
-| Ports | `8080` for the tunnel; `9090` for `/metrics`, reachable on the Docker networks only and never routed by the tunnel |
+| Ports | `8080` for the tunnel, never published to the host; `9090` for `/metrics`, reachable on the Docker networks only and never routed by the tunnel |
+| Proxies | `TRUSTED_PROXIES` in `.env`: the subnet of the Cloudflare Tunnel network. Without it the rate limits see cloudflared's address instead of the visitor, and the log says so once |
 | Outbound | HTTPS to `openrouter.ai` for the hourly catalog sync, which needs no key |
 
 framy talks to the family's own `telegram-bot-api` in `--local` mode. The cloud

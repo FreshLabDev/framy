@@ -17,8 +17,9 @@ careful with people's keys, and production-minded.
   `/metrics` on its own listener, the family's panels on `/start`, the hourly
   model catalog sync, the price estimate, the currency rates, the job queue
   on River, the OpenRouter, OpenAI and Gemini image adapters, storage in R2
-  with the ffmpeg photo pipeline, and a clean stop on SIGTERM. Nothing
-  reaches people yet: no surface starts a job.
+  with the ffmpeg photo pipeline, the public HTTP server's foundation
+  (`internal/web`: security headers, CSRF, cache rules, rate limits), and a
+  clean stop on SIGTERM. Nothing reaches people yet: no surface starts a job.
 - The service will be one Go binary (module `github.com/FreshLabDev/framy`):
   the HTTP server (site, Mini App, API, SSE, OAuth callbacks, provider
   webhooks), the bot, the job workers, the hourly catalog sync and the
@@ -127,6 +128,12 @@ screen, a command or a table, check how the siblings do it.
 
 ## Data And Security
 
+- Every route of the public listener is registered on the `web.Server`
+  (`site.Handle`), never on a bare mux: it gives the route the CSP, the cache
+  rules, the CSRF check and the rate limits. A new class of route is a rate
+  class in `internal/web/ratelimit.go`; a route that must take a cross-site
+  POST is a deliberate entry in `csrfBypass`. `CF-Connecting-IP` is believed
+  only from `TRUSTED_PROXIES`.
 - Never log the bot token, provider keys, the KEK, R2 credentials, OAuth codes
   and verifiers, a database URL with its password, or full Bot API URLs.
 - Connect with `search_path=framy` and call `core.touch` before domain writes

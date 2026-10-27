@@ -91,6 +91,9 @@ var (
 
 	TelegramErrors  = registerVec("framy_telegram_errors_total", "Telegram API and transport errors, by method.", "method")
 	TelegramLimited = registerVec("framy_telegram_rate_limited_total", "Telegram 429 responses observed, by method.", "method")
+
+	HTTPRateLimited        = registerVec("framy_http_rate_limited_total", "Public HTTP requests answered 429, by rate class.", "class")
+	HTTPCrossOriginRefused = registerCounter("framy_http_cross_origin_refused_total", "Public HTTP requests refused as cross-origin.")
 )
 
 // Handler serves the registry in Prometheus text exposition format.
