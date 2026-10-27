@@ -280,3 +280,34 @@ func (m *Mask) fill(x0, y0, x1, y1 float64, build func(z *vector.Rasterizer, at 
 		}
 	}
 }
+
+// Shadow darkens the canvas under the rectangle x0, y0, x1, y1 towards col,
+// by alpha in the middle and fading out over soft pixels on each side of the
+// edge: at the edge itself it is half.
+func (c *Canvas) Shadow(x0, y0, x1, y1, soft float64, col RGB, alpha float64) {
+	if alpha <= 0 || x1 <= x0 || y1 <= y0 || soft <= 0 {
+		return
+	}
+	cx, cy, hw, hh := (x0+x1)/2, (y0+y1)/2, (x1-x0)/2, (y1-y0)/2
+	b := image.Rect(int(math.Floor(x0-soft)), int(math.Floor(y0-soft)), int(math.Ceil(x1+soft)), int(math.Ceil(y1+soft))).
+		Intersect(image.Rect(0, 0, c.W, c.H))
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		qy := math.Abs(float64(y)+0.5-cy) - hh
+		for x := b.Min.X; x < b.Max.X; x++ {
+			qx := math.Abs(float64(x)+0.5-cx) - hw
+			k := float32(alpha)
+			if qx > -soft || qy > -soft {
+				// The distance to the rectangle, negative inside.
+				d := math.Hypot(max(qx, 0), max(qy, 0)) + min(max(qx, qy), 0)
+				k = float32(alpha * (1 - smooth(-soft, soft, d)))
+			}
+			if k <= 0 {
+				continue
+			}
+			p := c.Pix[3*(y*c.W+x) : 3*(y*c.W+x)+3 : 3*(y*c.W+x)+3]
+			p[0] += (col.R - p[0]) * k
+			p[1] += (col.G - p[1]) * k
+			p[2] += (col.B - p[2]) * k
+		}
+	}
+}

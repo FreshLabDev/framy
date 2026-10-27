@@ -4,6 +4,7 @@ package anim
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -54,8 +55,7 @@ func TestSamples(t *testing.T) {
 		a, _ := NewAlbum(context.Background(), paths)
 		still(filepath.Join(c.dir, c.name+"-still.png"), a, 0)
 		if c.name == "album" {
-			still(filepath.Join("extras", "album-flying.png"), a, a.enters(0)+0.5)
-			still(filepath.Join("extras", "album-empty.png"), a, a.enters(0)-0.2)
+			still(filepath.Join("extras", "album-up.png"), a, albumDur/2)
 		}
 		t.Logf("%s: %d photos, %s, %d KB, rendered in %s", c.name, c.n, m.Duration, m.Bytes/1024, took.Round(time.Millisecond))
 	}
@@ -69,7 +69,9 @@ func TestSamples(t *testing.T) {
 		t.Fatal(err)
 	}
 	still("generating-still.png", Generating{}, 0)
-	still(filepath.Join("extras", "generating-1.5s.png"), Generating{}, 1.5)
+	for _, at := range []float64{1.5, 2.4, 3.6, 4.8} {
+		still(filepath.Join("extras", fmt.Sprintf("generating-%.1fs.png", at)), Generating{}, at)
+	}
 
 	for _, c := range []struct{ name, text, lang string }{
 		{"error-card", "The model refused this picture. Try other words.", "en"},

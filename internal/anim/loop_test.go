@@ -222,3 +222,35 @@ func TestAFailedEncodingLeavesNothing(t *testing.T) {
 		}
 	}
 }
+
+// The dots of the generating loop drift as a pale noise, gather into the
+// spark, white and with nothing around it, and go back to the noise.
+func TestGeneratingGathersIntoTheSpark(t *testing.T) {
+	hold := frameAt(Generating{}, 0.6*generatingDur)
+	if got := rgb(hold, markX, markY); !near(got, [3]int{255, 255, 255}, 2) {
+		t.Errorf("the middle of the spark is %v, not white", got)
+	}
+	// Between two of its points, far from the middle, there is nothing.
+	for _, p := range [][2]int{{markX + 150, markY + 150}, {markX - 150, markY - 150}, {markX + 150, markY - 150}} {
+		if got := rgb(hold, p[0], p[1]); !near(got, rgbOf(Field), 1) {
+			t.Errorf("the gathered spark leaves a dot at %v: %v", p, got)
+		}
+	}
+	// In the noise nothing is white, and the box is not empty.
+	noise := frameAt(Generating{}, 0)
+	lit := 0
+	for y := frameY0 + frameInset; y < frameY1-frameInset; y++ {
+		for x := frameX0 + frameInset; x < frameX1-frameInset; x++ {
+			px := rgb(noise, x, y)
+			if near(px, [3]int{255, 255, 255}, 20) {
+				t.Fatalf("a white pixel in the noise at %d, %d", x, y)
+			}
+			if !near(px, rgbOf(Field), 8) {
+				lit++
+			}
+		}
+	}
+	if lit < 10000 {
+		t.Errorf("the noise has only %d pixels lit", lit)
+	}
+}

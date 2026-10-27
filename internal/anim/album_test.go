@@ -108,8 +108,7 @@ func solidAlbum(t *testing.T) (paths []string, colours []color.RGBA) {
 }
 
 // The preview holds the photos in the order they came, each with its number
-// at the corner; they leave, the frame is empty but for the spark, and they
-// come back.
+// at the corner. The loop starts at rest, with every photo in its place.
 func TestAlbumShowsThePhotosInOrderWithTheirNumbers(t *testing.T) {
 	paths, colours := solidAlbum(t)
 	a, err := NewAlbum(context.Background(), paths)
@@ -122,7 +121,7 @@ func TestAlbumShowsThePhotosInOrderWithTheirNumbers(t *testing.T) {
 	numbers := NewCanvas(Side, Side)
 	numbers.Fill(Field)
 	for i, r := range a.rects {
-		numbers.number(i+1, r, badgeSize(a.rects), 1)
+		numbers.number(i+1, float64(r.Min.X), float64(r.Min.Y), badgeSize(a.rects))
 	}
 	badges := make([][]byte, len(paths))
 	for i, r := range a.rects {
@@ -162,23 +161,46 @@ func TestAlbumShowsThePhotosInOrderWithTheirNumbers(t *testing.T) {
 			}
 		}
 	}
+}
 
-	// In the empty beat nothing is in the places, and the frame has its mark.
-	empty := frameAt(a, a.leaves(len(paths)-1)+leaveTime+emptyBeat/2)
+// The album floats as one piece: halfway through the loop every photo is
+// floatUp higher than its place, with its number, and none has moved apart
+// from the others. On the way it never goes higher, and it stays in the
+// frame.
+func TestAlbumFloatsAsOnePiece(t *testing.T) {
+	paths, colours := solidAlbum(t)
+	a, err := NewAlbum(context.Background(), paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	up := frameAt(a, albumDur/2)
+	lift := int(floatUp)
 	for i, r := range a.rects {
-		if got := rgb(empty, (r.Min.X+r.Max.X)/2, (r.Min.Y+r.Max.Y)/2); i != 0 && !near(got, rgbOf(Field), 3) {
-			t.Errorf("place %d is not empty in the empty beat: %v", i+1, got)
+		want := [3]int{int(colours[i].R), int(colours[i].G), int(colours[i].B)}
+		mid := (r.Min.X + r.Max.X) / 2
+		for _, y := range []int{r.Min.Y - lift + r.Dy()/2, r.Max.Y - lift - 2} {
+			if got := rgb(up, mid, y); !near(got, want, 12) {
+				t.Errorf("photo %d is not %d pixels up: %v at %d, %d", i+1, lift, got, mid, y)
+			}
+		}
+		// Where its bottom edge was there is no photo of its own now.
+		if got := rgb(up, mid, r.Max.Y-lift/2); near(got, want, 40) {
+			t.Errorf("photo %d did not rise: its colour %v is still at its bottom edge", i+1, got)
+		}
+		b := int(badgeSize(a.rects))
+		if got := rgb(up, r.Min.X+b-3, r.Min.Y-lift+2); !near(got, [3]int{255, 255, 255}, 8) {
+			t.Errorf("the number of photo %d did not rise with it: %v", i+1, got)
 		}
 	}
-	if got := rgb(empty, Side/2, (frameY0+frameY1)/2); !near(got, [3]int{255, 255, 255}, 30) {
-		t.Errorf("the empty frame has no spark in the middle: %v", got)
+	for f := range Frames(a) + 1 {
+		if h := height(float64(f) / FPS); h < 0 || h > 1 {
+			t.Fatalf("frame %d: the album is at %.3f of its float", f, h)
+		}
 	}
-	// Just after the first photo has landed it is there again with its number
-	// on the way.
-	back := frameAt(a, a.enters(0)+enterTime+badgePop)
-	r := a.rects[0]
-	if got := rgb(back, (r.Min.X+r.Max.X)/2, (r.Min.Y+r.Max.Y)/2); !near(got, [3]int{int(colours[0].R), int(colours[0].G), int(colours[0].B)}, 12) {
-		t.Errorf("photo 1 is not back: %v", got)
+	for i, r := range a.rects {
+		if r.Min.Y-lift < frameY0+stripe+gap || r.Max.Y+gap > frameY1-stripe || r.Min.X < frameX0+stripe+gap || r.Max.X > frameX1-stripe-gap {
+			t.Errorf("photo %d, %v, floats into the viewfinder's brackets", i+1, r)
+		}
 	}
 }
 

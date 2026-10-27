@@ -22,7 +22,7 @@ import (
 // Change it with any change to how they look: the files cached under the old
 // number are not used again, and the bot, which keeps a Telegram file_id per
 // Key, sends the new picture once.
-var loopVersion = 1
+var loopVersion = 2
 
 // Telegram's limits for what this package makes (docs/research/telegram.md,
 // 3.2). An animation is H.264 in an MP4 with no sound track, up to 50 MB; a

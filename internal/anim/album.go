@@ -29,27 +29,21 @@ const (
 	frameInset                         = stripe + 2*gap
 )
 
-// The album's timeline, in seconds. The loop's seam is in the middle of the
-// hold, where nothing moves: the photos rest with their numbers, leave one
-// after the other, the frame is empty for a moment, and they fly in again.
+// How the album floats: as one piece, the photos never leaving their places,
+// it rises and sinks once a loop over its shadow.
 const (
-	albumDur   = 9.0
-	leaveFrom  = 1.8  // the first photo starts to leave
-	leaveTime  = 1.3  // one photo's flight out
-	enterTime  = 1.6  // and in
-	emptyBeat  = 0.6  // the frame with nothing in it
-	badgeDelay = 0.15 // a number comes this long before its photo lands
-	badgePop   = 0.45 // and takes this long to grow
+	albumDur = 4.0  // seconds: one rise and one sink
+	floatUp  = 12.0 // pixels the album rises at the top of its float
+	// The collage is kept this far off the frame's top and bottom, for the
+	// float and the shadow.
+	floatInset = 10
 )
 
-// Album is the preview of an album: the photos fly into the frame and get
-// their numbers, 1 to N in the order they were sent.
+// Album is the preview of an album: the photos, numbered 1 to N in the order
+// they were sent, float in the viewfinder together.
 type Album struct {
 	pics  []*Pic
 	rects []image.Rectangle // each photo's place
-	from  [][2]float64      // where each flies in from, as an offset from its place
-	tilt  []float64         // how much each is turned as it flies, radians
-	stag  float64           // between one photo and the next
 	badge float64           // the side of every number's square
 }
 
@@ -69,15 +63,12 @@ func NewAlbum(ctx context.Context, paths []string) (*Album, error) {
 		// A panorama or a tall strip would leave a sliver of a tile.
 		aspects[i] = min(2, max(0.5, float64(w)/float64(h)))
 	}
-	box := image.Rect(frameX0+frameInset, frameY0+frameInset, frameX1-frameInset, frameY1-frameInset)
+	// The box leaves room above for the float and below for the shadows.
+	box := image.Rect(frameX0+frameInset, frameY0+frameInset+floatInset, frameX1-frameInset, frameY1-frameInset-floatInset)
 	a := &Album{
 		rects: layout(aspects, box, gap),
 		pics:  make([]*Pic, n),
-		from:  make([][2]float64, n),
-		tilt:  make([]float64, n),
-		stag:  min(0.14, 1.2/float64(n)),
 	}
-
 	a.badge = badgeSize(a.rects)
 
 	// Decoding is the slow part: a few photos at a time, so a preview of ten
@@ -104,103 +95,49 @@ func NewAlbum(ctx context.Context, paths []string) (*Album, error) {
 			return nil, fmt.Errorf("photo %d: %w", i+1, err)
 		}
 	}
-
-	// Each photo comes from outside the frame along the line from its middle
-	// to the frame's, turned a little to one side or the other.
-	fx, fy := float64(frameX0+frameX1)/2, float64(frameY0+frameY1)/2
-	for i, r := range a.rects {
-		dx, dy := float64(r.Min.X+r.Max.X)/2-fx, float64(r.Min.Y+r.Max.Y)/2-fy
-		if math.Hypot(dx, dy) < 30 { // a photo in the middle: round the clock, by the golden angle
-			s, c := math.Sincos(-math.Pi/2 + float64(i)*2.399963)
-			dx, dy = c, s
-		}
-		l := math.Hypot(dx, dy)
-		a.from[i] = [2]float64{dx / l * 320, dy / l * 320}
-		a.tilt[i] = float64(1-2*(i%2)) * (5 + float64(i*7%4)) * math.Pi / 180
-	}
 	return a, nil
 }
 
 func (a *Album) Size() (int, int)  { return Side, Side }
 func (a *Album) Duration() float64 { return albumDur }
 
-// leaves and enters are the moments photo i starts its flight out and in.
-func (a *Album) leaves(i int) float64 { return leaveFrom + float64(i)*a.stag }
-func (a *Album) enters(i int) float64 {
-	return leaveFrom + float64(len(a.pics)-1)*a.stag + leaveTime + emptyBeat + float64(i)*a.stag
-}
-
-// state is how far photo i is in its place at t, 0 when it is outside the
-// frame and 1 when it rests, and how big its number is, 0 to a little over 1.
-func (a *Album) state(i int, t float64) (p, num float64) {
-	out, in := a.leaves(i), a.enters(i)
-	switch {
-	case t < out:
-		return 1, 1
-	case t < out+leaveTime:
-		return 1 - sine(lin(out, out+leaveTime, t)), 1 - smooth(out, out+0.3, t)
-	case t < in:
-		return 0, 0
-	case t < in+enterTime:
-		return sine(lin(in, in+enterTime, t)), 0
-	}
-	return 1, back(lin(in+enterTime-badgeDelay, in+enterTime-badgeDelay+badgePop, t))
+// height is how high the album is at t: 0 at rest, 1 at the top of its
+// float. The time is taken round the loop first, so that the frame at the
+// loop's end is the first frame to the last bit. The loop starts at rest:
+// that is the frame Telegram shows as its still.
+func height(t float64) float64 {
+	u := math.Mod(t, albumDur) / albumDur
+	return 0.5 - 0.5*math.Cos(2*math.Pi*u)
 }
 
 func (a *Album) Draw(c *Canvas, t float64) {
-	n := len(a.pics)
 	c.Fill(Field)
 	c.header()
+	c.brackets(frameX0, frameY0, frameX1, frameY1, 72, white, 1)
 
-	// The viewfinder closes a little when the last photo lands, as a camera
-	// does when it has focused.
-	land := a.enters(n-1) + enterTime
-	focus := math.Pow(math.Sin(math.Pi*lin(land-0.15, land+0.65, t)), 2) * 10
-	c.brackets(frameX0+focus, frameY0+focus, frameX1-focus, frameY1-focus, 72, white, 1)
-
-	// The spark while the frame is empty.
-	here := 0.0
-	ps := make([]float64, n)
-	nums := make([]float64, n)
-	for i := range n {
-		ps[i], nums[i] = a.state(i, t)
-		here += ps[i]
+	// The shadow stays on the ground: when the album is up it is wider
+	// and fainter.
+	h := height(t)
+	all := a.rects[0]
+	for _, r := range a.rects {
+		all = all.Union(r)
 	}
-	if gone := 1 - smooth(0, 0.5, here/float64(n)); gone > 0 {
-		cx, cy := float64(frameX0+frameX1)/2, float64(frameY0+frameY1)/2
-		c.spark(cx, cy, 66+7*math.Sin(2*math.Pi*t/albumDur*2), math.Pi/2*t/albumDur, white, gone)
-	}
-
-	// Photos in their place first, then the ones in flight above them.
-	for pass := range 2 {
-		for i := range n {
-			if (ps[i] == 1) != (pass == 0) || ps[i] == 0 {
-				continue
-			}
-			r, q := a.rects[i], ps[i]
-			pose := Pose{
-				DX:    a.from[i][0] * (1 - q),
-				DY:    a.from[i][1] * (1 - q),
-				Scale: 1 + 0.18*(1-q),
-				Rot:   a.tilt[i] * (1 - q),
-			}
-			c.Photo(a.pics[i], float64(r.Min.X), float64(r.Min.Y), pose, smooth(0, 0.45, q))
-			c.number(i+1, r, a.badge, nums[i])
-		}
+	c.Shadow(float64(all.Min.X)+2, float64(all.Min.Y)+8, float64(all.Max.X)-2, float64(all.Max.Y)+8, 8+8*h, shade, 0.6-0.25*h)
+	// The album moves by whole pixels: a photo between two rows of pixels
+	// would be blurred by the sampling, sharper and softer by turns, and
+	// cost the encoder far more. A pixel of 720 is too small a step to see.
+	y := -math.Round(floatUp * h)
+	for i, r := range a.rects {
+		c.Photo(a.pics[i], float64(r.Min.X), float64(r.Min.Y)+y, Rest, 1)
+		c.number(i+1, float64(r.Min.X), float64(r.Min.Y)+y, a.badge)
 	}
 }
 
-// number draws the badge of photo no at the top left of its place r: a white
-// square of side size with the figure in the field's colour, grown from the
-// corner to scale.
-func (c *Canvas) number(no int, r image.Rectangle, size, scale float64) {
-	if scale <= 0 {
-		return
-	}
-	b := size * scale
-	x, y := float64(r.Min.X), float64(r.Min.Y)
-	c.Rect(x, y, x+b, y+b, white, 1)
-	c.Figure(Display, math.Round(b*0.86), strconv.Itoa(no), x+b/2, y+b/2, Field, 1)
+// number draws the badge of photo no with its top left at x, y: a white
+// square of side size with the figure in the field's colour.
+func (c *Canvas) number(no int, x, y, size float64) {
+	c.Rect(x, y, x+size, y+size, white, 1)
+	c.Figure(Display, math.Round(size*0.86), strconv.Itoa(no), x+size/2, y+size/2, Field, 1)
 }
 
 // badgeSize is the side of every number's square: a third of the smallest

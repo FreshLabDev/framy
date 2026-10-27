@@ -65,9 +65,15 @@ func TestLoopsGoOutAsTelegramAnimations(t *testing.T) {
 // The video that goes out is the loop that was drawn: its frames are the
 // scene's frames, in order and in the same colours, and the step from its
 // last frame to its first is no bigger than the drawn loop's own plus the
-// noise of the codec. A decoded frame is within 2 levels of the drawn one,
-// on average over the picture's bytes; a wrong colour matrix or a skipped
-// frame is far more.
+// noise of the codec.
+//
+// The colours are checked on the plain field under the viewfinder, where
+// yuv420p loses nothing: it must come back within 2 levels, and a wrong
+// colour matrix moves it by up to 8, a wrong range by up to 10. The whole
+// frame is within 3 levels of the drawn one, on average over its bytes:
+// yuv420p keeps one colour for every 2×2 pixels, and at the edges of the
+// photos and the dots that costs about 2 with the ffmpeg in the image,
+// whatever the quality.
 func TestTheVideoIsTheDrawnLoop(t *testing.T) {
 	sharedAlbum(t)
 	a, err := NewAlbum(context.Background(), shared.photos)
@@ -92,8 +98,11 @@ func TestTheVideoIsTheDrawnLoop(t *testing.T) {
 			return b
 		}
 		for _, i := range []int{0, n / 4, n / 2, 2 * n / 3, n - 1} {
-			if d := meanDiff(frames[i], drawn(i)); d > 2 {
+			if d := meanDiff(frames[i], drawn(i)); d > 3 {
 				t.Errorf("%s: frame %d is %.2f from the frame that was drawn", c.name, i, d)
+			}
+			if got, want := fieldBelow(frames[i], c.m.Width), rgbOf(Field); !near(got, want, 2) {
+				t.Errorf("%s: frame %d shows the field as %v, drawn %v", c.name, i, got, want)
 			}
 		}
 		seam := meanDiff(frames[n-1], frames[0])
@@ -297,16 +306,33 @@ func BenchmarkErrorCard(b *testing.B) {
 	}
 }
 
-// One frame of the busiest moment of the album: what a core does in a frame.
+// One frame of the album in the middle of its rise, where every photo is
+// sampled: what a core does in a frame.
 func BenchmarkAlbumFrame(b *testing.B) {
 	a, err := NewAlbum(context.Background(), album(b, b.TempDir(), 10, 3))
 	if err != nil {
 		b.Fatal(err)
 	}
 	c := NewCanvas(Side, Side)
-	t := a.enters(4) + 0.6
+	t := albumDur / 4
 	b.ResetTimer()
 	for b.Loop() {
 		a.Draw(c, t)
 	}
+}
+
+// fieldBelow is the mean colour of the strip of plain field under the
+// viewfinder in a frame of raw RGB, w pixels wide.
+func fieldBelow(frame []byte, w int) [3]int {
+	var sum [3]int
+	n := 0
+	for y := frameY1 + 8; y < frameY1+28; y++ {
+		for x := 100; x < w-100; x++ {
+			for k := range 3 {
+				sum[k] += int(frame[3*(y*w+x)+k])
+			}
+			n++
+		}
+	}
+	return [3]int{(sum[0] + n/2) / n, (sum[1] + n/2) / n, (sum[2] + n/2) / n}
 }

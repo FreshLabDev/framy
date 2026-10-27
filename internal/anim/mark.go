@@ -36,23 +36,6 @@ func (c *Canvas) brackets(x0, y0, x1, y1, arm float64, col RGB, alpha float64) {
 	}
 }
 
-// spark draws the four-pointed star of the mark, r from its middle to a
-// point, turned by rot radians. A quarter turn looks like none.
-func (c *Canvas) spark(cx, cy, r, rot float64, col RGB, alpha float64) {
-	if r <= 0 {
-		return
-	}
-	pts := make([][2]float64, 0, 8)
-	for k := range 4 {
-		a := rot + float64(k)*math.Pi/2
-		s, co := math.Sincos(a)
-		pts = append(pts, [2]float64{cx + co*r, cy + s*r})
-		s, co = math.Sincos(a + math.Pi/4)
-		pts = append(pts, [2]float64{cx + co*r*0.3, cy + s*r*0.3})
-	}
-	c.Poly(pts, col, alpha)
-}
-
 // cross draws a plus turned 45°, built of two bars: the mark of what did not
 // work. r is from its middle to the end of a bar, thick the bar's width.
 func (c *Canvas) cross(cx, cy, r, thick float64, col RGB, alpha float64) {
