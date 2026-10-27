@@ -99,6 +99,8 @@ var (
 
 	HTTPRateLimited        = registerVec("framy_http_rate_limited_total", "Public HTTP requests answered 429, by rate class.", "class")
 	HTTPCrossOriginRefused = registerCounter("framy_http_cross_origin_refused_total", "Public HTTP requests refused as cross-origin.")
+
+	AuthResults = registerVec("framy_auth_total", "Sign-in outcomes, by result: site_ok, site_denied, site_no_state, site_state, site_exchange, site_token, site_nonce, site_claims, site_provider, site_unavailable, site_error, miniapp_ok, miniapp_stale, miniapp_bad, miniapp_error.", "result")
 )
 
 // Handler serves the registry in Prometheus text exposition format.

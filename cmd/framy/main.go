@@ -16,6 +16,7 @@ import (
 	"github.com/FreshLabDev/tg"
 
 	catalogfiles "github.com/FreshLabDev/framy/catalog"
+	"github.com/FreshLabDev/framy/internal/auth"
 	"github.com/FreshLabDev/framy/internal/bot"
 	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/config"
@@ -166,6 +167,25 @@ func run(log *slog.Logger) error {
 		return fmt.Errorf("start the job queue: %w", err)
 	}
 
+	// Sign-in (#18): the site through Telegram Login, the Mini App through its
+	// initData. Without the Login client the site's routes answer 503 and the
+	// rest runs.
+	signIn, err := auth.New(auth.Config{
+		ClientID:     cfg.TelegramLogin.ClientID,
+		ClientSecret: cfg.TelegramLogin.ClientSecret,
+		SiteURL:      cfg.SiteURL,
+		BotToken:     cfg.TelegramBotToken,
+		Sessions:     auth.NewPGSessions(store.Pool()),
+		People:       store,
+		Log:          log.With("component", "auth"),
+	})
+	if err != nil {
+		return err
+	}
+	if !signIn.SiteEnabled() {
+		log.Warn("no Telegram Login client: people cannot sign in on the site (TELEGRAM_LOGIN_CLIENT_ID, TELEGRAM_LOGIN_CLIENT_SECRET, SITE_URL)")
+	}
+
 	started := time.Now()
 	// Every route of the public listener is registered on site: it adds the
 	// security headers, the CSRF check, the cache rules and the rate limits.
@@ -173,11 +193,13 @@ func run(log *slog.Logger) error {
 		Log:            log.With("component", "web"),
 		R2Endpoint:     cfg.R2.Endpoint,
 		TrustedProxies: cfg.Web.TrustedProxies,
+		Person:         signIn.PersonKey,
 	})
 	if err != nil {
 		return err
 	}
 	site.Handle("GET /{$}", web.Placeholder())
+	signIn.Mount(site)
 	site.Handle("/healthz", health.New(store, b.LastPoll, b.Initialized, started, health.Build{
 		Version: version, Commit: commit, Date: date,
 	}, log))
