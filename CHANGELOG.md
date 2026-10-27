@@ -60,6 +60,18 @@ was written from, and the skeleton of the service.
   gpt-image-2 prices, OpenRouter's 16:9 example and BytePlus's Seedance 2.0
   example. The overlay's `price` hints fill in what the rates leave out, and
   every sync logs the price lines the estimate cannot read.
+- The job queue, on River in the `framy` schema. A job is a row in
+  `framy.job` and a River job, created in one transaction, and it moves
+  through draft, queued, running and done, failed, cancelled or expired. The
+  rules about money: the mark that a paid request is out is written before the
+  request goes, so a run cut short by a crash is never sent again; a
+  provider's job id is saved the moment it comes back, so a retry asks
+  instead of paying; only a 429 or a 5xx before the run started is retried,
+  after the provider's wait. A repeated Telegram update starts nothing, one
+  person runs at most two jobs at once and the rest wait in order, and a job
+  keeps its estimate next to what the provider charged. A stop waits for runs
+  in progress up to `JOBS_STOP_GRACE` (3m30s). No provider adapter is
+  registered yet, so a job ends as `no_adapter` before anything is paid.
 - CI on every push and weekly: modules, gofmt, build, vet, race tests,
   database tests on PostgreSQL 17, govulncheck, the image build and the local
   Compose file. A tag publishes the image to GHCR and the GitHub Release only

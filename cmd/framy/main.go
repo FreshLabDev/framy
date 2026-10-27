@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -20,6 +21,7 @@ import (
 	"github.com/FreshLabDev/framy/internal/config"
 	"github.com/FreshLabDev/framy/internal/db"
 	"github.com/FreshLabDev/framy/internal/health"
+	"github.com/FreshLabDev/framy/internal/jobs"
 	"github.com/FreshLabDev/framy/internal/metrics"
 	"github.com/FreshLabDev/framy/internal/price"
 	"github.com/FreshLabDev/framy/migrations"
@@ -63,7 +65,7 @@ func run(log *slog.Logger) error {
 	}
 	defer store.Close()
 	if cfg.AutoMigrate {
-		if err := store.Migrate(ctx, migrations.FS); err != nil {
+		if err := store.Migrate(ctx, migrations.FS, jobs.MigrateRiver); err != nil {
 			return err
 		}
 	}
@@ -97,6 +99,19 @@ func run(log *slog.Logger) error {
 	}
 	log.Info("telegram preflight passed", "username", me.Username, "bot_api", tg.BotAPI)
 	b := bot.New(store, client, log, me.Username, version)
+
+	// No adapter is registered yet (#9-#11), so a job ends as no_adapter
+	// before anything is paid.
+	queue, err := jobs.NewQueue(store.Pool(), jobs.Config{
+		Log:       log.With("component", "jobs"),
+		StopGrace: cfg.JobsStopGrace,
+	})
+	if err != nil {
+		return err
+	}
+	if err := queue.Start(ctx); err != nil {
+		return fmt.Errorf("start the job queue: %w", err)
+	}
 
 	started := time.Now()
 	mux := http.NewServeMux()
@@ -175,6 +190,14 @@ func run(log *slog.Logger) error {
 			runErr = err
 		}
 	}
+	// Runs in progress get longer than the rest: cutting one short can cost
+	// the person a paid run.
+	queueStopped := make(chan error, 1)
+	go func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), cfg.JobsStopGrace+10*time.Second)
+		defer cancel()
+		queueStopped <- queue.Stop(stopCtx)
+	}()
 	done := make(chan struct{})
 	go func() { workers.Wait(); close(done) }()
 	select {
@@ -183,6 +206,9 @@ func run(log *slog.Logger) error {
 		if runErr == nil {
 			runErr = errors.New("shutdown timed out")
 		}
+	}
+	if err := <-queueStopped; err != nil && runErr == nil {
+		runErr = fmt.Errorf("stop the job queue: %w", err)
 	}
 	return runErr
 }

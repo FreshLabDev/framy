@@ -44,6 +44,10 @@ func (s *Store) Close() {
 	}
 }
 
+// Pool is the connection pool, for the job queue, whose River client and
+// transactions need pgx itself.
+func (s *Store) Pool() *pgxpool.Pool { return s.pool }
+
 func (s *Store) Ping(ctx context.Context) error {
 	return s.pool.Ping(ctx)
 }

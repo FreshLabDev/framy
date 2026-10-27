@@ -19,7 +19,7 @@ func catalogStore(t *testing.T) *Store {
 	store := testStore(t)
 	reset := func() {
 		for _, stmt := range []string{
-			`TRUNCATE framy.catalog_offer, framy.catalog_model`,
+			`TRUNCATE framy.catalog_offer, framy.catalog_model CASCADE`,
 			`UPDATE framy.runtime_state SET catalog_synced_at = NULL`,
 		} {
 			if _, err := store.pool.Exec(context.Background(), stmt); err != nil {

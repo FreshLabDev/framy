@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+
+	"github.com/jackc/pgx/v5"
 )
 
 type Migration struct {
@@ -23,8 +25,10 @@ var migrationFilePattern = regexp.MustCompile(`^(\d+)_.+\.sql$`)
 const migrationLockKey int64 = 0x6672616d79 // "framy"
 
 // Migrate applies every migration in fsys that schema_migrations has not seen,
-// in version order, each in its own transaction.
-func (s *Store) Migrate(ctx context.Context, fsys fs.FS) error {
+// in version order, each in its own transaction. Then each of after runs in a
+// transaction of its own, still under the lock: River's migrations take no
+// lock of their own.
+func (s *Store) Migrate(ctx context.Context, fsys fs.FS, after ...func(context.Context, pgx.Tx) error) error {
 	migrations, err := ListMigrations(fsys)
 	if err != nil {
 		return err
@@ -83,6 +87,11 @@ func (s *Store) Migrate(ctx context.Context, fsys fs.FS) error {
 		}
 		if err := tx.Commit(ctx); err != nil {
 			return fmt.Errorf("commit migration %s: %w", m.Name, err)
+		}
+	}
+	for _, step := range after {
+		if err := pgx.BeginFunc(ctx, conn, func(tx pgx.Tx) error { return step(ctx, tx) }); err != nil {
+			return err
 		}
 	}
 	return nil

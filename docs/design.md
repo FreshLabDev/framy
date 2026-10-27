@@ -328,13 +328,14 @@ draft ──Generate──> queued ──> running ──> done
 
 `EventSource` cannot send an `Authorization` header, so the Mini App streams with `fetch`. Proposal: at most 3 open streams per person.
 
-**Queue.** Proposal: River OSS (v0.49.0, MPL-2.0) in the `framy` schema (`river.Config{Schema: "framy"}`). It brings:
-- `InsertTx`: a job appears in the same transaction as its row;
-- retries with backoff and the rescue of stuck jobs;
-- `JobSnooze` for video polling, which does not spend attempts;
-- unique jobs by Telegram `update_id`.
+**Queue.** River OSS (v0.49.0, MPL-2.0) in the `framy` schema, in `internal/jobs`. A job is a row in `framy.job`, which the surfaces read, and a River job that works it, inserted in one transaction (`InsertTx`). River's migrations run at start under framy's migration lock, since they take none of their own. River's listener needs a real Postgres session, not PgBouncer in transaction mode.
+- Queues with their own `MaxWorkers` per process: `openai` 4, `gemini` 4, `openrouter_image` 8, `openrouter_video` 4. `ffmpeg` and `telegram_send` come with their features.
+- A repeated update starts nothing: a job keeps a unique `dedupe_key` (`tg:<update_id>`, or the request's key on the site), and "Generate" queues a draft once.
+- A background run waits snoozed (`JobSnooze`), which spends no attempt and holds no worker. It is asked every 30 s and expires after an hour.
+- River rescues a job whose worker died after 5 minutes; one attempt may take 4.
+- A sweep every minute cancels drafts older than 10 minutes and fails a job River gave up on without working it.
 
-River's listener needs a real Postgres session, not PgBouncer in transaction mode. Queues with their own `MaxWorkers`: `openai`, `gemini`, `openrouter_image`, `openrouter_video`, `ffmpeg`, `telegram_send`. The per-person limit is framy's own count, since River has it only in Pro. The alternative is a hand-written `FOR UPDATE SKIP LOCKED` queue with a lease and a reaper (the SQL is in [research/build.md](research/build.md), section 5). Progress for SSE goes through `pg_notify('framy_events', …)` in the transaction that changes the state, with one listener per process.
+Progress for SSE goes through `pg_notify('framy_events', …)` in the transaction that changes the state, with one listener per process.
 
 **Workers.**
 - **Images:** one provider call inside the worker, with a 180 s timeout.
@@ -346,13 +347,15 @@ River's listener needs a real Postgres session, not PgBouncer in transaction mod
     - **A person's key:** the workspace secret belongs to the person, so the webhook is only a signal, and framy rereads the status with that key.
   - Webhooks are deduplicated by `X-OpenRouter-Idempotency-Key`. Polling every 30 s stays as the fallback. Whether `callback_url` works with OAuth keys at all is not checked.
 
+**Paid requests.** Before a paid request goes out, the job records `submitted_at`. An attempt that finds it set, with no provider job id and no result, fails as `interrupted` and sends nothing: a worker that died mid-call never pays twice. The person can run it again.
+
 **Results.** A result is copied into framy's storage the moment it is ready. Provider links live from one hour to 48 hours, and OpenRouter's unsigned URLs need the key.
 
-**Retries.** Every job has an idempotency key. A retry happens only on a rate-limit 429 or a 5xx before the generation started. Never after a timeout without asking the provider for the job's status, and never on money or moderation errors.
+**Retries.** Every job has an idempotency key. A retry happens only on a rate-limit 429 or a 5xx before the generation started: the job goes back to `queued` until `retry_at`, the provider's `Retry-After` or 5 s × the requests sent squared, and after 5 refused requests it fails. Never after a timeout without asking the provider for the job's status, and never on money or moderation errors.
 
-**Limits.** Proposal: two running jobs per person, a queue per chat for Telegram sends.
+**Limits.** Two running jobs per person, counted from `framy.job` under a lock per person, since River has such limits only in Pro. The rest wait in order: a job that ends wakes the next one, and a job waiting out a refusal lets the others go ahead. Proposal: a queue per chat for Telegram sends.
 
-**Stop.** A queued job is removed. A running image cannot be stopped at the provider: it finishes, goes to the history and is not posted to the chat. Whether OpenRouter can cancel a video job has not been checked.
+**Stop.** A queued job is cancelled, and its River job with it. A running image cannot be stopped at the provider: it finishes, goes to the history and is not posted to the chat. Whether OpenRouter can cancel a video job has not been checked. A stop of the process waits for runs in progress up to `JOBS_STOP_GRACE` (3 min 30 s, longer than an image call), and the container's `stop_grace_period` is 4 minutes; a run cut short anyway fails as `interrupted`.
 
 ## `/f` in a group
 
@@ -639,7 +642,7 @@ Main tables of the `framy` schema, created by a core migration with its own `fra
 | `profile` | `user_id`, currency, default models, delivery to Telegram (the interface language is core's, shared with the other bots) |
 | `connection` | provider, encrypted key, `last4`, status, last success, last error class |
 | `catalog_model`, `catalog_offer` | models with the overlay's flags and traits; offers with their parameters, routes and prices, `expires_on`, `hidden`, `fetched_at`, `disabled_at` |
-| `job` | requester, surface, chat and preview message, offer, prompt, settings, status, provider job id, estimate, actual, FX |
+| `job` | requester (`user_id`), surface, chat and preview message, `dedupe_key`, offer, prompt, settings, `free`, status, idempotency key, River job, paid requests with `submitted_at` and `retry_at`, provider job id, the estimate with its lines, the actual cost, results, error class; FX comes with the currency (#8) |
 | `asset` | inputs and results: storage key, size, type, `file_id`, `file_unique_id` |
 | `album_item` | the 48-hour album cache |
 | `fx_rate` | date, code, UAH per unit, source |

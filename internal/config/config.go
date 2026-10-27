@@ -32,6 +32,9 @@ type Config struct {
 	// CatalogEvery turns it off.
 	OpenRouterAPIBase string
 	CatalogEvery      time.Duration
+	// JobsStopGrace is how long a stop waits for runs in progress before it
+	// cuts them short. The container's stop_grace_period has to be longer.
+	JobsStopGrace time.Duration
 }
 
 func Load() (Config, error) {
@@ -63,6 +66,9 @@ func Load() (Config, error) {
 		if cfg.CatalogEvery, err = time.ParseDuration(every); err != nil || cfg.CatalogEvery < time.Minute {
 			return Config{}, fmt.Errorf("CATALOG_SYNC_INTERVAL must be a duration of at least 1m, or off")
 		}
+	}
+	if cfg.JobsStopGrace, err = time.ParseDuration(valueOrDefault("JOBS_STOP_GRACE", "3m30s")); err != nil || cfg.JobsStopGrace < time.Second {
+		return Config{}, fmt.Errorf("JOBS_STOP_GRACE must be a duration of at least 1s")
 	}
 	if cfg.MetricsAddr == "off" {
 		cfg.MetricsAddr = ""
