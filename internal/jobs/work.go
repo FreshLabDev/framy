@@ -84,6 +84,17 @@ func (q *Queue) work(ctx context.Context, id int64) error {
 		// worker stopped mid-run. Sending it again could pay twice.
 		return q.end(ctx, j.ID, ending{status: Failed, class: Interrupted, msg: "the worker stopped while the paid request was out; it is not sent again"})
 	}
+	if q.cfg.Inputs != nil {
+		inputs, err := q.cfg.Inputs.Inputs(ctx, j)
+		var pe *Error
+		switch {
+		case errors.As(err, &pe):
+			return q.end(ctx, j.ID, ending{status: Failed, class: pe.Class, msg: pe.Error()})
+		case err != nil:
+			return fmt.Errorf("inputs of job %d: %w", j.ID, err)
+		}
+		j.Inputs = inputs
+	}
 	return q.submit(ctx, p, j)
 }
 

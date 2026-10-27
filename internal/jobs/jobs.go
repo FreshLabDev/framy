@@ -14,8 +14,11 @@ package jobs
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/FreshLabDev/framy/internal/catalog"
@@ -107,6 +110,33 @@ type Job struct {
 	ErrorClass    Class
 	Error         string
 	CreatedAt     time.Time
+	// Offer is the job's offer as the catalog has it at the run: the
+	// provider's model id, the routes and their settings.
+	Offer catalog.Offer
+	// Inputs are the files the run takes, found by Config.Inputs just before
+	// the paid request.
+	Inputs []Input
+}
+
+// Input is a file a run takes, such as a photo to edit: a link the provider
+// can fetch for the length of one call, or a data URL.
+type Input struct {
+	ContentType string
+	URL         string
+}
+
+// Inputs finds the files a job takes. An *Error fails the job before
+// anything is paid; any other error is tried again.
+type Inputs interface {
+	Inputs(ctx context.Context, j Job) ([]Input, error)
+}
+
+// SafetyID is how a provider tells framy's people apart in its abuse checks,
+// as OpenRouter's user and OpenAI's safety_identifier: a hash of the
+// person's id, never the id itself.
+func SafetyID(userID int64) string {
+	sum := sha256.Sum256([]byte("framy:" + strconv.FormatInt(userID, 10)))
+	return hex.EncodeToString(sum[:16])
 }
 
 // Provider runs generations at one upstream; the adapters implement it.

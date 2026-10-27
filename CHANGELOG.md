@@ -70,8 +70,19 @@ was written from, and the skeleton of the service.
   after the provider's wait. A repeated Telegram update starts nothing, one
   person runs at most two jobs at once and the rest wait in order, and a job
   keeps its estimate next to what the provider charged. A stop waits for runs
-  in progress up to `JOBS_STOP_GRACE` (3m30s). No provider adapter is
-  registered yet, so a job ends as `no_adapter` before anything is paid.
+  in progress up to `JOBS_STOP_GRACE` (3m30s).
+- The OpenRouter adapter for images, on `POST /api/v1/images`. A job sends
+  its settings, its pass-through settings under the routes' own options and
+  its reference images, and goes only to the routes that take them, the
+  cheapest first. What no route takes is refused before the call, so it costs
+  nothing. `usage.cost` becomes the job's actual cost. A moderated prompt ends
+  as `moderation` with its reasons, apart from money, key, refused, timeout
+  and provider failures, and an error inside a 200 is read too. Only a 429, a
+  provider that is down or overloaded, and a connection never made are
+  retried. framy's own key for the free allowance is `OPENROUTER_API_KEY`
+  (or `OPENROUTER_API_KEY_FILE`). Results still have no storage (#15), so a
+  job ends as `storage` before anything is paid; OpenAI and Gemini have no
+  adapter yet.
 - CI on every push and weekly: modules, gofmt, build, vet, race tests,
   database tests on PostgreSQL 17, govulncheck, the image build and the local
   Compose file. A tag publishes the image to GHCR and the GitHub Release only

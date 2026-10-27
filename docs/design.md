@@ -281,7 +281,7 @@ Whether `CF-IPCountry` reaches the service through the Cloudflare Tunnel is not 
   MAI 2.6 Flash is billed in tokens ($19 per million output tokens), and the price per image is Artificial Analysis's figure, not OpenRouter's. HeyGen at 480p costs $0.10 for 5 s if 768p turns out too expensive. Not chosen: `gpt-image-2.5-flare` at `low` ($0.0059) and `medium` ($0.0132), since nobody has rated those levels. `meta/muse-image` (1129 for $0.01) is not in the Images API.
 - **Fixed settings:** the image model at about 1K with one result; the video model at 5 s and 768p, with an optional start frame and no references. Other controls are locked with "with your key".
 - **Video edit (owner, 27 October):** the weekly video can instead be an edit of a clip up to 5 s on `flux-video-edit`, $0.15, cheaper than the generated one. Either one uses up the week. A longer clip gets the same two ways out as above **(owner)**: pick 5 s of it, or pick a model that takes more, which runs on the person's own key.
-- **Payer:** framy's own OpenRouter key: one bill, no OpenAI limit of 20 images a minute.
+- **Payer:** framy's own OpenRouter key (`OPENROUTER_API_KEY`, or a file through `OPENROUTER_API_KEY_FILE`): one bill, no OpenAI limit of 20 images a minute. Without it a free run fails as `key` before anything is paid.
 - **Two fuses:**
   - a global daily budget: when it is spent, the free tier closes until 00:00 UTC with a plain message;
   - the limit with a daily reset on framy's OpenRouter key.
@@ -346,6 +346,27 @@ Progress for SSE goes through `pg_notify('framy_events', …)` in the transactio
     - **framy's own key:** the `X-OpenRouter-Signature` check, an HMAC-SHA256 of `t + "," + raw body` with a 300 s window.
     - **A person's key:** the workspace secret belongs to the person, so the webhook is only a signal, and framy rereads the status with that key.
   - Webhooks are deduplicated by `X-OpenRouter-Idempotency-Key`. Polling every 30 s stays as the fallback. Whether `callback_url` works with OAuth keys at all is not checked.
+- **Inputs.** A job's files are found just before the paid request (`jobs.Inputs`), as links the provider can fetch during the call: presigned R2 URLs, or data URLs. A file that is gone fails the job as `storage` before anything is paid; storage that does not answer is asked again.
+
+**OpenRouter images** (`internal/providers/openrouter`). `POST /api/v1/images` answers with the image in base64, so a run is one call:
+- the model is the offer's OpenRouter id. Settings go as fields of the request, and pass-through ones go under `provider.options.<route>`. OpenRouter lists `seed` and `size` as booleans, meaning only that a route takes them; their values are a whole number and a size;
+- references go in `input_references` as `image_url`. A video is refused, since the Images API takes only images;
+- `provider.sort` is `price`, so the cheapest route goes first, as the estimate assumes, and OpenRouter may fall back to another. When only some routes take the settings or the number of references, `provider.only` names them. A run that no route takes, a value outside the catalog's or an empty prompt is refused before the call, so it costs nothing;
+- `user` is a hash of the person's id (`jobs.SafetyID`), never the id itself. It is a plain SHA-256, so it hides the id from a casual reader, not from someone who tries every Telegram id;
+- the actual cost is `usage.cost`. An error inside a 200 is read as well: it arrives when the provider had taken the request, so it is never retried, and its cost is kept when the answer has one.
+
+| OpenRouter's answer | Class | Retried |
+|:--|:--|:--|
+| 403 with `metadata.reasons` or `flagged_input`, or `error_type` `content_policy_violation` or `refusal` | `moderation` | no |
+| 402; a 403 whose `limit_source` is a budget or the key's limit | `money` | no; a 402 for the in-flight budget with `Retry-After` waits that long and goes again |
+| 401; any other 403, such as a guardrail on the model | `key` | no |
+| 400, 404, 413, 422, image errors such as `image_download_failed` | `refused` | no |
+| 429 | `rate_limited` | after `Retry-After` |
+| 502, 503, 529, a connection that was never made | `unavailable` | after `Retry-After` or 5 s × requests² |
+| 408, 504, Cloudflare's 524 | `timeout` | no: the run may go on and be paid |
+| 500, an answer that cannot be read | `provider` | no |
+
+The moderation's reasons and the provider's name go into the job's error; the flagged text itself does not. OpenRouter's documentation calls a 502 a model that is down or an answer it could not read; whether a run that ended in a 502 is ever billed is not checked.
 
 **Paid requests.** Before a paid request goes out, the job records `submitted_at`. An attempt that finds it set, with no provider job id and no result, fails as `interrupted` and sends nothing: a worker that died mid-call never pays twice. The person can run it again.
 

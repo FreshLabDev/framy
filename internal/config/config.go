@@ -32,6 +32,9 @@ type Config struct {
 	// CatalogEvery turns it off.
 	OpenRouterAPIBase string
 	CatalogEvery      time.Duration
+	// OpenRouterKey is framy's own key, which pays for the free allowance;
+	// empty, the free allowance cannot run.
+	OpenRouterKey string
 	// JobsStopGrace is how long a stop waits for runs in progress before it
 	// cuts them short. The container's stop_grace_period has to be longer.
 	JobsStopGrace time.Duration
@@ -51,6 +54,9 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	if cfg.DatabaseURL, err = secret("DATABASE_URL"); err != nil {
+		return Config{}, err
+	}
+	if cfg.OpenRouterKey, err = secret("OPENROUTER_API_KEY"); err != nil {
 		return Config{}, err
 	}
 	if cfg.AutoMigrate, err = strconv.ParseBool(valueOrDefault("AUTO_MIGRATE", "true")); err != nil {

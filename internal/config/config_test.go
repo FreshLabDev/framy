@@ -11,7 +11,7 @@ import (
 
 func setBase(t *testing.T) {
 	t.Helper()
-	for _, k := range []string{"TELEGRAM_BOT_TOKEN", "TELEGRAM_BOT_TOKEN_FILE", "DATABASE_URL", "DATABASE_URL_FILE", "TELEGRAM_API_BASE", "AUTO_MIGRATE", "HTTP_ADDR", "METRICS_ADDR", "LOG_LEVEL", "OPENROUTER_API_BASE", "CATALOG_SYNC_INTERVAL", "JOBS_STOP_GRACE"} {
+	for _, k := range []string{"TELEGRAM_BOT_TOKEN", "TELEGRAM_BOT_TOKEN_FILE", "DATABASE_URL", "DATABASE_URL_FILE", "TELEGRAM_API_BASE", "AUTO_MIGRATE", "HTTP_ADDR", "METRICS_ADDR", "LOG_LEVEL", "OPENROUTER_API_BASE", "CATALOG_SYNC_INTERVAL", "JOBS_STOP_GRACE", "OPENROUTER_API_KEY", "OPENROUTER_API_KEY_FILE"} {
 		t.Setenv(k, "")
 	}
 	t.Setenv("TELEGRAM_BOT_TOKEN", "123:abc")
@@ -25,7 +25,8 @@ func TestLoadDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	if cfg.TelegramAPIBase != DefaultTelegramAPIBase || cfg.HTTPAddr != ":8080" || cfg.MetricsAddr != ":9090" || !cfg.AutoMigrate || cfg.LogLevel != "info" ||
-		cfg.OpenRouterAPIBase != DefaultOpenRouterAPIBase || cfg.CatalogEvery != time.Hour || cfg.JobsStopGrace != 210*time.Second {
+		cfg.OpenRouterAPIBase != DefaultOpenRouterAPIBase || cfg.CatalogEvery != time.Hour || cfg.JobsStopGrace != 210*time.Second ||
+		cfg.OpenRouterKey != "" {
 		t.Fatalf("defaults = %+v", cfg)
 	}
 }
@@ -45,6 +46,15 @@ func TestLoadReadsSecretsFromFiles(t *testing.T) {
 	}
 	if cfg.TelegramBotToken != "456:def" {
 		t.Fatal("token from file was not read and trimmed")
+	}
+
+	key := filepath.Join(dir, "openrouter-key")
+	if err := os.WriteFile(key, []byte("sk-or-v1-abc\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("OPENROUTER_API_KEY_FILE", key)
+	if cfg, err = Load(); err != nil || cfg.OpenRouterKey != "sk-or-v1-abc" {
+		t.Fatalf("framy's OpenRouter key from a file: %v", err)
 	}
 }
 

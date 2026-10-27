@@ -474,6 +474,77 @@ func TestNothingIsPaidWithoutAnAdapter(t *testing.T) {
 	}
 }
 
+// fakeInputs hands every job the same inputs, or an error.
+type fakeInputs struct {
+	inputs []Input
+	err    error
+}
+
+func (f *fakeInputs) Inputs(context.Context, Job) ([]Input, error) { return f.inputs, f.err }
+
+func TestTheProviderSeesTheOfferAndTheInputs(t *testing.T) {
+	p := newFake()
+	var seen Job
+	p.submit = func(_ context.Context, j Job) (Submission, error) {
+		seen = j
+		return done(0.02), nil
+	}
+	q, pool := testQueue(t, p)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `
+		UPDATE framy.catalog_offer
+		SET params = '{"resolution": {"type": "enum", "values": ["1K", "2K"]}}',
+		    routes = '[{"provider": "google-ai-studio", "params": {"resolution": {"type": "enum", "values": ["1K", "2K"]}}}]'
+		WHERE id = $1`, imageOffer.ID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `UPDATE framy.catalog_offer SET params='{}', routes='[]' WHERE id=$1`, imageOffer.ID)
+	})
+	q.cfg.Inputs = &fakeInputs{inputs: []Input{{ContentType: "image/jpeg", URL: "https://r2.example/in/1.jpg"}}}
+	id := enqueue(t, q, job(alice, imageOffer))
+	if err := q.work(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	of := seen.Offer
+	if of.ID != imageOffer.ID || of.ProviderModelID != "test/image" || of.Kind != catalog.Image || of.Provider != "openrouter" {
+		t.Errorf("offer %+v", of)
+	}
+	if len(of.Routes) != 1 || of.Routes[0].Provider != "google-ai-studio" || of.Params["resolution"].Type != catalog.Enum {
+		t.Errorf("the offer's routes and settings: %+v %+v", of.Routes, of.Params)
+	}
+	if len(seen.Inputs) != 1 || seen.Inputs[0].URL != "https://r2.example/in/1.jpg" {
+		t.Errorf("inputs %+v", seen.Inputs)
+	}
+	if j := get(t, q, id); j.Status != Done {
+		t.Fatalf("%s %s", j.Status, j.Error)
+	}
+}
+
+func TestAnInputThatIsGoneFailsBeforeAnythingIsPaid(t *testing.T) {
+	p := newFake()
+	q, _ := testQueue(t, p)
+	ctx := context.Background()
+	q.cfg.Inputs = &fakeInputs{err: &Error{Class: Storage, Err: errors.New("the photo was deleted")}}
+	id := enqueue(t, q, job(alice, imageOffer))
+	if err := q.work(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if j := get(t, q, id); j.Status != Failed || j.ErrorClass != Storage || j.Submits != 0 || j.SubmittedAt != nil || p.count(p.submits, id) != 0 {
+		t.Fatalf("%s %s, %d submits, %d requests", j.Status, j.ErrorClass, j.Submits, p.count(p.submits, id))
+	}
+
+	// Storage that does not answer is asked again: nothing was paid yet.
+	q.cfg.Inputs = &fakeInputs{err: errors.New("r2: timeout")}
+	id = enqueue(t, q, job(alice, imageOffer))
+	if err := q.work(ctx, id); err == nil || isSnooze(err) {
+		t.Fatalf("work = %v, want an error River retries", err)
+	}
+	if j := get(t, q, id); j.Status != Running || j.Submits != 0 || j.SubmittedAt != nil || p.count(p.submits, id) != 0 {
+		t.Fatalf("%s, %d submits, %d requests", j.Status, j.Submits, p.count(p.submits, id))
+	}
+}
+
 func TestCancel(t *testing.T) {
 	q, pool := testQueue(t, newFake())
 	ctx := context.Background()

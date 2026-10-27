@@ -4,6 +4,7 @@ package jobs
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -72,7 +73,9 @@ const (
 type Config struct {
 	Providers map[string]Provider
 	Sink      Sink
-	Log       *slog.Logger
+	// Inputs finds the files a job takes; nil while framy keeps none.
+	Inputs Inputs
+	Log    *slog.Logger
 	// MaxRunning is how many jobs one person runs at once; 2 by default.
 	MaxRunning int
 	// Workers per queue; DefaultWorkers by default.
@@ -304,20 +307,31 @@ func load(ctx context.Context, db querier, id int64) (Job, error) {
 	var j Job
 	var chatID, messageID *int64
 	var dedupe, providerJobID, errClass, errText *string
+	var params, routes []byte
 	err := db.QueryRow(ctx, `
-		SELECT id, user_id, surface, chat_id, message_id, dedupe_key, offer_id, model_id, provider, kind,
-		       prompt, settings, free, status, idempotency_key::text, submits, submitted_at, retry_at, provider_job_id,
-		       estimate_usd::float8, actual_usd::float8, error_class, error, created_at
-		FROM job WHERE id=$1`, id).Scan(
+		SELECT j.id, j.user_id, j.surface, j.chat_id, j.message_id, j.dedupe_key, j.offer_id, j.model_id, j.provider, j.kind,
+		       j.prompt, j.settings, j.free, j.status, j.idempotency_key::text, j.submits, j.submitted_at, j.retry_at, j.provider_job_id,
+		       j.estimate_usd::float8, j.actual_usd::float8, j.error_class, j.error, j.created_at,
+		       o.provider_model_id, o.name, o.input_modalities, o.params, o.routes
+		FROM job j JOIN catalog_offer o ON o.id = j.offer_id
+		WHERE j.id=$1`, id).Scan(
 		&j.ID, &j.UserID, &j.Surface, &chatID, &messageID, &dedupe, &j.OfferID, &j.ModelID, &j.Provider, &j.Kind,
 		&j.Prompt, &j.Settings, &j.Free, &j.Status, &j.IdempotencyKey, &j.Submits, &j.SubmittedAt, &j.RetryAt, &providerJobID,
-		&j.EstimateUSD, &j.ActualUSD, &errClass, &errText, &j.CreatedAt)
+		&j.EstimateUSD, &j.ActualUSD, &errClass, &errText, &j.CreatedAt,
+		&j.Offer.ProviderModelID, &j.Offer.Name, &j.Offer.InputModalities, &params, &routes)
 	if err != nil {
 		return Job{}, fmt.Errorf("load job %d: %w", id, err)
 	}
 	j.ChatID, j.MessageID = deref(chatID), deref(messageID)
 	j.ProviderJobID, j.Error = deref(providerJobID), deref(errText)
 	j.ErrorClass = Class(deref(errClass))
+	j.Offer.ID, j.Offer.ModelID, j.Offer.Provider, j.Offer.Kind = j.OfferID, j.ModelID, j.Provider, j.Kind
+	if err := json.Unmarshal(params, &j.Offer.Params); err != nil {
+		return Job{}, fmt.Errorf("load job %d: offer params: %w", id, err)
+	}
+	if err := json.Unmarshal(routes, &j.Offer.Routes); err != nil {
+		return Job{}, fmt.Errorf("load job %d: offer routes: %w", id, err)
+	}
 	return j, nil
 }
 

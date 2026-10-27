@@ -24,6 +24,7 @@ import (
 	"github.com/FreshLabDev/framy/internal/jobs"
 	"github.com/FreshLabDev/framy/internal/metrics"
 	"github.com/FreshLabDev/framy/internal/price"
+	"github.com/FreshLabDev/framy/internal/providers/openrouter"
 	"github.com/FreshLabDev/framy/migrations"
 )
 
@@ -100,9 +101,19 @@ func run(log *slog.Logger) error {
 	log.Info("telegram preflight passed", "username", me.Username, "bot_api", tg.BotAPI)
 	b := bot.New(store, client, log, me.Username, version)
 
-	// No adapter is registered yet (#9-#11), so a job ends as no_adapter
-	// before anything is paid.
+	userAgent := "framy/" + version + " (+https://github.com/FreshLabDev/framy)"
+	// Until results have storage (#15), a job ends as storage before
+	// anything is paid; OpenAI and Gemini have no adapter yet (#10, #11).
 	queue, err := jobs.NewQueue(store.Pool(), jobs.Config{
+		Providers: map[string]jobs.Provider{
+			catalog.OpenRouter: openrouter.New(openrouter.Config{
+				Base:      cfg.OpenRouterAPIBase,
+				UserAgent: userAgent,
+				Referer:   "https://github.com/FreshLabDev/framy",
+				Title:     "framy",
+				Key:       openRouterKey(cfg.OpenRouterKey),
+			}),
+		},
 		Log:       log.With("component", "jobs"),
 		StopGrace: cfg.JobsStopGrace,
 	})
@@ -155,7 +166,7 @@ func run(log *slog.Logger) error {
 			Source: &catalog.OpenRouterSource{
 				Base:      cfg.OpenRouterAPIBase,
 				HTTP:      &http.Client{Timeout: 30 * time.Second},
-				UserAgent: "framy/" + version + " (+https://github.com/FreshLabDev/framy)",
+				UserAgent: userAgent,
 				Parallel:  4,
 			},
 			Files: catalogFiles,
@@ -249,5 +260,19 @@ func parseLevel(s string) slog.Level {
 		return slog.LevelError
 	default:
 		return slog.LevelInfo
+	}
+}
+
+// openRouterKey pays for OpenRouter runs: framy's own key for the free
+// allowance. A person's connection pays for the rest once it exists (#13).
+func openRouterKey(own string) func(context.Context, jobs.Job) (string, error) {
+	return func(_ context.Context, j jobs.Job) (string, error) {
+		switch {
+		case !j.Free:
+			return "", &jobs.Error{Class: jobs.Key, Err: errors.New("the person has no OpenRouter connection")}
+		case own == "":
+			return "", &jobs.Error{Class: jobs.Key, Err: errors.New("OPENROUTER_API_KEY is not set, so the free allowance cannot run")}
+		}
+		return own, nil
 	}
 }
