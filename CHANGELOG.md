@@ -80,7 +80,20 @@ was written from, and the skeleton of the service.
   and provider failures, and an error inside a 200 is read too. Only a 429, a
   provider that is down or overloaded, and a connection never made are
   retried. framy's own key for the free allowance is `OPENROUTER_API_KEY`
-  (or `OPENROUTER_API_KEY_FILE`). OpenAI and Gemini have no adapter yet.
+  (or `OPENROUTER_API_KEY_FILE`).
+- The OpenAI adapter for images, for a person's own key. A run is one call:
+  `POST /v1/images/generations`, or `/v1/images/edits` when it has reference
+  images, which go as the presigned R2 link OpenAI fetches. `quality` is
+  always one of the model's levels, `low` to `max`, and never `auto`; `size`
+  is a concrete WxH, any size up to 3840 px that OpenAI's rules allow. A run
+  framy can tell is wrong is refused before the call, so it costs nothing.
+  `safety_identifier` is a hash of the person's id, never the id. A
+  `moderation_blocked` answer ends the run as `moderation` with its stage and
+  categories, apart from money, key, refused, timeout and provider failures;
+  only a 429 for the rate, a 503 and a connection never made are retried. The
+  actual cost is the usage tokens times the catalog's rates for text, image
+  input and image output. Until people's keys are stored a run on OpenAI
+  fails as `key` before anything is paid.
 - Storage in Cloudflare R2. A photo a person brings goes through one ffmpeg
   subprocess: its format is read from its bytes (JPEG, PNG, WebP, HEIC,
   AVIF), its size from its header, so anything above 64 MP is refused before
