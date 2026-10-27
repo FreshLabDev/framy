@@ -282,6 +282,22 @@ func (q *Queue) insert(ctx context.Context, tx pgx.Tx, n New, status Status) (in
 	if err != nil {
 		return 0, false, fmt.Errorf("insert job: %w", err)
 	}
+	if len(n.Inputs) > 0 {
+		// Only the person's own files: anyone else's id adds no row, and
+		// the job is not created.
+		tag, err := tx.Exec(ctx, `
+			INSERT INTO job_input (job_id, position, asset_id)
+			SELECT $1, u.ord - 1, a.id
+			FROM unnest($2::bigint[]) WITH ORDINALITY AS u(id, ord)
+			JOIN asset a ON a.id = u.id AND a.user_id = $3`,
+			id, n.Inputs, n.UserID)
+		if err != nil {
+			return 0, false, fmt.Errorf("insert job inputs: %w", err)
+		}
+		if tag.RowsAffected() != int64(len(n.Inputs)) {
+			return 0, false, ErrNoInput
+		}
+	}
 	return id, true, nil
 }
 

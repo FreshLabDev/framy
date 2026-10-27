@@ -11,7 +11,9 @@ import (
 
 func setBase(t *testing.T) {
 	t.Helper()
-	for _, k := range []string{"TELEGRAM_BOT_TOKEN", "TELEGRAM_BOT_TOKEN_FILE", "DATABASE_URL", "DATABASE_URL_FILE", "TELEGRAM_API_BASE", "AUTO_MIGRATE", "HTTP_ADDR", "METRICS_ADDR", "LOG_LEVEL", "OPENROUTER_API_BASE", "CATALOG_SYNC_INTERVAL", "JOBS_STOP_GRACE", "OPENROUTER_API_KEY", "OPENROUTER_API_KEY_FILE"} {
+	for _, k := range []string{"TELEGRAM_BOT_TOKEN", "TELEGRAM_BOT_TOKEN_FILE", "DATABASE_URL", "DATABASE_URL_FILE", "TELEGRAM_API_BASE", "AUTO_MIGRATE", "HTTP_ADDR", "METRICS_ADDR", "LOG_LEVEL", "OPENROUTER_API_BASE", "CATALOG_SYNC_INTERVAL", "JOBS_STOP_GRACE", "OPENROUTER_API_KEY", "OPENROUTER_API_KEY_FILE",
+		"R2_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID_FILE", "R2_SECRET_ACCESS_KEY", "R2_SECRET_ACCESS_KEY_FILE", "R2_ENDPOINT", "R2_ACCOUNT_ID", "R2_BUCKET",
+		"WORK_DIR", "FFMPEG", "FFPROBE", "OPERATOR_CHAT_ID"} {
 		t.Setenv(k, "")
 	}
 	t.Setenv("TELEGRAM_BOT_TOKEN", "123:abc")
@@ -26,8 +28,50 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.TelegramAPIBase != DefaultTelegramAPIBase || cfg.HTTPAddr != ":8080" || cfg.MetricsAddr != ":9090" || !cfg.AutoMigrate || cfg.LogLevel != "info" ||
 		cfg.OpenRouterAPIBase != DefaultOpenRouterAPIBase || cfg.CatalogEvery != time.Hour || cfg.JobsStopGrace != 210*time.Second ||
-		cfg.OpenRouterKey != "" {
+		cfg.OpenRouterKey != "" || cfg.R2.Enabled() || cfg.R2.Bucket != "framy" || cfg.FFmpeg != "ffmpeg" || cfg.FFprobe != "ffprobe" ||
+		cfg.WorkDir != filepath.Join(os.TempDir(), "framy") || cfg.OperatorChatID != 0 {
 		t.Fatalf("defaults = %+v", cfg)
+	}
+}
+
+func TestLoadR2(t *testing.T) {
+	setBase(t)
+	dir := t.TempDir()
+	secretFile := filepath.Join(dir, "r2-secret")
+	if err := os.WriteFile(secretFile, []byte("the-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("R2_ACCESS_KEY_ID", "key-id")
+	t.Setenv("R2_SECRET_ACCESS_KEY_FILE", secretFile)
+	t.Setenv("R2_ACCOUNT_ID", "abc123")
+	t.Setenv("OPERATOR_CHAT_ID", "-1001234567890")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := R2{Endpoint: "https://abc123.r2.cloudflarestorage.com", Bucket: "framy", AccessKeyID: "key-id", SecretAccessKey: "the-secret"}
+	if cfg.R2 != want || !cfg.R2.Enabled() || cfg.OperatorChatID != -1001234567890 {
+		t.Fatalf("r2 = %+v, operator %d", cfg.R2, cfg.OperatorChatID)
+	}
+	for name, env := range map[string][2]string{
+		"both endpoints":      {"R2_ENDPOINT", "https://x.r2.cloudflarestorage.com"},
+		"half a token":        {"R2_SECRET_ACCESS_KEY_FILE", ""},
+		"a bad operator chat": {"OPERATOR_CHAT_ID", "the-ops-chat"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(env[0], env[1])
+			_, err := Load()
+			if err == nil {
+				t.Fatal("accepted")
+			}
+			if strings.Contains(err.Error(), "the-secret") {
+				t.Error("the error names the secret")
+			}
+		})
+	}
+	t.Setenv("R2_ACCOUNT_ID", "")
+	if _, err := Load(); err == nil {
+		t.Error("a token without an endpoint was accepted")
 	}
 }
 

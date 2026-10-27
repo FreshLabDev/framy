@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"regexp"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -274,6 +275,7 @@ type ending struct {
 // end finishes a job that is still queued or running and wakes the person's
 // next job. A job that ended already keeps its ending: the first one wins.
 func (q *Queue) end(ctx context.Context, id int64, e ending) error {
+	e.msg = redact(e.msg)
 	var userID int64
 	var estimate, actual *float64
 	ended := false
@@ -344,6 +346,16 @@ func detach(ctx context.Context) (context.Context, context.CancelFunc) {
 }
 
 // clip keeps an error message to a size a row can hold.
+// presigned matches a presigned link, which a provider may echo in its
+// error: it opens a person's file to whoever holds it.
+var presigned = regexp.MustCompile(`https?://[^\s"'<>]*X-Amz-Signature=[^\s"'<>]*`)
+
+// redact takes presigned links out of a message before it is stored or
+// logged.
+func redact(s string) string {
+	return presigned.ReplaceAllString(s, "<presigned link>")
+}
+
 func clip(s string) string {
 	const limit = 2000
 	if len(s) <= limit {

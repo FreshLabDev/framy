@@ -22,9 +22,13 @@ import (
 	"github.com/FreshLabDev/framy/internal/db"
 	"github.com/FreshLabDev/framy/internal/health"
 	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/FreshLabDev/framy/internal/media"
 	"github.com/FreshLabDev/framy/internal/metrics"
 	"github.com/FreshLabDev/framy/internal/price"
 	"github.com/FreshLabDev/framy/internal/providers/openrouter"
+	"github.com/FreshLabDev/framy/internal/r2"
+	"github.com/FreshLabDev/framy/internal/safehttp"
+	"github.com/FreshLabDev/framy/internal/storage"
 	"github.com/FreshLabDev/framy/migrations"
 )
 
@@ -102,9 +106,11 @@ func run(log *slog.Logger) error {
 	b := bot.New(store, client, log, me.Username, version)
 
 	userAgent := "framy/" + version + " (+https://github.com/FreshLabDev/framy)"
-	// Until results have storage (#15), a job ends as storage before
-	// anything is paid; OpenAI and Gemini have no adapter yet (#10, #11).
-	queue, err := jobs.NewQueue(store.Pool(), jobs.Config{
+	files, work, err := openStorage(ctx, cfg, store, client, log)
+	if err != nil {
+		return err
+	}
+	jobsCfg := jobs.Config{
 		Providers: map[string]jobs.Provider{
 			catalog.OpenRouter: openrouter.New(openrouter.Config{
 				Base:      cfg.OpenRouterAPIBase,
@@ -116,7 +122,13 @@ func run(log *slog.Logger) error {
 		},
 		Log:       log.With("component", "jobs"),
 		StopGrace: cfg.JobsStopGrace,
-	})
+	}
+	// Without a bucket a job ends as storage before anything is paid.
+	// OpenAI and Gemini have no adapter yet (#10, #11).
+	if files != nil {
+		jobsCfg.Sink, jobsCfg.Inputs = files, files
+	}
+	queue, err := jobs.NewQueue(store.Pool(), jobsCfg)
 	if err != nil {
 		return err
 	}
@@ -178,6 +190,7 @@ func run(log *slog.Logger) error {
 		}
 		workers.Go(func() { syncer.Run(ctx) })
 	}
+	workers.Go(func() { sweepWork(ctx, work, log) })
 	workers.Go(func() {
 		log.Info("telegram polling starting")
 		if err := b.Run(ctx); err != nil {
@@ -260,6 +273,67 @@ func parseLevel(s string) slog.Level {
 		return slog.LevelError
 	default:
 		return slog.LevelInfo
+	}
+}
+
+// openStorage connects the bucket and checks ffmpeg. Without an R2 token it
+// returns no store, and the service runs without one.
+func openStorage(ctx context.Context, cfg config.Config, store *db.Store, client *tg.Client, log *slog.Logger) (*storage.Store, media.Work, error) {
+	work := media.Work{Root: cfg.WorkDir}
+	if !cfg.R2.Enabled() {
+		log.Warn("no R2 token: results cannot be kept, so every job ends as storage before anything is paid")
+		return nil, work, nil
+	}
+	bucket, err := r2.New(r2.Config{
+		Endpoint: cfg.R2.Endpoint, Bucket: cfg.R2.Bucket,
+		AccessKeyID: cfg.R2.AccessKeyID, SecretAccessKey: cfg.R2.SecretAccessKey,
+	})
+	if err != nil {
+		return nil, work, err
+	}
+	conv := &media.Converter{FFmpeg: cfg.FFmpeg, FFprobe: cfg.FFprobe}
+	if err := conv.Check(ctx); err != nil {
+		return nil, work, fmt.Errorf("ffmpeg cannot normalize photos: %w", err)
+	}
+	var notify func(context.Context, string) error
+	if cfg.OperatorChatID != 0 {
+		notify = func(ctx context.Context, text string) error {
+			_, err := client.SendPlainText(ctx, cfg.OperatorChatID, text)
+			return err
+		}
+	}
+	files, err := storage.New(storage.Config{
+		Pool:   store.Pool(),
+		Bucket: bucket,
+		Media:  conv,
+		Work:   work,
+		Fetch:  safehttp.Client(storage.DefaultFetchTimeout),
+		Notify: notify,
+		Log:    log.With("component", "storage"),
+	})
+	if err != nil {
+		return nil, work, err
+	}
+	log.Info("storage ready", "bucket", cfg.R2.Bucket, "work_dir", cfg.WorkDir)
+	return files, work, nil
+}
+
+// sweepWork clears working files a crash left behind: at start and every
+// hour, whatever is older than an hour. Nothing framy does takes that long.
+func sweepWork(ctx context.Context, work media.Work, log *slog.Logger) {
+	tick := time.NewTicker(time.Hour)
+	defer tick.Stop()
+	for {
+		if n, err := work.Sweep(time.Hour); err != nil {
+			log.Error("sweep working files", "error", err)
+		} else if n > 0 {
+			log.Warn("swept working files a crash left", "count", n)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
 	}
 }
 

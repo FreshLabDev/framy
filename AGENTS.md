@@ -15,8 +15,10 @@ careful with people's keys, and production-minded.
   secrets (`NAME_FILE`), PostgreSQL with embedded migrations, Telegram long
   polling that records people and chats in `core`, `Preflight`, `/healthz`,
   `/metrics` on its own listener, the family's panels on `/start`, the hourly
-  model catalog sync, and a clean stop on SIGTERM. It makes nothing for people
-  yet.
+  model catalog sync, the price estimate, the job queue on River, the
+  OpenRouter image adapter, storage in R2 with the ffmpeg photo pipeline, and
+  a clean stop on SIGTERM. Nothing reaches people yet: no surface starts a
+  job.
 - The service will be one Go binary (module `github.com/FreshLabDev/framy`):
   the HTTP server (site, Mini App, API, SSE, OAuth callbacks, provider
   webhooks), the bot, the job workers, the hourly catalog sync and the
@@ -210,6 +212,10 @@ contains `test`; they refuse to run anywhere else:
 FRAMY_TEST_DATABASE_URL=postgres://framy:framy@localhost:5432/framy_test?sslmode=disable \
   go test -tags=integration -p 1 ./...
 ```
+
+The media tests need FFmpeg 8.0 or newer and skip without it; CI runs them
+inside the image with `FRAMY_MEDIA_TESTS=1`, which makes a skip a failure.
+`internal/media/testdata/make.swift` regenerates the iPhone fixtures on macOS.
 
 Verify the site and the Mini App in a browser at phone width (375×812 and
 320×568) and on a wide screen, with and without the Telegram emulation hash

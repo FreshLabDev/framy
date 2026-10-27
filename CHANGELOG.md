@@ -80,11 +80,29 @@ was written from, and the skeleton of the service.
   and provider failures, and an error inside a 200 is read too. Only a 429, a
   provider that is down or overloaded, and a connection never made are
   retried. framy's own key for the free allowance is `OPENROUTER_API_KEY`
-  (or `OPENROUTER_API_KEY_FILE`). Results still have no storage (#15), so a
-  job ends as `storage` before anything is paid; OpenAI and Gemini have no
-  adapter yet.
+  (or `OPENROUTER_API_KEY_FILE`). OpenAI and Gemini have no adapter yet.
+- Storage in Cloudflare R2. A photo a person brings goes through one ffmpeg
+  subprocess: its format is read from its bytes (JPEG, PNG, WebP, HEIC,
+  AVIF), its size from its header, so anything above 64 MP is refused before
+  it is decoded, and ffmpeg reads only local files under a name framy picks.
+  It joins the tiles of an iPhone HEIC, turns the picture by its orientation,
+  drops EXIF and GPS, converts Display P3 to sRGB and brings the long side
+  down to 2048 px, keeping PNG for a picture with alpha. Results are copied
+  into the bucket the moment a run ends, so they outlive the provider's link,
+  and a result fetched from a link goes only to public addresses. Inputs go
+  to providers as presigned links that live 15 minutes; an input deleted
+  before the run fails the job as `storage` before anything is paid, a job
+  takes only its owner's files, and a provider's error that echoes a link
+  is stored and logged without it. Deleting a file removes its object and
+  its row. The host keeps working files only while their work lasts, and
+  stray ones are swept every hour. The operator chat hears each time the
+  bucket passes another 10 GB. `R2_ACCOUNT_ID` (or `R2_ENDPOINT`),
+  `R2_BUCKET`, `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` (both also as
+  `_FILE`), `WORK_DIR` and `OPERATOR_CHAT_ID` configure it; the image ships
+  ffmpeg 8.1.
 - CI on every push and weekly: modules, gofmt, build, vet, race tests,
-  database tests on PostgreSQL 17, govulncheck, the image build and the local
+  database tests on PostgreSQL 17, govulncheck, the image build, the photo
+  and storage tests inside the image, on the ffmpeg it ships, and the local
   Compose file. A tag publishes the image to GHCR and the GitHub Release only
   after CI passed on the tagged commit. Dependabot opens grouped updates
   against `dev`.

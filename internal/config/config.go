@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -38,7 +39,27 @@ type Config struct {
 	// JobsStopGrace is how long a stop waits for runs in progress before it
 	// cuts them short. The container's stop_grace_period has to be longer.
 	JobsStopGrace time.Duration
+	// R2 is where inputs and results live. Without it no job can keep a
+	// result, and each ends as storage before anything is paid.
+	R2 R2
+	// WorkDir holds the working files of uploads and results.
+	WorkDir string
+	// FFmpeg and FFprobe are the binaries that normalize photos.
+	FFmpeg, FFprobe string
+	// OperatorChatID hears about the bucket's size; zero logs instead.
+	OperatorChatID int64
 }
+
+// R2 is the bucket and the token limited to it.
+type R2 struct {
+	Endpoint        string
+	Bucket          string
+	AccessKeyID     string
+	SecretAccessKey string
+}
+
+// Enabled: the token is set.
+func (r R2) Enabled() bool { return r.AccessKeyID != "" }
 
 func Load() (Config, error) {
 	cfg := Config{
@@ -76,6 +97,17 @@ func Load() (Config, error) {
 	if cfg.JobsStopGrace, err = time.ParseDuration(valueOrDefault("JOBS_STOP_GRACE", "3m30s")); err != nil || cfg.JobsStopGrace < time.Second {
 		return Config{}, fmt.Errorf("JOBS_STOP_GRACE must be a duration of at least 1s")
 	}
+	if cfg.R2, err = loadR2(); err != nil {
+		return Config{}, err
+	}
+	cfg.WorkDir = valueOrDefault("WORK_DIR", filepath.Join(os.TempDir(), "framy"))
+	cfg.FFmpeg = valueOrDefault("FFMPEG", "ffmpeg")
+	cfg.FFprobe = valueOrDefault("FFPROBE", "ffprobe")
+	if v := valueOrDefault("OPERATOR_CHAT_ID", ""); v != "" {
+		if cfg.OperatorChatID, err = strconv.ParseInt(v, 10, 64); err != nil || cfg.OperatorChatID == 0 {
+			return Config{}, fmt.Errorf("OPERATOR_CHAT_ID must be a Telegram chat id")
+		}
+	}
 	if cfg.MetricsAddr == "off" {
 		cfg.MetricsAddr = ""
 	}
@@ -89,6 +121,38 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("DATABASE_URL or DATABASE_URL_FILE is required")
 	}
 	return cfg, nil
+}
+
+// loadR2 reads the bucket: R2_ENDPOINT, or R2_ACCOUNT_ID for R2's own
+// endpoint, R2_BUCKET, and the token's two halves, each also as _FILE.
+func loadR2() (R2, error) {
+	r := R2{Bucket: valueOrDefault("R2_BUCKET", "framy")}
+	var err error
+	if r.AccessKeyID, err = secret("R2_ACCESS_KEY_ID"); err != nil {
+		return R2{}, err
+	}
+	if r.SecretAccessKey, err = secret("R2_SECRET_ACCESS_KEY"); err != nil {
+		return R2{}, err
+	}
+	endpoint, account := valueOrDefault("R2_ENDPOINT", ""), valueOrDefault("R2_ACCOUNT_ID", "")
+	switch {
+	case endpoint != "" && account != "":
+		return R2{}, fmt.Errorf("set R2_ENDPOINT or R2_ACCOUNT_ID, not both")
+	case account != "":
+		endpoint = "https://" + account + ".r2.cloudflarestorage.com"
+	}
+	r.Endpoint = strings.TrimRight(endpoint, "/")
+	switch {
+	case r.AccessKeyID == "" && r.SecretAccessKey == "":
+		return r, nil
+	case r.AccessKeyID == "" || r.SecretAccessKey == "":
+		return R2{}, fmt.Errorf("R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY go together")
+	case r.Endpoint == "":
+		return R2{}, fmt.Errorf("R2_ACCOUNT_ID or R2_ENDPOINT is required with the R2 token")
+	case !strings.HasPrefix(r.Endpoint, "https://") && !strings.HasPrefix(r.Endpoint, "http://"):
+		return R2{}, fmt.Errorf("R2_ENDPOINT must be an http or https URL")
+	}
+	return r, nil
 }
 
 // secret reads NAME, or the file NAME_FILE points at, as Docker secrets do.

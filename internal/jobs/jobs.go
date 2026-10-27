@@ -78,6 +78,9 @@ type New struct {
 	Free bool
 	// Estimate is the price shown before the run (internal/price).
 	Estimate *price.Estimate
+	// Inputs are the person's files the run takes, in order: ids of
+	// framy.asset rows that are theirs.
+	Inputs []int64
 }
 
 // TelegramUpdate is the dedupe key of a job a Telegram update starts.
@@ -244,6 +247,9 @@ func classify(ctx context.Context, err error) *Error {
 	}
 	return &Error{Class: ProviderFailed, Err: err}
 }
+
+// ErrNoInput: an input of a new job is not one of the person's files.
+var ErrNoInput = errors.New("an input is not one of the person's files")
 
 // ErrNotDraft: the job is no longer a draft: started, cancelled or expired.
 var ErrNotDraft = errors.New("the job is not a draft any more")

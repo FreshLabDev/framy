@@ -346,7 +346,7 @@ Progress for SSE goes through `pg_notify('framy_events', …)` in the transactio
     - **framy's own key:** the `X-OpenRouter-Signature` check, an HMAC-SHA256 of `t + "," + raw body` with a 300 s window.
     - **A person's key:** the workspace secret belongs to the person, so the webhook is only a signal, and framy rereads the status with that key.
   - Webhooks are deduplicated by `X-OpenRouter-Idempotency-Key`. Polling every 30 s stays as the fallback. Whether `callback_url` works with OAuth keys at all is not checked.
-- **Inputs.** A job's files are found just before the paid request (`jobs.Inputs`), as links the provider can fetch during the call: presigned R2 URLs, or data URLs. A file that is gone fails the job as `storage` before anything is paid; storage that does not answer is asked again.
+- **Inputs.** A job's files are found just before the paid request (`jobs.Inputs`), as links the provider can fetch during the call: presigned R2 URLs that live 15 minutes, made anew for each submit, or data URLs. A job takes only its owner's files, written to `job_input` in the transaction that creates it. A file deleted before the run fails the job as `storage` before anything is paid; storage that does not answer is asked again. A presigned link a provider echoes in its error is taken out before the error is stored or logged.
 
 **OpenRouter images** (`internal/providers/openrouter`). `POST /api/v1/images` answers with the image in base64, so a run is one call:
 - the model is the offer's OpenRouter id. Settings go as fields of the request, and pass-through ones go under `provider.options.<route>`. OpenRouter lists `seed` and `size` as booleans, meaning only that a route takes them; their values are a whole number and a size;
@@ -523,11 +523,19 @@ Temporary domain `framy.ws04.cc`. Mobile first; on a wide screen the composer an
 - **Inputs** from Telegram and the site go through one ffmpeg subprocess: HEIC, AVIF, WebP, JPEG and PNG, iPhone's tiled HEIC included. ffmpeg decodes HEIC 5–6 times faster than pure Go (0.13 s against 0.75 s for 12 MP). The steps:
   1. **Upload:** streamed to disk under `http.MaxBytesReader`.
   2. **Format:** sniffed from the first bytes, never from the MIME type: Safari sometimes converts HEIC and sometimes does not.
-  3. **Check:** `ffprobe` refuses anything above about 64 MP.
-  4. **Convert:** the file goes under a name framy picks, and ffmpeg runs with `-protocol_whitelist file`. It rotates by EXIF and drops all metadata with GPS (`-map_metadata -1`), and the long side becomes at most 2048 px. The output is JPEG, or PNG when there is alpha.
+  3. **Check:** anything above 64 MP is refused. The size is read by framy from the header (JPEG SOF, PNG IHDR, the WebP canvas, the largest `ispe` of a HEIF) before anything decodes the file, and `ffprobe` and `ffmpeg` run with `-max_pixels` as well, so a header that lies does not get further.
+  4. **Convert:** the file goes under a name framy picks, ffmpeg reads it with the demuxer of the sniffed format (never its own guess) and `-protocol_whitelist file`, with an empty environment and a timeout. It rotates by the orientation and drops all metadata with GPS (`-map_metadata -1`), and the long side becomes at most 2048 px. The output is JPEG, or PNG when there is alpha.
 
   HEIC cannot come through a pipe, so a temporary file is needed. A Telegram photo is up to 10 MB, width plus height at most 10,000, a ratio of at most 20. Inputs are kept with the job.
-- **Results** are copied into R2 when ready, since provider links expire.
+
+  What ffmpeg does on its own and what framy adds (`internal/media`, checked on FFmpeg 8.1 in the image and 9.0):
+  - **Tiles.** An iPhone HEIC is a grid of 512 px tiles. `-vf` cannot read it; the filter graph starts from the grid, `[0:g:<n>]`, and the tiles come joined and cropped.
+  - **Orientation.** JPEG's EXIF tag and HEIF's `irot`/`imir` turn the picture. An orientation written only into a HEIF's EXIF is ignored, as the HEIF rules say and macOS does.
+  - **Colour.** An iPhone shoots in Display P3. ffmpeg keeps a JPEG's profile but loses it when it joins a HEIC's tiles, and models and Telegram read pixels as sRGB. framy finds Display P3 itself, by the colorants of the ICC profile (JPEG APP2, PNG `iCCP`, WebP `ICCP`, HEIF `colr`) or `nclx`/`cICP` primaries 12, and has `scale` convert the pixels (`in_primaries=smpte432`, FFmpeg 8.0 or newer) and drop the profile. Other profiles, such as Adobe RGB, are kept as they are. The result matches macOS ColorSync within 1/255.
+  - **Alpha.** PNG and WebP keep it. A HEIF or AVIF stores alpha as a separate picture, which ffmpeg does not join, so such a file comes out as JPEG without it.
+  - A cut JPEG is shown as far as it goes, as a browser shows it; a cut upload is refused before, by the length of the body.
+- **Results** are copied into R2 when ready, since provider links expire. A result that comes as a link is fetched only from a public address (`internal/safehttp`), over HTTPS, up to 512 MB, and must be a picture or a video.
+- **Keys and rows.** Uploads go under `u/<person>/in/<random>.<ext>`, results under `u/<person>/out/<job>-<n>.<ext>`, so keeping a run's results again after a crash writes the same objects and adds no rows. Every file is a row of `asset` with its size, type, SHA-256 and picture size. The object is written before its row and removed before it, and nothing cascades into `asset`: a person or a job with files cannot be deleted before them. R2 refuses a body whose SHA-256 does not match, so a cut write never becomes an object.
 - **For Telegram**, the photo goes as a JPEG within those limits (long side at most 2560), and the original goes as a document on demand.
 - **Video** with H.264, yuv420p and AAC or no sound is only remuxed with `-c copy -movflags +faststart`. Anything else is re-encoded to H.264 High yuv420p with AAC and even sizes. `width`, `height` and `duration` come from `ffprobe` after processing, with `supports_streaming=true`. The last frame for "Continue" is `-sseof -1 … -update 1` saved as PNG, or a frame 0.2–0.5 s before the end when the clip fades out. A part of a clip is cut with `-ss` and `-t` and re-encoded, since `-c copy` cuts only at keyframes.
 - **`file_id`s** are kept for as long as the generation exists. They are cheap and make inline mode and resending free.
@@ -551,7 +559,8 @@ Temporary domain `framy.ws04.cc`. Mobile first; on a wide screen the composer an
 - **Keys:** an R2 API token limited to the two buckets, as a file secret like the KEK.
 - **Turned on:** R2 was activated on 26 October as a $0 subscription on the account that holds `ws04.cc`, with the card already on file. Usage above the free allowance is billed to that card monthly.
 - **How long (owner):** until the person deletes it: one result, or the whole account from the settings. Deleting removes the objects and the rows at once; the `file_id`s go with them.
-- **Accounting.** framy sums the bytes per person in `asset`, shows it in the settings and tells the operator chat when the bucket passes 10 GB, where the free allowance ends.
+- **Accounting.** framy sums the bytes per person in `asset`, shows it in the settings and tells the operator chat (`OPERATOR_CHAT_ID`) each time the bucket passes another 10 GB, the first being where the free allowance ends. The last step told is kept in `runtime_state`; two writes crossing it at once tell it once, and a message that failed is tried again by the next write.
+- **Working files** live under `WORK_DIR`, a directory per upload or result removed when its work ends, failed or not. Whatever is older than an hour is swept at start and every hour.
 
 ## Telegram setup
 
@@ -664,7 +673,8 @@ Main tables of the `framy` schema, created by a core migration with its own `fra
 | `connection` | provider, encrypted key, `last4`, status, last success, last error class |
 | `catalog_model`, `catalog_offer` | models with the overlay's flags and traits; offers with their parameters, routes and prices, `expires_on`, `hidden`, `fetched_at`, `disabled_at` |
 | `job` | requester (`user_id`), surface, chat and preview message, `dedupe_key`, offer, prompt, settings, `free`, status, idempotency key, River job, paid requests with `submitted_at` and `retry_at`, provider job id, the estimate with its lines, the actual cost, results, error class; FX comes with the currency (#8) |
-| `asset` | inputs and results: storage key, size, type, `file_id`, `file_unique_id` |
+| `asset` | uploads and results: owner, job, storage key, size, type, picture size, SHA-256, `file_id`, `file_unique_id` |
+| `job_input` | the files a job takes, in order; an empty place is a file deleted before the run |
 | `album_item` | the 48-hour album cache |
 | `fx_rate` | date, code, UAH per unit, source |
 | `oauth_state` | PKCE verifier and state for 10 minutes |

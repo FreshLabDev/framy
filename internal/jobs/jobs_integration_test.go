@@ -66,7 +66,7 @@ func testPool(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("migrate: %v", err)
 	}
 	for _, stmt := range []string{
-		`TRUNCATE framy.job, framy.river_job`,
+		`TRUNCATE framy.job_input, framy.asset, framy.job, framy.river_job`,
 		`INSERT INTO core.person (telegram_user_id) VALUES (1001), (1002) ON CONFLICT DO NOTHING`,
 		`INSERT INTO framy.catalog_model (id, kind, name, maker) VALUES ('test/image', 'image', 'Test image', 'test'), ('test/video', 'video', 'Test video', 'test') ON CONFLICT DO NOTHING`,
 		`INSERT INTO framy.catalog_offer (id, model_id, provider, provider_model_id, name, fetched_at) VALUES
