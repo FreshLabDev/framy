@@ -3,3 +3,8 @@ Copyright 2026 Asterfield
 
 This product includes software developed for the Asterfield bot family.
 Licensed under the Apache License, Version 2.0.
+
+The renderer of loops and cards in internal/anim embeds the Sofia Sans and
+Sofia Sans Extra Condensed fonts (SIL Open Font License 1.1, Copyright 2019 The
+Sofia Sans Project Authors), with the license beside them in
+internal/anim/fonts/OFL.txt.
