@@ -247,7 +247,68 @@ type Traits struct {
 	// model, through previous_job_id or Omni's previous_interaction_id.
 	Continue bool   `json:"continue,omitempty"`
 	Faces    string `json:"faces,omitempty"`
+	// Family is the model's place among its kin in the picker.
+	Family *Family `json:"family,omitempty"`
+	// FastOf: the model is a faster mode of that one, at its own price. The
+	// picker shows it as a switch of that model, not as a model of its own.
+	FastOf string `json:"fast_of,omitempty"`
+	// Fast is the model's faster mode: the one whose FastOf names it. Build
+	// fills it.
+	Fast string `json:"fast,omitempty"`
+	// Recommend is where the picker suggests the model first, by situation,
+	// 1 for the first suggestion. Build fills it from the overlay.
+	Recommend map[string]int `json:"recommend,omitempty"`
 }
+
+// Family is a model's place among its kin, for the picker: one row per
+// family with the variants inside, the outdated ones apart. The overlay
+// gives the first six fields; Build fills the rest from the models the
+// catalog shows.
+type Family struct {
+	// ID names one of the overlay's families.
+	ID string `json:"id" yaml:"id"`
+	// Gen is the generation, a version such as "2.5", and Tier the variant
+	// within it, one of the overlay's tiers.
+	Gen  string `json:"gen" yaml:"gen"`
+	Tier string `json:"tier" yaml:"tier"`
+	// Label is the variant's name inside the family's row: "2.5 Pro".
+	Label string `json:"label" yaml:"label"`
+	// Line and Format split a family whose variants differ in more than
+	// generation and tier, as Recraft's do: line base, utility or styles,
+	// format raster or vector.
+	Line   string `json:"line,omitempty" yaml:"line"`
+	Format string `json:"format,omitempty" yaml:"format"`
+
+	// Name is the family's own name, from the overlay's families.
+	Name string `json:"name" yaml:"-"`
+	// Rank is the place in the family's row, 0 first: the newest
+	// generation, then the highest tier.
+	Rank int `json:"rank" yaml:"-"`
+	// Default: the variant the family opens on.
+	Default bool `json:"default,omitempty" yaml:"-"`
+	// OutdatedBy is the current model that took this one's place: of a newer
+	// generation, at the same tier, line and format, or at any tier when
+	// this one is the plain variant. Never written by hand.
+	OutdatedBy string `json:"outdated_by,omitempty" yaml:"-"`
+}
+
+// PlainTier is the tier of a variant with no tier in its name, as GPT Image 2
+// or Wan 2.7: any newer generation outdates it.
+const PlainTier = "std"
+
+// Situations the picker suggests models for, in the overlay's recommend.
+const (
+	// ForImage: an image from text, or from up to five photos.
+	ForImage = "image"
+	// ForManyPhotos: an image from more than five photos.
+	ForManyPhotos = "many_photos"
+	ForVideo      = "video"
+	// ForVideoEdit: a video made from an attached one.
+	ForVideoEdit = "video_edit"
+)
+
+// situations are the kinds of model each situation suggests.
+var situations = map[string]Kind{ForImage: Image, ForManyPhotos: Image, ForVideo: Video, ForVideoEdit: Video}
 
 // Model is what a person picks: one model, offered by one or more providers.
 type Model struct {

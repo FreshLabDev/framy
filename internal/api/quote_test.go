@@ -12,6 +12,7 @@ import (
 
 	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/free"
+	"github.com/FreshLabDev/framy/internal/i18n"
 	"github.com/FreshLabDev/framy/internal/keys"
 )
 
@@ -329,5 +330,83 @@ func TestAPhotoIsPricedAtTheSizeItWillHave(t *testing.T) {
 	}
 	if w, h := fitLongSide(0, 0, 2048); w != 0 || h != 0 {
 		t.Errorf("%dx%d", w, h)
+	}
+}
+
+// A quote says the settings the run would go with: framy's defaults on a
+// key, the shape following the first file, and the plan's alone when free.
+func TestAQuoteGoesWithTheDefaults(t *testing.T) {
+	r := quoteRig(t)
+	r.store.offers[testOffer] = withParams(r.store.offers[testOffer])
+	status, out := quoteOf(t, r, alice, `{"items":[
+		{"offer":"`+testOffer+`","pay":"key"},
+		{"offer":"`+testOffer+`","files":[{"content_type":"image/jpeg","width":900,"height":1600}]},
+		{"offer":"`+testOffer+`","settings":{"aspect_ratio":"16:9"},"files":[{"content_type":"image/jpeg","width":900,"height":1600}]},
+		{"offer":"`+heygenOff+`","pay":"free"}]}`)
+	if status != http.StatusOK {
+		t.Fatalf("%d %v", status, out)
+	}
+	got := items(t, out)
+	for i, want := range []string{
+		"map[aspect_ratio:1:1 resolution:1K]",
+		"map[aspect_ratio:9:16 resolution:1K]",
+		"map[aspect_ratio:16:9 resolution:1K]",
+		"map[duration:5 resolution:768p]",
+	} {
+		if s := fmt.Sprint(got[i]["settings"]); s != want {
+			t.Errorf("item %d settings = %s, want %s", i, s, want)
+		}
+	}
+}
+
+// The catalog tells the picker each model's place: its family and rank, the
+// fast mode, the suggestions by situation, the note in the person's
+// language, and the defaults of every offer.
+func TestTheCatalogTellsThePickerWhereEachModelGoes(t *testing.T) {
+	var noted string
+	for _, k := range i18n.Keys() {
+		if id, ok := strings.CutPrefix(k, "note."); ok {
+			noted = id
+			break
+		}
+	}
+	if noted == "" {
+		t.Fatal("i18n has no note")
+	}
+	r := quoteRig(t)
+	m := withParams(image("openrouter:"+noted, catalog.OpenRouter))
+	m.Traits.Family = &catalog.Family{ID: "x", Name: "X", Gen: "2", Tier: catalog.PlainTier, Label: "2", Rank: 1, OutdatedBy: "test/image"}
+	m.Traits.Fast = "test/fast"
+	m.Traits.Recommend = map[string]int{catalog.ForImage: 2}
+	r.store.offers["openrouter:"+noted] = m
+	img := r.store.offers[testOffer]
+	img.Traits.Recommend = map[string]int{catalog.ForImage: 1, catalog.ForManyPhotos: 1}
+	r.store.offers[testOffer] = img
+
+	resp := r.do(0, http.MethodGet, "/api/catalog", nil, "Accept-Language", "uk-UA,uk;q=0.9")
+	out := jsonOf(t, resp)
+	var got map[string]any
+	for _, x := range out["models"].([]any) {
+		if x.(map[string]any)["id"] == noted {
+			got = x.(map[string]any)
+		}
+	}
+	if got == nil {
+		t.Fatalf("no %s in %v", noted, out["models"])
+	}
+	if got["note"] != i18n.T("uk", "note."+noted) || got["fast"] != "test/fast" {
+		t.Errorf("model = %v", got)
+	}
+	fam := got["family"].(map[string]any)
+	if fam["id"] != "x" || fam["name"] != "X" || fam["rank"] != 1.0 || fam["outdated_by"] != "test/image" || fam["tier"] != "std" {
+		t.Errorf("family = %v", fam)
+	}
+	of := got["offers"].([]any)[0].(map[string]any)
+	if d := fmt.Sprint(of["defaults"]); d != "map[aspect_ratio:1:1 resolution:1K]" {
+		t.Errorf("defaults = %s", d)
+	}
+	rec := out["recommend"].(map[string]any)
+	if fmt.Sprint(rec) != fmt.Sprintf("map[image:[test/image %s] many_photos:[test/image] video:[] video_edit:[]]", noted) {
+		t.Errorf("recommend = %v", rec)
 	}
 }

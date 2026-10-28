@@ -149,3 +149,10 @@ func Keys() []string {
 	sort.Strings(out)
 	return out
 }
+
+// Has reports whether key has a translation, for a line that exists for some
+// things only, such as the note of a model.
+func Has(key string) bool {
+	_, ok := translations[key]
+	return ok
+}

@@ -144,6 +144,9 @@ func (a *API) create(w http.ResponseWriter, r *http.Request) {
 		newError(http.StatusUnprocessableEntity, codeUnknownInput, "an input is not one of your files").write(w)
 		return
 	}
+	if !isFree {
+		fillDefaults(settings, offer, shapeOf(assetSizes(inputs)...))
+	}
 
 	estimate := price.Of(m, offer, priceRequest(m, req.Prompt, settings, inputs))
 	lang := a.language(ctx, r, user)
@@ -240,6 +243,36 @@ func fillFree(settings map[string]any, plan free.Plan, inputs int) {
 			settings[name] = v
 		}
 	}
+}
+
+// fillDefaults gives a run on the person's key framy's value of every
+// setting it leaves out (catalog.Defaults), so the run is what was priced.
+// A free run takes its plan's settings and nothing else.
+func fillDefaults(settings map[string]any, offer catalog.Offer, shape float64) {
+	for name, v := range catalog.Defaults(offer, shape) {
+		if cur, set := settings[name]; !set || cur == nil {
+			settings[name] = v
+		}
+	}
+}
+
+// shapeOf is the width over the height of the first file that has both,
+// 0 when none does.
+func shapeOf(sizes ...[2]int) float64 {
+	for _, s := range sizes {
+		if s[0] > 0 && s[1] > 0 {
+			return float64(s[0]) / float64(s[1])
+		}
+	}
+	return 0
+}
+
+func assetSizes(inputs []InputAsset) [][2]int {
+	out := make([][2]int, len(inputs))
+	for i, in := range inputs {
+		out[i] = [2]int{in.Width, in.Height}
+	}
+	return out
 }
 
 // dearer reports whether the estimate would show a higher price than the one

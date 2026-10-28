@@ -2,13 +2,16 @@
 package api
 
 import (
+	"cmp"
 	"context"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 
 	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/free"
+	"github.com/FreshLabDev/framy/internal/i18n"
 )
 
 // catalogCache keeps the catalog between reads of the database. The sync
@@ -74,21 +77,34 @@ type catalogJSON struct {
 	// first.
 	SyncedAt *time.Time         `json:"synced_at,omitempty"`
 	Models   []catalogModelJSON `json:"models"`
-	Free     freeJSON           `json:"free"`
+	// Recommend lists by situation the models the picker suggests first,
+	// best first: image, many_photos, video and video_edit.
+	Recommend map[string][]string `json:"recommend"`
+	Free      freeJSON            `json:"free"`
 }
 
 // catalogModelJSON is a model as the picker shows it. The price hints of the
 // overlay stay on the server: a price comes from POST /api/quote.
 type catalogModelJSON struct {
-	ID          string             `json:"id"`
-	Kind        string             `json:"kind"`
-	Name        string             `json:"name"`
-	Maker       string             `json:"maker"`
-	Description string             `json:"description,omitempty"`
-	Featured    bool               `json:"featured"`
-	Free        bool               `json:"free"`
-	Traits      traitsJSON         `json:"traits"`
-	Offers      []catalogOfferJSON `json:"offers"`
+	ID          string `json:"id"`
+	Kind        string `json:"kind"`
+	Name        string `json:"name"`
+	Maker       string `json:"maker"`
+	Description string `json:"description,omitempty"`
+	// Note is a line on the variant in the person's language, absent where
+	// framy has none.
+	Note     string `json:"note,omitempty"`
+	Featured bool   `json:"featured"`
+	Free     bool   `json:"free"`
+	// Family is the model's place in the picker's rows; absent for a model
+	// that is a row of its own.
+	Family *catalog.Family `json:"family,omitempty"`
+	// FastOf: the model is a faster mode of that one and is shown as its
+	// switch; Fast names a model's faster mode.
+	FastOf string             `json:"fast_of,omitempty"`
+	Fast   string             `json:"fast,omitempty"`
+	Traits traitsJSON         `json:"traits"`
+	Offers []catalogOfferJSON `json:"offers"`
 }
 
 // traitsJSON is what the overlay knows of a model and the composer needs.
@@ -108,6 +124,9 @@ type catalogOfferJSON struct {
 	ProviderModelID string                   `json:"provider_model_id"`
 	InputModalities []string                 `json:"input_modalities"`
 	Params          map[string]catalog.Param `json:"params"`
+	// Defaults are the values a setting takes when nobody chose one, with no
+	// file attached; a quote says them for the files it is given.
+	Defaults map[string]any `json:"defaults"`
 	// ExpiresOn is the day OpenRouter says the model leaves.
 	ExpiresOn string `json:"expires_on,omitempty"`
 	// Discount is the share OpenRouter takes off the listed price, when
@@ -143,14 +162,22 @@ type freePlanJSON struct {
 
 // catalogRoute is GET /api/catalog: every model the picker may show, for
 // anyone. Prices are not here: they follow the settings, and come from
-// POST /api/quote.
+// POST /api/quote. The notes are in the person's language.
 func (a *API) catalogRoute(w http.ResponseWriter, r *http.Request) {
-	models, _, synced, err := a.catalog.get(r.Context(), a.cfg.Store, a.now())
+	ctx := r.Context()
+	models, _, synced, err := a.catalog.get(ctx, a.cfg.Store, a.now())
 	if err != nil {
 		a.internal(w, r, err)
 		return
 	}
-	out := catalogJSON{Models: make([]catalogModelJSON, 0, len(models)), Free: freeAllowanceJSON()}
+	user, signedIn := a.cfg.Person(r)
+	if !signedIn {
+		user = 0
+	}
+	lang := a.language(ctx, r, user)
+	out := catalogJSON{
+		Models: make([]catalogModelJSON, 0, len(models)), Recommend: recommendJSON(models), Free: freeAllowanceJSON(),
+	}
 	if !synced.IsZero() {
 		at := synced.UTC()
 		out.SyncedAt = &at
@@ -158,7 +185,8 @@ func (a *API) catalogRoute(w http.ResponseWriter, r *http.Request) {
 	for _, m := range models {
 		mj := catalogModelJSON{
 			ID: m.ID, Kind: string(m.Kind), Name: m.Name, Maker: m.Maker, Description: m.Description,
-			Featured: m.Featured, Free: m.Free,
+			Note: noteOf(lang, m.ID), Featured: m.Featured, Free: m.Free,
+			Family: m.Traits.Family, FastOf: m.Traits.FastOf, Fast: m.Traits.Fast,
 			Traits: traitsJSON{
 				Effort: m.Traits.Effort, References: m.Traits.References, SourceVideo: m.Traits.SourceVideo,
 				PicksLength: m.Traits.PicksLength, Continue: m.Traits.Continue, Faces: m.Traits.Faces,
@@ -168,7 +196,8 @@ func (a *API) catalogRoute(w http.ResponseWriter, r *http.Request) {
 		for _, of := range m.Offers {
 			oj := catalogOfferJSON{
 				ID: of.ID, Provider: of.Provider, ProviderModelID: of.ProviderModelID,
-				InputModalities: nonNilStrings(of.InputModalities), Params: of.Params, Discount: sharedDiscount(of.Routes),
+				InputModalities: nonNilStrings(of.InputModalities), Params: of.Params, Defaults: catalog.Defaults(of, 0),
+				Discount: sharedDiscount(of.Routes),
 			}
 			if oj.Params == nil {
 				oj.Params = map[string]catalog.Param{}
@@ -181,6 +210,40 @@ func (a *API) catalogRoute(w http.ResponseWriter, r *http.Request) {
 		out.Models = append(out.Models, mj)
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// noteOf is the model's note in lang: a line of the interface, so it lives
+// in i18n under note.<model id>, in every language.
+func noteOf(lang, model string) string {
+	key := "note." + model
+	if !i18n.Has(key) {
+		return ""
+	}
+	return i18n.T(lang, key)
+}
+
+// recommendJSON lists the suggested models of each situation by place.
+func recommendJSON(models []catalog.Model) map[string][]string {
+	type pick struct {
+		id    string
+		place int
+	}
+	picks := map[string][]pick{}
+	for _, m := range models {
+		for sit, place := range m.Traits.Recommend {
+			picks[sit] = append(picks[sit], pick{m.ID, place})
+		}
+	}
+	out := map[string][]string{}
+	for _, sit := range []string{catalog.ForImage, catalog.ForManyPhotos, catalog.ForVideo, catalog.ForVideoEdit} {
+		list := picks[sit]
+		slices.SortFunc(list, func(a, b pick) int { return cmp.Compare(a.place, b.place) })
+		out[sit] = make([]string, len(list))
+		for i, p := range list {
+			out[sit][i] = p.id
+		}
+	}
+	return out
 }
 
 // sharedDiscount is the discount every route has, or 0 when they differ.

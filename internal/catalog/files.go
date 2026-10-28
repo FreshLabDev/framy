@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"math"
 	"path"
+	"regexp"
+	"slices"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -29,9 +32,25 @@ type Overlay struct {
 	HideExpiringWithinDays int `yaml:"hide_expiring_within_days"`
 	// Hide hides every model whose id matches, with the reason.
 	Hide []HideRule `yaml:"hide"`
+	// Makers maps another name of a maker to the one shown: OpenRouter names
+	// one company two ways, and the picker groups models by maker.
+	Makers map[string]string `yaml:"makers"`
+	// Families names the picker's families. Default is the variant a family
+	// opens on, when that is not its first featured one.
+	Families map[string]FamilyInfo `yaml:"families"`
+	// Tiers orders the tiers of a family's variants, least first.
+	Tiers []string `yaml:"tiers"`
+	// Recommend lists by situation the models the picker suggests first,
+	// best first.
+	Recommend map[string][]string `yaml:"recommend"`
 	// Models is keyed by model id: the OpenRouter id, or a new id for a
 	// model only a direct provider carries.
 	Models map[string]ModelOverlay `yaml:"models"`
+}
+
+type FamilyInfo struct {
+	Name    string `yaml:"name"`
+	Default string `yaml:"default"`
 }
 
 type HideRule struct {
@@ -66,6 +85,10 @@ type ModelOverlay struct {
 	Price       *PriceHints      `yaml:"price"`
 	Continue    bool             `yaml:"continue"`
 	Faces       string           `yaml:"faces"`
+	// Family places the model in one of the overlay's families.
+	Family *Family `yaml:"family"`
+	// FastOf makes the model a faster mode of another, shown as its switch.
+	FastOf string `yaml:"fast_of"`
 }
 
 // descriptorFile is catalog/<provider>.yaml.
@@ -270,6 +293,96 @@ func (f Files) validate() error {
 			// Names are not guessed: gemini:gemini-3-pro-image is not taken
 			// for google/gemini-3-pro-image until the overlay says so.
 			return fmt.Errorf("overlay: offer %s belongs to no model; list it under one", offer.ID)
+		}
+	}
+	return o.validatePicker()
+}
+
+var (
+	version = regexp.MustCompile(`^[0-9]+(\.[0-9]+)*$`)
+	word    = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+	slug    = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+)
+
+// validatePicker checks what the model picker reads: makers, families,
+// tiers, fast modes and suggestions.
+func (o Overlay) validatePicker() error {
+	tiers := map[string]bool{}
+	for _, t := range o.Tiers {
+		if !word.MatchString(t) {
+			return fmt.Errorf("overlay: tier %q is not a lowercase word", t)
+		}
+		if tiers[t] {
+			return fmt.Errorf("overlay: tier %s is listed twice", t)
+		}
+		tiers[t] = true
+	}
+	for from, to := range o.Makers {
+		if strings.TrimSpace(from) == "" || strings.TrimSpace(to) == "" || from == to {
+			return fmt.Errorf("overlay: maker %q -> %q renames nothing", from, to)
+		}
+		if _, on := o.Makers[to]; on {
+			return fmt.Errorf("overlay: maker %s becomes %s, which is renamed again", from, to)
+		}
+	}
+	for id, f := range o.Families {
+		if !slug.MatchString(id) {
+			return fmt.Errorf("overlay: family id %q is not lowercase letters, digits and dashes", id)
+		}
+		if strings.TrimSpace(f.Name) == "" {
+			return fmt.Errorf("overlay: family %s has no name", id)
+		}
+		if m, ok := o.Models[f.Default]; f.Default != "" && (!ok || m.Family == nil || m.Family.ID != id) {
+			return fmt.Errorf("overlay: family %s opens on %s, which is not one of its models", id, f.Default)
+		}
+	}
+	for _, id := range slices.Sorted(maps.Keys(o.Models)) {
+		m := o.Models[id]
+		if f := m.Family; f != nil {
+			switch _, known := o.Families[f.ID]; {
+			case !known:
+				return fmt.Errorf("overlay: model %s: family %q is not in families", id, f.ID)
+			case !version.MatchString(f.Gen):
+				return fmt.Errorf("overlay: model %s: gen %q is not a version such as 2.5", id, f.Gen)
+			case !tiers[f.Tier]:
+				return fmt.Errorf("overlay: model %s: tier %q is not in tiers", id, f.Tier)
+			case strings.TrimSpace(f.Label) == "":
+				return fmt.Errorf("overlay: model %s: the family needs a label", id)
+			case f.Line != "" && !word.MatchString(f.Line), f.Format != "" && !word.MatchString(f.Format):
+				return fmt.Errorf("overlay: model %s: line and format are lowercase words", id)
+			}
+			if !tiers[PlainTier] {
+				return fmt.Errorf("overlay: tiers must list %s, the tier of a plain variant", PlainTier)
+			}
+		}
+		if m.FastOf != "" {
+			switch {
+			case m.FastOf == id:
+				return fmt.Errorf("overlay: model %s is a fast mode of itself", id)
+			case m.Family != nil:
+				return fmt.Errorf("overlay: model %s: a fast mode is shown on its model, so it has no family", id)
+			case m.Featured || m.Free:
+				return fmt.Errorf("overlay: model %s: a fast mode is neither featured nor free", id)
+			case o.Models[m.FastOf].FastOf != "":
+				return fmt.Errorf("overlay: model %s: fast_of %s, which is a fast mode too", id, m.FastOf)
+			}
+		}
+	}
+	for sit, ids := range o.Recommend {
+		if _, ok := situations[sit]; !ok {
+			return fmt.Errorf("overlay: recommend %q is not a situation the picker knows", sit)
+		}
+		seen := map[string]bool{}
+		for _, id := range ids {
+			switch {
+			case id == "":
+				return fmt.Errorf("overlay: recommend %s lists an empty id", sit)
+			case seen[id]:
+				return fmt.Errorf("overlay: recommend %s lists %s twice", sit, id)
+			case o.Models[id].FastOf != "":
+				return fmt.Errorf("overlay: recommend %s: %s is a fast mode, suggested through its model", sit, id)
+			}
+			seen[id] = true
 		}
 	}
 	return nil

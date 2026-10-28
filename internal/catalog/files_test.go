@@ -78,6 +78,22 @@ func TestLoadFilesRejects(t *testing.T) {
 		{"free price", map[string]string{"overlay.yaml": joined, "gemini.yaml": strings.Replace(gemini, "0.00003", "0", 1)}, "positive cost_usd"},
 		{"bad kind", map[string]string{"overlay.yaml": joined, "gemini.yaml": strings.Replace(gemini, "kind: image", "kind: audio", 1)}, "kind must be"},
 		{"model id with a colon", map[string]string{"overlay.yaml": "models:\n  \"a:b\": {}\n"}, "no colon"},
+		{"unknown family", map[string]string{"overlay.yaml": "families: {flux: {name: FLUX}}\ntiers: [std, pro]\nmodels:\n  a/b:\n    family: {id: fluxx, gen: \"1\", tier: std, label: \"1\"}\n"}, "not in families"},
+		{"bad generation", map[string]string{"overlay.yaml": "families: {flux: {name: FLUX}}\ntiers: [std, pro]\nmodels:\n  a/b:\n    family: {id: flux, gen: v2, tier: std, label: \"2\"}\n"}, "not a version"},
+		{"unknown tier", map[string]string{"overlay.yaml": "families: {flux: {name: FLUX}}\ntiers: [std, pro]\nmodels:\n  a/b:\n    family: {id: flux, gen: \"2\", tier: ultra, label: \"2\"}\n"}, "not in tiers"},
+		{"no label", map[string]string{"overlay.yaml": "families: {flux: {name: FLUX}}\ntiers: [std, pro]\nmodels:\n  a/b:\n    family: {id: flux, gen: \"2\", tier: std}\n"}, "needs a label"},
+		{"computed field written", map[string]string{"overlay.yaml": "families: {flux: {name: FLUX}}\ntiers: [std, pro]\nmodels:\n  a/b:\n    family: {id: flux, gen: \"2\", tier: std, label: \"2\", outdated_by: a/c}\n"}, "outdated_by"},
+		{"no plain tier", map[string]string{"overlay.yaml": "families: {flux: {name: FLUX}}\ntiers: [pro]\nmodels:\n  a/b:\n    family: {id: flux, gen: \"2\", tier: pro, label: \"2\"}\n"}, "must list std"},
+		{"tier twice", map[string]string{"overlay.yaml": "tiers: [std, std]\n"}, "listed twice"},
+		{"nameless family", map[string]string{"overlay.yaml": "families: {flux: {}}\n"}, "has no name"},
+		{"family opens elsewhere", map[string]string{"overlay.yaml": "families: {flux: {name: FLUX, default: a/b}}\ntiers: [std, pro]\nmodels:\n  a/b: {}\n"}, "not one of its models"},
+		{"fast mode of itself", map[string]string{"overlay.yaml": "models:\n  a/b:\n    fast_of: a/b\n"}, "of itself"},
+		{"fast mode in a family", map[string]string{"overlay.yaml": "families: {flux: {name: FLUX}}\ntiers: [std, pro]\nmodels:\n  a/b:\n    fast_of: a/c\n    family: {id: flux, gen: \"2\", tier: std, label: \"2\"}\n"}, "has no family"},
+		{"featured fast mode", map[string]string{"overlay.yaml": "models:\n  a/b:\n    fast_of: a/c\n    featured: true\n"}, "neither featured nor free"},
+		{"unknown situation", map[string]string{"overlay.yaml": "recommend:\n  audio: [a/b]\n"}, "not a situation"},
+		{"suggested twice", map[string]string{"overlay.yaml": "recommend:\n  image: [a/b, a/b]\n"}, "twice"},
+		{"suggested fast mode", map[string]string{"overlay.yaml": "recommend:\n  video: [a/b]\nmodels:\n  a/b:\n    fast_of: a/c\n"}, "is a fast mode"},
+		{"maker renamed on", map[string]string{"overlay.yaml": "makers:\n  A: B\n  B: C\n"}, "renamed again"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fsys := fstest.MapFS{}

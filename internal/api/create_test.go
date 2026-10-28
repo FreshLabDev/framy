@@ -493,3 +493,36 @@ func TestAFreeVideoFromAStartFrameSaysSo(t *testing.T) {
 		}
 	}
 }
+
+// withParams gives the offer of model m an aspect ratio and a resolution.
+func withParams(m catalog.Model) catalog.Model {
+	m.Offers[0].Params = map[string]catalog.Param{
+		"aspect_ratio": {Type: catalog.Enum, Values: []any{"1:1", "4:3", "16:9", "9:16"}},
+		"resolution":   {Type: catalog.Enum, Values: []any{"1K", "2K"}},
+	}
+	return m
+}
+
+// A run on a person's key goes with framy's value of every setting it
+// leaves out, so the run is the one priced; the photo gives the shape.
+func TestARunOnAKeyGoesWithTheDefaults(t *testing.T) {
+	r := jobRig(t)
+	r.store.offers[testOffer] = withParams(r.store.offers[testOffer])
+	r.data.addAsset(alice, InputAsset{ID: 52, ContentType: "image/jpeg", Width: 1600, Height: 1200})
+
+	r.post(alice, "/api/jobs", nextKey(), body(testOffer, "key"))
+	if got := r.queue.last().Settings; fmt.Sprint(got) != "map[aspect_ratio:1:1 resolution:1K]" {
+		t.Errorf("from text: %v", got)
+	}
+	r.post(alice, "/api/jobs", nextKey(), body(testOffer, "key", `"inputs":[52]`, `"settings":{"resolution":"2K"}`))
+	if got := r.queue.last().Settings; fmt.Sprint(got) != "map[aspect_ratio:4:3 resolution:2K]" {
+		t.Errorf("from a 4:3 photo: %v", got)
+	}
+	// A free run goes with its plan's settings and nothing else.
+	const mai = "openrouter:microsoft/mai-image-2.6-flash"
+	r.store.offers[mai] = withParams(r.store.offers[mai])
+	r.post(alice, "/api/jobs", nextKey(), body(mai, "free"))
+	if got := r.queue.last().Settings; fmt.Sprint(got) != "map[n:1]" {
+		t.Errorf("free: %v", got)
+	}
+}

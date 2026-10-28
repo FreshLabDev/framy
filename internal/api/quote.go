@@ -77,8 +77,10 @@ type quoteJSON struct {
 type quoteItemJSON struct {
 	Offer    string        `json:"offer"`
 	Estimate *estimateJSON `json:"estimate,omitempty"`
-	// Settings are the ones the run would go with: the request's, and on the
-	// free allowance its locked values.
+	// Settings are the ones the run would go with: the request's, then on
+	// the free allowance its locked values, and on a key framy's default of
+	// every setting left out (catalog.Defaults), the shape following the
+	// first file.
 	Settings map[string]any `json:"settings,omitempty"`
 	// Refusal is why POST /api/jobs would refuse the run now, in the shape
 	// of its error answer with the status it would have: {"status": 429,
@@ -179,6 +181,14 @@ func (a *API) quoteRoute(w http.ResponseWriter, r *http.Request) {
 			if isFree {
 				fillFree(settings, plan, files)
 			}
+		}
+		if !isFree {
+			// The kept files come first, then those still in the browser.
+			sizes := assetSizes(inputs)
+			for _, f := range it.Files {
+				sizes = append(sizes, [2]int{f.Width, f.Height})
+			}
+			fillDefaults(settings, offer, shapeOf(sizes...))
 		}
 		preq := priceRequest(m, it.Prompt, settings, inputs)
 		addFiles(&preq, m, it.Files)

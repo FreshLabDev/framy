@@ -53,7 +53,7 @@ func Build(up Upstream, files Files, now time.Time) Snapshot {
 			}
 			return false
 		})
-		m := describe(id, kind, offers, o.Models[id])
+		m := describe(id, kind, offers, o.Models[id], o.Makers)
 		m.Hidden = hiddenBy(id, o)
 		if m.Featured && m.Hidden != "" {
 			warn("model %s is featured but hidden: %s", id, m.Hidden)
@@ -82,12 +82,14 @@ func Build(up Upstream, files Files, now time.Time) Snapshot {
 			warn("overlay: model %s is in no source", id)
 		}
 	}
+	arrange(snap.Models, o, warn)
 	return snap
 }
 
 // describe fills a model from the overlay first, then from OpenRouter's
-// "Maker: Name", then from a hand-written offer.
-func describe(id string, kind Kind, offers []Offer, ov ModelOverlay) Model {
+// "Maker: Name", then from a hand-written offer. A maker's other name
+// becomes the one shown.
+func describe(id string, kind Kind, offers []Offer, ov ModelOverlay, makerNames map[string]string) Model {
 	m := Model{
 		ID:       id,
 		Kind:     kind,
@@ -104,7 +106,12 @@ func describe(id string, kind Kind, offers []Offer, ov ModelOverlay) Model {
 			Price:       ov.Price,
 			Continue:    ov.Continue,
 			Faces:       ov.Faces,
+			FastOf:      ov.FastOf,
 		},
+	}
+	if ov.Family != nil {
+		f := *ov.Family
+		m.Traits.Family = &f
 	}
 	for _, of := range offers {
 		if of.Provider != OpenRouter {
@@ -134,6 +141,9 @@ func describe(id string, kind Kind, offers []Offer, ov ModelOverlay) Model {
 		if m.Description == "" {
 			m.Description = plain(of.Description)
 		}
+	}
+	if shown, ok := makerNames[m.Maker]; ok {
+		m.Maker = shown
 	}
 	return m
 }

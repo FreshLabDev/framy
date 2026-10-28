@@ -14,6 +14,47 @@
 
 hide_expiring_within_days: 14
 
+# OpenRouter names one company two ways; the picker groups models by maker.
+makers:
+  SpaceXAI: xAI
+  ByteDance Seed: ByteDance
+
+# The model picker shows one row per family, its variants inside. A model
+# says its family, generation, tier and label under models; a model of no
+# family is a row of its own. A variant is outdated when a newer generation
+# of the family has the same tier, line and format, or, for a plain variant
+# (std), any tier: that is computed, never written here.
+families:
+  flux: {name: FLUX}
+  gpt-image: {name: GPT Image}
+  mai: {name: MAI-Image}
+  nano-banana: {name: Nano Banana}
+  recraft: {name: Recraft, default: recraft/recraft-v4.1}
+  riverflow: {name: Riverflow}
+  seedream: {name: Seedream}
+  grok-image: {name: Grok Imagine Image}
+  krea-2: {name: Krea 2}
+  qwen-image: {name: Qwen Image}
+  gemini-omni: {name: Gemini Omni}
+  veo: {name: Veo}
+  grok-video: {name: Grok Imagine Video}
+  hailuo: {name: Hailuo}
+  seedance: {name: Seedance}
+  kling: {name: Kling Video}
+  wan: {name: Wan}
+  happyhorse: {name: HappyHorse}
+
+# The tiers of a family's variants, least first.
+tiers: [mini, lite, turbo, klein, fast, flash, flare, medium, std, flex, large, quality, sunburst, pro, max]
+
+# What the picker suggests first, best first: an image, an image from more
+# than five photos, a video, and a video made from an attached one.
+recommend:
+  image: [microsoft/mai-image-2.6-flash, google/gemini-nano-banana-2.1, openai/gpt-image-2.5-flare]
+  many_photos: [black-forest-labs/flux-3-image-klein, google/gemini-nano-banana-2.1, openai/gpt-image-2.5-flare]
+  video: [heygen/heygen-video-1, google/veo-3.1-fast, kwaivgi/kling-v3.0-pro]
+  video_edit: [black-forest-labs/flux-video-edit, runway/aleph-2, bytedance/seedance-2.5]
+
 hide:
   - match: google/*-preview
     why: a preview id Google shut down on 25 June 2026; the released model is listed
@@ -32,6 +73,7 @@ models:
   # price.openai_tokens is the base of the token formula in OpenAI's own
   # calculator, by quality (docs/research/images.md, section 3.1).
   openai/gpt-image-2.5-sunburst:
+    family: {id: gpt-image, gen: "2.5", tier: sunburst, label: 2.5 Sunburst}
     offers: [openai:gpt-image-2.5-sunburst]
     featured: true
     effort: {parameter: quality, values: [low, medium, high, xhigh, max]}
@@ -41,6 +83,7 @@ models:
       openai_tokens: {low: 16, medium: 24, high: 48, xhigh: 64, max: 96}
 
   openai/gpt-image-2.5-flare:
+    family: {id: gpt-image, gen: "2.5", tier: flare, label: 2.5 Flare}
     offers: [openai:gpt-image-2.5-flare]
     featured: true
     effort: {parameter: quality, values: [low, medium, high, xhigh, max]}
@@ -49,6 +92,7 @@ models:
       openai_tokens: {low: 16, medium: 24, high: 48, xhigh: 64, max: 96}
 
   openai/gpt-image-2:
+    family: {id: gpt-image, gen: "2", tier: std, label: "2"}
     offers: [openai:gpt-image-2]
     exclude: {quality: [auto], aspect_ratio: [auto]}
     price:
@@ -57,6 +101,7 @@ models:
   # price.tokens of the Gemini models is Google's count of tokens per image,
   # by resolution (docs/research/images.md, section 4.1).
   google/gemini-nano-banana-2.1:
+    family: {id: nano-banana, gen: "2.1", tier: flash, label: "2.1"}
     offers: [gemini:gemini-nano-banana-2.1]
     featured: true
     # Only the direct offer has thinking_level.
@@ -68,6 +113,7 @@ models:
 
   google/gemini-3.1-flash-image:
     name: Nano Banana 2
+    family: {id: nano-banana, gen: "2", tier: flash, label: "2"}
     offers: [gemini:gemini-3.1-flash-image]
     effort: {parameter: thinking_level, values: [minimal, high]}
     price:
@@ -75,6 +121,7 @@ models:
 
   google/gemini-3.1-flash-lite-image:
     name: Nano Banana 2 Lite
+    family: {id: nano-banana, gen: "2", tier: lite, label: 2 Lite}
     offers: [gemini:gemini-3.1-flash-lite-image]
     effort: {parameter: thinking_level, values: [minimal, high]}
     price:
@@ -82,6 +129,7 @@ models:
 
   google/gemini-3-pro-image:
     name: Nano Banana Pro
+    family: {id: nano-banana, gen: "1", tier: pro, label: Pro}
     offers: [gemini:gemini-3-pro-image]
     featured: true
     price:
@@ -99,16 +147,19 @@ models:
   # at 2048x1152, measured on 2.6 Flash on 27 October 2026. 1,100 keeps the
   # estimate from coming out low.
   microsoft/mai-image-2.5:
+    family: {id: mai, gen: "2.5", tier: std, label: "2.5"}
     price:
       tokens: {output_image: {"*": 1024}}
       input_tokens_per_mp: 1100
 
   microsoft/mai-image-2.5-pro:
+    family: {id: mai, gen: "2.5", tier: pro, label: 2.5 Pro}
     price:
       tokens: {output_image: {"*": 1024}}
       input_tokens_per_mp: 1100
 
   microsoft/mai-image-2.6:
+    family: {id: mai, gen: "2.6", tier: std, label: "2.6"}
     featured: true
     price:
       tokens: {output_image: {"*": 1024}}
@@ -116,6 +167,7 @@ models:
 
   # The free image model (owner, 26 October 2026).
   microsoft/mai-image-2.6-flash:
+    family: {id: mai, gen: "2.6", tier: flash, label: 2.6 Flash}
     free: true
     price:
       tokens: {output_image: {"*": 1024}}
@@ -124,17 +176,21 @@ models:
   # The free allowance's model for albums of more than 5 photos, and its
   # fallback; the blind test confirms it (docs/design.md, Free tier).
   black-forest-labs/flux-3-image-klein:
+    family: {id: flux, gen: "3", tier: klein, label: 3 Klein}
     free: true
 
   # Krea's dearer variants are for style references and moodboards, which
   # framy does not send.
   krea/krea-2-large:
+    family: {id: krea-2, gen: "2", tier: large, label: Large}
     price:
       variants: {style_references: {image_style_references: "*"}, moodboards: {moodboards: "*"}}
   krea/krea-2-medium:
+    family: {id: krea-2, gen: "2", tier: medium, label: Medium}
     price:
       variants: {style_references: {image_style_references: "*"}, moodboards: {moodboards: "*"}}
   krea/krea-2-medium-turbo:
+    family: {id: krea-2, gen: "2", tier: turbo, label: Medium Turbo}
     price:
       variants: {style_references: {image_style_references: "*"}, moodboards: {moodboards: "*"}}
   krea/k3-edit:
@@ -142,23 +198,28 @@ models:
       variants: {high_thinking_surcharge: {thinking_mode: high}}
 
   sourceful/riverflow-v2-pro:
+    family: {id: riverflow, gen: "2", tier: pro, label: 2 Pro}
     price:
       skip:
         input_reference: super-resolution references, which framy does not send
         input_font: font files, which framy does not send yet
   sourceful/riverflow-v2-fast:
+    family: {id: riverflow, gen: "2", tier: fast, label: 2 Fast}
     price:
       skip:
         input_reference: super-resolution references, which framy does not send
         input_font: font files, which framy does not send yet
   sourceful/riverflow-v2.5-fast:
+    family: {id: riverflow, gen: "2.5", tier: fast, label: 2.5 Fast}
     price:
       from: the price grows with reasoning, resolution and the image's complexity
 
   black-forest-labs/flux-3-image:
+    family: {id: flux, gen: "3", tier: std, label: "3"}
     featured: true
 
   bytedance-seed/seedream-5-0-pro:
+    family: {id: seedream, gen: "5", tier: pro, label: 5.0 Pro}
     featured: true
 
   # Up to 20 references.
@@ -167,21 +228,82 @@ models:
 
   # SVG output.
   recraft/recraft-v4.1-vector:
+    family: {id: recraft, gen: "4.1", tier: std, label: V4.1 Vector, line: base, format: vector}
     featured: true
 
   # Draws text in the fonts it is given. Its reasoning setting is not on
   # OpenRouter's Images API, neither as a parameter nor as a pass-through, so
   # it has no effort here.
   sourceful/riverflow-v2.5-pro:
+    family: {id: riverflow, gen: "2.5", tier: pro, label: 2.5 Pro}
     featured: true
     price:
       from: the price grows with reasoning, resolution and the image's complexity
+
+  # Variants with nothing to add but their place in the picker.
+  black-forest-labs/flux.2-max:
+    family: {id: flux, gen: "2", tier: max, label: 2 Max}
+  black-forest-labs/flux.2-pro:
+    family: {id: flux, gen: "2", tier: pro, label: 2 Pro}
+  black-forest-labs/flux.2-flex:
+    family: {id: flux, gen: "2", tier: flex, label: 2 Flex}
+  black-forest-labs/flux.2-klein-4b:
+    family: {id: flux, gen: "2", tier: klein, label: 2 Klein 4B}
+  recraft/recraft-v4.1:
+    family: {id: recraft, gen: "4.1", tier: std, label: V4.1, line: base, format: raster}
+  recraft/recraft-v4.1-pro:
+    family: {id: recraft, gen: "4.1", tier: pro, label: V4.1 Pro, line: base, format: raster}
+  recraft/recraft-v4.1-flash:
+    family: {id: recraft, gen: "4.1", tier: flash, label: V4.1 Flash, line: base, format: raster}
+  recraft/recraft-v4.1-pro-vector:
+    family: {id: recraft, gen: "4.1", tier: pro, label: V4.1 Pro Vector, line: base, format: vector}
+  recraft/recraft-v4.1-utility:
+    family: {id: recraft, gen: "4.1", tier: std, label: V4.1 Utility, line: utility, format: raster}
+  recraft/recraft-v4.1-utility-pro:
+    family: {id: recraft, gen: "4.1", tier: pro, label: V4.1 Utility Pro, line: utility, format: raster}
+  recraft/recraft-v4-styles:
+    family: {id: recraft, gen: "4", tier: std, label: V4 Styles, line: styles, format: raster}
+  recraft/recraft-v4-styles-pro:
+    family: {id: recraft, gen: "4", tier: pro, label: V4 Styles Pro, line: styles, format: raster}
+  recraft/recraft-v4-styles-vector:
+    family: {id: recraft, gen: "4", tier: std, label: V4 Styles Vector, line: styles, format: vector}
+  recraft/recraft-v4-styles-pro-vector:
+    family: {id: recraft, gen: "4", tier: pro, label: V4 Styles Pro Vector, line: styles, format: vector}
+  recraft/recraft-v4:
+    family: {id: recraft, gen: "4", tier: std, label: V4, line: base, format: raster}
+  recraft/recraft-v4-pro:
+    family: {id: recraft, gen: "4", tier: pro, label: V4 Pro, line: base, format: raster}
+  recraft/recraft-v4-vector:
+    family: {id: recraft, gen: "4", tier: std, label: V4 Vector, line: base, format: vector}
+  recraft/recraft-v4-pro-vector:
+    family: {id: recraft, gen: "4", tier: pro, label: V4 Pro Vector, line: base, format: vector}
+  recraft/recraft-v3:
+    family: {id: recraft, gen: "3", tier: std, label: V3, line: base, format: raster}
+  bytedance-seed/seedream-5-0-flash:
+    family: {id: seedream, gen: "5", tier: flash, label: 5.0 Flash}
+  bytedance-seed/seedream-5-0-lite:
+    family: {id: seedream, gen: "5", tier: lite, label: 5.0 Lite}
+  bytedance-seed/seedream-4.5:
+    family: {id: seedream, gen: "4.5", tier: std, label: "4.5"}
+  x-ai/grok-imagine-image-quality:
+    family: {id: grok-image, gen: "2", tier: quality, label: Quality}
+  x-ai/grok-imagine-image-2.0:
+    family: {id: grok-image, gen: "2", tier: std, label: "2.0"}
+  qwen/qwen-image-3-pro:
+    family: {id: qwen-image, gen: "3", tier: pro, label: 3 Pro}
+  qwen/qwen-image-3:
+    family: {id: qwen-image, gen: "3", tier: std, label: "3"}
+  qwen/qwen-image-2.1-turbo:
+    family: {id: qwen-image, gen: "2.1", tier: turbo, label: 2.1 Turbo}
+  qwen/qwen-image-2.1-pro:
+    family: {id: qwen-image, gen: "2.1", tier: pro, label: 2.1 Pro}
 
   # Video. Reference counts, continuation and the face policy are filled in
   # only where a source says so (docs/research/video.md, sections 5.4 and 6);
   # the rest waits for the tests of the video stage.
 
   google/veo-3.1:
+    family: {id: veo, gen: "3.1", tier: std, label: "3.1"}
     featured: true
     references: {image: 3}
     faces: adults
@@ -189,6 +311,7 @@ models:
       negativePrompt: {type: text}
 
   google/veo-3.1-fast:
+    family: {id: veo, gen: "3.1", tier: fast, label: 3.1 Fast}
     featured: true
     references: {image: 3}
     faces: adults
@@ -197,57 +320,80 @@ models:
 
   # Lite takes no reference images.
   google/veo-3.1-lite:
+    family: {id: veo, gen: "3.1", tier: lite, label: 3.1 Lite}
     featured: true
     faces: adults
     passthrough:
       negativePrompt: {type: text}
 
+  # OpenRouter names the Kling models "Video v3.0 Pro" and the like, and
+  # MiniMax's "H3 Max": without the name people know them by.
   kwaivgi/kling-v3.0-pro:
+    name: Kling Video 3.0 Pro
+    family: {id: kling, gen: "3", tier: pro, label: 3.0 Pro}
     featured: true
     passthrough:
       negative_prompt: {type: text}
 
   kwaivgi/kling-v3.0-std:
+    name: Kling Video 3.0 Standard
+    family: {id: kling, gen: "3", tier: std, label: 3.0 Standard}
     passthrough:
       negative_prompt: {type: text}
 
   kwaivgi/kling-video-o1:
+    name: Kling Video O1
     passthrough:
       negative_prompt: {type: text}
 
   # Real faces in references are refused, by third-party reports; BytePlus's
   # own page was not reached.
   bytedance/seedance-2.0:
+    family: {id: seedance, gen: "2", tier: std, label: "2.0"}
     featured: true
     faces: rejected
 
   bytedance/seedance-2.5:
+    family: {id: seedance, gen: "2.5", tier: std, label: "2.5"}
     featured: true
     faces: rejected
 
   bytedance/seedance-2.0-fast:
+    family: {id: seedance, gen: "2", tier: fast, label: 2.0 Fast}
     faces: rejected
 
   bytedance/seedance-2.0-mini:
+    family: {id: seedance, gen: "2", tier: mini, label: 2.0 Mini}
     faces: rejected
 
   alibaba/wan-3.0:
+    family: {id: wan, gen: "3", tier: std, label: "3.0"}
     featured: true
 
+  # Wan 3.0 itself, faster and dearer: OpenRouter calls it "the fast-mode
+  # variant of Wan 3.0". The picker shows it as a switch of Wan 3.0.
+  alibaba/wan-3.0-prime:
+    fast_of: alibaba/wan-3.0
+
   alibaba/wan-2.7:
+    family: {id: wan, gen: "2.7", tier: std, label: "2.7"}
     passthrough:
       negative_prompt: {type: text}
 
   alibaba/wan-2.6:
+    family: {id: wan, gen: "2.6", tier: std, label: "2.6"}
     passthrough:
       negative_prompt: {type: text}
 
   minimax/hailuo-3-max:
+    name: Hailuo H3 Max
+    family: {id: hailuo, gen: "3", tier: max, label: H3 Max}
     featured: true
 
   # The free videos, a proposal until the blind test: HeyGen, and Grok Lite
   # as the cheaper one from another vendor.
   x-ai/grok-imagine-video-1.5-lite:
+    family: {id: grok-video, gen: "1.5", tier: lite, label: 1.5 Lite}
     featured: true
     free: true
 
@@ -258,6 +404,7 @@ models:
   google/gemini-omni-1.1-flash:
     name: Gemini Omni 1.1 Flash
     maker: Google
+    family: {id: gemini-omni, gen: "1.1", tier: flash, label: 1.1 Flash}
     offers: [gemini:gemini-omni-1.1-flash]
     featured: true
     # previous_interaction_id of the Interactions API.
@@ -297,3 +444,20 @@ models:
 
   heygen/avatar-iv:
     hide: a talking head from a photo and a voice; the composer takes no voice yet
+
+  # Variants with nothing to add but their place in the picker.
+  x-ai/grok-imagine-video-1.5:
+    family: {id: grok-video, gen: "1.5", tier: std, label: "1.5"}
+  x-ai/grok-imagine-video:
+    family: {id: grok-video, gen: "1", tier: std, label: "1.0"}
+  minimax/hailuo-3:
+    name: Hailuo H3
+    family: {id: hailuo, gen: "3", tier: std, label: H3}
+  minimax/hailuo-2.3:
+    family: {id: hailuo, gen: "2.3", tier: std, label: "2.3"}
+  bytedance/seedance-1-5-pro:
+    family: {id: seedance, gen: "1.5", tier: pro, label: 1.5 Pro}
+  alibaba/happyhorse-1.1:
+    family: {id: happyhorse, gen: "1.1", tier: std, label: "1.1"}
+  alibaba/happyhorse-1.0:
+    family: {id: happyhorse, gen: "1", tier: std, label: "1.0"}

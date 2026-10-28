@@ -280,6 +280,20 @@ was written from, and the skeleton of the service.
   higher one. A free video from a start frame started on the site names the
   frame, as the chat does, instead of being refused by the allowance, and a
   setting may be a short list such as `frame_images`.
+- The model picker's shape comes from `catalog/overlay.yaml`, so a new model
+  needs no code: families with their generations and tiers, the variant a
+  family opens on, outdated variants worked out from newer generations,
+  Wan 3.0 Prime as the fast switch of Wan 3.0 instead of a model of its own,
+  suggestions for an image, an album, a video and a video edit, one name per
+  maker, and display names for Kling and Hailuo. A variant's note is
+  interface text in all sixteen languages. `GET /api/catalog` carries all of
+  it.
+- One rule picks the value of a setting nobody chose (`catalog.Defaults`):
+  the shape of the attached photo, 1K or 720p, 5 seconds, medium quality.
+  The catalog lists the defaults, a quote prices them, and a run on a key
+  goes with them, so what is priced is what is sent. A setting some upstream
+  of OpenRouter would not take keeps the provider's default, since sending
+  it would narrow the upstreams that may run it.
 - Video through OpenRouter (`POST /api/v1/videos`), with start and end
   frames and references sent as presigned links. The provider's job id is
   saved before the first poll, so a retry never pays twice; results are

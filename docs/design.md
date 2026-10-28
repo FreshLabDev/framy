@@ -96,7 +96,7 @@ Who pays in a chat: always the person who sent the command, from their free allo
 
 - OpenRouter publishes its catalogs without a key: `GET /api/v1/images/models`, `GET /api/v1/images/models/{id}/endpoints` (the exact price per endpoint) and `GET /api/v1/videos/models`. Only `GET /api/v1/models` carries `expiration_date`, and only `GET /api/v1/models/{id}/endpoints` carries a discount off the listed price (`pricing.discount`, per upstream), so both are read too. framy pulls all of them every hour, about 155 requests.
 - Direct OpenAI and Gemini have no such catalog. Their models are described by hand in the repository in the same schema (`catalog/openai.yaml`, `catalog/gemini.yaml`).
-- An overlay file (`catalog/overlay.yaml`) adds what no API says: which offers are the same model, reference limits by kind for video, which models accept `previous_job_id`, pass-through parameters with their allowed values, the face policy, display names, the effort mapping, the featured flag, the free-tier flag.
+- An overlay file (`catalog/overlay.yaml`) adds what no API says: which offers are the same model, reference limits by kind for video, which models accept `previous_job_id`, pass-through parameters with their allowed values, the face policy, display names, the effort mapping, the featured flag, the free-tier flag, and what the model picker reads: families, fast modes, suggestions and one name per maker (Model picker).
 
 ### Models and offers
 
@@ -123,6 +123,19 @@ Every OpenRouter model describes its parameters as `enum`, `range` or `boolean`,
 | `boolean` | toggle |
 
 A parameter the model does not list is not shown at all, not shown disabled. When the model changes, a value the new model does not allow falls back to its default, and a short note says which.
+
+### Defaults
+
+No catalog gives defaults, so one rule in Go (`catalog.Defaults`) picks the value of a setting nobody chose. `GET /api/catalog` lists them per offer, `POST /api/quote` fills them in and prices them, and a run on the person's key goes with them, so what is priced is what is sent. A free run goes with its plan's settings only.
+
+- Aspect ratio: the shape of the first attached photo or video, `auto` where the model keeps it itself; with no file, the nearest to 1:1 for an image and to 16:9 for a video.
+- Size, where a model has it instead of an aspect ratio: the same shape at about 1024×1024. A video's `size` gets none, since OpenRouter refuses it next to a resolution or an aspect ratio.
+- Resolution: the smallest that reaches 1K for an image or 720p for a video, else the largest.
+- Duration: the shortest of at least 5 seconds, else the longest.
+- Quality: `medium`, else `standard`; background: `auto`; any other choice: `auto`, else the first, which for an effort is the least.
+- One result; sound on, as OpenRouter has it; Google Search off; any other range in its middle.
+
+Only the settings the composer draws get a default; the rest stay the provider's. Nor does a setting one of OpenRouter's upstreams would not take with that value: sending it would narrow the upstreams OpenRouter may try, while the estimate counts the cheapest.
 
 ### Effort
 
@@ -166,7 +179,7 @@ One component for the site and the Mini App. On top, a large prompt line that gr
 
 ### Model picker
 
-Two tabs, Images and Video, with search. Featured models come first. A row shows:
+Two tabs, Images and Video, with search. The suggestions for what is attached come first, then the featured models. A row shows:
 
 - the model and its maker;
 - what it can do: references, 4K, sound, last frame;
@@ -176,6 +189,15 @@ Two tabs, Images and Video, with search. Featured models come first. A row shows
 Proposal: models that need a provider the person has not connected stay in the list, dimmed, with "Connect OpenRouter", so it is visible what a key would unlock.
 
 With a video attached, the models that take one come first and the rest are dimmed with "takes no video". With none, the editors are dimmed with "attach a video". Nothing else changes: it is the same page and the same list.
+
+The overlay gives the picker its shape, so a new model needs no code:
+
+- **Families.** A model names its family, generation, tier and label: FLUX 3 Klein is family `flux`, generation 3, tier `klein`, label "3 Klein". A family is one row with its variants inside; a model of no family is a row of its own. Recraft also has a line (`base`, `utility`, `styles`) and a format (`raster`, `vector`). The overlay orders the tiers, least first, and may name the variant a family opens on, else its first featured one.
+- **Outdated** is computed, never written: a newer generation of the family at the same tier, line and format takes a variant's place, and a plain variant (tier `std`, such as GPT Image 2) gives way to the newest of any tier. Nano Banana 2.1 outdates Nano Banana 2 but not Nano Banana Pro. Only shown models count.
+- **Fast modes.** Wan 3.0 Prime is Wan 3.0 itself, faster and dearer (OpenRouter: "the fast-mode variant of Wan 3.0"), so it is a switch in Wan 3.0's settings, priced as Prime, and not a variant. Veo 3.1 Fast and Seedance 2.0 Fast are lighter models at a lower price and stay variants.
+- **Suggestions** by situation, best first: an image, an image from more than five photos, a video, a video made from an attached one.
+- **One name per maker.** OpenRouter writes xAI and SpaceXAI, ByteDance and ByteDance Seed; the overlay maps the second to the first. Display names fix what OpenRouter leaves bare: Kling's "Video v3.0 Pro" is Kling Video 3.0 Pro, MiniMax's "H3 Max" Hailuo H3 Max.
+- **Notes.** A variant's short line ("Faster and cheaper, similar quality") is interface text, so it lives in i18n as `note.<model id>`, in every language, and only says what the provider's description or price supports.
 
 ### Images
 
@@ -379,8 +401,8 @@ draft ──Generate──> queued ──> running ──> done
 `draft` exists only for a chat preview waiting for "Generate".
 
 **API** (`internal/api`). `POST /api/jobs` answers 202 with the job at once, and the client follows `/api/jobs/{id}/events` over SSE, with polling as the fallback. Cloudflare answers 524 when the origin sends nothing for 125 seconds, and an OpenAI image can take two minutes, so no request waits for a generation. The person comes from the sign-in (`Config.Person`); nobody gets 401 `{"error":"sign_in"}`. Errors are `{"error": code, "message": …}` plus fields of their own.
-- `GET /api/catalog`, for anyone: every model that is on and shown, with its traits (effort, references, source video, a length the model picks, continuation, faces), its offers with their parameters, `expires_on` and the discount when every route has the same one, and the free allowance: the window of each kind and every free model with its locked settings. The price hints stay on the server. The API keeps the catalog in memory for a minute.
-- `POST /api/quote`, for anyone: `{items: [{offer, pay, prompt, settings, inputs, files}]}`, up to 200 runs at once, each with its own offer and payer. `files` are what the browser read of the files it still holds (`content_type`, `bytes`, `width`, `height`, `seconds`, `fps`); a photo is priced at the size the upload pipeline will give it, 2048 px on the long side at most. Each item comes back with the estimate as `POST /api/jobs` keeps it (the same `price.Of`), the settings the run would go with (the allowance's locked values added), and, for a signed-in person who named a payer, the refusal `POST /api/jobs` would give now, with its status: no connection, the free limit with `frees_at`, the tier closed, not a free model, a file that is not theirs. An offer that is not offered comes back as `unknown_offer` among the others.
+- `GET /api/catalog`, for anyone: every model that is on and shown, with its traits (effort, references, source video, a length the model picks, continuation, faces), its place in the picker (`family` with its name, rank, `default` and `outdated_by`; `fast_of` and `fast`), its note in the person's language, its offers with their parameters, their `defaults`, `expires_on` and the discount when every route has the same one, the suggestions by situation (`recommend`), and the free allowance: the window of each kind and every free model with its locked settings. The price hints stay on the server. The API keeps the catalog in memory for a minute.
+- `POST /api/quote`, for anyone: `{items: [{offer, pay, prompt, settings, inputs, files}]}`, up to 200 runs at once, each with its own offer and payer. `files` are what the browser read of the files it still holds (`content_type`, `bytes`, `width`, `height`, `seconds`, `fps`); a photo is priced at the size the upload pipeline will give it, 2048 px on the long side at most. Each item comes back with the estimate as `POST /api/jobs` keeps it (the same `price.Of`), the settings the run would go with (the allowance's locked values on a free run, the defaults on a key, the shape following the first file), and, for a signed-in person who named a payer, the refusal `POST /api/jobs` would give now, with its status: no connection, the free limit with `frees_at`, the tier closed, not a free model, a file that is not theirs. An offer that is not offered comes back as `unknown_offer` among the others.
 - `GET /api/me`: `{user_id, name, photo_url, language, currency, currency_chosen, signed_in_at, connections, free}`. `name` and `photo_url` are empty for a person who has not signed in since names were kept; `currency` follows the rules of the estimate below, and `currency_chosen` is true only when it is the person's own pick. `connections` are the person's keys (`id`, `provider`, `last4`, `status`, the last success and the last error's class), never the key; `free` is each kind's `used`, `limit`, `left`, `window_seconds` and, while none is left, `frees_at`.
 - `POST /api/uploads`: the photo as the raw body, one per request, 201 `{id, content_type, bytes, width, height}`. At most 4 are converted at once; a fifth waits 20 s, then 503 `busy`. The upload route has longer deadlines than the rest.
 - `POST /api/jobs`: `{offer, prompt, settings, inputs, pay: "free"|"key", shown_usd}` and a required `Idempotency-Key` header, which with the person is the job's `dedupe_key`: a repeat answers the same job with `Idempotent-Replayed: true`. The answer is the job (as `GET` gives it) with an `estimate` quoted in the person's currency: their own choice, else the country Cloudflare saw (believed only through the trusted proxy), else the language, else USD. The rate used is kept on the job. `shown_usd` is the price the person saw, the figure of the quote's label: a run on their key whose price would now show higher in their currency is refused with 409 `price_changed` and the new estimate, and waits for another press; a lower price, or one the label rounds to the same amount, runs. A free run from a start frame gets `frame_images` from the allowance, and a setting may be a short list of texts, as `frame_images` is.
