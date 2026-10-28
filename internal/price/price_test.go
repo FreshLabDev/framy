@@ -144,9 +144,13 @@ func TestEstimates(t *testing.T) {
 		{"wan 2.6 from a frame at 1080p", "openrouter:alibaba/wan-2.6", Request{Settings: set{"resolution": "1080p", "duration": 5}, Frames: 1}, 0.75, 0, Exact},
 		{"wan 2.6 from text at 720p", "openrouter:alibaba/wan-2.6", Request{Settings: set{"resolution": "720p", "duration": 10}}, 0.80, 0, Exact},
 		{"heygen at 768p", "openrouter:heygen/heygen-video-1", Request{Settings: set{"resolution": "768p", "duration": 5}}, 0.18, 0, Exact},
-		{"heygen with two references", "openrouter:heygen/heygen-video-1", Request{Settings: set{"resolution": "768p", "duration": 5}, Images: images(2)}, 0.58, 0, Exact},
+		// The first two reference images are free.
+		{"heygen with two references", "openrouter:heygen/heygen-video-1", Request{Settings: set{"resolution": "768p", "duration": 5}, Images: images(2)}, 0.50, 0, Exact},
+		{"heygen with three references", "openrouter:heygen/heygen-video-1", Request{Settings: set{"resolution": "768p", "duration": 5}, Images: images(3)}, 0.54, 0, Exact},
 		{"grok lite from a frame", "openrouter:x-ai/grok-imagine-video-1.5-lite", Request{Settings: set{"resolution": "720p", "duration": 5}, Frames: 1}, 0.16, 0, Exact},
-		{"hailuo 3 with a reference", "openrouter:minimax/hailuo-3", Request{Settings: set{"duration": 5}, Images: images(1)}, 0.69, 0, Exact},
+		// The first five reference images are free.
+		{"hailuo 3 with a reference", "openrouter:minimax/hailuo-3", Request{Settings: set{"duration": 5}, Images: images(1)}, 0.65, 0, Exact},
+		{"hailuo 3 with seven references", "openrouter:minimax/hailuo-3", Request{Settings: set{"duration": 5}, Images: images(7)}, 0.73, 0, Exact},
 		{"flux 3 video at 1080p", "openrouter:black-forest-labs/flux-3-video", Request{Settings: set{"resolution": "1080p", "duration": 5}}, 1.45, 0, Exact},
 		{"flux 3 video continuing a clip", "openrouter:black-forest-labs/flux-3-video", Request{Settings: set{"resolution": "1080p", "duration": 5}, Video: clip}, 2.65, 0, Exact},
 

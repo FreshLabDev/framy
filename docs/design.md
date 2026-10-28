@@ -318,7 +318,8 @@ Where OpenRouter's rates are not enough, a model's `price` in `catalog/overlay.y
 - `input_tokens_per_mp`: tokens an input image takes per megapixel, for a model that counts them by size (MAI, about 1,050 measured, 1,100 set);
 - `variants`: the settings a dearer rate is for, such as Krea's style references, so it is not taken otherwise;
 - `skip`: a billable framy never sends, with the reason, such as Riverflow 2's fonts;
-- `from`: why the price is only a floor.
+- `from`: why the price is only a floor;
+- `free_images`: how many images a per-image price leaves free, which OpenRouter says only on the model's page: HeyGen Video's first 2 references, Hailuo H3's first 5 (as MiniMax bills them). The first runs with references check it against the actual cost.
 
 `picks_length` is the range of a model that picks its own length. The build warns about a hint that matches no route; every sync logs the price lines and SKUs the estimate cannot read (`catalog price not understood`), so a new kind of price shows up before someone sees it as "about".
 

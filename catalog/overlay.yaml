@@ -471,6 +471,8 @@ models:
   heygen/heygen-video-1:
     featured: true
     free: true
+    # OpenRouter's page: "Reference Image Input (after first 2)".
+    price: {free_images: 2}
     references:
       image: 9
       video: 3
@@ -547,6 +549,8 @@ models:
       files: 12
       video_clip: {min_seconds: 2, max_seconds: 15, total_seconds: 15, max_mb: 50}
       audio_clip: {max_seconds: 15}
+    # MiniMax and OpenRouter's page: the first 5 reference images are free.
+    price: {free_images: 5}
   minimax/hailuo-2.3:
     family: {id: hailuo, gen: "2.3", tier: std, label: "2.3"}
   bytedance/seedance-1-5-pro:

@@ -260,6 +260,10 @@ type PriceHints struct {
 	// From: the listed rates are the least a run costs, and the provider
 	// sets the rest after it, as Riverflow 2.5 does.
 	From string `json:"from,omitempty" yaml:"from"`
+	// FreeImages: a per-image price starts after this many images, as
+	// OpenRouter's page says of HeyGen ("after first 2") and Hailuo H3
+	// ("first 5 free"); the SKU's name does not say it.
+	FreeImages int `json:"free_images,omitempty" yaml:"free_images"`
 }
 
 // Traits is what the overlay knows about a model and no API says.

@@ -314,6 +314,7 @@ func (c *calc) skuQuantity(s sku) (lo, hi float64, ok bool) {
 		if !s.refsOnly {
 			n += float64(c.req.Frames)
 		}
+		n = math.Max(0, n-float64(c.hints.FreeImages))
 		return n, n, true
 	}
 	return 0, 0, false

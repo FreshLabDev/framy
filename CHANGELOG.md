@@ -318,7 +318,11 @@ was written from, and the skeleton of the service.
 - The catalog checked against every maker's documentation on 28 October.
   FLUX Video Upscale's `creativity` is 0 or 1, as BFL takes it, where the
   default was 0.5, which BFL refuses. HY Image's price is known: Tencent
-  counts 15,000 tokens an image up to 2K and 20,000 at 4K. Riverflow 2 Fast
+  counts 15,000 tokens an image up to 2K and 20,000 at 4K. The first 2
+  reference images of HeyGen Video and the first 5 of Hailuo H3 are free,
+  as OpenRouter's pages say, so 5 s of HeyGen at 768p with two references
+  is $0.50 before the discount, not $0.58 (`price.free_images` in the
+  overlay). Riverflow 2 Fast
   offers no 4K, Kling Video O1 is hidden as it costs what Kling 3.0 Pro
   costs and does less through OpenRouter, Krea 2 opens on Medium, Aleph 2
   takes a source of 2 to 30 s, FLUX Video Edit of at least 0.7 s and FLUX

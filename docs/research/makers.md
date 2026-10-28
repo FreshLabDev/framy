@@ -91,7 +91,7 @@ Dates: Veo 3.1 preview ids closed on the Gemini API on 22 October 2026, with Omn
 | reference videos and sounds | 3 videos sharing 15 s, 32 MB, mp4 or webm; 3 sounds; 15 files in all (confirmed) | unverified: OpenRouter's HeyGen guide documents images only | they guide motion and style; set in the overlay, a run confirms |
 | Avatar IV audio, 4:5, 5:4, webm | yes | audio unverified, the rest no | the talking head stays hidden until the composer takes a voice |
 
-At 2K, text to video and reference to video take only 16:9 and 9:16. The first two reference images are free on OpenRouter's page ("after first 2"), which framy's estimate does not yet count. OpenRouter's 50% off mirrors HeyGen's launch price, which HeyGen says lasts to the end of October.
+At 2K, text to video and reference to video take only 16:9 and 9:16. The first two reference images are free on OpenRouter's page ("after first 2"); framy's estimate counts them free (`price.free_images` in the overlay), unverified by a run. OpenRouter's 50% off mirrors HeyGen's launch price, which HeyGen says lasts to the end of October.
 
 ## Kling (Kuaishou)
 
@@ -145,7 +145,7 @@ Microsoft's retirement schedule gave 1 October 2026 for MAI-Image-2.5, 2.5 Pro a
 | Max `prompt_expansion_mode` | yes | no | |
 | Hailuo 2.3 768P (MiniMax's default), 2.3 Fast | yes | no: 1080p at 6 s and 10 s only | |
 
-The first five reference images are free at MiniMax and on OpenRouter's page; framy's estimate does not yet count that. A sound alone is refused.
+The first five reference images are free at MiniMax and on OpenRouter's page; framy's estimate counts them free. A sound alone is refused.
 
 ## OpenAI (GPT Image), a direct port of framy's
 
@@ -238,7 +238,7 @@ The audit priced each; none was run.
 
 | Question | Cheapest run | About |
 |:--|:--|:--|
-| Do Seedance 2.x, Wan 3.0, Hailuo 3 and HeyGen take reference video and sound through OpenRouter? | one short run each with one image, one 2 s video and one 2 s sound | $0.30 to $1 each |
+| Do Seedance 2.x, Wan 3.0, Hailuo 3 and HeyGen take reference video and sound through OpenRouter, and are the first reference images of HeyGen and Hailuo 3 free? | one short run each with one image, one 2 s video and one 2 s sound | $0.30 to $1 each |
 | Does Grok Imagine Video 1.5 take reference images through OpenRouter? | 1 s at 480p with 2 references | under $0.10 |
 | Does Veo 3.1 Fast take 3 references through OpenRouter? | 8 s at 720p | $0.64 |
 | How does Aleph 2 get its source, and does it keep the length? | a 2 s clip, the cheap path first (a 400 is not billed) | $0.56 |

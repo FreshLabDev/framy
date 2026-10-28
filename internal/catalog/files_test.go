@@ -74,6 +74,7 @@ func TestLoadFilesRejects(t *testing.T) {
 		{"inverted source length", map[string]string{"overlay.yaml": "models:\n  a/b:\n    source_video: {min_seconds: 3, max_seconds: 2}\n"}, "min_seconds <= max_seconds"},
 		{"empty references", map[string]string{"overlay.yaml": "models:\n  a/b:\n    references: {}\n"}, "references says nothing"},
 		{"negative references", map[string]string{"overlay.yaml": "models:\n  a/b:\n    references: {image: -1}\n"}, "cannot be negative"},
+		{"negative free images", map[string]string{"overlay.yaml": "models:\n  a/b:\n    price: {free_images: -1}\n"}, "cannot be negative"},
 		{"clip without count", map[string]string{"overlay.yaml": "models:\n  a/b:\n    references: {image: 2, video_clip: {max_seconds: 5}}\n"}, "video_clip without references.video"},
 		{"inverted clip", map[string]string{"overlay.yaml": "models:\n  a/b:\n    references: {audio: 2, audio_clip: {min_seconds: 9, max_seconds: 5}}\n"}, "min_seconds <= max_seconds"},
 		{"bad shutdown day", map[string]string{"overlay.yaml": "models:\n  a/b:\n    deprecated: {shuts_down: 2 November 2026}\n"}, "not a day"},
