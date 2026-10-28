@@ -22,7 +22,10 @@ was written from, and the skeleton of the service.
   the binary. Long polling records every sender, and every group framy is in,
   in `core` through `core.touch`. `Preflight` runs before polling starts.
   `/healthz` reports the version, the database and how fresh polling is.
-  SIGTERM stops polling and the HTTP server within 20 seconds.
+  SIGTERM stops polling at once, but the updates already taken get up to 15
+  seconds to finish, so a `/img` that comes in as framy stops still gets its
+  preview instead of a draft cancelled halfway. The HTTP server stops within
+  20 seconds.
 - `/start` and the family's panels, in the sixteen languages of the family
   and the shape every sibling bot uses (`core/docs/panels.md`): home, help,
   about and the language picker in a direct chat; in a group `/start` is

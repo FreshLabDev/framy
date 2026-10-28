@@ -253,6 +253,12 @@ func (f *Flow) sendPreview(ctx context.Context, m *tg.Message, d draft, prompt, 
 		if err == nil && sent.EphemeralMessageID != 0 {
 			return sent.EphemeralMessageID, true, nil
 		}
+		if ctx.Err() != nil {
+			// A stop cut the send short; Telegram refused nothing, and the
+			// preview may have reached the person already. Sending it to the
+			// chat now would fail the same way.
+			return 0, false, fmt.Errorf("send the preview: %w", ctx.Err())
+		}
 		f.log.Warn("ephemeral preview refused; the chat sees it", "chat", m.Chat.ID, "error", err)
 		opts.Ephemeral, opts.ReplyToEphemeral = nil, 0
 	}

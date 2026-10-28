@@ -50,6 +50,9 @@ type fakeTelegram struct {
 	fail    map[string]error // by method
 	answers []string         // "text" or "alert:text"
 	files   map[string]string
+	// beforeEphemeral runs as an ephemeral send starts, as a stop would
+	// come in the middle of one.
+	beforeEphemeral func()
 }
 
 func newTelegram() *fakeTelegram {
@@ -61,6 +64,9 @@ func newTelegram() *fakeTelegram {
 func (f *fakeTelegram) record(c call) (tg.Message, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if c.ephemeral != nil && f.beforeEphemeral != nil {
+		f.beforeEphemeral()
+	}
 	if err := f.fail[c.method]; err != nil {
 		return tg.Message{}, err
 	}

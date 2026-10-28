@@ -110,14 +110,20 @@ func (f *fakeStore) Offset(context.Context) (int64, error) {
 	return f.offset, nil
 }
 
-func (f *fakeStore) AdvanceOffset(_ context.Context, offset int64) error {
+func (f *fakeStore) AdvanceOffset(ctx context.Context, offset int64) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.offset = max(f.offset, offset)
 	return nil
 }
 
-func (f *fakeStore) Touch(_ context.Context, user tg.User, chat *tg.Chat) error {
+func (f *fakeStore) Touch(ctx context.Context, user tg.User, chat *tg.Chat) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	var chatID int64
@@ -336,6 +342,65 @@ func (f *fakeTelegram) setProfile(field, text, lang string) error {
 	f.profile[field+"/"+lang] = text
 	f.writes++
 	return nil
+}
+
+// stopFlow is a SIGTERM that comes while /img is being handled: it stops the
+// run and keeps the context the command was handed.
+type stopFlow struct {
+	fakeFlow
+	stop context.CancelFunc
+	ctx  context.Context
+}
+
+func (f *stopFlow) Command(ctx context.Context, m *tg.Message, command, prompt string) {
+	f.fakeFlow.Command(ctx, m, command, prompt)
+	f.mu.Lock()
+	f.ctx = ctx
+	f.mu.Unlock()
+	f.stop()
+}
+
+func TestAStopFinishesTheUpdatesAlreadyTaken(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	store := newStore()
+	store.offset = 40
+	client := newTelegram()
+	client.cancel = cancel
+	client.batch = []tg.Update{
+		{UpdateID: 40, Message: message(groupChat, 1, "/img a fox")},
+		{UpdateID: 41, Message: &tg.Message{From: &tg.User{ID: 2}, Chat: tg.Chat{ID: -300, Type: "group"}}},
+	}
+	flow := &stopFlow{stop: cancel}
+	b := New(store, client, quiet(), "framytest_bot", selfID, "v0.0.0", WithFlow(flow))
+	b.grace = 100 * time.Millisecond
+
+	if err := b.Run(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// The stop came in the batch: no second poll, and the update after it
+	// was still worked and saved as taken.
+	if len(client.offsets) != 1 {
+		t.Fatalf("polled offsets = %v, want one poll", client.offsets)
+	}
+	if store.offset != 42 {
+		t.Fatalf("stored offset = %d, want 42", store.offset)
+	}
+	if want := (touch{2, -300}); len(store.touches) != 2 || store.touches[1] != want {
+		t.Fatalf("touches = %+v, want the second to be %+v", store.touches, want)
+	}
+	// The command goes on past the stop, and ends with the grace.
+	flow.mu.Lock()
+	work := flow.ctx
+	flow.mu.Unlock()
+	if work == nil || work.Err() != nil {
+		t.Fatalf("the command's context ended with the stop: %v", work)
+	}
+	select {
+	case <-work.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("the command's context outlived the grace")
+	}
 }
 
 func quiet() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }

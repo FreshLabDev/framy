@@ -50,7 +50,8 @@ var (
 )
 
 // shutdownTimeout bounds a stop. Docker sends SIGKILL ten seconds after
-// SIGTERM by default; the stack sets stop_grace_period above this.
+// SIGTERM by default; the stack sets stop_grace_period above this. It is
+// longer than bot.UpdateGrace, which the commands already taken get.
 const shutdownTimeout = 20 * time.Second
 
 func main() {
@@ -350,7 +351,8 @@ func run(log *slog.Logger) error {
 	case runErr = <-errCh:
 		stop()
 	}
-	// The poller ends on the canceled context; the server stops accepting and
+	// The poller stops taking updates on the canceled context and works the
+	// ones it took for up to bot.UpdateGrace; the server stops accepting and
 	// lets requests in flight finish. Both get the same deadline.
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()

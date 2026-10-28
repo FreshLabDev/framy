@@ -428,6 +428,21 @@ func TestARefusedEphemeralPreviewGoesToTheChat(t *testing.T) {
 	}
 }
 
+// A stop that cuts the ephemeral send short is not a refusal: the preview
+// may have reached the requester already, so the chat gets no second one.
+func TestAStopDuringTheEphemeralPreviewSendsNothingToTheChat(t *testing.T) {
+	h := newHarness(t)
+	h.flow.SetAlbums(fakeAlbums{admin: true})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	h.tg.beforeEphemeral = cancel
+	h.tg.fail["ephemeral"] = context.Canceled
+	_ = h.flow.command(ctx, command("/img a fox"), CommandImage, "a fox")
+	if sent := h.tg.methods("sendPhoto"); len(sent) != 0 {
+		t.Fatalf("the chat got the preview: %+v", sent)
+	}
+}
+
 // An ephemeral command is answered within its 15 seconds by a reply to it,
 // which only its sender sees.
 func TestAnEphemeralCommandGetsAnEphemeralPreview(t *testing.T) {

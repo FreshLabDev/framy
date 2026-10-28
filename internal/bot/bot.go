@@ -82,7 +82,9 @@ type Bot struct {
 	// readTimeout bounds what the home panel reads about the person.
 	readTimeout time.Duration
 	// flow runs /img and /edit; nil leaves them unanswered.
-	flow        Flow
+	flow Flow
+	// grace is how long the updates already taken are worked after a stop.
+	grace       time.Duration
 	lastPoll    atomic.Int64
 	initialized atomic.Bool
 }
@@ -123,7 +125,7 @@ func WithFlow(f Flow) Option { return func(b *Bot) { b.flow = f } }
 func New(store Store, client Telegram, log *slog.Logger, username string, selfID int64, version string, opts ...Option) *Bot {
 	b := &Bot{
 		store: store, tg: client, log: log, username: username, selfID: selfID, version: version,
-		arrivals: newArrivals(), readTimeout: homeReadTimeout,
+		arrivals: newArrivals(), readTimeout: homeReadTimeout, grace: UpdateGrace,
 	}
 	for _, opt := range opts {
 		opt(b)
@@ -152,10 +154,23 @@ func (b *Bot) Initialized() bool {
 	return b.initialized.Load()
 }
 
+// UpdateGrace is how long the updates already taken from Telegram are
+// worked after a stop. Polling ends at once; a command in progress, such as
+// /img waiting for the rest of its album and sending the preview, gets this
+// long to answer instead of being cut off halfway. It stays under main's
+// shutdown timeout.
+const UpdateGrace = 15 * time.Second
+
+// offsetSaveTimeout bounds saving the offset once the grace is over.
+const offsetSaveTimeout = 5 * time.Second
+
+// Run polls Telegram until ctx ends. The updates it took are worked to the
+// end, for up to b.grace after ctx: see work.
 func (b *Bot) Run(ctx context.Context) error {
 	if !b.initialize(ctx) {
 		return nil
 	}
+	work := b.work(ctx)
 	// The profile is dozens of calls; polling does not wait for them.
 	var side sync.WaitGroup
 	side.Go(func() { b.publishProfile(ctx) })
@@ -196,20 +211,41 @@ func (b *Bot) Run(ctx context.Context) error {
 		if len(updates) == 0 {
 			continue
 		}
+		// A stop in the middle of the batch does not end it: the updates were
+		// taken, so they are worked here and their offset saved, rather than
+		// half done now and taken again after the restart. Only when the
+		// grace runs out is the rest left for the restart.
+		taken := offset
 		for _, u := range updates {
-			b.handle(ctx, u)
+			if work.Err() != nil {
+				break
+			}
+			b.handle(work, u)
+			offset = u.UpdateID + 1
 		}
-		if ctx.Err() != nil {
-			return nil
+		if offset == taken {
+			continue
 		}
-		offset = updates[len(updates)-1].UpdateID + 1
-		if err := b.store.AdvanceOffset(ctx, offset); err != nil {
+		save, cancel := context.WithTimeout(context.WithoutCancel(ctx), offsetSaveTimeout)
+		err = b.store.AdvanceOffset(save, offset)
+		cancel()
+		if err != nil {
 			// The in-memory offset still moves; a restart before the next
 			// successful write replays the batch.
 			b.log.Error("telegram offset persist failed", "offset", offset, "error", err)
 		}
 	}
 	return nil
+}
+
+// work is the context updates are handled with. It outlives ctx by b.grace,
+// so that a stop lets the commands and presses already taken finish, and it
+// is not canceled when Run returns: the flow goes on in the background with
+// what it was handed, and main waits for it.
+func (b *Bot) work(ctx context.Context) context.Context {
+	work, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	context.AfterFunc(ctx, func() { time.AfterFunc(b.grace, cancel) })
+	return work
 }
 
 // initialize drops any webhook, since getUpdates fails while one is set. It
