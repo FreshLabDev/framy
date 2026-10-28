@@ -14,9 +14,12 @@
 
 hide_expiring_within_days: 14
 
-# OpenRouter names one company two ways; the picker groups models by maker.
+# OpenRouter names one company more than one way; the picker groups models
+# by maker. xAI became SpaceXAI in July 2026 and SpaceXSI in October, and
+# OpenRouter still writes the first two.
 makers:
-  SpaceXAI: xAI
+  xAI: SpaceXSI
+  SpaceXAI: SpaceXSI
   ByteDance Seed: ByteDance
 
 # The model picker shows one row per family, its variants inside. A model

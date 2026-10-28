@@ -196,7 +196,7 @@ The overlay gives the picker its shape, so a new model needs no code:
 - **Outdated** is computed, never written: a newer generation of the family at the same tier, line and format takes a variant's place, and a plain variant (tier `std`, such as GPT Image 2) gives way to the newest of any tier. Nano Banana 2.1 outdates Nano Banana 2 but not Nano Banana Pro. Only shown models count.
 - **Fast modes.** Wan 3.0 Prime is Wan 3.0 itself, faster and dearer (OpenRouter: "the fast-mode variant of Wan 3.0"), so it is a switch in Wan 3.0's settings, priced as Prime, and not a variant. Veo 3.1 Fast and Seedance 2.0 Fast are lighter models at a lower price and stay variants.
 - **Suggestions** by situation, best first: an image, an image from more than five photos, a video, a video made from an attached one.
-- **One name per maker.** OpenRouter writes xAI and SpaceXAI, ByteDance and ByteDance Seed; the overlay maps the second to the first. Display names fix what OpenRouter leaves bare: Kling's "Video v3.0 Pro" is Kling Video 3.0 Pro, MiniMax's "H3 Max" Hailuo H3 Max.
+- **One name per maker.** OpenRouter writes xAI and SpaceXAI for the company now called SpaceXSI, and ByteDance and ByteDance Seed; the overlay maps them to SpaceXSI and ByteDance. Display names fix what OpenRouter leaves bare: Kling's "Video v3.0 Pro" is Kling Video 3.0 Pro, MiniMax's "H3 Max" Hailuo H3 Max.
 - **Notes.** A variant's short line ("Faster and cheaper, similar quality") is interface text, so it lives in i18n as `note.<model id>`, in every language, and only says what the provider's description or price supports.
 
 ### Images

@@ -91,7 +91,8 @@ func TestThePickerArrangesTheCatalog(t *testing.T) {
 	}
 
 	for id, maker := range map[string]string{
-		"x-ai/grok-imagine-image-quality": "xAI", "x-ai/grok-imagine-image-2.0": "xAI",
+		"x-ai/grok-imagine-image-quality": "SpaceXSI", "x-ai/grok-imagine-image-2.0": "SpaceXSI",
+		"x-ai/grok-imagine-video-1.5":     "SpaceXSI",
 		"bytedance-seed/seedream-5-0-pro": "ByteDance", "bytedance/seedance-2.5": "ByteDance",
 	} {
 		if got := modelByID(t, snap, id).Maker; got != maker {
