@@ -18,7 +18,9 @@
 # openrouter-key, hook-path-secret (head -c 32 /dev/urandom | base64), and
 # telegram-login-client-id and telegram-login-client-secret: the OpenID
 # Connect client of @framytest_bot in BotFather (Login Widget, with the
-# redirect URI https://framy-test.ws04.cc/auth/callback and RS256).
+# redirect URI https://framy-test.ws04.cc/auth/callback and RS256), and
+# openrouter-webhook-secret: the webhook signing secret of the OpenRouter
+# workspace that openrouter-key belongs to (Workspace settings, Webhooks).
 #
 # The site is https://framy-test.ws04.cc: the ws04-management tunnel routes
 # it to framy-test-bot:8080 over the external network management, and
@@ -81,6 +83,7 @@ services:
       OPENROUTER_API_KEY_FILE: /run/secrets/openrouter-key
       SITE_URL: https://framy-test.ws04.cc
       HOOK_PATH_SECRET_FILE: /run/secrets/hook-path-secret
+      OPENROUTER_WEBHOOK_SECRET_FILE: /run/secrets/openrouter-webhook-secret
       TELEGRAM_LOGIN_CLIENT_ID_FILE: /run/secrets/telegram-login-client-id
       TELEGRAM_LOGIN_CLIENT_SECRET_FILE: /run/secrets/telegram-login-client-secret
       WORK_DIR: /var/lib/framy/work

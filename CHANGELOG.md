@@ -273,7 +273,13 @@ was written from, and the skeleton of the service.
   held in memory while it is copied to R2. The poll that downloads it gets
   5 minutes and the copy 3 more, where an image's call keeps its 3, so a
   large clip on a slow link is not cut off after it was paid. The free video
-  plans (HeyGen, Grok Lite, FLUX Video Edit) run through it.
+  plans (HeyGen, Grok Lite, FLUX Video Edit) run through it. Checked through
+  the tunnel: a video finishes through the webhook on a person's OAuth key
+  and, with a checked signature, on framy's own key; a forged signature or
+  none is refused with 401.
+- framy names itself to OpenRouter as `https://t.me/framyin_bot` (HTTP-Referer)
+  and `framy` (X-Title) from every stack, so OpenRouter's activity and app
+  pages point at the bot, not at this repository.
 - The album cache that `/img` in reply to one photo of an album reads.
   Telegram sends every photo of an album as a message of its own, and a reply
   names only one, so framy keeps the photos, videos and image or video
@@ -332,6 +338,8 @@ was written from, and the skeleton of the service.
   allowance with the production key and counts its own budget, so it is
   stopped when nobody tests. Its site is `https://framy-test.ws04.cc`,
   through the ws04 Cloudflare tunnel, with no port published on the host.
+  It checks webhook signatures with the signing secret of the OpenRouter
+  workspace the production key belongs to.
 - A free run that fails on framy's own OpenRouter key says the model could
   not make it, instead of blaming the person's key.
 - `/img` is off, and the log says why, when there is no R2 bucket or ffmpeg

@@ -76,8 +76,8 @@ func liveVideoJob(id int64) jobs.Job {
 func liveVideoProvider(key string, cb Callbacks) *Provider {
 	return New(Config{
 		UserAgent: "framy-live-test (+https://github.com/FreshLabDev/framy)",
-		Referer:   "https://github.com/FreshLabDev/framy",
-		Title:     "framy",
+		Referer:   AppURL,
+		Title:     AppTitle,
 		Callbacks: cb,
 		Key:       func(context.Context, jobs.Job) (string, error) { return key, nil },
 	})

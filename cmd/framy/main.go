@@ -135,8 +135,8 @@ func run(log *slog.Logger) error {
 			catalog.OpenRouter: people.Track(openrouter.New(openrouter.Config{
 				Base:      cfg.OpenRouterAPIBase,
 				UserAgent: userAgent,
-				Referer:   "https://github.com/FreshLabDev/framy",
-				Title:     "framy",
+				Referer:   openrouter.AppURL,
+				Title:     openrouter.AppTitle,
 				Key:       openRouterKey(cfg.OpenRouterKey, people.JobKey),
 				// A finished video may be redirected to a link OpenRouter
 				// signed: the client refuses private addresses.

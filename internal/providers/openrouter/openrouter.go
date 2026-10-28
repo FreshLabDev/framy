@@ -35,6 +35,15 @@ const DefaultMaxResponse = 256 << 20
 // clip of today's models is 10 to 30 MB.
 const DefaultMaxVideo = 128 << 20
 
+// AppURL and AppTitle are how framy appears in OpenRouter (HTTP-Referer and
+// X-Title): the production bot, from every stack, the test one included, so
+// the activity and the app rankings point people at the product and not at
+// the repository (owner, 28 October).
+const (
+	AppURL   = "https://t.me/framyin_bot"
+	AppTitle = "framy"
+)
+
 // Config is how the adapter reaches OpenRouter.
 type Config struct {
 	// Base is the API root, DefaultBase when empty.

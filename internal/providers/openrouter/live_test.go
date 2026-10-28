@@ -106,8 +106,8 @@ func liveJob(of catalog.Offer, prompt string, inputs ...jobs.Input) jobs.Job {
 func liveProvider(key string) *Provider {
 	return New(Config{
 		UserAgent: "framy-live-test (+https://github.com/FreshLabDev/framy)",
-		Referer:   "https://github.com/FreshLabDev/framy",
-		Title:     "framy",
+		Referer:   AppURL,
+		Title:     AppTitle,
 		Key:       func(context.Context, jobs.Job) (string, error) { return key, nil },
 	})
 }
