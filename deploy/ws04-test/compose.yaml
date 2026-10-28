@@ -12,9 +12,15 @@
 #     --build-arg COMMIT=<commit> <checkout>
 # and FRAMY_IMAGE in .env names it.
 #
-# .env holds FRAMY_IMAGE, FRAMY_TEST_DB_PASSWORD and R2_ACCOUNT_ID. The files
-# in secrets/ belong to uid 10001, the image's user, mode 0400: bot-token,
-# kek, r2-access-key-id, r2-secret-access-key and openrouter-key.
+# .env holds FRAMY_IMAGE, FRAMY_TEST_DB_PASSWORD, R2_ACCOUNT_ID and
+# TRUSTED_PROXIES. The files in secrets/ belong to uid 10001, the image's
+# user, mode 0400: bot-token, kek, r2-access-key-id, r2-secret-access-key,
+# openrouter-key and hook-path-secret (head -c 32 /dev/urandom | base64).
+#
+# The site is https://framy-test.ws04.cc: the ws04-management tunnel routes
+# it to framy-test-bot:8080 over the external network management, and
+# TRUSTED_PROXIES is that network's range, where cloudflared connects from.
+# No port is published to the host.
 #
 # openrouter-key is framy's own key, the same one the production stack pays
 # the free allowance with. Each stack counts its own daily budget, so stop
@@ -70,12 +76,15 @@ services:
       R2_ACCESS_KEY_ID_FILE: /run/secrets/r2-access-key-id
       R2_SECRET_ACCESS_KEY_FILE: /run/secrets/r2-secret-access-key
       OPENROUTER_API_KEY_FILE: /run/secrets/openrouter-key
+      SITE_URL: https://framy-test.ws04.cc
+      HOOK_PATH_SECRET_FILE: /run/secrets/hook-path-secret
       WORK_DIR: /var/lib/framy/work
       ANIM_CACHE_DIR: /var/lib/framy/anim
     volumes:
       - ./secrets:/run/secrets:ro
       - work:/var/lib/framy/work
       - anim:/var/lib/framy/anim
+    networks: [default, management]
     depends_on:
       postgres:
         condition: service_healthy
@@ -95,3 +104,7 @@ volumes:
   pgdata:
   work:
   anim:
+
+networks:
+  management:
+    external: true

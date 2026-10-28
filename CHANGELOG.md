@@ -330,7 +330,8 @@ was written from, and the skeleton of the service.
   own PostgreSQL with the core stand-in, and the image built on the host
   from a commit of `dev` until there is a release. It pays the free
   allowance with the production key and counts its own budget, so it is
-  stopped when nobody tests.
+  stopped when nobody tests. Its site is `https://framy-test.ws04.cc`,
+  through the ws04 Cloudflare tunnel, with no port published on the host.
 - A free run that fails on framy's own OpenRouter key says the model could
   not make it, instead of blaming the person's key.
 - `/img` is off, and the log says why, when there is no R2 bucket or ffmpeg
