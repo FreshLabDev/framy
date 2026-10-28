@@ -82,6 +82,14 @@ was written from, and the skeleton of the service.
   every sync logs the price lines the estimate cannot read. MAI counts an
   input image by its size, about 1,100 tokens a megapixel as measured, so an
   edit's estimate includes its photos.
+- OpenRouter's discounts come off the price. The sync reads them from
+  `/api/v1/models/{id}/endpoints`, the only place that carries them, and the
+  estimate takes them off the total and keeps the listed price beside it, so
+  the composer can show it struck through. On 28 October that is 15% off Wan
+  3.0 and 50% off HeyGen Video 1, the free weekly video: framy showed $0.50
+  for 5 s of Wan 3.0 at 720p, where OpenRouter charges $0.425. A discount
+  that could not be read counts as none, so a bad hour only makes a price
+  dearer.
 - The job queue, on River in the `framy` schema. A job is a row in
   `framy.job` and a River job, created in one transaction, and it moves
   through draft, queued, running and done, failed, cancelled or expired. The
@@ -260,6 +268,18 @@ was written from, and the skeleton of the service.
   generation, so Cloudflare's 125-second limit never cuts one. Changes come
   from triggers on the job row (`pg_notify`), so every path that changes a
   job is announced and a rolled-back change is not.
+- What the composer needs before Generate. `GET /api/catalog` lists every
+  model and offer with its parameters and the free allowance's locked
+  settings, for anyone. `POST /api/quote` prices up to 200 runs at once with
+  the estimate `POST /api/jobs` keeps, files still in the browser included,
+  and for a signed-in person says what would stop each run: no connection,
+  the free limit and when it frees up, the tier closed. `GET /api/me` now
+  lists the person's connections (last four characters, status) and what is
+  left of the free allowance. `POST /api/jobs` takes the price the person
+  saw and refuses with 409 `price_changed` when the run would now show a
+  higher one. A free video from a start frame started on the site names the
+  frame, as the chat does, instead of being refused by the allowance, and a
+  setting may be a short list such as `frame_images`.
 - Video through OpenRouter (`POST /api/v1/videos`), with start and end
   frames and references sent as presigned links. The provider's job id is
   saved before the first poll, so a retry never pays twice; results are

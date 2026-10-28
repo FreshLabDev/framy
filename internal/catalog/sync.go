@@ -4,6 +4,7 @@ package catalog
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/FreshLabDev/framy/internal/metrics"
@@ -87,6 +88,16 @@ func (s *Syncer) SyncOnce(ctx context.Context) error {
 	for _, id := range snap.Keep {
 		s.Log.Warn("catalog offer not refreshed; kept as it was", "offer", id)
 	}
+	if len(up.NoDiscount) > 0 {
+		s.Log.Warn("catalog discounts not read; those offers show their listed price until the next sync",
+			"offers", len(up.NoDiscount), "first", up.NoDiscount[0])
+	}
+	discounted := 0
+	for _, of := range snap.Offers() {
+		if slices.ContainsFunc(of.Routes, func(r Route) bool { return r.Discount > 0 }) {
+			discounted++
+		}
+	}
 	var unpriced []string
 	if s.Check != nil {
 		unpriced = s.Check(snap)
@@ -104,7 +115,7 @@ func (s *Syncer) SyncOnce(ctx context.Context) error {
 	s.Log.Info("catalog synced",
 		"models", saved.Models, "offers", saved.Offers,
 		"added", saved.Added, "restored", saved.Restored, "disabled", saved.Disabled,
-		"kept", len(snap.Keep), "warnings", len(snap.Warnings), "unpriced", len(unpriced),
+		"kept", len(snap.Keep), "warnings", len(snap.Warnings), "unpriced", len(unpriced), "discounted", discounted,
 		"took", s.now().Sub(started).Round(time.Millisecond).String())
 	return nil
 }

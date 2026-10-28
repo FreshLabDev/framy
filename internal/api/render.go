@@ -60,6 +60,14 @@ type estimateJSON struct {
 	Label     string  `json:"label"`
 	// RateDate is the day of the rate; absent for USD.
 	RateDate string `json:"rate_date,omitempty"`
+	// Discount is the share OpenRouter takes off the listed price, 0.15 for
+	// 15%, and the figures above are after it. ListUSD, ListAmount and
+	// ListLabel are the listed price of the figure Label speaks of, for a
+	// price shown struck through. All absent without a discount.
+	Discount   float64 `json:"discount,omitempty"`
+	ListUSD    float64 `json:"list_usd,omitempty"`
+	ListAmount float64 `json:"list_amount,omitempty"`
+	ListLabel  string  `json:"list_label,omitempty"`
 }
 
 type errorJSON struct {
@@ -131,11 +139,20 @@ func money(usd float64, code string, perUSD float64, lang string) moneyJSON {
 }
 
 func estimateOf(s State, code string, perUSD float64, lang string) *estimateJSON {
-	usd := *s.EstimateUSD
+	e := estimateJSONOf(*s.EstimateUSD, s.Estimate, code, perUSD, lang)
+	if code != fx.USD && s.FXDate != nil {
+		e.RateDate = s.FXDate.Format(time.DateOnly)
+	}
+	return e
+}
+
+// estimateJSONOf writes an estimate of usd, with what est says of it, in a
+// currency. est may be nil: an exact price of usd.
+func estimateJSONOf(usd float64, est *price.Estimate, code string, perUSD float64, lang string) *estimateJSON {
 	maxUSD := usd
 	kind := price.Exact
-	if s.Estimate != nil {
-		kind, maxUSD = s.Estimate.Kind, max(s.Estimate.MaxUSD, usd)
+	if est != nil {
+		kind, maxUSD = est.Kind, max(est.MaxUSD, usd)
 	}
 	e := &estimateJSON{
 		Kind: string(kind), USD: usd, MaxUSD: maxUSD, Amount: usd * perUSD, MaxAmount: maxUSD * perUSD, Currency: code,
@@ -148,8 +165,13 @@ func estimateOf(s State, code string, perUSD float64, lang string) *estimateJSON
 	default:
 		e.Label = fx.Format(e.Amount, code, lang)
 	}
-	if code != fx.USD && s.FXDate != nil {
-		e.RateDate = s.FXDate.Format(time.DateOnly)
+	if est != nil && est.Discount > 0 && kind != price.Unknown {
+		e.Discount, e.ListUSD = est.Discount, est.ListUSD
+		if kind == price.UpTo {
+			e.ListUSD = est.ListMaxUSD
+		}
+		e.ListAmount = e.ListUSD * perUSD
+		e.ListLabel = fx.Format(e.ListAmount, code, lang)
 	}
 	return e
 }

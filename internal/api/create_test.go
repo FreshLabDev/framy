@@ -410,3 +410,86 @@ func TestAnEstimateSaysHowFarToTrustIt(t *testing.T) {
 		t.Errorf("%+v", est)
 	}
 }
+
+func TestAHigherPriceThanShownStopsTheRun(t *testing.T) {
+	r := jobRig(t)
+	r.store.lang[alice] = "en"
+	post := func(shown string) (int, map[string]any) {
+		resp := r.post(alice, "/api/jobs", nextKey(), body(testOffer, "key", `"shown_usd":`+shown))
+		return resp.StatusCode, jsonOf(t, resp)
+	}
+	before := r.queue.calls()
+	// $0.04 now, $0.03 shown: the person has not seen this price.
+	code, m := post("0.03")
+	if code != http.StatusConflict || m["error"] != codePriceChanged || r.queue.calls() != before {
+		t.Fatalf("%d %v", code, m)
+	}
+	if e := m["estimate"].(map[string]any); e["usd"] != 0.04 || e["label"] != "$0.04" {
+		t.Errorf("the new price = %v", e)
+	}
+	// The price shown, a lower one, and a change too small to show all run.
+	for _, shown := range []string{"0.04", "0.05", "0.0399999"} {
+		if code, m := post(shown); code != http.StatusAccepted {
+			t.Errorf("shown %s: %d %v", shown, code, m)
+		}
+	}
+	// No figure sent: no check, as before the composer.
+	if resp := r.post(alice, "/api/jobs", nextKey(), body(testOffer, "key")); resp.StatusCode != http.StatusAccepted {
+		t.Errorf("%d", resp.StatusCode)
+	}
+	// A free run costs the person nothing: what was shown is not checked.
+	if resp := r.post(alice, "/api/jobs", nextKey(), body("openrouter:microsoft/mai-image-2.6-flash", "free", `"shown_usd":0`)); resp.StatusCode != http.StatusAccepted {
+		t.Errorf("free: %d", resp.StatusCode)
+	}
+	if resp := r.post(alice, "/api/jobs", nextKey(), body(testOffer, "key", `"shown_usd":-1`)); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("a negative price: %d", resp.StatusCode)
+	}
+}
+
+func TestAPriceShownInHryvniasIsComparedInHryvnias(t *testing.T) {
+	r := jobRig(t)
+	r.store.chosen[alice], r.store.lang[alice] = "UAH", "uk"
+	// $0.04 is 1,66 ₴; $0.0399 is 1,6559 ₴, shown as 1,66 ₴ too.
+	if resp := r.post(alice, "/api/jobs", nextKey(), body(testOffer, "key", `"shown_usd":0.0399`)); resp.StatusCode != http.StatusAccepted {
+		t.Errorf("%d", resp.StatusCode)
+	}
+	resp := r.post(alice, "/api/jobs", nextKey(), body(testOffer, "key", `"shown_usd":0.039`))
+	m := jsonOf(t, resp)
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("%d %v", resp.StatusCode, m)
+	}
+	if e := m["estimate"].(map[string]any); e["currency"] != "UAH" || e["rate_date"] == nil {
+		t.Errorf("%v", e)
+	}
+}
+
+func TestAFreeVideoFromAStartFrameSaysSo(t *testing.T) {
+	r := jobRig(t)
+	r.store.offers[heygenOff] = heygen()
+	resp := r.post(alice, "/api/jobs", nextKey(), body(heygenOff, "free", `"inputs":[50]`))
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("%d %v", resp.StatusCode, jsonOf(t, resp))
+	}
+	n := r.queue.last()
+	if fmt.Sprint(n.Settings["frame_images"]) != "[first_frame]" || n.Settings["resolution"] != "768p" {
+		t.Errorf("settings = %v", n.Settings)
+	}
+	// Without a photo there is no frame to name.
+	r.post(alice, "/api/jobs", nextKey(), body(heygenOff, "free"))
+	if _, ok := r.queue.last().Settings["frame_images"]; ok {
+		t.Errorf("settings = %v", r.queue.last().Settings)
+	}
+	// A paid run names its frames itself, as a list.
+	resp = r.post(alice, "/api/jobs", nextKey(), body(heygenOff, "key", `"inputs":[50]`, `"settings":{"frame_images":["first_frame"]}`))
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("%d %v", resp.StatusCode, jsonOf(t, resp))
+	}
+	for name, s := range map[string]string{
+		"a list of numbers": `{"frame_images":[1]}`,
+		"a long list":       `{"frame_images":["a","b","c","d","e","f","g","h","i"]}`,
+	} {
+		if resp := r.post(alice, "/api/jobs", nextKey(), body(heygenOff, "key", `"settings":`+s)); resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("%s: %d", name, resp.StatusCode)
+		}
+	}
+}

@@ -254,8 +254,9 @@ func run(log *slog.Logger) error {
 		log.Warn("connecting OpenRouter is off: it needs SITE_URL and FRAMY_KEK_FILE")
 	}
 
-	// The job API: uploads, starting a job, reading it, and following it over
-	// SSE (#16), for whoever sign-in names.
+	// The job API: the catalog and quotes for anyone; uploads, starting a
+	// job, reading it, and following it over SSE (#16), for whoever sign-in
+	// names.
 	var uploads api.Uploads
 	var links api.Links
 	if files != nil {
@@ -263,7 +264,7 @@ func run(log *slog.Logger) error {
 	}
 	jobAPI, err := api.New(api.Config{
 		Pool: store.Pool(), Queue: queue, Store: store, Uploads: uploads, Links: links, Keys: people,
-		Person: signIn.Person, Log: log.With("component", "api"),
+		Allowance: allowance, Person: signIn.Person, Log: log.With("component", "api"),
 	})
 	if err != nil {
 		return err

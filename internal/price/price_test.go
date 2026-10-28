@@ -280,3 +280,54 @@ func TestEveryOfferHasAnEstimate(t *testing.T) {
 		}
 	}
 }
+
+func TestDiscountComesOffTheTotal(t *testing.T) {
+	m, of := offer(t, "openrouter:heygen/heygen-video-1")
+	req := Request{Settings: set{"resolution": "768p", "duration": 5}}
+	listed := Of(m, of, req)
+	if listed.Discount != 0 || listed.ListUSD != 0 || !near(listed.USD, 0.18) {
+		t.Fatalf("without a discount = %+v", listed)
+	}
+
+	of.Routes = slices.Clone(of.Routes)
+	of.Routes[0].Discount = 0.5
+	e := Of(m, of, req)
+	if !near(e.USD, 0.09) || !near(e.MaxUSD, 0.09) || !near(e.ListUSD, 0.18) || !near(e.ListMaxUSD, 0.18) || e.Discount != 0.5 || e.Kind != Exact {
+		t.Fatalf("with 50%% off = %+v", e)
+	}
+	// The lines keep the listed rate, which is what the catalog publishes.
+	if len(e.Lines) != 1 || !near(e.Lines[0].RateUSD, 0.036) || !near(e.Lines[0].USD, 0.18) {
+		t.Fatalf("lines = %+v", e.Lines)
+	}
+
+	// A broken answer is no discount.
+	of.Routes[0].Discount = 1.5
+	if e := Of(m, of, req); e.Discount != 0 || !near(e.USD, 0.18) {
+		t.Fatalf("a discount of 150%% was believed: %+v", e)
+	}
+}
+
+func TestDiscountPicksTheCheapestRoute(t *testing.T) {
+	m, of := offer(t, "openrouter:google/gemini-3.1-flash-image")
+	req := Request{Settings: set{"resolution": "1K", "aspect_ratio": "1:1"}}
+	before := Of(m, of, req)
+	of.Routes = slices.Clone(of.Routes)
+	dear := -1
+	for i, r := range of.Routes {
+		if r.Provider != before.Route {
+			dear = i
+			break
+		}
+	}
+	if dear < 0 {
+		t.Fatal("no second route")
+	}
+	of.Routes[dear].Discount = 0.9
+	e := Of(m, of, req)
+	if e.Route != of.Routes[dear].Provider || e.Discount != 0.9 || e.USD >= before.USD {
+		t.Fatalf("a route at 90%% off was not taken: %+v, before %+v", e, before)
+	}
+	if e.ListMaxUSD < e.MaxUSD {
+		t.Fatalf("listed most %v below the most %v", e.ListMaxUSD, e.MaxUSD)
+	}
+}

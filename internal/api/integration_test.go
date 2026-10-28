@@ -947,3 +947,82 @@ func TestAPhotoBroughtOverHTTPIsAJobInputOfItsOwnerAlone(t *testing.T) {
 		}
 	}
 }
+
+func TestTheComposersReadsComeFromTheDatabase(t *testing.T) {
+	w := newWorld(t)
+	in := w.instance(func(o *rigOptions) {
+		prev := o.cfg
+		o.cfg = func(c *Config) {
+			if prev != nil {
+				prev(c)
+			}
+			c.Allowance = w.allow
+		}
+	})
+	exec(t, w.pool, `UPDATE framy.catalog_offer SET routes = '[{"prices":[{"billable":"output_image","unit":"image","cost_usd":0.04}],"discount":0.25}]' WHERE id = $1`, paidOffer)
+
+	// The catalog is the database's, for anyone.
+	resp := in.do(0, http.MethodGet, "/api/catalog", nil)
+	cat := jsonOf(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("%d %v", resp.StatusCode, cat)
+	}
+	seen := map[string]bool{}
+	for _, m := range cat["models"].([]any) {
+		for _, of := range m.(map[string]any)["offers"].([]any) {
+			of := of.(map[string]any)
+			seen[of["id"].(string)] = true
+			if of["id"] == paidOffer && of["discount"] != 0.25 {
+				t.Errorf("paid offer = %v", of)
+			}
+		}
+	}
+	if !seen[freeOffer] || !seen[paidOffer] {
+		t.Fatalf("offers %v", seen)
+	}
+
+	quote := func() map[string]any {
+		resp := in.do(alice, http.MethodPost, "/api/quote", strings.NewReader(
+			`{"items":[{"offer":"`+freeOffer+`","pay":"free"},{"offer":"`+paidOffer+`","pay":"key"}]}`), "Content-Type", "application/json")
+		m := jsonOf(t, resp)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("%d %v", resp.StatusCode, m)
+		}
+		return m
+	}
+	it := items(t, quote())
+	if it[0]["refusal"] != nil || it[1]["refusal"] != nil {
+		t.Fatalf("refused: %v", it)
+	}
+	if e := estimate(t, it[1]); !near(e["usd"].(float64), 0.03) || e["list_usd"] != 0.04 {
+		t.Errorf("25%% off $0.04 = %v", e)
+	}
+
+	// The allowance used up: the quote says so as the job would, and /api/me
+	// counts it.
+	for i := range free.ImagesPerWindow {
+		if status, m, _ := in.post(alice, fmt.Sprintf("q%d", i), body(freeOffer, "free")); status != http.StatusAccepted {
+			t.Fatalf("run %d: %d %v", i, status, m)
+		}
+	}
+	ref, _ := items(t, quote())[0]["refusal"].(map[string]any)
+	if ref["error"] != "free_limit" || ref["frees_at"] == nil {
+		t.Errorf("refusal = %v", ref)
+	}
+	me := jsonOf(t, in.do(alice, http.MethodGet, "/api/me", nil))
+	images := me["free"].(map[string]any)["images"].(map[string]any)
+	if images["used"] != 5.0 || images["left"] != 0.0 || images["frees_at"] == nil {
+		t.Errorf("images = %v", images)
+	}
+
+	// A run on the person's key at the discounted price, with that price shown.
+	status, m, _ := in.post(alice, "q-paid", body(paidOffer, "key", `"shown_usd":0.03`))
+	if status != http.StatusAccepted {
+		t.Fatalf("%d %v", status, m)
+	}
+	var kept string
+	w.pool.QueryRow(context.Background(), `SELECT (estimate->>'discount') || ' ' || (estimate->>'list_usd') FROM job WHERE id=$1`, idOf(t, m)).Scan(&kept)
+	if kept != "0.25 0.04" {
+		t.Errorf("the job keeps %q of its discount", kept)
+	}
+}

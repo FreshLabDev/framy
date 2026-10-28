@@ -128,7 +128,16 @@ type Route struct {
 	// SKUs is OpenRouter's pricing_skus of a video model, kept as published:
 	// the units are not documented, and the estimate reads them.
 	SKUs map[string]string `json:"skus,omitempty"`
+	// Discount is the share OpenRouter takes off the listed rates on this
+	// route, 0.15 for 15%: the rates above stay as listed, and the estimate
+	// takes it off their total.
+	Discount float64 `json:"discount,omitempty"`
 }
+
+// Discounted reports whether d is a discount framy believes: above zero and
+// below one. Anything else is no discount, so a broken answer never makes a
+// run look free.
+func Discounted(d float64) bool { return d > 0 && d < 1 }
 
 func (r Route) accepts(passthrough string) bool {
 	return slices.Contains(r.Passthrough, passthrough)

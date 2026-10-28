@@ -8,11 +8,13 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,6 +24,7 @@ import (
 
 	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/db"
+	"github.com/FreshLabDev/framy/internal/free"
 	"github.com/FreshLabDev/framy/internal/fx"
 	"github.com/FreshLabDev/framy/internal/jobs"
 	"github.com/FreshLabDev/framy/internal/keys"
@@ -190,6 +193,10 @@ type fakeStore struct {
 	quoteErr error
 	cards    map[int64]db.Card
 	cardErr  error
+	// catalogReads counts reads of the catalog; catalogErr fails them.
+	catalogReads int
+	catalogErr   error
+	syncedAt     time.Time
 }
 
 func newFakeStore() *fakeStore {
@@ -231,6 +238,22 @@ func (s *fakeStore) UserLang(_ context.Context, userID int64) (string, error) {
 func (s *fakeStore) Card(_ context.Context, userID int64) (db.Card, error) {
 	return s.cards[userID], s.cardErr
 }
+
+// Catalog is every model of the offers, in the order of their ids.
+func (s *fakeStore) Catalog(context.Context) ([]catalog.Model, error) {
+	s.catalogReads++
+	if s.catalogErr != nil {
+		return nil, s.catalogErr
+	}
+	ids := slices.Sorted(maps.Keys(s.offers))
+	out := make([]catalog.Model, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, s.offers[id])
+	}
+	return out, nil
+}
+
+func (s *fakeStore) CatalogSyncedAt(context.Context) (time.Time, error) { return s.syncedAt, nil }
 
 // image is an offer of an image model priced $0.04 an image.
 func image(id, provider string) catalog.Model {
@@ -280,6 +303,42 @@ type fakeConns struct {
 }
 
 func (c fakeConns) List(context.Context, int64) ([]keys.Connection, error) { return c.list, c.err }
+
+// fakeAllowance is the free allowance: Usage answers usage, and Check
+// answers check after noting what it was asked.
+type fakeAllowance struct {
+	mu       sync.Mutex
+	usage    free.Usage
+	usageErr error
+	check    error
+	asked    []jobs.Admission
+}
+
+func (f *fakeAllowance) Usage(context.Context, int64) (free.Usage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.usage, f.usageErr
+}
+
+func (f *fakeAllowance) Check(_ context.Context, a jobs.Admission) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.asked = append(f.asked, a)
+	return f.check
+}
+
+// withAllowance gives the rig a free allowance.
+func withAllowance(a *fakeAllowance) func(*rigOptions) {
+	return func(o *rigOptions) {
+		prev := o.cfg
+		o.cfg = func(c *Config) {
+			if prev != nil {
+				prev(c)
+			}
+			c.Allowance = a
+		}
+	}
+}
 
 type fakeLinks struct{}
 

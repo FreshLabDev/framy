@@ -5,6 +5,9 @@ package api
 import (
 	"net/http"
 	"time"
+
+	"github.com/FreshLabDev/framy/internal/free"
+	"github.com/FreshLabDev/framy/internal/keys"
 )
 
 // meJSON is the answer of GET /api/me.
@@ -23,10 +26,44 @@ type meJSON struct {
 	CurrencyChosen bool   `json:"currency_chosen"`
 	// SignedInAt is the sign-in that gave the name and the photo.
 	SignedInAt *time.Time `json:"signed_in_at,omitempty"`
+	// Connections are the person's keys, by provider, with the last four
+	// characters of each and what the provider last said of it. Never the
+	// key.
+	Connections []keys.Connection `json:"connections"`
+	// Free is what is left of the free allowance; absent when framy runs
+	// without one.
+	Free *usageJSON `json:"free,omitempty"`
+}
+
+// usageJSON is the person's use of the free allowance, by kind.
+type usageJSON struct {
+	Images meterJSON `json:"images"`
+	Videos meterJSON `json:"videos"`
+}
+
+// meterJSON is one kind of run: Left of Limit in a rolling window, and when
+// the next slot frees up while none is left.
+type meterJSON struct {
+	Used          int        `json:"used"`
+	Limit         int        `json:"limit"`
+	Left          int        `json:"left"`
+	WindowSeconds int64      `json:"window_seconds"`
+	FreesAt       *time.Time `json:"frees_at,omitempty"`
+}
+
+func meterOf(m free.Meter) meterJSON {
+	out := meterJSON{Used: m.Used, Limit: m.Limit, Left: m.Left(), WindowSeconds: int64(m.Window.Seconds())}
+	if !m.FreesAt.IsZero() {
+		at := m.FreesAt.UTC()
+		out.FreesAt = &at
+	}
+	return out
 }
 
 // me is GET /api/me: who is signed in, for the header of the site and the
-// Mini App. Like every /api answer it goes out no-store (internal/web).
+// Mini App, with their connections and what is left of the free allowance,
+// for the composer. Like every /api answer it goes out no-store
+// (internal/web).
 func (a *API) me(w http.ResponseWriter, r *http.Request) {
 	user, ok := a.person(w, r)
 	if !ok {
@@ -49,13 +86,29 @@ func (a *API) me(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, err)
 		return
 	}
+	conns, err := a.connections(r, user)
+	if err != nil {
+		a.internal(w, r, err)
+		return
+	}
+	if conns == nil {
+		conns = []keys.Connection{}
+	}
 	out := meJSON{
 		UserID: user, Name: card.Name, PhotoURL: card.PhotoURL, Language: lang,
-		Currency: q.Code, CurrencyChosen: chosen != "" && q.Code == chosen,
+		Currency: q.Code, CurrencyChosen: chosen != "" && q.Code == chosen, Connections: conns,
 	}
 	if !card.At.IsZero() {
 		at := card.At.UTC()
 		out.SignedInAt = &at
+	}
+	if a.cfg.Allowance != nil {
+		u, err := a.cfg.Allowance.Usage(ctx, user)
+		if err != nil {
+			a.internal(w, r, err)
+			return
+		}
+		out.Free = &usageJSON{Images: meterOf(u.Images), Videos: meterOf(u.Videos)}
 	}
 	writeJSON(w, http.StatusOK, out)
 }

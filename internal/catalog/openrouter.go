@@ -25,7 +25,9 @@ const maxBody = 8 << 20
 //   - /images/models, and /images/models/{id}/endpoints for each image model,
 //     which holds the exact price of every upstream route;
 //   - /videos/models, with the parameters and pricing_skus of every video model;
-//   - /models, the only one that carries expiration_date.
+//   - /models, the only one that carries expiration_date;
+//   - /models/{id}/endpoints for every model, the only one that carries a
+//     discount off the listed price (pricing.discount, per upstream).
 type OpenRouterSource struct {
 	Base      string
 	HTTP      *http.Client
@@ -40,6 +42,10 @@ type Upstream struct {
 	// Partial lists image offers whose endpoints could not be read; the
 	// store keeps what it had for them.
 	Partial []string
+	// NoDiscount lists offers whose discount could not be read. They are
+	// saved with none, so their price errs on the dear side until the next
+	// sync.
+	NoDiscount []string
 }
 
 type orListing struct {
@@ -63,6 +69,19 @@ type orEndpoints struct {
 		Passthrough         []string         `json:"allowed_passthrough_parameters"`
 		Pricing             []Price          `json:"pricing"`
 	} `json:"endpoints"`
+}
+
+// orModelEndpoints is the answer of /models/{id}/endpoints. Its tag is the
+// provider_slug of the Images API's endpoints.
+type orModelEndpoints struct {
+	Data struct {
+		Endpoints []struct {
+			Tag     string `json:"tag"`
+			Pricing struct {
+				Discount float64 `json:"discount"`
+			} `json:"pricing"`
+		} `json:"endpoints"`
+	} `json:"data"`
 }
 
 type orVideoModel struct {
@@ -124,12 +143,27 @@ func (s *OpenRouterSource) Fetch(ctx context.Context) (Upstream, error) {
 	if len(failed)*2 > len(images) {
 		return Upstream{}, fmt.Errorf("openrouter catalog: endpoints failed for %d of %d image models", len(failed), len(images))
 	}
+	var ids []string
+	for _, m := range images {
+		if _, bad := failed[m.ID]; !bad {
+			ids = append(ids, m.ID)
+		}
+	}
+	for _, m := range videos {
+		ids = append(ids, m.ID)
+	}
+	discounts := s.discounts(ctx, ids)
+
 	var up Upstream
 	for _, m := range images {
 		id := OfferID(OpenRouter, m.ID)
 		if _, bad := failed[m.ID]; bad {
 			up.Partial = append(up.Partial, id)
 			continue
+		}
+		d, ok := discounts[m.ID]
+		if !ok {
+			up.NoDiscount = append(up.NoDiscount, id)
 		}
 		up.Offers = append(up.Offers, Offer{
 			ID:              id,
@@ -140,11 +174,15 @@ func (s *OpenRouterSource) Fetch(ctx context.Context) (Upstream, error) {
 			Description:     m.Description,
 			InputModalities: m.Architecture.InputModalities,
 			Params:          m.SupportedParameters,
-			Routes:          routes[m.ID],
+			Routes:          d.apply(routes[m.ID]),
 			ExpiresOn:       expiration(meta[m.ID].ExpirationDate),
 		})
 	}
 	for _, m := range videos {
+		d, ok := discounts[m.ID]
+		if !ok {
+			up.NoDiscount = append(up.NoDiscount, OfferID(OpenRouter, m.ID))
+		}
 		up.Offers = append(up.Offers, Offer{
 			ID:              OfferID(OpenRouter, m.ID),
 			Provider:        OpenRouter,
@@ -154,10 +192,10 @@ func (s *OpenRouterSource) Fetch(ctx context.Context) (Upstream, error) {
 			Description:     m.Description,
 			InputModalities: meta[m.ID].Architecture.InputModalities,
 			Params:          m.params(),
-			Routes: []Route{{
+			Routes: d.apply([]Route{{
 				Passthrough: m.PassthroughParameter,
 				SKUs:        m.PricingSKUs,
-			}},
+			}}),
 			ExpiresOn: expiration(meta[m.ID].ExpirationDate),
 		})
 	}
@@ -253,6 +291,74 @@ func (s *OpenRouterSource) endpoints(ctx context.Context, images []orImageModel)
 	}
 	wg.Wait()
 	return routes, failed
+}
+
+// discount is what /models/{id}/endpoints says of one model: the discount of
+// each upstream, by its tag.
+type discount map[string]float64
+
+// apply puts the discount on routes. An image route takes its upstream's,
+// by the tag that is its provider slug. A route the answer does not name,
+// and a video model's one route, take the smallest of the model's: a smaller
+// discount errs on the dear side.
+func (d discount) apply(routes []Route) []Route {
+	if len(d) == 0 {
+		return routes
+	}
+	least := 1.0
+	for _, v := range d {
+		least = min(least, v)
+	}
+	out := slices.Clone(routes)
+	for i := range out {
+		v, ok := d[out[i].Provider]
+		if !ok || out[i].Provider == "" {
+			v = least
+		}
+		if Discounted(v) {
+			out[i].Discount = v
+		}
+	}
+	return out
+}
+
+// discounts reads the discount of every model, a few at a time. A model whose
+// answer fails is left out of the map, and its offers are saved with no
+// discount: the price then errs on the dear side until the next sync, which
+// is better than failing the sync for a figure that only lowers prices.
+func (s *OpenRouterSource) discounts(ctx context.Context, ids []string) map[string]discount {
+	parallel := max(s.Parallel, 1)
+	var (
+		mu    sync.Mutex
+		out   = make(map[string]discount, len(ids))
+		wg    sync.WaitGroup
+		slots = make(chan struct{}, parallel)
+	)
+	for _, id := range ids {
+		wg.Go(func() {
+			slots <- struct{}{}
+			defer func() { <-slots }()
+			var e orModelEndpoints
+			if err := s.get(ctx, "/models/"+escapeID(id)+"/endpoints", &e); err != nil {
+				return
+			}
+			d := discount{}
+			for _, ep := range e.Data.Endpoints {
+				v := ep.Pricing.Discount
+				if !Discounted(v) {
+					v = 0
+				}
+				if cur, seen := d[ep.Tag]; !seen || v < cur {
+					d[ep.Tag] = v
+				}
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			out[id] = d
+		})
+	}
+	wg.Wait()
+	return out
 }
 
 // escapeID escapes each segment of "author/slug" and keeps the slash, which

@@ -91,7 +91,15 @@ type Estimate struct {
 	// of the input images.
 	Unknown []string `json:"unknown,omitempty"`
 	// Note says why the price is only a floor, when Kind is From.
-	Note  string `json:"note,omitempty"`
+	Note string `json:"note,omitempty"`
+	// Discount is the share the route takes off its listed rates, 0.15 for
+	// 15%, and USD and MaxUSD are after it. ListUSD and ListMaxUSD are the
+	// same figures at the listed rates, for a price shown struck through;
+	// both are zero without a discount.
+	Discount   float64 `json:"discount,omitempty"`
+	ListUSD    float64 `json:"list_usd,omitempty"`
+	ListMaxUSD float64 `json:"list_max_usd,omitempty"`
+	// Lines are at the listed rates, before the discount.
 	Lines []Line `json:"lines,omitempty"`
 }
 
@@ -119,6 +127,11 @@ func Of(m catalog.Model, of catalog.Offer, req Request) Estimate {
 		// Routes at different prices: OpenRouter takes the cheapest, but may
 		// fall back to another.
 		best.Kind = About
+	}
+	if best.Discount > 0 {
+		// The most may come from a dearer route; the listed figure is never
+		// below the one it is shown against.
+		best.ListMaxUSD = math.Max(best.ListMaxUSD, best.MaxUSD)
 	}
 	return best
 }
@@ -152,6 +165,13 @@ func route(m catalog.Model, of catalog.Offer, r catalog.Route, req Request) Esti
 	}
 	if e.Kind == Exact {
 		e.MaxUSD = e.USD
+	}
+	if d := r.Discount; catalog.Discounted(d) {
+		// OpenRouter shows the listed rate struck through and bills the
+		// discounted one (docs/design.md, Price and currency).
+		e.Discount, e.ListUSD, e.ListMaxUSD = d, e.USD, e.MaxUSD
+		e.USD *= 1 - d
+		e.MaxUSD *= 1 - d
 	}
 	return e
 }

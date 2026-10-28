@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/FreshLabDev/framy/internal/catalog"
@@ -30,6 +32,8 @@ const (
 	maxInputs   = 16
 	maxSettings = 32
 	maxSetting  = 1000 // bytes of a setting's name or text value
+	// maxListSetting is the most values a list setting may hold.
+	maxListSetting = 8
 )
 
 // Payers of a run: the free allowance, or the person's own connection.
@@ -59,6 +63,12 @@ type createRequest struct {
 	Pay string `json:"pay"`
 	// Surface is "site" (the default) or "mini_app".
 	Surface string `json:"surface"`
+	// ShownUSD is the price the person saw before pressing Generate: the
+	// figure of the quote's label, usd, or max_usd for "up to". A run on
+	// their own key whose price would now show higher is refused with 409
+	// price_changed and the new estimate, and waits for another press. A
+	// lower price runs as it is. Absent: no check.
+	ShownUSD *float64 `json:"shown_usd"`
 }
 
 // create answers POST /api/jobs: 202 with the job at once. The run happens
@@ -116,16 +126,12 @@ func (a *API) create(w http.ResponseWriter, r *http.Request) {
 		}
 		// The allowance's settings are not the client's to know: a run that
 		// leaves one out gets it, and one that sets it to something else is
-		// refused by the allowance.
-		for name, v := range plan.Settings() {
-			if cur, set := settings[name]; !set || cur == nil {
-				settings[name] = v
-			}
-		}
-	} else if aerr, err := a.checkConnection(r, user, offer.Provider); err != nil {
+		// refused by the allowance. A video from a start frame says so.
+		fillFree(settings, plan, len(req.Inputs))
+	} else if conns, err := a.connections(r, user); err != nil {
 		a.internal(w, r, err)
 		return
-	} else if aerr != nil {
+	} else if aerr := checkConnection(conns, offer.Provider); aerr != nil {
 		aerr.write(w)
 		return
 	}
@@ -144,6 +150,15 @@ func (a *API) create(w http.ResponseWriter, r *http.Request) {
 	quote, err := a.quote(r, user, lang)
 	if err != nil {
 		a.internal(w, r, err)
+		return
+	}
+	if !isFree && req.ShownUSD != nil && dearer(estimate, *req.ShownUSD, quote, lang) {
+		e := estimateJSONOf(estimate.USD, &estimate, quote.Code, quote.PerUSD, lang)
+		if quote.Code != fx.USD {
+			e.RateDate = quote.Date.Format(time.DateOnly)
+		}
+		newError(http.StatusConflict, codePriceChanged, "the price is higher than the one shown; show the new one and ask again").
+			with("estimate", e).write(w)
 		return
 	}
 	n := jobs.New{
@@ -181,6 +196,16 @@ func (a *API) accepted(w http.ResponseWriter, r *http.Request, user, id int64, c
 
 // refused answers a job the queue would not make.
 func (a *API) refused(w http.ResponseWriter, r *http.Request, err error) {
+	if e := a.refusal(err); e != nil {
+		e.write(w)
+		return
+	}
+	a.internal(w, r, err)
+}
+
+// refusal is the answer to a refusal of the queue or the allowance, or nil
+// for an error that is not one.
+func (a *API) refusal(err error) *apiError {
 	var (
 		limit  *free.LimitError
 		closed *free.ClosedError
@@ -190,22 +215,61 @@ func (a *API) refused(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.As(err, &limit):
 		e := newError(http.StatusTooManyRequests, codeFreeLimit, limit.Error())
 		e.retryAfter = limit.FreesAt.Sub(a.now())
-		e.with("kind", string(limit.Kind)).with("limit", limit.Limit).
-			with("window_seconds", int64(limit.Window.Seconds())).with("frees_at", limit.FreesAt.UTC()).write(w)
+		return e.with("kind", string(limit.Kind)).with("limit", limit.Limit).
+			with("window_seconds", int64(limit.Window.Seconds())).with("frees_at", limit.FreesAt.UTC())
 	case errors.As(err, &closed):
 		e := newError(http.StatusServiceUnavailable, codeFreeClosed, "the free tier is closed for now")
 		if !closed.Until.IsZero() {
 			e.retryAfter = closed.Until.Sub(a.now())
 			e.with("until", closed.Until.UTC())
 		}
-		e.write(w)
+		return e
 	case errors.As(err, &notFr):
-		newError(http.StatusUnprocessableEntity, codeNotFree, notFr.Error()).with("reason", notFr.Reason).write(w)
+		return newError(http.StatusUnprocessableEntity, codeNotFree, notFr.Error()).with("reason", notFr.Reason)
 	case errors.Is(err, jobs.ErrNoInput):
-		newError(http.StatusUnprocessableEntity, codeUnknownInput, "an input is not one of your files").write(w)
-	default:
-		a.internal(w, r, err)
+		return newError(http.StatusUnprocessableEntity, codeUnknownInput, "an input is not one of your files")
 	}
+	return nil
+}
+
+// fillFree puts the allowance's settings for a run that takes the given
+// number of files into settings, where the run left them out.
+func fillFree(settings map[string]any, plan free.Plan, inputs int) {
+	for name, v := range plan.SettingsFor(inputs) {
+		if cur, set := settings[name]; !set || cur == nil {
+			settings[name] = v
+		}
+	}
+}
+
+// dearer reports whether the estimate would show a higher price than the one
+// the person saw, in the currency it is shown in: a change too small to
+// change the label is no change. An estimate of unknown kind has no figure
+// to compare.
+func dearer(e price.Estimate, shownUSD float64, q fx.Quote, lang string) bool {
+	if e.Kind == price.Unknown || math.IsNaN(shownUSD) || shownUSD < 0 {
+		return false
+	}
+	figure := e.USD
+	if e.Kind == price.UpTo {
+		figure = e.MaxUSD
+	}
+	if figure <= shownUSD {
+		return false
+	}
+	return fx.Format(q.Convert(figure), q.Code, lang) != fx.Format(q.Convert(shownUSD), q.Code, lang)
+}
+
+// connections lists the person's connections; none without a KEK.
+func (a *API) connections(r *http.Request, user int64) ([]keys.Connection, error) {
+	if a.cfg.Keys == nil {
+		return nil, nil
+	}
+	conns, err := a.cfg.Keys.List(r.Context(), user)
+	if errors.Is(err, keys.ErrDisabled) {
+		return nil, nil
+	}
+	return conns, err
 }
 
 // checkConnection says why a run on the person's own key cannot start: they
@@ -213,25 +277,17 @@ func (a *API) refused(w http.ResponseWriter, r *http.Request, err error) {
 // queue's adapter would fail the job as key later; this refuses it before it
 // exists. A key that is merely short of billing, verification or credit
 // still goes: that is how its status gets fixed.
-func (a *API) checkConnection(r *http.Request, user int64, provider string) (*apiError, error) {
-	var conns []keys.Connection
-	if a.cfg.Keys != nil {
-		var err error
-		conns, err = a.cfg.Keys.List(r.Context(), user)
-		if err != nil && !errors.Is(err, keys.ErrDisabled) {
-			return nil, err
-		}
-	}
+func checkConnection(conns []keys.Connection, provider string) *apiError {
 	for _, c := range conns {
 		if c.Provider != provider {
 			continue
 		}
 		if c.Status == keys.Invalid {
-			return newError(http.StatusPaymentRequired, codeConnectionInvalid, "the key for this provider was refused by it; replace it").with("provider", provider), nil
+			return newError(http.StatusPaymentRequired, codeConnectionInvalid, "the key for this provider was refused by it; replace it").with("provider", provider)
 		}
-		return nil, nil
+		return nil
 	}
-	return newError(http.StatusPaymentRequired, codeNoConnection, "connect a key for this provider, or run on the free allowance").with("provider", provider), nil
+	return newError(http.StatusPaymentRequired, codeNoConnection, "connect a key for this provider, or run on the free allowance").with("provider", provider)
 }
 
 // quote picks the currency of the price and the rate to show it with. The
@@ -239,12 +295,16 @@ func (a *API) checkConnection(r *http.Request, user int64, provider string) (*ap
 // when the request came through the trusted proxy: anyone else could send
 // the header, then, and pick a currency for another person's price. Then
 // the language, then USD (fx.Default). A currency with no rate saved yet
-// (a first start) is shown in USD rather than not at all.
+// (a first start) is shown in USD rather than not at all. user 0 is nobody
+// signed in, who has no choice of their own.
 func (a *API) quote(r *http.Request, user int64, lang string) (fx.Quote, error) {
 	ctx := r.Context()
-	chosen, err := a.cfg.Store.Currency(ctx, user)
-	if err != nil {
-		return fx.Quote{}, err
+	var chosen string
+	if user != 0 {
+		var err error
+		if chosen, err = a.cfg.Store.Currency(ctx, user); err != nil {
+			return fx.Quote{}, err
+		}
 	}
 	country := ""
 	if web.FromProxy(r) {
@@ -299,37 +359,61 @@ func decode(r *http.Request) (createRequest, *apiError) {
 		return req, badRequest("pay", `pay must be "free" or "key"`)
 	case req.Surface != "" && req.Surface != string(jobs.Site) && req.Surface != string(jobs.MiniApp):
 		return req, badRequest("surface", `surface must be "site" or "mini_app"`)
-	case !utf8.ValidString(req.Prompt) || strings.ContainsRune(req.Prompt, 0):
-		return req, badRequest("prompt", "prompt must be text")
-	case utf8.RuneCountInString(req.Prompt) > maxPrompt:
-		return req, badRequest("prompt", fmt.Sprintf("prompt is over %d characters", maxPrompt))
-	case strings.TrimSpace(req.Prompt) == "" && len(req.Inputs) == 0:
-		return req, badRequest("prompt", "send a prompt or an input file")
-	case len(req.Inputs) > maxInputs:
-		return req, badRequest("inputs", fmt.Sprintf("at most %d input files", maxInputs))
-	case len(req.Settings) > maxSettings:
-		return req, badRequest("settings", fmt.Sprintf("at most %d settings", maxSettings))
+	case req.ShownUSD != nil && (math.IsNaN(*req.ShownUSD) || *req.ShownUSD < 0):
+		return req, badRequest("shown_usd", "shown_usd is the price shown, in dollars")
 	}
-	for _, id := range req.Inputs {
+	if e := checkRun("", req.Prompt, req.Settings, req.Inputs); e != nil {
+		return req, e
+	}
+	if strings.TrimSpace(req.Prompt) == "" && len(req.Inputs) == 0 {
+		return req, badRequest("prompt", "send a prompt or an input file")
+	}
+	return req, nil
+}
+
+// checkRun checks the prompt, the settings and the inputs of a run, for a
+// job or a quote; prefix goes before the field a refusal names.
+func checkRun(prefix, prompt string, settings map[string]any, inputs []int64) *apiError {
+	switch {
+	case !utf8.ValidString(prompt) || strings.ContainsRune(prompt, 0):
+		return badRequest(prefix+"prompt", "prompt must be text")
+	case utf8.RuneCountInString(prompt) > maxPrompt:
+		return badRequest(prefix+"prompt", fmt.Sprintf("prompt is over %d characters", maxPrompt))
+	case len(inputs) > maxInputs:
+		return badRequest(prefix+"inputs", fmt.Sprintf("at most %d input files", maxInputs))
+	case len(settings) > maxSettings:
+		return badRequest(prefix+"settings", fmt.Sprintf("at most %d settings", maxSettings))
+	}
+	for _, id := range inputs {
 		if id <= 0 {
-			return req, badRequest("inputs", "inputs are ids of your files")
+			return badRequest(prefix+"inputs", "inputs are ids of your files")
 		}
 	}
-	for name, v := range req.Settings {
+	for name, v := range settings {
 		if name == "" || len(name) > maxSetting || !utf8.ValidString(name) || strings.ContainsRune(name, 0) {
-			return req, badRequest("settings", "a setting has no usable name")
+			return badRequest(prefix+"settings", "a setting has no usable name")
 		}
 		switch v := v.(type) {
 		case nil, bool, float64:
 		case string:
 			if len(v) > maxSetting || !utf8.ValidString(v) || strings.ContainsRune(v, 0) {
-				return req, badRequest("settings."+name, "a setting's text is too long or not text")
+				return badRequest(prefix+"settings."+name, "a setting's text is too long or not text")
+			}
+		case []any:
+			// A list setting, such as frame_images: a few short words.
+			if len(v) > maxListSetting {
+				return badRequest(prefix+"settings."+name, "a list setting is too long")
+			}
+			for _, x := range v {
+				if t, ok := x.(string); !ok || len(t) > maxSetting || !utf8.ValidString(t) || strings.ContainsRune(t, 0) {
+					return badRequest(prefix+"settings."+name, "a list setting holds short texts")
+				}
 			}
 		default:
-			return req, badRequest("settings."+name, "a setting is a string, a number, a boolean or null")
+			return badRequest(prefix+"settings."+name, "a setting is a string, a number, a boolean, a list of texts or null")
 		}
 	}
-	return req, nil
+	return nil
 }
 
 // jsonProblem names what is wrong with a body without echoing it.

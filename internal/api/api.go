@@ -1,17 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package api is the JSON API the site and the Mini App talk to: who is
-// signed in, photo uploads, starting a job, reading it, and following it
-// over SSE (docs/design.md, Jobs). No request waits for a generation: POST /api/jobs
+// Package api is the JSON API the site and the Mini App talk to: the
+// catalog and the price of a run before it starts, who is signed in, photo
+// uploads, starting a job, reading it, and following it over SSE
+// (docs/design.md, Jobs). No request waits for a generation: POST /api/jobs
 // answers 202 at once and the client follows /api/jobs/{id}/events, with
 // GET /api/jobs/{id} as the fallback.
 //
 // Who is asking is not decided here. Config.Person names the signed-in
 // person behind a request, or says there is none: main gives it
-// internal/auth's Person.
-// Every route answers 401 {"error":"sign_in"} without one, and a job is
-// visible to its owner only: anyone else gets 404, as for a job that does
-// not exist.
+// internal/auth's Person. GET /api/catalog and POST /api/quote answer anyone,
+// since the site shows models and prices before a sign-in; every other route
+// answers 401 {"error":"sign_in"} without a person, and a job is visible to
+// its owner only: anyone else gets 404, as for a job that does not exist.
 //
 // Progress comes from the database. A trigger on framy.job bumps the job's
 // event_seq and does pg_notify('framy_events', …) in the transaction that
@@ -36,6 +37,7 @@ import (
 
 	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/db"
+	"github.com/FreshLabDev/framy/internal/free"
 	"github.com/FreshLabDev/framy/internal/fx"
 	"github.com/FreshLabDev/framy/internal/jobs"
 	"github.com/FreshLabDev/framy/internal/keys"
@@ -72,6 +74,8 @@ const (
 	uploadWait = 20 * time.Second
 	// retryMillis is the reconnect delay an event stream suggests.
 	retryMillis = 3000
+	// DefaultCatalogTTL is how long the catalog is kept in memory.
+	DefaultCatalogTTL = time.Minute
 )
 
 // Queue starts jobs: *jobs.Queue.
@@ -92,6 +96,18 @@ type Store interface {
 	// Card is the name and photo of the person's last sign-in; a zero Card
 	// when there is none.
 	Card(ctx context.Context, userID int64) (db.Card, error)
+	// Catalog is every model that is on and shown, with its offers that are,
+	// and CatalogSyncedAt when the last sync saved it.
+	Catalog(ctx context.Context) ([]catalog.Model, error)
+	CatalogSyncedAt(ctx context.Context) (time.Time, error)
+}
+
+// Allowance is the free allowance: *free.Allowance. Usage reads a person's
+// meters; Check answers what the queue's admission would answer now,
+// without taking a slot.
+type Allowance interface {
+	Usage(ctx context.Context, userID int64) (free.Usage, error)
+	Check(ctx context.Context, a jobs.Admission) error
 }
 
 // Uploads keeps a photo: *storage.Store.
@@ -124,6 +140,10 @@ type Config struct {
 	Links   Links
 	// Keys is nil without a KEK file, which is no connection for anyone.
 	Keys Connections
+	// Allowance is nil in tests that leave the free allowance out: /api/me
+	// then says nothing of it, and a quote does not say whether a free run
+	// would go.
+	Allowance Allowance
 	// Person names the signed-in person behind a request. No person: ok is
 	// false. It is asked on every request, so it has to be cheap.
 	Person func(*http.Request) (userID int64, ok bool)
@@ -147,6 +167,11 @@ type Config struct {
 	Backoff   time.Duration
 	Now       func() time.Time
 
+	// CatalogTTL is how long the catalog is kept in memory between reads of
+	// the database: DefaultCatalogTTL when zero. The sync changes it once an
+	// hour.
+	CatalogTTL time.Duration
+
 	// data replaces the reads of job and asset rows, and listening is told
 	// each time the listener is connected; tests only.
 	data      data
@@ -163,6 +188,7 @@ type API struct {
 	slots   chan struct{}
 	now     func() time.Time
 	maxBody int64
+	catalog *catalogCache
 }
 
 // New checks cfg and fills its defaults.
@@ -184,6 +210,7 @@ func New(cfg Config) (*API, error) {
 	setDefault(&cfg.MaxUpload, storage.DefaultMaxUpload)
 	setDefault(&cfg.Keepalive, 30*time.Second)
 	setDefault(&cfg.Backoff, time.Second)
+	setDefault(&cfg.CatalogTTL, DefaultCatalogTTL)
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
@@ -193,6 +220,7 @@ func New(cfg Config) (*API, error) {
 		slots:   make(chan struct{}, cfg.UploadSlots),
 		now:     cfg.Now,
 		maxBody: cfg.MaxUpload + uploadSlack,
+		catalog: &catalogCache{ttl: cfg.CatalogTTL},
 	}
 	if a.data == nil {
 		a.data = pgData{pool: cfg.Pool}
@@ -214,6 +242,8 @@ func (a *API) Register(site *web.Server) {
 	site.HandleFunc("GET /api/jobs/{id}", a.get)
 	site.HandleFunc("GET /api/jobs/{id}/events", a.events, web.Stream())
 	site.HandleFunc("GET /api/me", a.me)
+	site.HandleFunc("GET /api/catalog", a.catalogRoute)
+	site.HandleFunc("POST /api/quote", a.quoteRoute)
 }
 
 // PersonKey makes web.Config.Person of the API's Person: the per-person rate
@@ -256,6 +286,7 @@ const (
 	codeBadRequest        = "bad_request"
 	codeNotFound          = "not_found"
 	codeUnknownOffer      = "unknown_offer"
+	codePriceChanged      = "price_changed"
 	codeUnknownInput      = "unknown_input"
 	codeNotFree           = "not_free"
 	codeFreeLimit         = "free_limit"
@@ -355,11 +386,14 @@ func (a *API) person(w http.ResponseWriter, r *http.Request) (int64, bool) {
 }
 
 // language is the person's language for writing amounts: core's, else the
-// first tag of Accept-Language, else English.
+// first tag of Accept-Language, else English. userID 0 is nobody signed in.
 func (a *API) language(ctx context.Context, r *http.Request, userID int64) string {
-	lang, err := a.cfg.Store.UserLang(ctx, userID)
-	if err != nil {
-		a.log.Warn("user language", "error", err)
+	var lang string
+	if userID != 0 {
+		var err error
+		if lang, err = a.cfg.Store.UserLang(ctx, userID); err != nil {
+			a.log.Warn("user language", "error", err)
+		}
 	}
 	if lang == "" {
 		lang = firstTag(r.Header.Get("Accept-Language"))

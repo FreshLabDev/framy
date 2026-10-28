@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"slices"
 	"time"
 
 	"github.com/FreshLabDev/framy/internal/catalog"
@@ -109,6 +110,13 @@ func startFrameOf(p Plan) Plan {
 	p.startFrame = true
 	return p
 }
+
+// Plans are the models of the allowance, for a surface that lists them.
+func Plans() []Plan { return slices.Clone(plans) }
+
+// StartFrame reports whether the run's one optional file is the video's first
+// frame.
+func (p Plan) StartFrame() bool { return p.startFrame }
 
 // Models are the OpenRouter ids of the models the allowance runs; the overlay
 // marks them `free`.

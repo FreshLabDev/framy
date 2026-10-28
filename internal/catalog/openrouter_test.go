@@ -4,6 +4,7 @@ package catalog
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -206,5 +207,58 @@ func TestEscapeIDKeepsTheSlash(t *testing.T) {
 	}
 	if got := escapeID("a b/c?d"); got != "a%20b/c%3Fd" {
 		t.Fatal(got)
+	}
+}
+
+func TestFetchReadsDiscounts(t *testing.T) {
+	answer := func(body string) http.HandlerFunc {
+		return func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }
+	}
+	srv := fixtureServer(t, map[string]http.HandlerFunc{
+		"/api/v1/models/heygen/heygen-video-1/endpoints": answer(
+			`{"data":{"endpoints":[{"tag":"heygen","pricing":{"prompt":"0","discount":0.5}}]}}`),
+		// Two of three upstreams named; the third takes the smaller discount.
+		"/api/v1/models/google/gemini-3.1-flash-image/endpoints": answer(
+			`{"data":{"endpoints":[{"tag":"google-vertex/us","pricing":{"discount":0.2}},{"tag":"google-ai-studio","pricing":{"discount":0.1}}]}}`),
+		// A discount of 150% is a broken answer, not a free model.
+		"/api/v1/models/alibaba/wan-3.0/endpoints": answer(
+			`{"data":{"endpoints":[{"tag":"alibaba","pricing":{"discount":1.5}}]}}`),
+	})
+	up, err := source(srv).Fetch(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	heygen := offerByID(t, up.Offers, "openrouter:heygen/heygen-video-1")
+	if heygen.Routes[0].Discount != 0.5 {
+		t.Fatalf("heygen discount = %v, want 0.5", heygen.Routes[0].Discount)
+	}
+	flash := offerByID(t, up.Offers, "openrouter:google/gemini-3.1-flash-image")
+	got := map[string]float64{}
+	for _, r := range flash.Routes {
+		got[r.Provider] = r.Discount
+	}
+	want := map[string]float64{"google-vertex/us": 0.2, "google-ai-studio": 0.1, "google-vertex/global": 0.1}
+	if !maps.Equal(got, want) {
+		t.Fatalf("flash discounts = %v, want %v", got, want)
+	}
+	if d := offerByID(t, up.Offers, "openrouter:alibaba/wan-3.0").Routes[0].Discount; d != 0 {
+		t.Fatalf("wan 3.0 discount = %v from an answer of 1.5, want none", d)
+	}
+	// The fixtures have no /models/{id}/endpoints: every other offer is
+	// named as unread, and keeps its listed price.
+	for _, id := range []string{"openrouter:heygen/heygen-video-1", "openrouter:google/gemini-3.1-flash-image", "openrouter:alibaba/wan-3.0"} {
+		if slices.Contains(up.NoDiscount, id) {
+			t.Fatalf("%s is named as unread", id)
+		}
+	}
+	if len(up.NoDiscount) != len(up.Offers)-3 {
+		t.Fatalf("%d offers unread, want %d", len(up.NoDiscount), len(up.Offers)-3)
+	}
+	for _, of := range up.Offers {
+		for _, r := range of.Routes {
+			if r.Discount != 0 && of.ID != "openrouter:heygen/heygen-video-1" && of.ID != "openrouter:google/gemini-3.1-flash-image" {
+				t.Fatalf("%s has a discount of %v from nowhere", of.ID, r.Discount)
+			}
+		}
 	}
 }
