@@ -11,7 +11,7 @@ The catalog follows one rule meanwhile: a count of reference images, videos or s
 1. **ByteDance (BytePlus ModelArk) for Seedance.** Editing and extending a video need `ratio: adaptive` and, for an edit, `duration: -1`, which OpenRouter does not publish; Seedance 2.5 makes 1080p only at the maker; `return_last_frame` gives the frame to chain the next clip from. These are the features that make "Edit" and "Continue" work on the cheapest video models with reference video and sound.
 2. **Kling.** OpenRouter runs Kling through AtlasCloud's narrower schema: no reference images, no reference video, no multi-shot, no Elements, no 1080p or 4K. Kling 4.0 came out on 28 October 2026 and is not on OpenRouter.
 3. **xAI.** Grok Imagine Video 1.5 takes 14 reference images, a last frame, 4 keyframes and 3 preset voices at xAI, and only a first frame through OpenRouter. Video 1.0 edits and extends one uploaded clip at xAI.
-4. **OpenAI and Gemini, the ports framy has.** Several things in the list below only need the existing direct adapters to send them: GPT Image's 2K and 4K sizes, output format and mask; Gemini's thinking level and search grounding.
+4. **OpenAI and Gemini, the ports framy has.** They send what OpenRouter does not: GPT Image's sizes up to 3840 px and its format; Gemini's thinking level, Search and Image Search grounding, input detail, JPEG output, video input and Omni. Left: GPT Image's mask (stage 3) and Omni's reference clips.
 5. **HeyGen and MiniMax.** HeyGen Video makes 16 to 30 s and 1080p at HeyGen; MiniMax's Hailuo 3 runs at 768P for $0.08 a second against $0.13 at 2K, the only resolution OpenRouter offers.
 
 ## Alibaba (Wan, HappyHorse)
@@ -70,14 +70,17 @@ Seedream 5.0 Pro and Flash take 10 references at BytePlus while OpenRouter lists
 | Capability | At the maker | Through OpenRouter | Why framy wants it |
 |:--|:--|:--|:--|
 | Nano Banana `thinking_level` | Google's default `medium` on 2.1 | no on the Images API; the chat route has only high, minimal and none, default minimal | quality on hard prompts; framy's direct port has it |
-| Google Search and Image Search grounding | Search on 2.1, 3.1 Flash and 3 Pro; Image Search on 2.1 and 3.1 Flash only | no | framy knows one `google_search` flag; Image Search is a second one |
-| `media_resolution` | yes | no | Input detail, on the direct port |
-| video and PDF input, `previous_interaction_id`, jpeg or URI output | yes | no | multi-turn editing |
+| Google Search and Image Search grounding | Search on 2.1, 3.1 Flash and 3 Pro; Image Search on 2.1 and 3.1 Flash only | no | the direct port has both (`google_search`, `image_search`) and keeps the Search Suggestions Google asks to show |
+| `media_resolution` | yes | no | Input detail; the direct port sends it, the composer waits for a check |
+| video input, JPEG output | yes | no | the direct port has both |
+| PDF input, `previous_interaction_id` for images, URI output | yes | no | not taken: framy has no PDFs, images go with `store: false`, so an edit sends the result back instead of continuing, and results come inline |
 | Veo reference images | 3 asset images or 1 style image (confirmed at Google) | unverified | |
 | Veo extension | +7 s, up to 37 s | no field, though the description says "20 chained clips" | |
 | Veo `sampleCount` 1 to 4, `resizeMode`, `compressionQuality` | yes | no | |
-| Omni duration | `response_format.duration`, "3s" to "10s" on Vertex (likely) | not on OpenRouter | an exact price instead of "up to" |
-| Omni reference video | 3 clips of up to 3 s, sound in them ignored (confirmed) | not on OpenRouter | likeness of a person or object |
+| Omni | Gemini API only | not on OpenRouter | the direct port runs it: frames, 6 reference images, a source of up to 10 s, `previous_interaction_id` |
+| Omni duration | `response_format.duration`, "3s" to "10s" on Vertex (likely) | not on OpenRouter | an exact price instead of "up to"; the direct port sends it, the catalog lists it after a run |
+| Omni reference video | 3 clips of up to 3 s, sound in them ignored (confirmed) | not on OpenRouter | likeness of a person or object; not offered yet, since the catalog has one video role per model and Omni's is the source |
+| search query billing | 5,000 queries a month, then $14 per 1,000 on Gemini 3 | no | not in framy's estimate or cost: framy cannot see the person's allowance |
 
 Dates: Veo 3.1 preview ids closed on the Gemini API on 22 October 2026, with Omni named in their place; the Vertex ids OpenRouter runs retire "17 November 2026 or later". Gemini 3.1 Flash Image was deprecated on 6 October 2026 with no shutdown day; Gemini 2.5 Flash Image shuts on 15 March 2027. Veo with references runs 8 s only; the Gemini API docs say the same of 1080p and 4K. Omni spells 4K as `4k`.
 
@@ -246,3 +249,7 @@ The audit priced each; none was run.
 | Seedance 2.5 with a first frame and no ratio or duration | 4 s at 480p | about $1.30 |
 | Is Kling 3.0 Pro 720p or 1080p? | 3 s | $0.34 |
 | Does HY Image use more than 5 references, and what does 1.5K cost? | three runs | $0.08 |
+| Does Omni run through framy's adapter from words and from a start frame, and is a refusal read right? (`TestLiveOmni`, issue #33) | two 720p videos and a refused prompt | $0.60 to $2.02 |
+| Does Omni keep to `response_format.duration`? | one 3 s video at 720p | about $0.30 |
+| Does Image Search bring Search Suggestions, and in what shape? (`TestLiveProbes`) | one image on Nano Banana 2.1 at 1K | about $0.034 |
+| Do the Nano Banana models take `media_resolution`, and does the input token count drop? | two runs with one reference, `low` and `high` | about $0.07 |

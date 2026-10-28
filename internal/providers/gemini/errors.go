@@ -79,14 +79,15 @@ func KeyStatusOf(err error) string {
 // a jobs.Error of class Moderation, and it never holds the person's prompt.
 type Refusal struct {
 	// Reason is Google's own word, upper case: IMAGE_SAFETY, PROHIBITED_CONTENT,
-	// SAFETY, OTHER, or NO_IMAGE when the model answered in text.
+	// SAFETY, OTHER, or NO_IMAGE (NO_VIDEO) when the model answered in text.
 	Reason string
 	// Stage is where it stopped: "prompt" (a blockReason: nothing was made),
 	// "result" (a finishReason or an error code: the image was withheld) or
 	// "" when the answer does not say.
 	Stage string
-	// Text is what the model said in place of an image: the explanation a
-	// person should read when Reason is NO_IMAGE. Empty otherwise.
+	// Text is what the model said in place of an image or a video: the
+	// explanation a person should read when Reason is NO_IMAGE or NO_VIDEO.
+	// Empty otherwise.
 	Text string
 	// Message is Google's own explanation of the block, when it gave one.
 	Message string
@@ -98,6 +99,10 @@ const (
 
 	// ReasonNoImage: the model answered in text instead of drawing.
 	ReasonNoImage = "NO_IMAGE"
+	// ReasonNoVideo: the model answered in text instead of making a video.
+	// Google documents no such code; framy names a finished video run that
+	// holds only words so.
+	ReasonNoVideo = "NO_VIDEO"
 
 	// maxText bounds the model's words kept in a refusal: a job row holds
 	// 2,000 characters of error.
@@ -110,7 +115,7 @@ func (r *Refusal) Error() string {
 	case stagePrompt:
 		b.WriteString("gemini blocked the prompt")
 	case stageResult:
-		b.WriteString("gemini withheld the image")
+		b.WriteString("gemini withheld the result")
 	default:
 		b.WriteString("gemini declined the run")
 	}
@@ -139,16 +144,18 @@ func clipText(s string) string {
 
 func isRuneStart(b byte) bool { return b&0xC0 != 0x80 }
 
-// declined are the words Google uses for a request or an image it will not
-// serve, as an error code of the Interactions API (snake_case) or as a
-// blockReason or finishReason (upper case). The table is the API errors
+// declined are the words Google uses for a request, an image or a video it
+// will not serve, as an error code of the Interactions API (snake_case) or as
+// a blockReason or finishReason (upper case). The table is the API errors
 // page's "generation blocked" codes, no_image, and OTHER: an image model
-// that answers OTHER with no image has been filtered.
+// that answers OTHER with no image has been filtered. The VIDEO_ codes are
+// the IMAGE_ ones for Omni, by analogy: Google lists none of its own.
 var declined = map[string]bool{
 	"SAFETY": true, "RECITATION": true, "LANGUAGE": true, "PROHIBITED_CONTENT": true,
 	"SPII": true, "BLOCKLIST": true, "IMAGE_SAFETY": true, "IMAGE_PROHIBITED_CONTENT": true,
 	"IMAGE_RECITATION": true, "IMAGE_OTHER": true, "CONTENT_BLOCKED": true,
-	ReasonNoImage: true, "OTHER": true,
+	"VIDEO_SAFETY": true, "VIDEO_PROHIBITED_CONTENT": true, "VIDEO_RECITATION": true, "VIDEO_OTHER": true,
+	ReasonNoImage: true, ReasonNoVideo: true, "OTHER": true,
 }
 
 // errorBody is the error object of an answer. The Interactions API writes
@@ -217,7 +224,13 @@ func (e *APIError) fill(b *errorBody, key string) {
 	e.Message = clip(msg)
 	switch c := b.Code.(type) {
 	case string:
-		e.Code = strings.ToLower(strings.TrimSpace(c))
+		// The reference calls the code a URI that names the error; its last
+		// part is the snake_case word the errors page lists.
+		c = strings.TrimSpace(c)
+		if i := strings.LastIndexAny(c, "/#"); i >= 0 {
+			c = c[i+1:]
+		}
+		e.Code = strings.ToLower(c)
 	case float64:
 		if e.Status == 0 {
 			e.Status = int(c)
@@ -323,10 +336,10 @@ func (e *APIError) keyError(class jobs.Class, status string) *jobs.Error {
 	return &jobs.Error{Class: class, Err: &KeyError{Status: status, HTTPStatus: e.Status, Code: e.Code, Message: e.Message}}
 }
 
-// stageFor says where a refusal code stops a run: the image codes are the
-// output's, the rest do not say.
+// stageFor says where a refusal code stops a run: the image and video codes
+// are the output's, the rest do not say.
 func stageFor(reason string) string {
-	if strings.HasPrefix(reason, "IMAGE_") || reason == ReasonNoImage {
+	if strings.HasPrefix(reason, "IMAGE_") || strings.HasPrefix(reason, "VIDEO_") || reason == ReasonNoImage || reason == ReasonNoVideo {
 		return stageResult
 	}
 	return ""

@@ -135,6 +135,32 @@ was written from, and the skeleton of the service.
   `limit: 0`) fails at once as `key` with the status `needs_billing` and is
   never retried; a spent prepaid balance and a wrong key are told apart too.
   The actual cost is the usage tokens times the catalog's rates.
+- Gemini Omni 1.1 Flash on a person's Gemini key, as a background
+  interaction: video from words, from a start frame or from a start and an
+  end frame (named in the prompt with `<FIRST_FRAME>` and `<LAST_FRAME>`),
+  from up to 6 reference images, and from a source video of up to 10 s to
+  edit or extend, every file sent inline. The interaction's id is saved
+  before the first poll, so a retry never pays twice, and a poll every 30 s
+  finishes the run. A video Google leaves as a file is downloaded with the
+  key from the adapter's own base, never from the link in the answer. A
+  background run needs `store: true`, so Google keeps it, for 55 days on a
+  paid project; images still go with `store: false`. `previous_interaction_id`
+  continues an earlier run when a run's settings carry it. A video may be at
+  most 128 MiB, as on OpenRouter. A run that ends without a video says why
+  and keeps what Google billed. Extending a clip is priced up to the
+  source's length plus 10 s, since the whole result may be billed.
+- More of Nano Banana on the Gemini key: Google Image Search grounding on
+  2.1 and 3.1 Flash (`image_search`, beside web search or alone), PNG or
+  JPEG output (`output_format`), the detail each input is read at
+  (`media_resolution`, low to ultra high), and one video of up to 60 s as an
+  input to 2.1, 3.1 Flash and Lite. A grounded run keeps what Google's terms
+  ask to show with it, the Search Suggestions, with the queries and the
+  cited pages (migration 016, `job.grounding`), and `GET /api/jobs/{id}`
+  gives them as `grounding`. `/img` never turns search on, since a Telegram
+  message cannot show them. Google's charge for search queries past its
+  monthly allowance is in neither the estimate nor the cost. The actual cost
+  is read by modality now, so thinking, tool use and a video input are each
+  priced at their own rate.
 - The free allowance: 5 images in any 24 hours and 1 video in any 7 days per
   Telegram user id, across every surface, counted from the job table. Free
   runs go through framy's own OpenRouter key with fixed settings: MAI 2.6

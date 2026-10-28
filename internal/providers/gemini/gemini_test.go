@@ -345,7 +345,7 @@ func TestWhatNoOfferTakesIsRefusedBeforeAnything(t *testing.T) {
 		"an aspect ratio nobody has":             job(t, map[string]any{"aspect_ratio": "7:3"}),
 		"1:8 on Pro":                             jobOf(t, pro3, map[string]any{"aspect_ratio": "1:8"}),
 		"fifteen references":                     job(t, nil, fifteen...),
-		"a video as a reference":                 job(t, nil, jobs.Input{ContentType: "video/mp4", URL: "https://r2.example/x.mp4"}),
+		"a video on Pro, which takes none":       jobOf(t, pro3, nil, jobs.Input{ContentType: "video/mp4", URL: "https://r2.example/x.mp4"}),
 		"a GIF as a reference":                   job(t, nil, jobs.Input{ContentType: "image/gif", URL: "https://r2.example/x.gif"}),
 		"an empty prompt":                        empty,
 		"an offer with no model id":              noModel,
@@ -374,7 +374,7 @@ func TestEveryDescriptorSettingIsSentOrRefusedNeverDropped(t *testing.T) {
 		t.Fatal(err)
 	}
 	for id, of := range all {
-		if of.Provider != catalog.Gemini || of.Kind != catalog.Image {
+		if of.Provider != catalog.Gemini {
 			continue
 		}
 		for name, param := range of.Params {
@@ -382,15 +382,19 @@ func TestEveryDescriptorSettingIsSentOrRefusedNeverDropped(t *testing.T) {
 				continue
 			}
 			var value any
-			switch param.Type {
-			case catalog.Enum:
+			var inputs []jobs.Input
+			switch {
+			case name == framesSetting:
+				value = []any{"first_frame"}
+				inputs = []jobs.Input{{ContentType: "image/png", URL: "data:image/png;base64,AAAA"}}
+			case param.Type == catalog.Enum:
 				value = param.Values[len(param.Values)-1]
-			case catalog.Boolean:
+			case param.Type == catalog.Boolean:
 				value = true
 			default:
 				t.Fatalf("%s: %s is a %s, which this test does not know", id, name, param.Type)
 			}
-			j := jobs.Job{Kind: catalog.Image, Prompt: "x", Offer: of, Settings: map[string]any{name: value}}
+			j := jobs.Job{Kind: of.Kind, Prompt: "x", Offer: of, Settings: map[string]any{name: value}, Inputs: inputs}
 			if _, err := planFor(j); err != nil {
 				t.Errorf("%s: %s=%v is in the descriptor but the adapter does not send it: %v", id, name, value, err)
 			}
@@ -1000,18 +1004,5 @@ func TestAStopDuringTheCallIsLeftToTheQueue(t *testing.T) {
 				t.Errorf("%v", err)
 			}
 		})
-	}
-}
-
-func TestVideoIsNotRunYet(t *testing.T) {
-	p, u := serve(t, reply(200, "{}"))
-	j := job(t, nil)
-	j.Kind = catalog.Video
-	_, err := p.Submit(context.Background(), j)
-	if pe := classOf(t, err); pe.Class != jobs.NoAdapter || u.calls != 0 {
-		t.Errorf("class %s, %d calls", pe.Class, u.calls)
-	}
-	if _, err := p.Poll(context.Background(), j); classOf(t, err).Class != jobs.NoAdapter {
-		t.Errorf("poll: %v", err)
 	}
 }

@@ -110,6 +110,10 @@ models:
     family: {id: nano-banana, gen: "2.1", tier: flash, label: "2.1"}
     offers: [gemini:gemini-nano-banana-2.1]
     featured: true
+    # Video-to-image on the direct offer: one clip beside the prompt, sent
+    # inline. Google names no length; 60 s is framy's own bound, so the
+    # tokens of the clip stay a few cents.
+    references: {video: 1, video_clip: {max_seconds: 60, max_mb: 50}}
     # Only the direct offer has thinking_level.
     effort: {parameter: thinking_level, values: [minimal, medium, high]}
     price:
@@ -124,6 +128,10 @@ models:
     deprecated: {successor: google/gemini-nano-banana-2.1}
     offers: [gemini:gemini-3.1-flash-image]
     effort: {parameter: thinking_level, values: [minimal, high]}
+    # Video-to-image on the direct offer: one clip beside the prompt, sent
+    # inline. Google names no length; 60 s is framy's own bound, so the
+    # tokens of the clip stay a few cents.
+    references: {video: 1, video_clip: {max_seconds: 60, max_mb: 50}}
     price:
       tokens: {output_image: {"512": 747, 1K: 1120, 2K: 1680, 4K: 2520}}
 
@@ -132,6 +140,10 @@ models:
     family: {id: nano-banana, gen: "2", tier: lite, label: 2 Lite}
     offers: [gemini:gemini-3.1-flash-lite-image]
     effort: {parameter: thinking_level, values: [minimal, high]}
+    # Video-to-image on the direct offer: one clip beside the prompt, sent
+    # inline. Google names no length; 60 s is framy's own bound, so the
+    # tokens of the clip stay a few cents.
+    references: {video: 1, video_clip: {max_seconds: 60, max_mb: 50}}
     price:
       tokens: {output_image: {1K: 1120}}
 
@@ -495,9 +507,14 @@ models:
     picks_length: {min: 3, max: 10}
     price:
       tokens: {output_video: {720p: 5792}}
-    # An uploaded video goes through the Files API, up to 10 s, and not in
-    # the EEA, Switzerland and the UK; its own results have no such limit.
-    source_video: {max_seconds: 10}
+    # Reference pictures: Google names no limit, and its own example uses
+    # six. Without frames Omni decides itself how to use a picture.
+    references: {image: 6}
+    # A video to edit or extend, up to 10 s, sent inline up to 48 MiB; not
+    # in the EEA, Switzerland and the UK. Its own results have no such limit.
+    # Omni also takes up to 3 clips of 3 s as references, which the catalog
+    # cannot offer beside a source: one video is the source.
+    source_video: {max_seconds: 10, max_mib: 48}
     # No recognizable people, and no minors in the EEA, Switzerland and the UK.
     faces: adults
 

@@ -18,8 +18,14 @@
 //     and Google refuses before it makes anything.
 //   - TestLiveProbes: only with GEMINI_TEST_PROBES=1. A prompt that asks for
 //     words and no picture (a cent or less, $0.034 if the model draws
-//     anyway) and one image grounded in Google Search (about $0.034, plus
-//     $0.014 a search query beyond the free 5,000 a month).
+//     anyway), one image grounded in Google Search and one in Google Image
+//     Search, which must bring the search suggestions (about $0.034 each,
+//     plus $0.014 a search query beyond the free 5,000 a month).
+//   - TestLiveOmni: only with GEMINI_TEST_OMNI=1. Two Omni videos at 720p,
+//     one from words and one from a start frame, $0.30 to $1.01 each as the
+//     model picks 3 to 10 s: $0.60 to $2.02 in all. Then a prompt Google
+//     should refuse, which costs nothing when it is blocked. This is the
+//     check issue #33 waits on.
 //
 // GEMINI_TEST_MODEL names another model of catalog/gemini.yaml. GEMINI_TEST_OUT,
 // when set, is a directory the images are written to, together with each
@@ -282,7 +288,110 @@ func TestLiveProbes(t *testing.T) {
 		if out.Err != nil || len(out.Results) == 0 {
 			t.Fatalf("outcome %+v", out)
 		}
-		t.Logf("grounded: cost %s", costOf(out))
+		t.Logf("grounded: cost %s, %d suggestions", costOf(out), len(suggestionsOf(out.Grounding)))
 		save(t, "grounded", out.Results[0])
 	})
+
+	t.Run("grounded in Google Image Search", func(t *testing.T) {
+		if _, ok := offerOfModel(model).Params["image_search"]; !ok {
+			t.Skipf("%s has no Image Search", model)
+		}
+		s := cheap(model)
+		s["image_search"] = true
+		out, err := run(t, p, liveJob(t, "Use image search to find what a resplendent quetzal looks like, and draw one on a branch", s))
+		if err != nil {
+			t.Fatalf("%v", err)
+		}
+		if out.Err != nil || len(out.Results) == 0 {
+			t.Fatalf("outcome %+v", out)
+		}
+		if len(suggestionsOf(out.Grounding)) == 0 {
+			t.Errorf("no search suggestions: Google's terms ask that they be shown")
+		}
+		t.Logf("image search: cost %s, grounding %+v", costOf(out), out.Grounding)
+		save(t, "image-search", out.Results[0])
+	})
+}
+
+func suggestionsOf(g *jobs.Grounding) []string {
+	if g == nil {
+		return nil
+	}
+	return g.Suggestions
+}
+
+// omniRun starts a video and polls it to the end, ten minutes at most.
+func omniRun(t *testing.T, p *Provider, j jobs.Job) jobs.Outcome {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	sub, err := p.Submit(ctx, j)
+	if err != nil {
+		t.Fatalf("submit: %v (key status %q)", err, KeyStatusOf(err))
+	}
+	if sub.Outcome != nil && !sub.Outcome.Running {
+		return *sub.Outcome
+	}
+	j.ProviderJobID = sub.ProviderJobID
+	t.Logf("interaction %s", j.ProviderJobID)
+	for {
+		select {
+		case <-ctx.Done():
+			t.Fatalf("no video in ten minutes")
+		case <-time.After(10 * time.Second):
+		}
+		out, err := p.Poll(ctx, j)
+		if err != nil {
+			t.Logf("poll: %v", err)
+			continue
+		}
+		if !out.Running {
+			return out
+		}
+	}
+}
+
+func TestLiveOmni(t *testing.T) {
+	key := keyFrom(t, "GEMINI_TEST_KEY_FILE")
+	if os.Getenv("GEMINI_TEST_OMNI") == "" {
+		t.Skip("set GEMINI_TEST_OMNI=1 to make two Omni videos; they cost $0.60 to $2.02")
+	}
+	p := liveProvider(key)
+	omniLive := func(prompt string, settings map[string]any, inputs ...jobs.Input) jobs.Job {
+		j := jobOf(t, omni, settings, inputs...)
+		j.Kind, j.Prompt = catalog.Video, prompt
+		return j
+	}
+	videoCost := func(name string, out jobs.Outcome) {
+		t.Helper()
+		if out.Err != nil || len(out.Results) != 1 {
+			t.Fatalf("%s: %+v", name, out)
+		}
+		if out.CostUSD == nil || *out.CostUSD < 0.2 || *out.CostUSD > 1.5 {
+			t.Errorf("%s cost %s: 3 to 10 s at 720p is $0.30 to $1.01", name, costOf(out))
+		}
+		t.Logf("%s: %s, %d bytes, cost %s", name, out.Results[0].ContentType, len(out.Results[0].Data), costOf(out))
+		if dir := os.Getenv("GEMINI_TEST_OUT"); dir != "" {
+			_ = os.WriteFile(filepath.Join(dir, name+".mp4"), out.Results[0].Data, 0o644)
+		}
+	}
+
+	out := omniRun(t, p, omniLive("A paper boat drifting down a rainy street gutter, close-up, single continuous shot", map[string]any{"resolution": "720p"}))
+	videoCost("omni-text", out)
+
+	out = omniRun(t, p, omniLive("The blue gradient slowly turns into a calm ocean at dawn, single continuous shot",
+		map[string]any{"resolution": "720p", "frame_images": []any{"first_frame"}},
+		jobs.Input{ContentType: "image/png", URL: dataURL(backdrop(t))}))
+	videoCost("omni-frame", out)
+
+	out = omniRun(t, p, omniLive("A graphic, realistic video of a violent assault", map[string]any{"resolution": "720p"}))
+	var r *Refusal
+	switch {
+	case out.Err == nil:
+		t.Errorf("Google made the video (%s); the refusal check needs another prompt", costOf(out))
+	case out.Err.Class != jobs.Moderation || !errors.As(out.Err, &r):
+		t.Errorf("not a refusal: %v; the answer in GEMINI_TEST_OUT shows its real shape", out.Err)
+	default:
+		t.Logf("refused: %v, cost %s", out.Err, costOf(out))
+	}
 }

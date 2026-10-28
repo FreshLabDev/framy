@@ -2,15 +2,18 @@
 
 // Package gemini runs generations on a person's own Gemini key, through the
 // Interactions API (docs/design.md, Jobs). It is the only door to what
-// OpenRouter does not pass on: thinking_level and Google Search grounding.
-// An image run is one synchronous call that answers with the picture, so
-// there is nothing to poll. Video (Gemini Omni) comes later.
+// OpenRouter does not pass on: thinking_level, Google Search and Image Search
+// grounding, and Gemini Omni, the one video model a Gemini key has. An image
+// run is one synchronous call that answers with the picture, so there is
+// nothing to poll. A video runs in the background: Submit returns the
+// interaction's id and Poll asks about it until the video is in the answer.
 //
 // The adapter tells three kinds of "no" apart, because the queue and the
 // person do different things with each:
 //
-//   - a refusal (class moderation, *Refusal): a filter blocked the prompt or
-//     the image, or the model answered in words and drew nothing;
+//   - a refusal (class moderation, *Refusal): a filter blocked the prompt,
+//     the picture or the video, or the model answered in words and made
+//     nothing;
 //   - a key that cannot pay (class key or money, *KeyError): no billing on
 //     the project, a spent prepaid balance, a wrong key. None is sent again;
 //   - a failure, which is retried only when it came before the run started.
@@ -42,13 +45,22 @@ const (
 	// one and ignores the header now, but a later revision will not be taken
 	// silently.
 	DefaultRevision = "2026-05-20"
-	// DefaultMaxResponse bounds an answer: a 4K PNG is about 30 MB in base64.
+	// DefaultMaxResponse bounds an image's answer: a 4K PNG is about 30 MB in
+	// base64.
 	DefaultMaxResponse = 128 << 20
-	// DefaultMaxInput bounds one reference, and DefaultMaxInputs all of them
+	// DefaultMaxVideo bounds a finished video, which is held in memory while
+	// it is copied, the same 128 MiB as OpenRouter's (docs/design.md, Jobs):
+	// ten seconds of Omni at 4K is well under it. A video comes inline in
+	// base64, a third larger, so its answer may be up to
+	// DefaultMaxVideoAnswer.
+	DefaultMaxVideo       = 128 << 20
+	DefaultMaxVideoAnswer = 192 << 20
+	// DefaultMaxInput bounds one file sent, and DefaultMaxInputs all of them
 	// together. Google takes 100 MB of inline data in a request, and base64
-	// adds a third. Photos reach this point already at most 2048 px long.
-	DefaultMaxInput  = 20 << 20
-	DefaultMaxInputs = 48 << 20
+	// adds a third. Photos reach this point already at most 2048 px long; a
+	// video to edit is up to 10 s.
+	DefaultMaxInput  = 48 << 20
+	DefaultMaxInputs = 60 << 20
 	// DefaultFetchTimeout bounds the download of one reference.
 	DefaultFetchTimeout = 60 * time.Second
 )
@@ -63,15 +75,19 @@ type Config struct {
 	UserAgent string
 	// Revision is the Api-Revision header, DefaultRevision when empty.
 	Revision string
-	// Fetch downloads the references from their presigned links. It must
-	// refuse private addresses; the default is safehttp's client.
+	// Fetch downloads the references from their presigned links, and a
+	// video Google hands over as a file. It must refuse private addresses;
+	// the default is safehttp's client.
 	Fetch *http.Client
 	// Key returns the person's Gemini key for the job. An *jobs.Error keeps
 	// its class; any other error fails the job as internal. The key never
 	// reaches a log or an error.
 	Key func(ctx context.Context, j jobs.Job) (string, error)
-	// MaxResponse bounds an answer, DefaultMaxResponse when zero.
+	// MaxResponse bounds an image's answer, DefaultMaxResponse when zero.
 	MaxResponse int64
+	// MaxVideo bounds a finished video and MaxVideoAnswer the answer that
+	// carries it; the defaults when zero.
+	MaxVideo, MaxVideoAnswer int64
 	// MaxInput and MaxInputs bound one reference and all of them, in bytes
 	// before base64; the defaults when zero.
 	MaxInput, MaxInputs int64
@@ -100,6 +116,12 @@ func New(cfg Config) *Provider {
 	if cfg.MaxResponse <= 0 {
 		cfg.MaxResponse = DefaultMaxResponse
 	}
+	if cfg.MaxVideo <= 0 {
+		cfg.MaxVideo = DefaultMaxVideo
+	}
+	if cfg.MaxVideoAnswer <= 0 {
+		cfg.MaxVideoAnswer = DefaultMaxVideoAnswer
+	}
 	if cfg.MaxInput <= 0 {
 		cfg.MaxInput = DefaultMaxInput
 	}
@@ -109,12 +131,12 @@ func New(cfg Config) *Provider {
 	return &Provider{cfg: cfg}
 }
 
-// Submit runs an image. Everything framy can check is checked before the key
-// is asked for and before a reference is fetched, so a run refused for its
-// settings costs nothing.
+// Submit runs an image, or starts a video. Everything framy can check is
+// checked before the key is asked for and before a file is fetched, so a run
+// refused for its settings costs nothing.
 func (p *Provider) Submit(ctx context.Context, j jobs.Job) (jobs.Submission, error) {
-	if j.Kind != catalog.Image {
-		return jobs.Submission{}, &jobs.Error{Class: jobs.NoAdapter, Err: errors.New("framy cannot run Gemini video yet")}
+	if j.Kind != catalog.Image && j.Kind != catalog.Video {
+		return jobs.Submission{}, &jobs.Error{Class: jobs.NoAdapter, Err: fmt.Errorf("framy cannot run a Gemini %s", j.Kind)}
 	}
 	pl, err := planFor(j)
 	if err != nil {
@@ -132,16 +154,23 @@ func (p *Provider) Submit(ctx context.Context, j jobs.Job) (jobs.Submission, err
 	if err != nil {
 		return jobs.Submission{}, err
 	}
-	out, err := p.interact(ctx, key, j.Offer, body)
+	if j.Kind == catalog.Video {
+		return p.startVideo(ctx, key, j, body)
+	}
+	raw, err := p.do(ctx, key, http.MethodPost, "/interactions", body, p.cfg.MaxResponse)
 	if err != nil {
 		return jobs.Submission{}, err
 	}
+	out := outcome(j.Offer, raw, key)
 	return jobs.Submission{Outcome: &out}, nil
 }
 
-// Poll is never called for an image: Submit returns the result.
+// Poll asks about a video. An image is never polled: Submit returns it.
 func (p *Provider) Poll(ctx context.Context, j jobs.Job) (jobs.Outcome, error) {
-	return jobs.Outcome{}, &jobs.Error{Class: jobs.NoAdapter, Err: fmt.Errorf("Gemini %s runs are not polled yet", j.Kind)}
+	if j.Kind != catalog.Video {
+		return jobs.Outcome{}, &jobs.Error{Class: jobs.NoAdapter, Err: fmt.Errorf("Gemini %s runs are not polled", j.Kind)}
+	}
+	return p.pollVideo(ctx, j)
 }
 
 func (p *Provider) key(ctx context.Context, j jobs.Job) (string, error) {
@@ -161,14 +190,14 @@ func (p *Provider) key(ctx context.Context, j jobs.Job) (string, error) {
 	return key, nil
 }
 
-// file is a reference, fetched.
+// file is an input, fetched.
 type file struct {
 	contentType string
 	data        []byte
 }
 
-// fetchAll downloads the references from their presigned links. Gemini would
-// take the link itself only if it were a Files API one; the bytes go inline.
+// fetchAll downloads the inputs from their presigned links. Gemini would take
+// the link itself only if it were a Files API one; the bytes go inline.
 // Nothing is paid yet, so a failure here is safe to try again, except for a
 // link that is gone.
 func (p *Provider) fetchAll(ctx context.Context, inputs []jobs.Input) ([]file, error) {
@@ -180,7 +209,7 @@ func (p *Provider) fetchAll(ctx context.Context, inputs []jobs.Input) ([]file, e
 			return nil, err
 		}
 		if total += int64(len(data)); total > p.cfg.MaxInputs {
-			return nil, refused("the references together are larger than %d MiB", p.cfg.MaxInputs>>20)
+			return nil, refused("the files together are larger than %d MiB", p.cfg.MaxInputs>>20)
 		}
 		files = append(files, file{contentType: in.ContentType, data: data})
 	}
@@ -244,45 +273,68 @@ func withoutURL(err error) error {
 	return err
 }
 
-// interact sends the paid request.
-func (p *Provider) interact(ctx context.Context, key string, of catalog.Offer, body []byte) (jobs.Outcome, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.cfg.Base+"/interactions", bytes.NewReader(body))
-	if err != nil {
-		return jobs.Outcome{}, &jobs.Error{Class: jobs.Internal, Err: err}
+// tooLargeError: an answer, or a video in it, above its limit.
+type tooLargeError struct {
+	what  string
+	limit int64
+}
+
+func (e *tooLargeError) Error() string {
+	return fmt.Sprintf("%s is larger than %d MiB", e.what, e.limit>>20)
+}
+
+// do sends a request to Gemini with the key and reads a 200's body, up to
+// limit bytes. Any other status is read as Google's error. A body that breaks
+// off or is too large fails as provider: after a POST the run was likely
+// paid, so it is not sent again; after a GET the queue asks again.
+func (p *Provider) do(ctx context.Context, key, method, path string, body []byte, limit int64) ([]byte, error) {
+	var rd io.Reader
+	if body != nil {
+		rd = bytes.NewReader(body)
 	}
-	// The key goes in a header and never in the URL, which logs keep.
-	req.Header.Set("x-goog-api-key", key)
-	req.Header.Set("Api-Revision", p.cfg.Revision)
-	req.Header.Set("Content-Type", "application/json")
+	req, err := http.NewRequestWithContext(ctx, method, p.cfg.Base+path, rd)
+	if err != nil {
+		return nil, &jobs.Error{Class: jobs.Internal, Err: err}
+	}
+	p.authorize(req, key)
 	req.Header.Set("Accept", "application/json")
-	if p.cfg.UserAgent != "" {
-		req.Header.Set("User-Agent", p.cfg.UserAgent)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
 	resp, err := p.cfg.HTTP.Do(req)
 	if err != nil {
-		return jobs.Outcome{}, transportError(err)
+		return nil, transportError(err)
 	}
 	defer resp.Body.Close()
 
-	limited := http.MaxBytesReader(nil, resp.Body, p.cfg.MaxResponse)
+	limited := http.MaxBytesReader(nil, resp.Body, limit)
 	if resp.StatusCode != http.StatusOK {
 		data, _ := io.ReadAll(io.LimitReader(limited, 1<<20))
-		return jobs.Outcome{}, statusError(resp.StatusCode, resp.Header, data, key)
+		return nil, statusError(resp.StatusCode, resp.Header, data, key)
 	}
 	raw, err := io.ReadAll(limited)
 	if err != nil {
 		if ctx.Err() != nil {
 			// Cut short by the deadline or a stop: the queue reads which.
-			return jobs.Outcome{}, fmt.Errorf("read the answer of gemini: %w", err)
+			return nil, fmt.Errorf("read the answer of gemini: %w", err)
 		}
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
-			err = fmt.Errorf("the answer is larger than %d MiB", p.cfg.MaxResponse>>20)
+			err = &tooLargeError{what: "the answer", limit: limit}
 		}
-		// The run was likely paid, so this is not tried again.
-		return jobs.Outcome{}, &jobs.Error{Class: jobs.ProviderFailed, Err: fmt.Errorf("read the answer of gemini: %w", err)}
+		return nil, &jobs.Error{Class: jobs.ProviderFailed, Err: fmt.Errorf("read the answer of gemini: %w", err)}
 	}
-	return outcome(of, raw, key), nil
+	return raw, nil
+}
+
+// authorize puts the key and the pinned revision on a request to Gemini. The
+// key goes in a header and never in the URL, which logs keep.
+func (p *Provider) authorize(req *http.Request, key string) {
+	req.Header.Set("x-goog-api-key", key)
+	req.Header.Set("Api-Revision", p.cfg.Revision)
+	if p.cfg.UserAgent != "" {
+		req.Header.Set("User-Agent", p.cfg.UserAgent)
+	}
 }
 
 // transportError reads a failed call. A connection that was never made sent

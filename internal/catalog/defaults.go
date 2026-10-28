@@ -41,11 +41,12 @@ func Defaults(of Offer, shape float64) map[string]any {
 
 // drawn are the settings the composer draws a control for. OpenRouter lists
 // seed and an image's size as booleans that only say a route takes the
-// field, so a boolean is a toggle only for sound and Google Search.
+// field, so a boolean is a toggle only for sound, Google Search and Google
+// Image Search.
 var drawn = map[string]bool{
 	"aspect_ratio": true, "size": true, "resolution": true, "quality": true, "background": true,
 	"thinking_level": true, "n": true, "duration": true, "generate_audio": true, "google_search": true,
-	"upscale_factor": true, "creativity": true,
+	"image_search": true, "upscale_factor": true, "creativity": true,
 }
 
 // Standard sizes: the side of an image and the height of a video that a
@@ -70,7 +71,7 @@ func defaultOf(kind Kind, name string, p Param, shape float64) (any, bool) {
 		case "generate_audio":
 			// OpenRouter's own default where a model has sound.
 			return true, true
-		case "google_search":
+		case "google_search", "image_search":
 			return false, true
 		}
 	}

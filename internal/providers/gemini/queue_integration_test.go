@@ -244,3 +244,157 @@ func TestTheQueueRecordsWhatGeminiAnswered(t *testing.T) {
 		t.Errorf("the model's words are lost: %q", j.Error)
 	}
 }
+
+func TestTheQueueRunsAnOmniVideoAndKeepsTheGrounding(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	video := offerOf(t, omni)
+	params, _ := json.Marshal(video.Params)
+	routes, _ := json.Marshal(video.Routes)
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO framy.catalog_model (id, kind, name, maker) VALUES ('google/gemini-omni-1.1-flash', 'video', 'Gemini Omni 1.1 Flash', 'Google') ON CONFLICT DO NOTHING`, nil},
+		{`INSERT INTO framy.catalog_offer (id, model_id, provider, provider_model_id, name, params, routes, fetched_at)
+		  VALUES ($1, 'google/gemini-omni-1.1-flash', 'gemini', $2, 'Gemini Omni 1.1 Flash', $3, $4, now())
+		  ON CONFLICT (id) DO UPDATE SET params = EXCLUDED.params, routes = EXCLUDED.routes`,
+			[]any{video.ID, video.ProviderModelID, string(params), string(routes)}},
+	} {
+		if _, err := pool.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("%s: %v", stmt.sql, err)
+		}
+	}
+	storage := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("\xff\xd8\xff\xe0photo"))
+	}))
+	defer storage.Close()
+
+	suggestions := `<div class="container"><a class="chip" href="https://www.google.com/search?q=arctic+fox">arctic fox</a></div>`
+	var mu sync.Mutex
+	posts, gets := 0, 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			// Running at the first poll, done at the second.
+			gets++
+			if gets == 1 {
+				_, _ = io.WriteString(w, running)
+				return
+			}
+			_, _ = io.WriteString(w, finished(videoBlock(mp4)))
+			return
+		}
+		posts++
+		var body map[string]any
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &body)
+		if body["model"] == omni {
+			if body["background"] != true || body["store"] != true {
+				t.Errorf("a video not in the background: %v", body)
+			}
+			_, _ = io.WriteString(w, running)
+			return
+		}
+		_, _ = io.WriteString(w, `{"id":"v1_g","status":"completed","steps":[`+
+			`{"type":"google_search_call","arguments":{"queries":["arctic fox"]}},`+
+			`{"type":"google_search_result","result":[{"search_suggestions":`+mustJSON(suggestions)+`}]},`+
+			`{"type":"model_output","content":[`+imageBlock(png, "image/png")+`]}],"usage":`+usage1K+`}`)
+	}))
+	defer srv.Close()
+
+	s := &sink{kept: map[int64][]jobs.Result{}}
+	q, err := jobs.NewQueue(pool, jobs.Config{
+		Providers: map[string]jobs.Provider{"gemini": New(Config{
+			Base: srv.URL + "/v1beta", HTTP: srv.Client(), Fetch: storage.Client(),
+			Key: func(context.Context, jobs.Job) (string, error) { return testKey, nil },
+		})},
+		Sink:      s,
+		Inputs:    links{storage.URL},
+		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
+		WaitSlot:  100 * time.Millisecond,
+		FetchPoll: 50 * time.Millisecond,
+		PollEvery: 100 * time.Millisecond,
+		StopGrace: 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	video.ModelID = "google/gemini-omni-1.1-flash"
+	image := offerOf(t, nano21)
+	image.ModelID = "google/gemini-nano-banana-2.1"
+	estimate := price.Estimate{Offer: video.ID, USD: 0.30, MaxUSD: 1.02, Kind: price.UpTo}
+	vid, _, err := q.Enqueue(ctx, jobs.New{
+		UserID: person, Surface: jobs.Site, Offer: video, Prompt: "an arctic fox running",
+		Settings: map[string]any{"resolution": "720p"}, Estimate: &estimate,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, _, err := q.Enqueue(ctx, jobs.New{
+		UserID: person, Surface: jobs.Site, Offer: image, Prompt: "an arctic fox, as it really looks",
+		Settings: map[string]any{"image_search": true}, Estimate: &price.Estimate{Offer: image.ID, USD: 0.04, MaxUSD: 0.04, Kind: price.About},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		stop, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = q.Stop(stop)
+	}()
+	wait := func(id int64) jobs.Job {
+		deadline := time.Now().Add(20 * time.Second)
+		for {
+			j, err := q.Get(ctx, id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if j.Status.Final() {
+				return j
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("job %d still %s", id, j.Status)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+
+	j := wait(vid)
+	if j.Status != jobs.Done || j.Submits != 1 || j.ProviderJobID != "v1_ChdvbW5pMTIz" || j.ActualUSD == nil || !near(*j.ActualUSD, omniCost) {
+		t.Errorf("the video: %s, %d submits, id %q, actual %v, %s", j.Status, j.Submits, j.ProviderJobID, j.ActualUSD, j.Error)
+	}
+	s.mu.Lock()
+	kept := s.kept[vid]
+	s.mu.Unlock()
+	if len(kept) != 1 || kept[0].ContentType != "video/mp4" || string(kept[0].Data) != string(mp4) {
+		t.Errorf("kept %v", kept)
+	}
+	mu.Lock()
+	if gets != 2 {
+		t.Errorf("%d polls, want 2", gets)
+	}
+	mu.Unlock()
+
+	j = wait(img)
+	if j.Status != jobs.Done {
+		t.Fatalf("the grounded image: %s %s", j.Status, j.Error)
+	}
+	var raw []byte
+	if err := pool.QueryRow(ctx, `SELECT grounding FROM framy.job WHERE id = $1`, img).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	var g jobs.Grounding
+	if err := json.Unmarshal(raw, &g); err != nil || len(g.Suggestions) != 1 || g.Suggestions[0] != suggestions || len(g.Queries) != 1 {
+		t.Errorf("grounding %s (%v): the suggestions Google asks to show are kept with the job", raw, err)
+	}
+	var none []byte
+	if err := pool.QueryRow(ctx, `SELECT grounding FROM framy.job WHERE id = $1`, vid).Scan(&none); err != nil || none != nil {
+		t.Errorf("the video's grounding %s (%v), want none", none, err)
+	}
+}

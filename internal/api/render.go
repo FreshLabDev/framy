@@ -30,11 +30,16 @@ type jobJSON struct {
 	Cost     *moneyJSON    `json:"cost,omitempty"`
 	// Error says why the job failed, or why a queued one is waiting to go
 	// again (a refusal before the run started, with RetryAt).
-	Error      *errorJSON   `json:"error,omitempty"`
-	RetryAt    *time.Time   `json:"retry_at,omitempty"`
-	Results    []resultJSON `json:"results,omitempty"`
-	CreatedAt  time.Time    `json:"created_at"`
-	FinishedAt *time.Time   `json:"finished_at,omitempty"`
+	Error   *errorJSON   `json:"error,omitempty"`
+	RetryAt *time.Time   `json:"retry_at,omitempty"`
+	Results []resultJSON `json:"results,omitempty"`
+	// Grounding comes with the results of a run grounded in Google Search.
+	// Google's terms ask that Grounding.Suggestions, HTML Google wrote, be
+	// shown beside the result, in a sandboxed frame (docs/design.md, Search
+	// grounding).
+	Grounding  *jobs.Grounding `json:"grounding,omitempty"`
+	CreatedAt  time.Time       `json:"created_at"`
+	FinishedAt *time.Time      `json:"finished_at,omitempty"`
 }
 
 // moneyJSON is an amount in the person's currency.
@@ -121,6 +126,7 @@ func (a *API) render(ctx context.Context, userID int64, s State, lang string) jo
 			}
 			v.Results = append(v.Results, res)
 		}
+		v.Grounding = s.Grounding
 	}
 	return v
 }

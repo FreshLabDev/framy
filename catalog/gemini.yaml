@@ -5,11 +5,22 @@
 # enum, range or boolean, and pricing as billable, unit and cost_usd.
 # overlay.yaml joins each one to its model.
 #
-# Sources, read on 26 October 2026 (docs/research/images.md, sections 2 and 4;
-# docs/research/video.md, section 4):
+# Sources, read on 26 October 2026 and again on 28 October
+# (docs/research/images.md, sections 2 and 4; docs/research/video.md,
+# section 4; docs/research/makers.md, Google):
 #   https://ai.google.dev/gemini-api/docs/image-generation
 #   https://ai.google.dev/gemini-api/docs/pricing
 #   https://ai.google.dev/gemini-api/docs/omni
+#   https://ai.google.dev/api/interactions-api
+#
+# Settings every image model shares: output_format is response_format's
+# mime_type, PNG when absent; media_resolution is how finely Gemini reads the
+# attached pictures and videos, sent on each of them. google_search grounds
+# the picture in Google Search, image_search in Google Image Search, and a
+# run with either brings Google's search suggestions, which framy keeps with
+# the job and must show beside the result (docs/design.md, Search grounding).
+# Video-to-image: 2.1, 3.1 Flash and 3.1 Flash Lite take a video beside the
+# prompt, which goes inline; the overlay says how many.
 #
 # Not described: gemini-2.5-flash-image, which is on Google's deprecation
 # page, and the *-preview ids, shut down on 25 June 2026.
@@ -20,7 +31,7 @@ models:
   - id: gemini-nano-banana-2.1
     kind: image
     name: Nano Banana 2.1
-    input_modalities: [text, image]
+    input_modalities: [text, image, video]
     supported_parameters:
       # No 512 on this model.
       resolution: {type: enum, values: [1K, 2K, 4K]}
@@ -32,9 +43,13 @@ models:
       input_references: {type: range, min: 0, max: 14}
       thinking_level: {type: enum, values: [minimal, medium, high]}
       google_search: {type: boolean}
+      image_search: {type: boolean}
+      output_format: {type: enum, values: [png, jpeg]}
+      media_resolution: {type: enum, values: [low, medium, high, ultra_high]}
     pricing:
       - {billable: input_text, unit: token, cost_usd: 0.0000015}
       - {billable: input_image, unit: token, cost_usd: 0.0000015}
+      - {billable: input_video, unit: token, cost_usd: 0.0000015}
       # Text and thinking.
       - {billable: output_text, unit: token, cost_usd: 0.0000075}
       - {billable: output_image, unit: token, cost_usd: 0.00003}
@@ -42,7 +57,7 @@ models:
   - id: gemini-3.1-flash-image
     kind: image
     name: Nano Banana 2
-    input_modalities: [text, image]
+    input_modalities: [text, image, video]
     supported_parameters:
       resolution: {type: enum, values: ["512", 1K, 2K, 4K]}
       aspect_ratio:
@@ -52,16 +67,20 @@ models:
       input_references: {type: range, min: 0, max: 14}
       thinking_level: {type: enum, values: [minimal, high]}
       google_search: {type: boolean}
+      image_search: {type: boolean}
+      output_format: {type: enum, values: [png, jpeg]}
+      media_resolution: {type: enum, values: [low, medium, high, ultra_high]}
     pricing:
       - {billable: input_text, unit: token, cost_usd: 0.0000005}
       - {billable: input_image, unit: token, cost_usd: 0.0000005}
+      - {billable: input_video, unit: token, cost_usd: 0.0000005}
       - {billable: output_text, unit: token, cost_usd: 0.000003}
       - {billable: output_image, unit: token, cost_usd: 0.00006}
 
   - id: gemini-3.1-flash-lite-image
     kind: image
     name: Nano Banana 2 Lite
-    input_modalities: [text, image]
+    input_modalities: [text, image, video]
     supported_parameters:
       resolution: {type: enum, values: [1K]}
       # The same 14 as Nano Banana 2, as OpenRouter lists them for Lite.
@@ -72,9 +91,12 @@ models:
       input_references: {type: range, min: 0, max: 14}
       thinking_level: {type: enum, values: [minimal, high]}
       # Lite has no search grounding.
+      output_format: {type: enum, values: [png, jpeg]}
+      media_resolution: {type: enum, values: [low, medium, high, ultra_high]}
     pricing:
       - {billable: input_text, unit: token, cost_usd: 0.00000025}
       - {billable: input_image, unit: token, cost_usd: 0.00000025}
+      - {billable: input_video, unit: token, cost_usd: 0.00000025}
       - {billable: output_text, unit: token, cost_usd: 0.0000015}
       - {billable: output_image, unit: token, cost_usd: 0.00003}
 
@@ -90,7 +112,10 @@ models:
       n: {type: range, min: 1, max: 1}
       # 6 objects, 5 characters and 3 style references.
       input_references: {type: range, min: 0, max: 14}
+      # Web search only: Image Search is 2.1's and 3.1 Flash's.
       google_search: {type: boolean}
+      output_format: {type: enum, values: [png, jpeg]}
+      media_resolution: {type: enum, values: [low, medium, high, ultra_high]}
     pricing:
       - {billable: input_text, unit: token, cost_usd: 0.000002}
       - {billable: input_image, unit: token, cost_usd: 0.000002}
@@ -102,15 +127,23 @@ models:
     name: Gemini Omni 1.1 Flash
     input_modalities: [text, image, video]
     supported_parameters:
-      # The model picks the length, 3 to 10 seconds; there is no duration.
+      # The model picks the length, 3 to 10 seconds. The reference lists
+      # response_format.duration, a string, with no values; Vertex takes "3s"
+      # to "10s". The adapter sends a duration as "6s", but it is not listed
+      # here until a run shows Google honours it: a duration ignored would
+      # make an exact price wrong.
       # 1080p and 4K are upscaled from 720p, the default. The Interactions
-      # API spells 4K as "4k", and the video adapter must send it so.
+      # API spells 4K as "4k", and the adapter sends it so.
       resolution: {type: enum, values: [360p, 720p, 1080p, 4K]}
       aspect_ratio: {type: enum, values: ["16:9", "9:16"]}
+      # Named in the prompt with <FIRST_FRAME> and <LAST_FRAME>, which Google
+      # takes only together with a first frame.
       frame_images: {type: enum, values: [first_frame, last_frame]}
     pricing:
       - {billable: input_text, unit: token, cost_usd: 0.0000015}
       - {billable: input_image, unit: token, cost_usd: 0.0000015}
       - {billable: input_video, unit: token, cost_usd: 0.0000015}
+      # Thinking, and any words the model says.
+      - {billable: output_text, unit: token, cost_usd: 0.000009}
       # 5,792 tokens per second of 720p, about $0.10 a second.
       - {billable: output_video, unit: token, cost_usd: 0.0000175}

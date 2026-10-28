@@ -3,6 +3,7 @@ package jobs
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -275,6 +276,9 @@ func (q *Queue) settle(ctx context.Context, j Job, out Outcome) error {
 			break
 		}
 		e.status, e.results = Done, len(out.Results)
+		if !out.Grounding.Empty() {
+			e.grounding = out.Grounding
+		}
 	}
 	return q.end(ctx, j.ID, e)
 }
@@ -286,22 +290,32 @@ type ending struct {
 	msg     string
 	cost    *float64
 	results int
+	// grounding goes with the results it came with.
+	grounding *Grounding
 }
 
 // end finishes a job that is still queued or running and wakes the person's
 // next job. A job that ended already keeps its ending: the first one wins.
 func (q *Queue) end(ctx context.Context, id int64, e ending) error {
 	e.msg = redact(e.msg)
+	var grounding []byte
+	if e.grounding != nil {
+		var err error
+		if grounding, err = json.Marshal(e.grounding); err != nil {
+			return fmt.Errorf("job %d grounding: %w", id, err)
+		}
+	}
 	var userID int64
 	var estimate, actual *float64
 	ended := false
 	err := pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx, `
 			UPDATE job SET status=$2, error_class=NULLIF($3, ''), error=NULLIF($4, ''),
-			       actual_usd=COALESCE($5, actual_usd), results=$6, retry_at=NULL, finished_at=now(), updated_at=now()
+			       actual_usd=COALESCE($5, actual_usd), results=$6, grounding=COALESCE($7::jsonb, grounding),
+			       retry_at=NULL, finished_at=now(), updated_at=now()
 			WHERE id=$1 AND status IN ('queued', 'running')
 			RETURNING user_id, estimate_usd::float8, actual_usd::float8`,
-			id, e.status, e.class, clip(e.msg), e.cost, e.results).Scan(&userID, &estimate, &actual)
+			id, e.status, e.class, clip(e.msg), e.cost, e.results, grounding).Scan(&userID, &estimate, &actual)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}

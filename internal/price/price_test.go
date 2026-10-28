@@ -160,6 +160,8 @@ func TestEstimates(t *testing.T) {
 		{"upscale by two", "openrouter:black-forest-labs/flux-video-upscale", Request{Settings: set{"upscale_factor": 2}, Video: clip}, 0.9216 * 4 * 5 * 0.035, 0.9216 * 4 * 5 * 0.05, UpTo},
 		// Omni picks 3 to 10 s at 5,792 tokens a second of 720p.
 		{"omni at 720p", "gemini:gemini-omni-1.1-flash", Request{Settings: set{"resolution": "720p"}}, 5792 * 3 * 1.75e-5, 5792 * 10 * 1.75e-5, UpTo},
+		// Extending a 5 s clip may come back, and be billed, as 15 s.
+		{"omni extending a clip", "gemini:gemini-omni-1.1-flash", Request{Settings: set{"resolution": "720p"}, Video: clip}, 5792 * 3 * 1.75e-5, 5792 * 15 * 1.75e-5, UpTo},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m, of := offer(t, tc.offer)

@@ -106,7 +106,7 @@ The sync never deletes. An offer that leaves its source gets `disabled_at`, and 
 
 Prices of the same model at different providers are usually equal: OpenRouter charges the provider's price per request and takes its fee of about 5.5% when credits are bought. What differs is where the money comes from and which settings exist:
 
-- only direct Gemini has `thinking_level` and Google Search grounding;
+- only direct Gemini has `thinking_level`, Google Search and Image Search grounding, `media_resolution`, JPEG output and a video as an input to Nano Banana;
 - only direct OpenAI has the mask and any `size` up to 3840 px.
 
 The picker shows each connected offer as its own row: price, provider, and what the offer adds.
@@ -210,10 +210,11 @@ The overlay gives the picker its shape, so a new model needs no code:
 | Count | `n` where supported, otherwise parallel runs; the price multiplies either way |
 | Effort | see above |
 | Transparent background | OpenAI, Riverflow 2.5 |
-| Format | OpenAI (png, jpeg, webp), FLUX.2, Riverflow, Recraft vector (svg) |
+| Format | OpenAI (png, jpeg, webp), Gemini (png, jpeg), FLUX.2, Riverflow, Recraft vector (svg) |
 | Seed | FLUX.2, Seedream, Krea, Qwen, Hy |
 | Input detail | Gemini models, Nano Banana included (`media_resolution`, see Input detail) |
-| Model groups | Gemini search, Recraft style and text layout (V3 only), Krea styles and moodboards, FLUX.2 steps and guidance (Flex only) |
+| A video as an input | Nano Banana 2.1, 3.1 Flash and Lite on the Gemini key: one clip of up to 60 s and 50 MB, sent inline; the bound is framy's, and the clip's tokens are known only after the run |
+| Model groups | Gemini search (web and, on 2.1 and 3.1 Flash, image; see Search grounding), Recraft style and text layout (V3 only), Krea styles and moodboards, FLUX.2 steps and guidance (Flex only) |
 
 No image model takes a negative prompt, so there is no such field. A real mask exists only at OpenAI; the mask editor is a stage 3 feature.
 
@@ -226,9 +227,9 @@ The mode follows from what is attached **(owner: clear start, end and reference 
 | nothing | text to video | all but the editors |
 | an image in "Start" | first frame | all video models but the editors |
 | images in "Start" and "End" | first and last frame | Veo, Kling, Seedance, Wan 3.0, Hailuo 3, FLUX 3 Video, Omni |
-| images in "References" | reference to video | Seedance 2.0, Fast and Mini (9), Seedance 2.5 (30), Wan 3.0 (10), Wan 2.6 and 2.7 (5), HappyHorse (9), Hailuo 3 (9), HeyGen (9), Grok Imagine Video 1.0 (7), Veo 3.1 and Fast (3), Omni |
-| a video: uploaded, or a finished one through "Edit" | edit the video | `flux-video-edit` (0.7 to 15 s and 50 MiB, scaled to 720p, keeps the length and the sound), `aleph-2` (2 to 30 s), `flux-video-upscale` (up to 20 s and 50 MiB), Seedance 2.x and Hailuo 3 by a reference video and the prompt, Omni (up to 10 s when uploaded); FLUX 3 Video continues it |
-| video or audio in "References" | reference video or sound | Seedance 2.0, Fast and Mini (3 videos of 2 to 15 s, 15 s in all, and 3 sounds), Seedance 2.5 (10 and 10, 30 s in all), Wan 3.0 (5 and 5, 15 s in all), Hailuo 3 (3 and 3, 12 files in all), HeyGen (3 videos sharing 15 s, and 3 sounds; they guide motion and style, HeyGen does not edit them), Omni (video only) |
+| images in "References" | reference to video | Seedance 2.0, Fast and Mini (9), Seedance 2.5 (30), Wan 3.0 (10), Wan 2.6 and 2.7 (5), HappyHorse (9), Hailuo 3 (9), HeyGen (9), Grok Imagine Video 1.0 (7), Veo 3.1 and Fast (3), Omni (6) |
+| a video: uploaded, or a finished one through "Edit" | edit the video | `flux-video-edit` (0.7 to 15 s and 50 MiB, scaled to 720p, keeps the length and the sound), `aleph-2` (2 to 30 s), `flux-video-upscale` (up to 20 s and 50 MiB), Seedance 2.x and Hailuo 3 by a reference video and the prompt, Omni (up to 10 s and 48 MiB, sent inline); FLUX 3 Video continues it |
+| video or audio in "References" | reference video or sound | Seedance 2.0, Fast and Mini (3 videos of 2 to 15 s, 15 s in all, and 3 sounds), Seedance 2.5 (10 and 10, 30 s in all), Wan 3.0 (5 and 5, 15 s in all), Hailuo 3 (3 and 3, 12 files in all), HeyGen (3 videos sharing 15 s, and 3 sounds; they guide motion and style, HeyGen does not edit them) |
 
 The numbers are the makers', in the overlay's `references` and `source_video`, set only where OpenRouter lists that kind of input for the model; whether OpenRouter passes every one of them is checked by the first runs. `GET /api/catalog` gives each offer its `inputs`: how many pictures it takes and how many of them as references or frames, how many videos and sounds and how long. A run that breaks them is refused with `wrong_inputs`, and the quote says so too. A sound alone is refused by Seedance 2.0 and Hailuo 3; Grok Imagine Video 1.5 takes 14 references at xAI, not yet seen through OpenRouter, so it takes a start frame only.
 
@@ -240,7 +241,9 @@ The other controls:
 - **Seed.**
 - **Negative prompt,** where the model takes it as a pass-through: Veo, Kling, Wan 2.6 and 2.7.
 
-Omni has no duration control. It says "length chosen by the model, 3 to 10 s", and its price is "up to".
+Omni has no duration control. It says "length chosen by the model, 3 to 10 s", and its price is "up to"; extending a clip may bill the whole result, so the most is the source's length plus 10 s. The adapter can send `response_format.duration` ("6s"), but the catalog lists no `duration` until a run shows that Google keeps to it, since an ignored length would make an exact price wrong.
+
+Omni's frames and references are told apart by tags in the prompt: `<FIRST_FRAME>` and `<LAST_FRAME>` go before the words, and the first frame is the first file. A last frame alone is refused. Omni also takes reference clips (3 of up to 3 s), which framy does not offer yet: the catalog has one role for a model's videos, and Omni's is the source it edits.
 
 A video is attached like a photo: dropped into the composer, picked from history, or sent there by "Edit" on a result. On OpenRouter it goes as a presigned R2 URL in `input_references` with `type: video_url`, the only video field of the API; a video OpenRouter made can go as `previous_job_id` instead, on the same model. framy reads its length and size with `ffprobe` before the run.
 
@@ -257,7 +260,7 @@ Nobody reports progress in percent. The wait shows elapsed time and the model's 
 - Again: the same settings, a new seed.
 - Edit: the result becomes a reference; a video becomes the attached video, with the editors first.
 - **Animate:** an image becomes the start frame of a video, and the video tab opens.
-- Continue: only where the overlay confirms `previous_job_id` or Omni's `previous_interaction_id`.
+- Continue: only where the overlay confirms `previous_job_id` or Omni's `previous_interaction_id`. The Gemini adapter sends `previous_interaction_id` when a run's settings carry it; what the API takes to say "continue job X" is [#44](https://github.com/FreshLabDev/framy/issues/44).
 - Download the original.
 - Send to Telegram: the bot sends it to the DM, or `shareMessage` in the Mini App.
 - Copy the prompt.
@@ -295,6 +298,16 @@ Gemini takes `media_resolution` for every input picture: `low`, `medium`, `high`
 - **How it shows.** A setting "Input detail" next to the references, with the saving beside it, only on the models where the check passed. The default is `high`, so a result is never worse than the provider's own.
 - **What it saves.** Most of an image model's price is the picture it makes. One reference on Nano Banana 3 Pro saves about 1–2%; 14 references about 20%.
 - **Elsewhere.** OpenAI's `gpt-image-2` has no such setting: its input is always read in full. The price estimate counts input tokens at the level chosen.
+- **Sent.** The Gemini adapter sends the chosen level as `resolution` on every image and video part of the request, the Interactions API's name for it. The catalog lists `media_resolution` on the four Nano Banana offers; the composer draws it only after the launch check above.
+
+### Search grounding
+
+Nano Banana 2.1, 3.1 Flash and 3 Pro on the Gemini key can ground a picture in Google Search (`google_search`), and 2.1 and 3.1 Flash in Google Image Search as well (`image_search`). Both are off unless the person turns them on. Web search alone goes as the `google_search` tool, image search with it as `search_types: ["web_search", "image_search"]`, and image search alone as `["image_search"]`.
+
+- **What Google asks.** A grounded answer comes with Search Suggestions, HTML and CSS Google wrote, and Google's terms for grounding ask that they be shown with the result, unchanged. The adapter takes them from the answer's `google_search_result` steps, with the queries the model sent and the pages it cited (`url_citation`), and the job keeps them in `job.grounding` (migration 016): at most 4 suggestions of 64 KiB each, 16 queries and 32 sources, only `http` and `https` links of up to 2048 bytes.
+- **Where it shows.** `GET /api/jobs/{id}` gives a finished job's `grounding`. The site and the Mini App show each suggestion in a sandboxed `<iframe srcdoc>` with no scripts and no access to framy's origin, its links opening in a new tab (`allow-popups`), and the sources as plain links under the result. A video never has one.
+- **In chat.** A Telegram message cannot carry Google's HTML, so `/img` never turns search on: the panel offers neither toggle.
+- **Price.** Google bills grounded queries past a monthly allowance (5,000 queries, then $14 per 1,000 on Gemini 3). Neither the estimate nor the actual cost counts them, since framy cannot see how much of the person's allowance is used. The composer says so next to the toggle.
 
 ## Price and currency
 
@@ -434,7 +447,7 @@ Progress for SSE goes through `pg_notify('framy_events', …)` in the transactio
 **Workers.**
 - **Images:** one provider call inside the worker, with a 180 s timeout.
 - **Video:**
-  - submit, then poll. OpenRouter `GET /api/v1/videos/{id}` every 30 s; Omni with `background: true` and `GET /interactions/{id}`.
+  - submit, then poll. OpenRouter `GET /api/v1/videos/{id}` every 30 s; Omni with `background: true` and `GET /interactions/{id}` (see "Gemini video").
   - A finished video is held in memory while it is copied, so it may be at most 128 MiB: four workers hold 512 MiB at most, and a 10 s 1080p clip is 10 to 30 MB. A larger one fails the run as `storage`, after it was paid.
   - The provider job id is written to the database right after the paid submit, before any polling. Otherwise a retry after a crash pays for the video twice. If the id cannot be saved, the retry fails the job as `interrupted` and sends nothing, and the log has the id.
   - An OpenRouter video request carries a `callback_url` with a path nobody can guess, `/hooks/or/<job>/<mac>`, when `HOOK_PATH_SECRET` and an https `SITE_URL` are set (see "OpenRouter video"). Without them the poll alone finishes every video.
@@ -496,6 +509,13 @@ A webhook that lands while the job is being polled brings nothing forward: River
 | 500, 502, an answer that cannot be read | `provider` | no |
 
 A message OpenAI echoes with the start of a wrong key is cut of it before it is stored. `APIError.NeedsVerification` tells the 403 about an unverified organization from other 403s, for the connection's `needs_verification` status.
+
+**Gemini video** (`internal/providers/gemini`, `video.go`). Omni runs as a background interaction:
+- `POST /interactions` with `background: true` answers at once with the interaction's id, which the queue saves before the first poll. An answer without a usable id fails the run as `provider` and is not sent again, since Google probably took it. Media go before the words: frames as above, references and a source video inline as base64, never as links, so no presigned URL reaches Google;
+- background needs `store: true`, so Google keeps the interaction: 55 days on a paid project, or what the project sets in AI Studio. framy does not delete it, as it is what `previous_interaction_id` continues. Images still go with `store: false`;
+- the poll reads the status: `completed` is the video, `failed`, `cancelled` and `incomplete` end the run with the usage billed and a reason (`NO_VIDEO` and the safety codes are refusals, with the model's words when it gave some), `requires_action` and `requires_continuation` fail it as `provider`, and a status framy does not know is a run still going. A GET that answers 404 or 400 is asked again, as with OpenRouter;
+- the video comes inline in base64. When it comes as a Files API file instead, only the file's name is taken from the link, and the download goes to the adapter's own base with the key in the header, which is dropped on a redirect to another host. A video above 128 MiB ends the run as `storage` with its cost kept, and an answer above 192 MiB as `storage` without one, since it cannot be read;
+- the actual cost is the usage tokens by modality: each modality's own rate, the dearest rate of its direction when the catalog has none, thinking at the output text rate and tool use at the input text rate.
 
 **Paid requests.** Before a paid request goes out, the job records `submitted_at`. An attempt that finds it set, with no provider job id and no result, fails as `interrupted` and sends nothing: a worker that died mid-call never pays twice. The person can run it again.
 

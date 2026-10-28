@@ -265,7 +265,14 @@ func (c *calc) seconds() (lo, hi float64, ok bool) {
 		return v.Seconds, v.Seconds, true
 	}
 	if l := c.m.Traits.PicksLength; l != nil {
-		return float64(l.Min), float64(l.Max), true
+		hi := float64(l.Max)
+		if v != nil && c.m.Traits.SourceVideo != nil {
+			// Extending a clip adds the model's length to the source's, and
+			// the whole clip may be billed: Omni extends a 10 s video by 3 to
+			// 10 s.
+			hi += v.Seconds
+		}
+		return float64(l.Min), hi, true
 	}
 	if v != nil {
 		// An editor that does not say whether it keeps the length.

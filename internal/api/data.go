@@ -49,6 +49,8 @@ type State struct {
 	FinishedAt *time.Time
 	// Results are the files of a finished job, in order; empty before.
 	Results []Result
+	// Grounding is what a search-grounded run brought with its results.
+	Grounding *jobs.Grounding
 }
 
 // Result is a file a run made, without its link.
@@ -90,15 +92,16 @@ func (d pgData) State(ctx context.Context, userID, id int64) (State, error) {
 		errText *string
 		cur     *string
 		rate    *float64
+		ground  []byte
 	)
 	err := d.pool.QueryRow(ctx, `
 		SELECT id, event_seq, status, kind, offer_id, free, error_class, error, retry_at,
 		       estimate_usd::float8, estimate, actual_usd::float8,
-		       currency, fx_rate::float8, fx_date, created_at, finished_at
+		       currency, fx_rate::float8, fx_date, created_at, finished_at, grounding
 		FROM job WHERE id = $1 AND user_id = $2`, id, userID).Scan(
 		&s.ID, &s.Seq, &s.Status, &s.Kind, &s.Offer, &s.Free, &errCls, &errText, &s.RetryAt,
 		&s.EstimateUSD, &estim, &s.ActualUSD,
-		&cur, &rate, &s.FXDate, &s.CreatedAt, &s.FinishedAt)
+		&cur, &rate, &s.FXDate, &s.CreatedAt, &s.FinishedAt, &ground)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return State{}, ErrNotFound
 	}
@@ -118,6 +121,12 @@ func (d pgData) State(ctx context.Context, userID, id int64) (State, error) {
 		var e price.Estimate
 		if err := json.Unmarshal(estim, &e); err == nil {
 			s.Estimate = &e
+		}
+	}
+	if len(ground) > 0 {
+		var g jobs.Grounding
+		if err := json.Unmarshal(ground, &g); err == nil && !g.Empty() {
+			s.Grounding = &g
 		}
 	}
 	if s.Status != jobs.Done {

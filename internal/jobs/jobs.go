@@ -201,6 +201,32 @@ type Outcome struct {
 	CostUSD *float64
 	// Err ends the run without a result, as moderation does.
 	Err *Error
+	// Grounding is what a search-grounded run brought with its result.
+	Grounding *Grounding
+}
+
+// Grounding is what a run grounded in Google Search brings with its result.
+// Google's terms ask that the search suggestions be shown beside it
+// (docs/design.md, Search grounding).
+type Grounding struct {
+	// Suggestions are Google's search suggestions: HTML to show as Google
+	// wrote it, in a sandboxed frame.
+	Suggestions []string `json:"suggestions,omitempty"`
+	// Queries are the searches the model made.
+	Queries []string `json:"queries,omitempty"`
+	// Sources are the pages the answer cites.
+	Sources []Source `json:"sources,omitempty"`
+}
+
+// Source is a page a grounded answer cites.
+type Source struct {
+	URL   string `json:"url"`
+	Title string `json:"title,omitempty"`
+}
+
+// Empty reports whether g holds nothing to show.
+func (g *Grounding) Empty() bool {
+	return g == nil || len(g.Suggestions)+len(g.Queries)+len(g.Sources) == 0
 }
 
 // Result is one file of a finished run: the bytes, or a link to fetch them.
