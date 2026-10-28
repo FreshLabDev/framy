@@ -535,7 +535,7 @@ models:
   # Seven reference images, by xAI and by OpenRouter's description; 1.5
   # takes 14 at xAI, which no run has shown through OpenRouter yet.
   x-ai/grok-imagine-video:
-    family: {id: grok-video, gen: "1", tier: std, label: "1.0"}
+    family: {id: grok-video, gen: "1", tier: std, label: "1.0", keep: "takes 7 reference images, where 1.5 takes only a start frame through OpenRouter"}
     references: {image: 7}
   # Up to 12 files: a reference video imitates motion and camera or is the
   # clip to change by the prompt. A sound needs an image or a video beside

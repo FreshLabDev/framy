@@ -311,8 +311,9 @@ was written from, and the skeleton of the service.
   opens on the successor and counts it outdated, and it is hidden 14 days
   before its shutdown day. A variant's `keep` stops a newer generation from
   outdating it while it still does what the newer one does not: Seedance
-  2.0 makes 1080p and 4K, and Qwen Image 2.1 Pro came out after Qwen Image
-  3. Marked on 28 October: Gemini 3.1 Flash Image, MAI-Image-2.5 and 2.5
+  2.0 makes 1080p and 4K, Grok Imagine Video 1.0 takes 7 reference images
+  where 1.5 takes a start frame, and Qwen Image 2.1 Pro came out after Qwen
+  Image 3. Marked on 28 October: Gemini 3.1 Flash Image, MAI-Image-2.5 and 2.5
   Pro, Grok Imagine Image Quality (2 November), Veo 3.1 and its Fast and
   Lite, Seedance 1.5 Pro (11 November). Seedance 2.0 Mini takes Veo 3.1
   Fast's place among the video suggestions.

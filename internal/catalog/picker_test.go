@@ -66,6 +66,7 @@ func TestThePickerArrangesTheCatalog(t *testing.T) {
 	for _, id := range []string{
 		"google/gemini-3-pro-image", "google/gemini-3.1-flash-lite-image", "black-forest-labs/flux.2-pro",
 		"recraft/recraft-v4-styles", "bytedance/seedance-2.0", "qwen/qwen-image-2.1-pro",
+		"x-ai/grok-imagine-video",
 	} {
 		if by := family(id).OutdatedBy; by != "" {
 			t.Errorf("%s is outdated by %s", id, by)
