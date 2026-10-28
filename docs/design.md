@@ -898,7 +898,7 @@ Live tests on a test bot and the real tunnel (details in [research/telegram.md](
 11. **Cloudflare:** "Respect Existing Headers" on Free, checked with `curl -I`; whether `downloadFile` follows a redirect.
 12. **Video editing:** one short clip through each editor and Seedance 2.5, as `input_references` and as `previous_job_id`; which field each one honours, whether Aleph 2 keeps the length, about $2.
 13. **Discounts:** that `usage.cost` of a run on a discounted model is the discounted price: HeyGen Video 1 at 480p for 1 s, $0.02 listed and $0.01 after 50% off.
-14. **Wan 3.0 Prime and the last frame:** OpenRouter's description says Prime takes only a text and a first frame, while `/videos/models` lists `last_frame` for it. One run with both frames says which is right before the composer offers the last frame on Prime.
+14. **Wan 3.0 Prime and the last frame:** OpenRouter's description says Prime takes only a text and a first frame, while `/videos/models` lists `last_frame` for it. Settled on 28 October without a run: Alibaba's page for `wan3.0-video-prime` lists image to video "first frame/first-last frame", as `/videos/models` does, so the composer offers the last frame on Prime too.
 
 ## Open questions
 
