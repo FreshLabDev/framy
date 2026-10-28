@@ -29,7 +29,7 @@ func TestDefaultsFollowOneRule(t *testing.T) {
 		"generate_audio":   {Type: Boolean},
 		"frame_images":     enumOf("first_frame", "last_frame"),
 		"upscale_factor":   rangeOf(1.5, 3),
-		"creativity":       rangeOf(0, 1),
+		"creativity":       enumOf(0.0, 1.0),
 		"size":             enumOf("1280x720", "720x1280"),
 		"input_references": rangeOf(0, 4),
 	}}
@@ -47,11 +47,11 @@ func TestDefaultsFollowOneRule(t *testing.T) {
 		}},
 		{"a video from text", video, 0, map[string]any{
 			"aspect_ratio": "16:9", "resolution": "768p", "duration": 6.0, "generate_audio": true,
-			"upscale_factor": 2.25, "creativity": 0.5,
+			"upscale_factor": 2.25, "creativity": 0.0,
 		}},
 		{"a video from a tall frame", video, 9.0 / 16, map[string]any{
 			"aspect_ratio": "9:16", "resolution": "768p", "duration": 6.0, "generate_audio": true,
-			"upscale_factor": 2.25, "creativity": 0.5,
+			"upscale_factor": 2.25, "creativity": 0.0,
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

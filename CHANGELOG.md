@@ -294,6 +294,38 @@ was written from, and the skeleton of the service.
   goes with them, so what is priced is what is sent. A setting some upstream
   of OpenRouter would not take keeps the provider's default, since sending
   it would narrow the upstreams that may run it.
+- What a run may attach, per offer. `GET /api/catalog` gives every offer its
+  `inputs`: how many images, and of them how many references and how many
+  start and end frames; how many videos and sounds, each with its role (a
+  reference, or the source an editor works on), the length of one clip and
+  of all of them together, and the largest file; and how many files in all.
+  A count is set in the overlay only where OpenRouter lists that kind of
+  input for the model and the maker publishes the number: Seedance 2.x, Wan
+  3.0, Hailuo 3, HeyGen Video 1, Grok Imagine Video 1.0, HappyHorse, and
+  Seedream 5.0 capped at the 10 BytePlus takes. A quote or a job with more,
+  or with frames and references together, which OpenRouter would drop, is
+  refused with 422 `wrong_inputs` and the offer's `inputs`. A photo sent to
+  a video model that takes no references goes as its start frame.
+- A model its maker deprecated says so: `deprecated`, `shuts_down` and
+  `successor` in the catalog, from `deprecated` in the overlay. Its family
+  opens on the successor and counts it outdated, and it is hidden 14 days
+  before its shutdown day. A variant's `keep` stops a newer generation from
+  outdating it while it still does what the newer one does not: Seedance
+  2.0 makes 1080p and 4K, and Qwen Image 2.1 Pro came out after Qwen Image
+  3. Marked on 28 October: Gemini 3.1 Flash Image, MAI-Image-2.5 and 2.5
+  Pro, Grok Imagine Image Quality (2 November), Veo 3.1 and its Fast and
+  Lite, Seedance 1.5 Pro (11 November).
+- The catalog checked against every maker's documentation on 28 October.
+  FLUX Video Upscale's `creativity` is 0 or 1, as BFL takes it, where the
+  default was 0.5, which BFL refuses. HY Image's price is known: Tencent
+  counts 15,000 tokens an image up to 2K and 20,000 at 4K. Riverflow 2 Fast
+  offers no 4K, Kling Video O1 is hidden as it costs what Kling 3.0 Pro
+  costs and does less through OpenRouter, Krea 2 opens on Medium, Aleph 2
+  takes a source of 2 to 30 s, FLUX Video Edit of at least 0.7 s and FLUX
+  Video Upscale of up to 20 s and 50 MiB, and Nano Banana 2 Lite on the
+  Gemini key takes all 14 aspect ratios. `docs/research/makers.md` lists
+  what each maker's own API offers beyond OpenRouter, for the direct ports
+  to come.
 - Video through OpenRouter (`POST /api/v1/videos`), with start and end
   frames and references sent as presigned links. The provider's job id is
   saved before the first poll, so a retry never pays twice; results are

@@ -85,12 +85,16 @@ func pg(t *testing.T) (*db.Store, *pgxpool.Pool) {
 		   ('test/image', 'image', 'Test image', 'test', false),
 		   ('microsoft/mai-image-2.6-flash', 'image', 'MAI 2.6 Flash', 'Microsoft', true)
 		 ON CONFLICT (id) DO UPDATE SET disabled_at = NULL, hidden = NULL`,
-		`INSERT INTO framy.catalog_offer (id, model_id, provider, provider_model_id, name, routes, fetched_at) VALUES
+		// Both take reference images, as a photo brought in is one.
+		`INSERT INTO framy.catalog_offer (id, model_id, provider, provider_model_id, name, input_modalities, params, routes, fetched_at) VALUES
 		   ('openrouter:test/image', 'test/image', 'openrouter', 'test/image', 'Test image',
+		    '{text,image}', '{"input_references":{"type":"range","min":0,"max":4}}',
 		    '[{"prices":[{"billable":"output_image","unit":"image","cost_usd":0.04}]}]', now()),
 		   ('openrouter:microsoft/mai-image-2.6-flash', 'microsoft/mai-image-2.6-flash', 'openrouter', 'microsoft/mai-image-2.6-flash', 'MAI 2.6 Flash',
+		    '{text,image}', '{"input_references":{"type":"range","min":0,"max":4}}',
 		    '[{"prices":[{"billable":"output_image","unit":"image","cost_usd":0.0195}]}]', now())
-		 ON CONFLICT (id) DO UPDATE SET routes = EXCLUDED.routes, disabled_at = NULL, hidden = NULL`,
+		 ON CONFLICT (id) DO UPDATE SET input_modalities = EXCLUDED.input_modalities, params = EXCLUDED.params,
+		   routes = EXCLUDED.routes, disabled_at = NULL, hidden = NULL`,
 	} {
 		if _, err := pool.Exec(ctx, stmt); err != nil {
 			t.Fatalf("%s: %v", stmt, err)

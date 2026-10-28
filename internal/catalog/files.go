@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -89,6 +90,8 @@ type ModelOverlay struct {
 	Family *Family `yaml:"family"`
 	// FastOf makes the model a faster mode of another, shown as its switch.
 	FastOf string `yaml:"fast_of"`
+	// Deprecated: the maker said the model goes away.
+	Deprecated *Deprecation `yaml:"deprecated"`
 }
 
 // descriptorFile is catalog/<provider>.yaml.
@@ -277,8 +280,24 @@ func (f Files) validate() error {
 			if *s == (SourceVideo{}) {
 				return fmt.Errorf("overlay: model %s: source_video says nothing", id)
 			}
-			if s.MaxSeconds < 0 || s.MaxMiB < 0 {
+			if s.MinSeconds < 0 || s.MaxSeconds < 0 || s.MaxMiB < 0 {
 				return fmt.Errorf("overlay: model %s: source_video limits cannot be negative", id)
+			}
+			if s.MaxSeconds > 0 && s.MinSeconds > float64(s.MaxSeconds) {
+				return fmt.Errorf("overlay: model %s: source_video needs min_seconds <= max_seconds", id)
+			}
+		}
+		if err := m.References.validate(); err != nil {
+			return fmt.Errorf("overlay: model %s: %w", id, err)
+		}
+		if d := m.Deprecated; d != nil {
+			if d.ShutsDown != "" {
+				if _, err := time.Parse(time.DateOnly, d.ShutsDown); err != nil {
+					return fmt.Errorf("overlay: model %s: shuts_down %q is not a day such as 2026-11-02", id, d.ShutsDown)
+				}
+			}
+			if d.Successor == id {
+				return fmt.Errorf("overlay: model %s is its own successor", id)
 			}
 		}
 		if l := m.PicksLength; l != nil && (l.Min <= 0 || l.Max < l.Min) {
@@ -398,6 +417,38 @@ func (o Overlay) modelOf(offer Offer) string {
 		}
 	}
 	return offer.ProviderModelID
+}
+
+func (r *References) validate() error {
+	if r == nil {
+		return nil
+	}
+	if *r == (References{}) {
+		return errors.New("references says nothing")
+	}
+	if r.Image < 0 || r.Video < 0 || r.Audio < 0 || r.Files < 0 {
+		return errors.New("references cannot be negative")
+	}
+	for name, c := range map[string]*Clip{"video_clip": r.VideoClip, "audio_clip": r.AudioClip} {
+		if c == nil {
+			continue
+		}
+		switch {
+		case *c == (Clip{}):
+			return fmt.Errorf("references.%s says nothing", name)
+		case c.MinSeconds < 0 || c.MaxSeconds < 0 || c.TotalSeconds < 0 || c.MaxMB < 0:
+			return fmt.Errorf("references.%s cannot be negative", name)
+		case c.MaxSeconds > 0 && c.MinSeconds > c.MaxSeconds:
+			return fmt.Errorf("references.%s needs min_seconds <= max_seconds", name)
+		}
+	}
+	if r.VideoClip != nil && r.Video == 0 {
+		return errors.New("references.video_clip without references.video")
+	}
+	if r.AudioClip != nil && r.Audio == 0 {
+		return errors.New("references.audio_clip without references.audio")
+	}
+	return nil
 }
 
 func (h *PriceHints) validate() error {

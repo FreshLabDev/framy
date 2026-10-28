@@ -55,6 +55,13 @@ func Build(up Upstream, files Files, now time.Time) Snapshot {
 		})
 		m := describe(id, kind, offers, o.Models[id], o.Makers)
 		m.Hidden = hiddenBy(id, o)
+		// The maker's own shutdown day hides a model as OpenRouter's does an
+		// offer: nobody should start relying on it.
+		if d := m.Traits.Deprecated; m.Hidden == "" && d != nil && d.ShutsDown != "" {
+			if t, err := time.Parse(time.DateOnly, d.ShutsDown); err == nil && t.Before(expiringBefore) {
+				m.Hidden = "shuts down " + d.ShutsDown
+			}
+		}
 		if m.Featured && m.Hidden != "" {
 			warn("model %s is featured but hidden: %s", id, m.Hidden)
 		}
@@ -107,6 +114,7 @@ func describe(id string, kind Kind, offers []Offer, ov ModelOverlay, makerNames 
 			Continue:    ov.Continue,
 			Faces:       ov.Faces,
 			FastOf:      ov.FastOf,
+			Deprecated:  ov.Deprecated,
 		},
 	}
 	if ov.Family != nil {

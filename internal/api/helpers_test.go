@@ -255,11 +255,14 @@ func (s *fakeStore) Catalog(context.Context) ([]catalog.Model, error) {
 
 func (s *fakeStore) CatalogSyncedAt(context.Context) (time.Time, error) { return s.syncedAt, nil }
 
-// image is an offer of an image model priced $0.04 an image.
+// image is an offer of an image model priced $0.04 an image, which takes
+// up to four reference images.
 func image(id, provider string) catalog.Model {
+	zero, four := 0.0, 4.0
 	of := catalog.Offer{
 		ID: id, ModelID: strings.TrimPrefix(id, provider+":"), Provider: provider, ProviderModelID: strings.TrimPrefix(id, provider+":"),
-		Kind: catalog.Image, Name: "Test",
+		Kind: catalog.Image, Name: "Test", InputModalities: []string{"text", "image"},
+		Params: map[string]catalog.Param{"input_references": {Type: catalog.Range, Min: &zero, Max: &four}},
 		Routes: []catalog.Route{{Prices: []catalog.Price{{Billable: "output_image", Unit: "image", CostUSD: 0.04}}}},
 	}
 	return catalog.Model{ID: of.ModelID, Kind: catalog.Image, Name: "Test", Offers: []catalog.Offer{of}}

@@ -288,6 +288,7 @@ const (
 	codeUnknownOffer      = "unknown_offer"
 	codePriceChanged      = "price_changed"
 	codeUnknownInput      = "unknown_input"
+	codeWrongInputs       = "wrong_inputs"
 	codeNotFree           = "not_free"
 	codeFreeLimit         = "free_limit"
 	codeFreeClosed        = "free_closed"

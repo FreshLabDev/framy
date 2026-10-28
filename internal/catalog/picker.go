@@ -55,10 +55,21 @@ func arrange(models []Model, o Overlay, warn func(string, ...any)) {
 		for rank, i := range list {
 			fam(i).Rank = rank
 		}
-		// A newer generation of the same tier takes a variant's place; a
-		// plain variant gives way to the newest one of any tier.
+		// A deprecated variant gives way to its successor. Otherwise a newer
+		// generation of the same tier takes a variant's place, and a plain
+		// variant gives way to the newest one of any tier, unless the
+		// overlay says why it stays.
 		by := map[int]int{}
 		for _, i := range list {
+			if d := models[i].Traits.Deprecated; d != nil {
+				if j, ok := index[d.Successor]; ok && slices.Contains(list, j) {
+					by[i] = j
+				}
+				continue
+			}
+			if fam(i).Keep != "" {
+				continue
+			}
 			plain := -1
 			for _, j := range list {
 				f, g := fam(i), fam(j)
@@ -86,7 +97,8 @@ func arrange(models []Model, o Overlay, warn func(string, ...any)) {
 				j, ok = by[j]
 			}
 		}
-		current := func(i int) bool { return fam(i).OutdatedBy == "" }
+		current := func(i int) bool { return fam(i).OutdatedBy == "" && models[i].Traits.Deprecated == nil }
+		kept := func(i int) bool { return fam(i).OutdatedBy == "" }
 		def := -1
 		if want := o.Families[id].Default; want != "" {
 			if i, ok := index[want]; ok && slices.Contains(list, i) && current(i) {
@@ -95,7 +107,8 @@ func arrange(models []Model, o Overlay, warn func(string, ...any)) {
 				warn("overlay: family %s opens on %s, which is not shown or is outdated", id, want)
 			}
 		}
-		for _, pick := range []func(int) bool{func(i int) bool { return current(i) && models[i].Featured }, current} {
+		// A family whose every variant is going away still opens on one.
+		for _, pick := range []func(int) bool{func(i int) bool { return current(i) && models[i].Featured }, current, kept} {
 			if def >= 0 {
 				break
 			}
@@ -105,6 +118,16 @@ func arrange(models []Model, o Overlay, warn func(string, ...any)) {
 		}
 		if def >= 0 {
 			fam(def).Default = true
+		}
+	}
+
+	for i := range models {
+		d := models[i].Traits.Deprecated
+		if d == nil || d.Successor == "" || !shown(models[i]) {
+			continue
+		}
+		if j, ok := index[d.Successor]; !ok || !shown(models[j]) {
+			warn("model %s: its successor %s is not shown", models[i].ID, d.Successor)
 		}
 	}
 
@@ -142,6 +165,8 @@ func arrange(models []Model, o Overlay, warn func(string, ...any)) {
 			default:
 				if f := models[i].Traits.Family; f != nil && f.OutdatedBy != "" {
 					warn("overlay: recommend %s names %s, which %s has outdated", sit, id, f.OutdatedBy)
+				} else if d := models[i].Traits.Deprecated; d != nil && d.ShutsDown != "" {
+					warn("overlay: recommend %s names %s, which shuts down on %s", sit, id, d.ShutsDown)
 				}
 				place++
 				if models[i].Traits.Recommend == nil {

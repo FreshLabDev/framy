@@ -84,8 +84,9 @@ type quoteItemJSON struct {
 	Settings map[string]any `json:"settings,omitempty"`
 	// Refusal is why POST /api/jobs would refuse the run now, in the shape
 	// of its error answer with the status it would have: {"status": 429,
-	// "error": "free_limit", "frees_at": …}. Absent when it would go, when
-	// the request named no payer, and for nobody signed in.
+	// "error": "free_limit", "frees_at": …}. Absent when it would go. Files
+	// the offer does not take (wrong_inputs) are said to anyone; the rest
+	// needs a payer and a person signed in.
 	Refusal map[string]any `json:"refusal,omitempty"`
 }
 
@@ -182,6 +183,9 @@ func (a *API) quoteRoute(w http.ResponseWriter, r *http.Request) {
 				fillFree(settings, plan, files)
 			}
 		}
+		count := countOf(settings, inputs, it.Files)
+		fillFrames(settings, m, offer, count.Images)
+		count.Frames = frameCount(settings)
 		if !isFree {
 			// The kept files come first, then those still in the browser.
 			sizes := assetSizes(inputs)
@@ -197,7 +201,10 @@ func (a *API) quoteRoute(w http.ResponseWriter, r *http.Request) {
 		item.Estimate.RateDate = out.RateDate
 		item.Settings = settings
 
+		wrong := checkInputs(m, offer, count)
 		switch {
+		case wrong != nil:
+			item.Refusal = refusalJSON(wrong)
 		case !signedIn || it.Pay == "":
 		case missing:
 			item.Refusal = refusalJSON(newError(http.StatusUnprocessableEntity, codeUnknownInput, "an input is not one of your files"))
@@ -235,13 +242,15 @@ func refusalJSON(e *apiError) map[string]any {
 }
 
 // addFiles prices the files still in the browser as the upload pipeline
-// will make them: a photo is brought down to the long side it keeps.
+// will make them: a photo is brought down to the long side it keeps. They
+// come after the kept files, so they are frames only while frame_images
+// names more than those.
 func addFiles(req *price.Request, m catalog.Model, files []fileMeta) {
-	frames := m.Kind == catalog.Video && (m.Traits.References == nil || m.Traits.References.Image == 0)
+	frames := frameCount(req.Settings)
 	for _, f := range files {
 		switch {
 		case strings.HasPrefix(f.ContentType, "image/"):
-			if frames {
+			if req.Frames < frames {
 				req.Frames++
 				continue
 			}

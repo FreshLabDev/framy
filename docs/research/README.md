@@ -9,6 +9,7 @@
 | [providers.md](providers.md) | механика трёх API, подключение ключей, OAuth OpenRouter, хранение ключей, курсы валют, страна по IP |
 | [telegram.md](telegram.md) | Bot API 10.3 и Mini Apps под сценарии framy: альбомы, поток `/f`, ephemeral, guest mode, вход на сайт |
 | [build.md](build.md) | сборка: лимиты Cloudflare и Tunnel, SSE, кэш, R2, HEIC и ffmpeg, видео для Telegram, модерация, очередь River, вход OIDC, шифрование ключей, вебхуки OpenRouter, CSP, бэкапы |
+| [makers.md](makers.md) | срез 28 октября, по-английски: что модели умеют в API своих производителей и чего нет через OpenRouter, с датами, зачем это framy и какие платные проверки это решат |
 | [openai_image_tokens.py](openai_image_tokens.py) | формула числа токенов картинки OpenAI из официального калькулятора |
 
 Модели и цены меняются каждый месяц. Перед любым решением по модели перепроверять каталог.

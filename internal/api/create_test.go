@@ -3,6 +3,7 @@ package api
 
 import (
 	"fmt"
+	"maps"
 	"math"
 	"net/http"
 	"net/netip"
@@ -494,12 +495,50 @@ func TestAFreeVideoFromAStartFrameSaysSo(t *testing.T) {
 	}
 }
 
+// A video model that takes no reference images gets its pictures as frames;
+// too many files, or frames with references, are refused before the queue.
+func TestTheFilesOfARunAreChecked(t *testing.T) {
+	r := jobRig(t)
+	r.conns.list = []keys.Connection{{Provider: catalog.OpenRouter, Status: keys.Valid}}
+	const grok = "openrouter:x-ai/grok-imagine-video-1.5"
+	g := heygen()
+	g.ID, g.Offers[0].ID, g.Offers[0].ProviderModelID, g.Traits.References, g.Free = "x-ai/grok-imagine-video-1.5", grok, "x-ai/grok-imagine-video-1.5", nil, false
+	r.store.offers[grok] = g
+	r.store.offers[heygenOff] = heygen()
+	for id := int64(60); id < 70; id++ {
+		r.data.addAsset(alice, InputAsset{ID: id, ContentType: "image/jpeg", Width: 800, Height: 600})
+	}
+
+	resp := r.post(alice, "/api/jobs", nextKey(), body(grok, "key", `"inputs":[60]`))
+	if resp.StatusCode != http.StatusAccepted || fmt.Sprint(r.queue.last().Settings["frame_images"]) != "[first_frame]" {
+		t.Errorf("a photo to a frame-only model: %d %v", resp.StatusCode, r.queue.last().Settings)
+	}
+	calls := r.queue.calls()
+	for name, tc := range map[string]struct{ offer, extra, want string }{
+		"two photos to one frame":    {grok, `"inputs":[60,61]`, "at most 1 images"},
+		"ten references":             {heygenOff, `"inputs":[60,61,62,63,64,65,66,67,68,69]`, "at most 9 images"},
+		"a frame and two references": {heygenOff, `"inputs":[60,61,62],"settings":{"frame_images":["first_frame"]}`, "do not go together"},
+	} {
+		resp := r.post(alice, "/api/jobs", nextKey(), body(tc.offer, "key", tc.extra))
+		m := jsonOf(t, resp)
+		if resp.StatusCode != http.StatusUnprocessableEntity || m["error"] != "wrong_inputs" || !strings.Contains(fmt.Sprint(m["message"]), tc.want) {
+			t.Errorf("%s: %d %v", name, resp.StatusCode, m)
+		}
+	}
+	if r.queue.calls() != calls {
+		t.Errorf("a refused run reached the queue")
+	}
+}
+
 // withParams gives the offer of model m an aspect ratio and a resolution.
 func withParams(m catalog.Model) catalog.Model {
-	m.Offers[0].Params = map[string]catalog.Param{
-		"aspect_ratio": {Type: catalog.Enum, Values: []any{"1:1", "4:3", "16:9", "9:16"}},
-		"resolution":   {Type: catalog.Enum, Values: []any{"1K", "2K"}},
+	params := maps.Clone(m.Offers[0].Params)
+	if params == nil {
+		params = map[string]catalog.Param{}
 	}
+	params["aspect_ratio"] = catalog.Param{Type: catalog.Enum, Values: []any{"1:1", "4:3", "16:9", "9:16"}}
+	params["resolution"] = catalog.Param{Type: catalog.Enum, Values: []any{"1K", "2K"}}
+	m.Offers[0].Params = params
 	return m
 }
 

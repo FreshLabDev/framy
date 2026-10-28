@@ -101,10 +101,15 @@ type catalogModelJSON struct {
 	Family *catalog.Family `json:"family,omitempty"`
 	// FastOf: the model is a faster mode of that one and is shown as its
 	// switch; Fast names a model's faster mode.
-	FastOf string             `json:"fast_of,omitempty"`
-	Fast   string             `json:"fast,omitempty"`
-	Traits traitsJSON         `json:"traits"`
-	Offers []catalogOfferJSON `json:"offers"`
+	FastOf string `json:"fast_of,omitempty"`
+	Fast   string `json:"fast,omitempty"`
+	// Deprecated: the maker said the model goes away, on ShutsDown when it
+	// gave a day, in favour of Successor when it named one.
+	Deprecated bool               `json:"deprecated,omitempty"`
+	ShutsDown  string             `json:"shuts_down,omitempty"`
+	Successor  string             `json:"successor,omitempty"`
+	Traits     traitsJSON         `json:"traits"`
+	Offers     []catalogOfferJSON `json:"offers"`
 }
 
 // traitsJSON is what the overlay knows of a model and the composer needs.
@@ -133,6 +138,9 @@ type catalogOfferJSON struct {
 	// every route of the offer has the same one; a quote says the exact
 	// figure for a run.
 	Discount float64 `json:"discount,omitempty"`
+	// Inputs is how many pictures, videos and sounds one run takes, and how
+	// long a clip may be.
+	Inputs catalog.Inputs `json:"inputs"`
 }
 
 // freeJSON is the free allowance: how many runs of each kind a window
@@ -193,11 +201,14 @@ func (a *API) catalogRoute(w http.ResponseWriter, r *http.Request) {
 			},
 			Offers: make([]catalogOfferJSON, 0, len(m.Offers)),
 		}
+		if d := m.Traits.Deprecated; d != nil {
+			mj.Deprecated, mj.ShutsDown, mj.Successor = true, d.ShutsDown, d.Successor
+		}
 		for _, of := range m.Offers {
 			oj := catalogOfferJSON{
 				ID: of.ID, Provider: of.Provider, ProviderModelID: of.ProviderModelID,
 				InputModalities: nonNilStrings(of.InputModalities), Params: of.Params, Defaults: catalog.Defaults(of, 0),
-				Discount: sharedDiscount(of.Routes),
+				Discount: sharedDiscount(of.Routes), Inputs: catalog.InputsOf(m, of),
 			}
 			if oj.Params == nil {
 				oj.Params = map[string]catalog.Param{}

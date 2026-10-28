@@ -169,12 +169,39 @@ type Effort struct {
 	Values    []string `json:"values" yaml:"values"`
 }
 
-// References is how many inputs of each kind a video model takes; OpenRouter
-// publishes no numbers.
+// References is how many inputs of each kind a model takes besides its
+// frames, and how long and how large an attached video or sound may be. For
+// a video model OpenRouter publishes no numbers; for an image model Image
+// lowers the count OpenRouter lists, where the maker takes fewer.
 type References struct {
 	Image int `json:"image,omitempty" yaml:"image,omitempty"`
 	Video int `json:"video,omitempty" yaml:"video,omitempty"`
 	Audio int `json:"audio,omitempty" yaml:"audio,omitempty"`
+	// Files is the most files of all kinds together, where the maker caps
+	// them below the sum.
+	Files int `json:"files,omitempty" yaml:"files,omitempty"`
+	// VideoClip and AudioClip bound the attached videos and sounds.
+	VideoClip *Clip `json:"video_clip,omitempty" yaml:"video_clip,omitempty"`
+	AudioClip *Clip `json:"audio_clip,omitempty" yaml:"audio_clip,omitempty"`
+}
+
+// Clip bounds the attached videos or sounds of one run: the seconds and the
+// size of each, and the seconds of all of them together.
+type Clip struct {
+	MinSeconds   float64 `json:"min_seconds,omitempty" yaml:"min_seconds,omitempty"`
+	MaxSeconds   float64 `json:"max_seconds,omitempty" yaml:"max_seconds,omitempty"`
+	TotalSeconds float64 `json:"total_seconds,omitempty" yaml:"total_seconds,omitempty"`
+	// MaxMB is in the makers' megabytes, a million bytes each.
+	MaxMB int `json:"max_mb,omitempty" yaml:"max_mb,omitempty"`
+}
+
+// Deprecation is a maker's word that a model goes away.
+type Deprecation struct {
+	// ShutsDown is the day it stops, as YYYY-MM-DD, when the maker gave
+	// one; OpenRouter's leaving day when every offer has one.
+	ShutsDown string `json:"shuts_down,omitempty" yaml:"shuts_down,omitempty"`
+	// Successor is the model the maker names in its place.
+	Successor string `json:"successor,omitempty" yaml:"successor,omitempty"`
 }
 
 // Face policies of a model towards photos of real people.
@@ -192,10 +219,11 @@ type SourceVideo struct {
 	// Required: the model runs only on an attached video, as editors and
 	// upscalers do.
 	Required bool `json:"required,omitempty" yaml:"required,omitempty"`
-	// MaxSeconds and MaxMiB are the longest and the largest source the model
-	// takes, checked before the run.
-	MaxSeconds int `json:"max_seconds,omitempty" yaml:"max_seconds,omitempty"`
-	MaxMiB     int `json:"max_mib,omitempty" yaml:"max_mib,omitempty"`
+	// MinSeconds, MaxSeconds and MaxMiB are the shortest, the longest and
+	// the largest source the model takes, checked before the run.
+	MinSeconds float64 `json:"min_seconds,omitempty" yaml:"min_seconds,omitempty"`
+	MaxSeconds int     `json:"max_seconds,omitempty" yaml:"max_seconds,omitempty"`
+	MaxMiB     int     `json:"max_mib,omitempty" yaml:"max_mib,omitempty"`
 	// KeepsLength: the result is as long as the source, so the source's
 	// length sets the price.
 	KeepsLength bool `json:"keeps_length,omitempty" yaml:"keeps_length,omitempty"`
@@ -247,6 +275,9 @@ type Traits struct {
 	// model, through previous_job_id or Omni's previous_interaction_id.
 	Continue bool   `json:"continue,omitempty"`
 	Faces    string `json:"faces,omitempty"`
+	// Deprecated: the maker said the model goes away. A successor of the
+	// same family outdates it in the picker.
+	Deprecated *Deprecation `json:"deprecated,omitempty"`
 	// Family is the model's place among its kin in the picker.
 	Family *Family `json:"family,omitempty"`
 	// FastOf: the model is a faster mode of that one, at its own price. The
@@ -278,6 +309,9 @@ type Family struct {
 	// format raster or vector.
 	Line   string `json:"line,omitempty" yaml:"line"`
 	Format string `json:"format,omitempty" yaml:"format"`
+	// Keep says why no newer variant outdates this one: what it does that
+	// they do not, or that it came out after them.
+	Keep string `json:"-" yaml:"keep"`
 
 	// Name is the family's own name, from the overlay's families.
 	Name string `json:"name" yaml:"-"`

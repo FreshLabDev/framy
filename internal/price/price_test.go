@@ -187,6 +187,8 @@ func TestPublishedPrices(t *testing.T) {
 		{"openai:gpt-image-2", set{"size": "1536x1024", "quality": "high"}, 0.165, 0.001},
 		{"openrouter:openai/gpt-image-2", set{"aspect_ratio": "16:9", "quality": "high"}, 0.13, 0.01},
 		{"openrouter:bytedance/seedance-2.0", set{"resolution": "1080p", "aspect_ratio": "16:9", "duration": 5}, 1.87, 0.01},
+		// Tencent's 20,000 tokens at 4K at OpenRouter's rate.
+		{"openrouter:tencent/hy-image-v3.5-preview", set{"resolution": "4K"}, 0.032, 0.001},
 	} {
 		m, of := offer(t, tc.offer)
 		if e := Of(m, of, Request{Settings: tc.set}); math.Abs(e.USD-tc.usd) > tc.step/2 {
@@ -196,13 +198,8 @@ func TestPublishedPrices(t *testing.T) {
 }
 
 func TestUnknownOutput(t *testing.T) {
-	// Tencent publishes no tokens per image.
-	m, of := offer(t, "openrouter:tencent/hy-image-v3.5-preview")
-	if e := Of(m, of, Request{Settings: set{"resolution": "1K"}}); e.Kind != Unknown {
-		t.Errorf("hy image = %+v; with no token count the price is known only after the run", e)
-	}
 	// Omni has no count for 1080p.
-	m, of = offer(t, "gemini:gemini-omni-1.1-flash")
+	m, of := offer(t, "gemini:gemini-omni-1.1-flash")
 	if e := Of(m, of, Request{Settings: set{"resolution": "1080p"}}); e.Kind != Unknown {
 		t.Errorf("omni at 1080p = %+v", e)
 	}
@@ -247,7 +244,7 @@ func TestCheckReadsTheWholeCatalog(t *testing.T) {
 // Every offer people can pick gets an estimate for its first settings,
 // whatever they are, and only the known gaps have no price before the run.
 func TestEveryOfferHasAnEstimate(t *testing.T) {
-	gaps := map[string]bool{"openrouter:tencent/hy-image-v3.5-preview": true}
+	gaps := map[string]bool{}
 	for _, m := range fixtureCatalog(t).Models {
 		if m.Hidden != "" {
 			continue

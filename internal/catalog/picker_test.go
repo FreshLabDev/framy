@@ -2,6 +2,7 @@
 package catalog
 
 import (
+	"fmt"
 	"maps"
 	"reflect"
 	"slices"
@@ -49,19 +50,22 @@ func TestThePickerArrangesTheCatalog(t *testing.T) {
 		"openai/gpt-image-2":      "openai/gpt-image-2.5-sunburst",
 		"recraft/recraft-v3":      "recraft/recraft-v4.1",
 		"microsoft/mai-image-2.5": "microsoft/mai-image-2.6",
-		"bytedance/seedance-2.0":  "bytedance/seedance-2.5",
 		"alibaba/wan-2.6":         "alibaba/wan-3.0",
 		"minimax/hailuo-2.3":      "minimax/hailuo-3",
+		// A deprecated variant gives way to the successor its maker names.
+		"microsoft/mai-image-2.5-pro": "microsoft/mai-image-2.6",
+		"bytedance/seedance-1-5-pro":  "bytedance/seedance-2.0-mini",
 	} {
 		if got := family(id).OutdatedBy; got != by {
 			t.Errorf("%s outdated by %q, want %s", id, got, by)
 		}
 	}
 	// A newer generation of another tier leaves a variant current: 2.1
-	// Flash does not outdate Pro, nor V4.1 the V4 Styles line.
+	// Flash does not outdate Pro, nor V4.1 the V4 Styles line. A variant the
+	// overlay keeps stays current too.
 	for _, id := range []string{
 		"google/gemini-3-pro-image", "google/gemini-3.1-flash-lite-image", "black-forest-labs/flux.2-pro",
-		"microsoft/mai-image-2.5-pro", "bytedance/seedance-1-5-pro", "recraft/recraft-v4-styles",
+		"recraft/recraft-v4-styles", "bytedance/seedance-2.0", "qwen/qwen-image-2.1-pro",
 	} {
 		if by := family(id).OutdatedBy; by != "" {
 			t.Errorf("%s is outdated by %s", id, by)
@@ -69,7 +73,8 @@ func TestThePickerArrangesTheCatalog(t *testing.T) {
 	}
 	for fam, want := range map[string]string{
 		"flux": "black-forest-labs/flux-3-image", "recraft": "recraft/recraft-v4.1", "mai": "microsoft/mai-image-2.6",
-		"wan": "alibaba/wan-3.0",
+		"wan": "alibaba/wan-3.0", "seedance": "bytedance/seedance-2.5", "krea-2": "krea/krea-2-medium",
+		"grok-image": "x-ai/grok-imagine-image-2.0",
 	} {
 		var defaults []string
 		for _, id := range row(fam) {
@@ -152,6 +157,49 @@ func TestThePickerCountsShownModelsOnly(t *testing.T) {
 		t.Errorf("places = %v", got)
 	}
 	if len(warnings) != 2 || !strings.Contains(warnings[0], "opens on") || !strings.Contains(warnings[1], "hidden") {
+		t.Errorf("warnings = %q", warnings)
+	}
+}
+
+// A deprecated variant gives way to its successor in the family, whatever
+// the generations say; a kept one stays current; and a family whose every
+// variant is deprecated still opens on one.
+func TestThePickerFollowsDeprecations(t *testing.T) {
+	model := func(id, fam, gen, tier string) Model {
+		return Model{ID: id, Kind: Video, Featured: true, Offers: []Offer{{ID: "openrouter:" + id}},
+			Traits: Traits{Family: &Family{ID: fam, Gen: gen, Tier: tier, Label: gen}}}
+	}
+	models := []Model{
+		model("a/x-1-pro", "x", "1", "pro"),
+		model("a/x-2-mini", "x", "2", "mini"),
+		model("a/x-2", "x", "2", PlainTier),
+		model("a/x-3", "x", "3", PlainTier),
+		model("a/y-1", "y", "1", PlainTier),
+		model("a/y-1-fast", "y", "1", "fast"),
+	}
+	models[0].Traits.Deprecated = &Deprecation{Successor: "a/x-2-mini"}
+	models[2].Traits.Family.Keep = "makes 4K"
+	models[4].Traits.Deprecated = &Deprecation{Successor: "a/x-3"}
+	models[5].Traits.Deprecated = &Deprecation{Successor: "a/x-3", ShutsDown: "2027-01-01"}
+	o := Overlay{
+		Families:  map[string]FamilyInfo{"x": {Name: "X"}, "y": {Name: "Y"}},
+		Tiers:     []string{"mini", "fast", PlainTier, "pro"},
+		Recommend: map[string][]string{ForVideo: {"a/y-1", "a/y-1-fast"}},
+	}
+	var warnings []string
+	arrange(models, o, func(format string, args ...any) { warnings = append(warnings, fmt.Sprintf(format, args...)) })
+	for i, want := range []string{"a/x-2-mini", "", "", "", "", ""} {
+		if got := models[i].Traits.Family.OutdatedBy; got != want {
+			t.Errorf("%s outdated by %q, want %q", models[i].ID, got, want)
+		}
+	}
+	if !models[3].Traits.Family.Default {
+		t.Errorf("x opens elsewhere than its newest current variant")
+	}
+	if !models[4].Traits.Family.Default {
+		t.Errorf("y, all deprecated, opens on nothing")
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "shuts down on 2027-01-01") {
 		t.Errorf("warnings = %q", warnings)
 	}
 }

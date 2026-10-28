@@ -224,8 +224,9 @@ func (m orVideoModel) params() map[string]Param {
 	if r := m.UpscaleFactor; r != nil {
 		out["upscale_factor"] = Param{Type: Range, Min: &r.Min, Max: &r.Max}
 	}
-	if len(m.Creativity) == 2 {
-		out["creativity"] = Param{Type: Range, Min: &m.Creativity[0], Max: &m.Creativity[1]}
+	// The values themselves, not a range: BFL takes 0 or 1 and refuses 0.5.
+	if len(m.Creativity) > 0 {
+		out["creativity"] = Param{Type: Enum, Values: anys(m.Creativity)}
 	}
 	if m.GenerateAudio != nil && *m.GenerateAudio {
 		out["generate_audio"] = Param{Type: Boolean}

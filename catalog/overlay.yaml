@@ -26,7 +26,9 @@ makers:
 # says its family, generation, tier and label under models; a model of no
 # family is a row of its own. A variant is outdated when a newer generation
 # of the family has the same tier, line and format, or, for a plain variant
-# (std), any tier: that is computed, never written here.
+# (std), any tier: that is computed, never written here. family.keep says
+# why a variant stays current anyway. A model its maker deprecated gives way
+# to the successor named under deprecated, when that is in the same family.
 families:
   flux: {name: FLUX}
   gpt-image: {name: GPT Image}
@@ -36,7 +38,7 @@ families:
   riverflow: {name: Riverflow}
   seedream: {name: Seedream}
   grok-image: {name: Grok Imagine Image}
-  krea-2: {name: Krea 2}
+  krea-2: {name: Krea 2, default: krea/krea-2-medium}
   qwen-image: {name: Qwen Image}
   gemini-omni: {name: Gemini Omni}
   veo: {name: Veo}
@@ -66,7 +68,7 @@ hide:
   - match: openai/gpt-image-1*
     why: OpenAI shut gpt-image-1 down on 23 October 2026 and closes gpt-image-1-mini on 1 December 2026
   - match: meta/muse-image
-    why: an evaluation slug, reachable only through chat completions
+    why: listed on the Images API with no endpoint; runs only through chat completions
   - match: openrouter/auto*
     why: a router, not a model
 
@@ -114,9 +116,11 @@ models:
       # says 3,780 ($0.113).
       tokens: {output_image: {1K: 1120, 2K: 1680, 4K: 3780}}
 
+  # Deprecated on 6 October 2026 with no shutdown day.
   google/gemini-3.1-flash-image:
     name: Nano Banana 2
     family: {id: nano-banana, gen: "2", tier: flash, label: "2"}
+    deprecated: {successor: google/gemini-nano-banana-2.1}
     offers: [gemini:gemini-3.1-flash-image]
     effort: {parameter: thinking_level, values: [minimal, high]}
     price:
@@ -149,14 +153,18 @@ models:
   # 1,050 tokens a megapixel: 250 at 512x512, 1,100 at 1024x1024 and 2,470
   # at 2048x1152, measured on 2.6 Flash on 27 October 2026. 1,100 keeps the
   # estimate from coming out low.
+  # Microsoft's retirement schedule gave 1 October 2026 for the 2.5 models,
+  # and they still run through OpenRouter; there is no day to trust.
   microsoft/mai-image-2.5:
     family: {id: mai, gen: "2.5", tier: std, label: "2.5"}
+    deprecated: {successor: microsoft/mai-image-2.6}
     price:
       tokens: {output_image: {"*": 1024}}
       input_tokens_per_mp: 1100
 
   microsoft/mai-image-2.5-pro:
     family: {id: mai, gen: "2.5", tier: pro, label: 2.5 Pro}
+    deprecated: {successor: microsoft/mai-image-2.6}
     price:
       tokens: {output_image: {"*": 1024}}
       input_tokens_per_mp: 1100
@@ -206,8 +214,10 @@ models:
       skip:
         input_reference: super-resolution references, which framy does not send
         input_font: font files, which framy does not send yet
+  # OpenRouter lists 4K, which the model does not make and nobody prices.
   sourceful/riverflow-v2-fast:
     family: {id: riverflow, gen: "2", tier: fast, label: 2 Fast}
+    exclude: {resolution: [4K]}
     price:
       skip:
         input_reference: super-resolution references, which framy does not send
@@ -221,13 +231,19 @@ models:
     family: {id: flux, gen: "3", tier: std, label: "3"}
     featured: true
 
+  # ByteDance takes 10 references on 5.0 Pro and Flash; OpenRouter lists 14.
   bytedance-seed/seedream-5-0-pro:
     family: {id: seedream, gen: "5", tier: pro, label: 5.0 Pro}
     featured: true
+    references: {image: 10}
 
-  # Up to 20 references.
+  # Up to 20 references, which are not billed. Tencent's price table counts
+  # 15,000 tokens an image at 1K and 2K and 20,000 at 4K; 1.5K lies between
+  # two tiers of 15,000.
   tencent/hy-image-v3.5-preview:
     featured: true
+    price:
+      tokens: {output_image: {1K: 15000, 1.5K: 15000, 2K: 15000, 4K: 20000}}
 
   # SVG output.
   recraft/recraft-v4.1-vector:
@@ -284,12 +300,15 @@ models:
     family: {id: recraft, gen: "3", tier: std, label: V3, line: base, format: raster}
   bytedance-seed/seedream-5-0-flash:
     family: {id: seedream, gen: "5", tier: flash, label: 5.0 Flash}
+    references: {image: 10}
   bytedance-seed/seedream-5-0-lite:
     family: {id: seedream, gen: "5", tier: lite, label: 5.0 Lite}
   bytedance-seed/seedream-4.5:
     family: {id: seedream, gen: "4.5", tier: std, label: "4.5"}
+  # xAI retires the slug on 2 November 2026 and serves 2.0 in its place.
   x-ai/grok-imagine-image-quality:
     family: {id: grok-image, gen: "2", tier: quality, label: Quality}
+    deprecated: {shuts_down: "2026-11-02", successor: x-ai/grok-imagine-image-2.0}
   x-ai/grok-imagine-image-2.0:
     family: {id: grok-image, gen: "2", tier: std, label: "2.0"}
   qwen/qwen-image-3-pro:
@@ -299,13 +318,20 @@ models:
   qwen/qwen-image-2.1-turbo:
     family: {id: qwen-image, gen: "2.1", tier: turbo, label: 2.1 Turbo}
   qwen/qwen-image-2.1-pro:
-    family: {id: qwen-image, gen: "2.1", tier: pro, label: 2.1 Pro}
+    family: {id: qwen-image, gen: "2.1", tier: pro, label: 2.1 Pro, keep: "came out after Qwen Image 3, and Alibaba sells both lines"}
 
   # Video. Reference counts, continuation and the face policy are filled in
-  # only where a source says so (docs/research/video.md, sections 5.4 and 6);
-  # the rest waits for the tests of the video stage.
+  # only where a source says so (docs/research/video.md, sections 5.4 and 6;
+  # docs/research/makers.md): a count is set where OpenRouter lists the kind
+  # of input for the model and the maker publishes the number. The rest
+  # waits for a paid run.
+
+  # Google closed the Veo 3.1 ids of the Gemini API on 22 October 2026 and
+  # names Omni instead; the Vertex ids OpenRouter runs retire "17 November
+  # 2026 or later".
 
   google/veo-3.1:
+    deprecated: {successor: google/gemini-omni-1.1-flash}
     family: {id: veo, gen: "3.1", tier: std, label: "3.1"}
     featured: true
     references: {image: 3}
@@ -314,6 +340,7 @@ models:
       negativePrompt: {type: text}
 
   google/veo-3.1-fast:
+    deprecated: {successor: google/gemini-omni-1.1-flash}
     family: {id: veo, gen: "3.1", tier: fast, label: 3.1 Fast}
     featured: true
     references: {image: 3}
@@ -323,6 +350,7 @@ models:
 
   # Lite takes no reference images.
   google/veo-3.1-lite:
+    deprecated: {successor: google/gemini-omni-1.1-flash}
     family: {id: veo, gen: "3.1", tier: lite, label: 3.1 Lite}
     featured: true
     faces: adults
@@ -346,45 +374,84 @@ models:
 
   kwaivgi/kling-video-o1:
     name: Kling Video O1
+    hide: costs what 3.0 Pro costs and does less through OpenRouter; its sound switch does nothing
     passthrough:
       negative_prompt: {type: text}
 
-  # Real faces in references are refused, by third-party reports; BytePlus's
-  # own page was not reached.
+  # BytePlus does not take real faces in reference images and videos. A
+  # sound needs an image or a video beside it.
   bytedance/seedance-2.0:
-    family: {id: seedance, gen: "2", tier: std, label: "2.0"}
+    family: {id: seedance, gen: "2", tier: std, label: "2.0", keep: "makes 1080p and 4K, which 2.5 does not through OpenRouter"}
     featured: true
     faces: rejected
+    references:
+      image: 9
+      video: 3
+      audio: 3
+      video_clip: {min_seconds: 2, max_seconds: 15, total_seconds: 15, max_mb: 200}
+      audio_clip: {min_seconds: 2, max_seconds: 15, total_seconds: 15, max_mb: 15}
 
   bytedance/seedance-2.5:
     family: {id: seedance, gen: "2.5", tier: std, label: "2.5"}
     featured: true
     faces: rejected
+    references:
+      image: 30
+      video: 10
+      audio: 10
+      video_clip: {min_seconds: 2, max_seconds: 30, total_seconds: 30, max_mb: 200}
+      audio_clip: {min_seconds: 2, max_seconds: 30, total_seconds: 30, max_mb: 15}
 
   bytedance/seedance-2.0-fast:
     family: {id: seedance, gen: "2", tier: fast, label: 2.0 Fast}
     faces: rejected
+    references:
+      image: 9
+      video: 3
+      audio: 3
+      video_clip: {min_seconds: 2, max_seconds: 15, total_seconds: 15, max_mb: 200}
+      audio_clip: {min_seconds: 2, max_seconds: 15, total_seconds: 15, max_mb: 15}
 
   bytedance/seedance-2.0-mini:
     family: {id: seedance, gen: "2", tier: mini, label: 2.0 Mini}
     faces: rejected
+    references:
+      image: 9
+      video: 3
+      audio: 3
+      video_clip: {min_seconds: 2, max_seconds: 15, total_seconds: 15, max_mb: 200}
+      audio_clip: {min_seconds: 2, max_seconds: 15, total_seconds: 15, max_mb: 15}
 
   alibaba/wan-3.0:
     family: {id: wan, gen: "3", tier: std, label: "3.0"}
     featured: true
+    references:
+      image: 10
+      video: 5
+      audio: 5
+      video_clip: {min_seconds: 1, max_seconds: 15, total_seconds: 15, max_mb: 100}
+      audio_clip: {min_seconds: 1, max_seconds: 15, total_seconds: 15, max_mb: 15}
 
   # Wan 3.0 itself, faster and dearer: OpenRouter calls it "the fast-mode
   # variant of Wan 3.0". The picker shows it as a switch of Wan 3.0.
   alibaba/wan-3.0-prime:
     fast_of: alibaba/wan-3.0
+    references:
+      image: 10
+      video: 5
+      audio: 5
+      video_clip: {min_seconds: 1, max_seconds: 15, total_seconds: 15, max_mb: 100}
+      audio_clip: {min_seconds: 1, max_seconds: 15, total_seconds: 15, max_mb: 15}
 
   alibaba/wan-2.7:
     family: {id: wan, gen: "2.7", tier: std, label: "2.7"}
+    references: {image: 5}
     passthrough:
       negative_prompt: {type: text}
 
   alibaba/wan-2.6:
     family: {id: wan, gen: "2.6", tier: std, label: "2.6"}
+    references: {image: 5}
     passthrough:
       negative_prompt: {type: text}
 
@@ -400,9 +467,17 @@ models:
     featured: true
     free: true
 
+  # Reference videos guide motion and style; HeyGen does not edit them.
   heygen/heygen-video-1:
     featured: true
     free: true
+    references:
+      image: 9
+      video: 3
+      audio: 3
+      files: 15
+      video_clip: {total_seconds: 15, max_mb: 32}
+      audio_clip: {max_mb: 32}
 
   google/gemini-omni-1.1-flash:
     name: Gemini Omni 1.1 Flash
@@ -425,14 +500,16 @@ models:
 
   # Editors and upscalers run on an attached video: an uploaded one, or a
   # finished one through "Edit". They are in the same video list, dimmed
-  # until a video is attached. Other models that take video input (Seedance
-  # 2.x, Hailuo 3, Wan 3.0, FLUX 3 Video, HeyGen Video) need no entry for it.
+  # until a video is attached. Models that take a video as a reference
+  # (Seedance 2.x, Hailuo 3, Wan 3.0, HeyGen Video) list it under references.
 
-  # Text instructions and keyframes; whether the result keeps the source's
-  # length is not published. At least 56 cents a run.
+  # Text instructions and keyframes, on a source of 2 to 30 s at up to
+  # 30 fps. Runway's API has no length, and the 56 cent minimum is 2 s at
+  # 28 cents, so the result likely keeps the source's length; Runway does not
+  # say so, and the estimate stays "about" until a run shows it.
   runway/aleph-2:
     featured: true
-    source_video: {required: true}
+    source_video: {required: true, min_seconds: 2, max_seconds: 30}
 
   # Keeps the source's length, aspect ratio and sound; above 720p the source
   # is scaled down to 720p.
@@ -440,10 +517,11 @@ models:
   black-forest-labs/flux-video-edit:
     featured: true
     free: true
-    source_video: {required: true, max_seconds: 15, max_mib: 50, keeps_length: true}
+    source_video: {required: true, min_seconds: 0.7, max_seconds: 15, max_mib: 50, keeps_length: true}
 
+  # A source up to 20 s, 50 MB and 2560x1440.
   black-forest-labs/flux-video-upscale:
-    source_video: {required: true, keeps_length: true}
+    source_video: {required: true, max_seconds: 20, max_mib: 50, keeps_length: true}
 
   heygen/avatar-iv:
     hide: a talking head from a photo and a voice; the composer takes no voice yet
@@ -451,16 +529,32 @@ models:
   # Variants with nothing to add but their place in the picker.
   x-ai/grok-imagine-video-1.5:
     family: {id: grok-video, gen: "1.5", tier: std, label: "1.5"}
+  # Seven reference images, by xAI and by OpenRouter's description; 1.5
+  # takes 14 at xAI, which no run has shown through OpenRouter yet.
   x-ai/grok-imagine-video:
     family: {id: grok-video, gen: "1", tier: std, label: "1.0"}
+    references: {image: 7}
+  # Up to 12 files: a reference video imitates motion and camera or is the
+  # clip to change by the prompt. A sound needs an image or a video beside
+  # it. Max takes text and images only.
   minimax/hailuo-3:
     name: Hailuo H3
     family: {id: hailuo, gen: "3", tier: std, label: H3}
+    references:
+      image: 9
+      video: 3
+      audio: 3
+      files: 12
+      video_clip: {min_seconds: 2, max_seconds: 15, total_seconds: 15, max_mb: 50}
+      audio_clip: {max_seconds: 15}
   minimax/hailuo-2.3:
     family: {id: hailuo, gen: "2.3", tier: std, label: "2.3"}
   bytedance/seedance-1-5-pro:
     family: {id: seedance, gen: "1.5", tier: pro, label: 1.5 Pro}
+    deprecated: {shuts_down: "2026-11-11", successor: bytedance/seedance-2.0-mini}
   alibaba/happyhorse-1.1:
     family: {id: happyhorse, gen: "1.1", tier: std, label: "1.1"}
+    references: {image: 9}
   alibaba/happyhorse-1.0:
     family: {id: happyhorse, gen: "1", tier: std, label: "1.0"}
+    references: {image: 9}

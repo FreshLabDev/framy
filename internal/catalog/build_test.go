@@ -112,9 +112,12 @@ func TestBuildHides(t *testing.T) {
 		"openai/gpt-5-image":                    "chat model",
 		"openai/gpt-image-1":                    "shut gpt-image-1 down",
 		"openai/gpt-image-1-mini":               "closes gpt-image-1-mini",
-		"meta/muse-image":                       "evaluation slug",
+		"meta/muse-image":                       "no endpoint",
 		"google/gemini-2.5-flash-image":         "deprecation",
 		"heygen/avatar-iv":                      "talking head",
+		"kwaivgi/kling-video-o1":                "3.0 Pro",
+		// The maker's shutdown day is within hide_expiring_within_days.
+		"x-ai/grok-imagine-image-quality": "shuts down 2026-11-02",
 	} {
 		if m := modelByID(t, snap, id); !strings.Contains(m.Hidden, why) {
 			t.Errorf("%s hidden = %q, want a reason with %q", id, m.Hidden, why)
@@ -242,7 +245,7 @@ func TestBuildListsVideoEditors(t *testing.T) {
 		t.Error("flux video edit is the free video edit (owner, 27 October)")
 	}
 	edit := modelByID(t, snap, "black-forest-labs/flux-video-edit").Traits.SourceVideo
-	if *edit != (SourceVideo{Required: true, MaxSeconds: 15, MaxMiB: 50, KeepsLength: true}) {
+	if *edit != (SourceVideo{Required: true, MinSeconds: 0.7, MaxSeconds: 15, MaxMiB: 50, KeepsLength: true}) {
 		t.Errorf("flux video edit source = %+v", *edit)
 	}
 	omni := modelByID(t, snap, "google/gemini-omni-1.1-flash").Traits.SourceVideo

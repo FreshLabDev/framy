@@ -81,7 +81,7 @@ Images API [OR]: `POST https://openrouter.ai/api/v1/images`. Поля: `model`, 
 
 Допустимые значения для каждой модели в `supported_parameters` с типами `enum`, `range`, `boolean`. Ответ: `data[].b64_json`, `media_type`, `usage.cost` в USD.
 
-Чего в Images API нет: маски, negative prompt, `thinking_level` для Gemini. Специфика передаётся через `provider.options.<provider_slug>` с ключами из `allowed_passthrough_parameters` (например FLUX.2: `steps`, `guidance`, `safety_tolerance`).
+Чего в Images API нет: маски, negative prompt, `thinking_level` для Gemini. Специфика передаётся через `provider.options.<provider_slug>` с ключами из `allowed_passthrough_parameters` (например FLUX.2: `safety_tolerance`, а у Flex ещё `steps` и `guidance`).
 
 Биллинг [OR]: "всё или ничего", неудавшаяся генерация даёт 502 и не списывается. Цены равны прейскуранту провайдера без наценки; 5,5% комиссии берётся при покупке кредитов (Standard) [OR, /pricing]. Лимит тела запроса: 413 при превышении, число не указано; у Sourceful жёсткие 4,5 МБ, лучше передавать URL, а не base64.
 
@@ -211,7 +211,7 @@ refs это диапазон `input_references` (0 = можно только т�
 | `recraft/recraft-v4.1-flash` | 0 (только T2I) | 1..6 | - | R6 | - | controls |
 | `recraft/recraft-v4-styles`, `-styles-pro` | 1..10 | 1..6 | - | RS12 | - | controls, random_seed, style_id, style_match |
 | `recraft/recraft-v4-styles-vector`, `-styles-pro-vector` | 1..10 | 1..6 | - | RS12 | output_format=svg | controls, random_seed, style_id, style_match |
-| `sourceful/riverflow-v2-fast` | 0..4 | 1 | 1K,2K,4K | A9 | - | font_inputs |
+| `sourceful/riverflow-v2-fast` | 0..4 | 1 | 1K,2K (OpenRouter перечисляет и 4K, модель его не делает) | A9 | - | font_inputs |
 | `sourceful/riverflow-v2-pro` | 0..10 | 1 | 1K,2K,4K | A9 | - | font_inputs |
 | `sourceful/riverflow-v2.5-fast` | 0..4 | 1 | 1K,2K | A9 | background=auto,transparent,opaque; output_format=jpeg | font_inputs |
 | `sourceful/riverflow-v2.5-pro` | 0..10 | 1 | 1K,2K,4K | A9 | background=auto,transparent,opaque; output_format=png,jpeg,webp | font_inputs |
@@ -306,7 +306,7 @@ T2I = текст→картинка; Edit = редактирование по к
 | `mai-image-2.5`, `-pro` | да | 1 ref | 1 | нет | нет | - |
 | `krea-2-*` | да | 1 ref | 1 | нет | нет | - |
 | `krea/k3-edit` | нет (ref обязателен) | да | 1..8 | нет | нет | - |
-| `recraft-v4*`, `v3` | да | 1 ref | 1 | нет | нет (есть цвет фона `background_rgb_color`) | V4: "читаемый встроенный текст", `text_layout` у V3/V4.x |
+| `recraft-v4*`, `v3` | да | 1 ref | 1 | нет | нет (есть цвет фона `background_rgb_color`) | V4: "читаемый встроенный текст"; `text_layout` по документации Recraft только у V3, хотя OpenRouter пропускает его и для V4.x |
 | `recraft-v4-styles*` | по стилю | 1..10 референсов стиля | 10 | нет | нет | - |
 | `recraft-*-vector` | да | 1 ref | 1 | нет | SVG | - |
 | `riverflow-v2-*` | да | да | fast 4 / pro 10 | нет | нет | pro: "идеальный текст", `font_inputs` [OR] |
@@ -339,11 +339,11 @@ T2I = текст→картинка; Edit = редактирование по к
 |---|---|
 | OpenAI | `mask`, `moderation=auto|low`, `output_compression`, `partial_images`/`stream`, произвольный `size` WxH, `input_fidelity` только для не-2.x, `action` и `previous_response_id` в Responses API |
 | Gemini | `thinking_level`, `tools: google_search` + `search_types: image_search`, `response_format` с текстом и картинкой, `previous_interaction_id` |
-| FLUX.2 | passthrough `steps`, `guidance`, `safety_tolerance` (пример OR: `steps: 40`, `guidance: 3`) |
+| FLUX.2 | passthrough `safety_tolerance`; `steps` и `guidance` только у Flex (пример OR: `steps: 40`, `guidance: 3`), в схеме BFL у Max, Pro и Klein 4B их нет (сверка 28.10.2026) |
 | FLUX.3 | passthrough `safety_tolerance` |
 | Krea 2 | passthrough `styles`, `image_style_references`, `moodboards`, `creativity`, `intensity`, `complexity`, `movement`, `strength` |
 | Krea K3 Edit | passthrough `preserve_references`, `skip_prompt_expansion`, `thinking_mode` (значения не нашёл [?]) |
-| Recraft V3/V4/V4.1 | passthrough `style`, `controls`, `text_layout` (у Flash только `controls`); по описанию ещё `strength`, `rgb_colors`, `background_rgb_color` как `image_config` (в Images API не отражены [?]) |
+| Recraft V3/V4/V4.1 | passthrough `style`, `controls`, `text_layout` (у Flash только `controls`); по документации Recraft `style`, `text_layout`, `negative_prompt`, `artistic_level` и `no_text` работают только у V3, а V4 и V4.1 берут из `controls` лишь цвета и фон (сверка 28.10.2026); по описанию ещё `strength`, `rgb_colors`, `background_rgb_color` как `image_config` (в Images API не отражены [?]) |
 | Recraft V4 Styles | `style_id`, `style_match`, `controls`, `random_seed` |
 | Riverflow V2 | `font_inputs` (до 2, $0,03/шрифт), `super_resolution_references` ($0,20/ref, до 4) |
 | Riverflow V2.5 | `reasoning` effort `low|medium|high` (Pro ещё `xhigh`), `font_inputs`, `scoring_prompt`, `scoring_rubric`, `background_mode` (`original|transparent|solid`), `background_hex_color` |
@@ -414,7 +414,7 @@ Elo: Artificial Analysis (AA-Image-T2I v2.1 и AA-Image-Editing v2.1), цена 
 
 1. Каталог моделей хранить в JSON-дескрипторах формата OpenRouter `supported_parameters` (`enum`, `range`, `boolean`) плюс тип биллинга. OpenRouter отдаёт такие данные для всех своих моделей; для прямых OpenAI и Gemini дескрипторы писать вручную по разделам 2-4.
 2. Общая панель: промпт, референсы (0..N с лимитом модели), соотношение сторон, разрешение (если у модели есть выбор), число вариантов (n или параллельные запросы), формат вывода, seed (если поддерживается). Чего нет в дескрипторе модели, скрывать, а не показывать выключенным.
-3. Группы уникальных настроек, появляющиеся только у своих моделей: OpenAI (quality до max, background, маска, moderation), Gemini (thinking_level, поиск), Riverflow (reasoning, шрифты, scoring), Recraft (стиль, цвета, SVG), Krea (стили, мудборды), FLUX.2 (steps, guidance).
+3. Группы уникальных настроек, появляющиеся только у своих моделей: OpenAI (quality до max, background, маска, moderation), Gemini (thinking_level, поиск), Riverflow (reasoning, шрифты, scoring), Recraft (стиль, цвета, SVG), Krea (стили, мудборды), FLUX.2 Flex (steps, guidance).
 4. Расчёт цены до запуска, четыре типа биллинга:
    - таблица по тирам (FLUX.3, Seedream, Krea, Qwen, Recraft, Riverflow v2, Grok): цена = таблица[тир, quality] × n + плата за входные картинки (K3 Edit 0,02/0,07 за ref, Grok 0,01, Seedream Pro и Qwen 3 по 0,003);
    - за мегапиксель: FLUX.2;

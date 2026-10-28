@@ -144,6 +144,13 @@ func (a *API) create(w http.ResponseWriter, r *http.Request) {
 		newError(http.StatusUnprocessableEntity, codeUnknownInput, "an input is not one of your files").write(w)
 		return
 	}
+	files := countOf(settings, inputs, nil)
+	fillFrames(settings, m, offer, files.Images)
+	files.Frames = frameCount(settings)
+	if aerr := checkInputs(m, offer, files); aerr != nil {
+		aerr.write(w)
+		return
+	}
 	if !isFree {
 		fillDefaults(settings, offer, shapeOf(assetSizes(inputs)...))
 	}
@@ -352,22 +359,95 @@ func (a *API) quote(r *http.Request, user int64, lang string) (fx.Quote, error) 
 	return q, err
 }
 
-// priceRequest is the estimate's input. Pictures are references; to a video
-// model that takes no image references, a picture is the first frame.
+// priceRequest is the estimate's input. The first pictures are frames, as
+// many as frame_images names, and the rest references, as the adapter sends
+// them.
 func priceRequest(m catalog.Model, prompt string, settings map[string]any, inputs []InputAsset) price.Request {
 	req := price.Request{Settings: settings, Prompt: prompt}
-	frames := m.Kind == catalog.Video && (m.Traits.References == nil || m.Traits.References.Image == 0)
+	frames := frameCount(settings)
 	for _, in := range inputs {
 		if !strings.HasPrefix(in.ContentType, "image/") {
 			continue
 		}
-		if frames {
+		if req.Frames < frames {
 			req.Frames++
 		} else {
 			req.Images = append(req.Images, price.Image{Width: in.Width, Height: in.Height})
 		}
 	}
 	return req
+}
+
+// frameCount is how many frame types the frame_images setting names.
+func frameCount(settings map[string]any) int {
+	switch list := settings[framesSetting].(type) {
+	case []string:
+		return len(list)
+	case []any:
+		return len(list)
+	}
+	return 0
+}
+
+// framesSetting names which of a video's first pictures are frames.
+const framesSetting = "frame_images"
+
+// fillFrames makes the pictures of a run on a video model that takes no
+// reference images its frames, first then last, where the run did not say:
+// sent as references they would fail.
+func fillFrames(settings map[string]any, m catalog.Model, offer catalog.Offer, images int) {
+	if v, set := settings[framesSetting]; m.Kind != catalog.Video || images == 0 || (set && v != nil) {
+		return
+	}
+	in := catalog.InputsOf(m, offer)
+	if in.Images == nil || in.Images.Refs > 0 {
+		return
+	}
+	var types []string
+	for _, v := range offer.Params[framesSetting].Values {
+		if s, ok := v.(string); ok && len(types) < images {
+			types = append(types, s)
+		}
+	}
+	if len(types) > 0 {
+		settings[framesSetting] = types
+	}
+}
+
+// countOf counts a run's files by kind: the kept ones, then those still in
+// the browser. Frames is left to the caller.
+func countOf(settings map[string]any, inputs []InputAsset, files []fileMeta) catalog.Count {
+	var c catalog.Count
+	add := func(contentType string, seconds float64) {
+		switch kind, _, _ := strings.Cut(contentType, "/"); kind {
+		case "image":
+			c.Images++
+		case "video":
+			c.Videos++
+			c.VideoSecs = append(c.VideoSecs, seconds)
+		case "audio":
+			c.Audio++
+			c.AudioSecs = append(c.AudioSecs, seconds)
+		}
+	}
+	for _, in := range inputs {
+		add(in.ContentType, 0)
+	}
+	for _, f := range files {
+		add(f.ContentType, f.Seconds)
+	}
+	c.Frames = frameCount(settings)
+	return c
+}
+
+// checkInputs refuses a run whose files the offer does not take, with what
+// it takes.
+func checkInputs(m catalog.Model, offer catalog.Offer, c catalog.Count) *apiError {
+	in := catalog.InputsOf(m, offer)
+	if err := in.Check(m.Kind, c); err != nil {
+		return newError(http.StatusUnprocessableEntity, codeWrongInputs, err.Error()).with("inputs", in)
+	}
+	return nil
 }
 
 // decode reads and checks the body of a create request.

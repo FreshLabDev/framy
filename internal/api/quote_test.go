@@ -2,6 +2,7 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -27,7 +28,7 @@ const (
 func heygen() catalog.Model {
 	of := catalog.Offer{
 		ID: heygenOff, ModelID: "heygen/heygen-video-1", Provider: catalog.OpenRouter, ProviderModelID: "heygen/heygen-video-1",
-		Kind: catalog.Video, Name: "HeyGen",
+		Kind: catalog.Video, Name: "HeyGen", InputModalities: []string{"text", "image", "video", "audio"},
 		Params: map[string]catalog.Param{
 			"resolution":   {Type: catalog.Enum, Values: []any{"480p", "768p"}},
 			"duration":     {Type: catalog.Enum, Values: []any{5.0, 10.0}},
@@ -35,7 +36,10 @@ func heygen() catalog.Model {
 		},
 		Routes: []catalog.Route{{SKUs: map[string]string{"duration_seconds_480p": "0.02", "duration_seconds_768p": "0.036"}, Discount: 0.5}},
 	}
-	return catalog.Model{ID: of.ModelID, Kind: catalog.Video, Name: "HeyGen Video", Maker: "HeyGen", Free: true, Offers: []catalog.Offer{of}}
+	return catalog.Model{
+		ID: of.ModelID, Kind: catalog.Video, Name: "HeyGen Video", Maker: "HeyGen", Free: true, Offers: []catalog.Offer{of},
+		Traits: catalog.Traits{References: &catalog.References{Image: 9, Video: 3, Audio: 3, Files: 15}},
+	}
 }
 
 // quoteRig has an image model, MAI on the allowance, one that charges for
@@ -57,6 +61,33 @@ func quoteRig(t *testing.T, opts ...func(*rigOptions)) *rig {
 	r.data.addAsset(alice, InputAsset{ID: 50, ContentType: "image/jpeg", Width: 1024, Height: 1024})
 	r.data.addAsset(bob, InputAsset{ID: 51, ContentType: "image/jpeg", Width: 1024, Height: 1024})
 	return r
+}
+
+// Files the offer does not take are said by the quote to anyone, before a
+// payer is named.
+func TestAQuoteSaysWhichFilesTheOfferTakes(t *testing.T) {
+	r := quoteRig(t)
+	_, m := quoteOf(t, r, 0, `{"items":[
+		{"offer":"`+testOffer+`","files":[{"content_type":"video/mp4","seconds":4}]},
+		{"offer":"`+heygenOff+`","files":[{"content_type":"image/jpeg","width":800,"height":600}]},
+		{"offer":"`+heygenOff+`","settings":{"frame_images":["first_frame"]},"files":[
+			{"content_type":"image/jpeg","width":800,"height":600},{"content_type":"video/mp4","seconds":4}]}
+	]}`)
+	items := m["items"].([]any)
+	refusal := func(i int) map[string]any {
+		r, _ := items[i].(map[string]any)["refusal"].(map[string]any)
+		return r
+	}
+	if r := refusal(0); r["error"] != "wrong_inputs" || !strings.Contains(r["message"].(string), "no videos") || r["inputs"] == nil {
+		t.Errorf("a video to an image model: %v", r)
+	}
+	// HeyGen takes reference images, so a photo is one.
+	if r := refusal(1); r != nil {
+		t.Errorf("a photo to heygen: %v", r)
+	}
+	if r := refusal(2); r["error"] != "wrong_inputs" || !strings.Contains(r["message"].(string), "do not go together") {
+		t.Errorf("a frame and a video: %v", r)
+	}
 }
 
 func quoteOf(t *testing.T, r *rig, user int64, body string, hdr ...string) (int, map[string]any) {
@@ -94,8 +125,9 @@ func TestTheCatalogIsForAnyone(t *testing.T) {
 	r.store.syncedAt = time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
 	m := r.store.offers[refsOffer]
 	m.Traits = catalog.Traits{
-		Effort: &catalog.Effort{Parameter: "quality", Values: []string{"low", "high"}},
-		Price:  &catalog.PriceHints{Tokens: map[string]map[string]int{"output_image": {"*": 1000}}},
+		Effort:     &catalog.Effort{Parameter: "quality", Values: []string{"low", "high"}},
+		Price:      &catalog.PriceHints{Tokens: map[string]map[string]int{"output_image": {"*": 1000}}},
+		Deprecated: &catalog.Deprecation{ShutsDown: "2026-11-02", Successor: "test/image"},
 	}
 	r.store.offers[refsOffer] = m
 
@@ -131,6 +163,17 @@ func TestTheCatalogIsForAnyone(t *testing.T) {
 	}
 	if _, ok := of["routes"]; ok {
 		t.Errorf("routes went out: %v", of)
+	}
+	// What one run takes: frames or references, never both.
+	in, _ := json.Marshal(of["inputs"])
+	if string(in) != `{"audio":{"max":3,"min":0,"role":"reference"},"files":15,"images":{"frames":1,"max":9,"min":0,"refs":9},"videos":{"max":3,"min":0,"role":"reference"}}` {
+		t.Errorf("heygen inputs = %s", in)
+	}
+	if refs["deprecated"] != true || refs["shuts_down"] != "2026-11-02" || refs["successor"] != "test/image" {
+		t.Errorf("deprecation = %v %v %v", refs["deprecated"], refs["shuts_down"], refs["successor"])
+	}
+	if _, ok := hg["deprecated"]; ok {
+		t.Errorf("heygen is deprecated: %v", hg)
 	}
 	fr := out["free"].(map[string]any)
 	if fr["images"].(map[string]any)["limit"] != 5.0 || fr["videos"].(map[string]any)["window_seconds"] != float64(7*24*3600) {
