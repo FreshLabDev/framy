@@ -120,7 +120,7 @@ func TestThePickerArrangesTheCatalog(t *testing.T) {
 	want := map[string][]string{
 		ForImage:      {"microsoft/mai-image-2.6-flash", "google/gemini-nano-banana-2.1", "openai/gpt-image-2.5-flare"},
 		ForManyPhotos: {"black-forest-labs/flux-3-image-klein", "google/gemini-nano-banana-2.1", "openai/gpt-image-2.5-flare"},
-		ForVideo:      {"heygen/heygen-video-1", "google/veo-3.1-fast", "kwaivgi/kling-v3.0-pro"},
+		ForVideo:      {"heygen/heygen-video-1", "bytedance/seedance-2.0-mini", "kwaivgi/kling-v3.0-pro"},
 		ForVideoEdit:  {"black-forest-labs/flux-video-edit", "runway/aleph-2", "bytedance/seedance-2.5"},
 	}
 	if !reflect.DeepEqual(picks, want) {

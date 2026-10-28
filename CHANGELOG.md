@@ -314,7 +314,8 @@ was written from, and the skeleton of the service.
   2.0 makes 1080p and 4K, and Qwen Image 2.1 Pro came out after Qwen Image
   3. Marked on 28 October: Gemini 3.1 Flash Image, MAI-Image-2.5 and 2.5
   Pro, Grok Imagine Image Quality (2 November), Veo 3.1 and its Fast and
-  Lite, Seedance 1.5 Pro (11 November).
+  Lite, Seedance 1.5 Pro (11 November). Seedance 2.0 Mini takes Veo 3.1
+  Fast's place among the video suggestions.
 - The catalog checked against every maker's documentation on 28 October.
   FLUX Video Upscale's `creativity` is 0 or 1, as BFL takes it, where the
   default was 0.5, which BFL refuses. HY Image's price is known: Tencent
