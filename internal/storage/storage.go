@@ -29,6 +29,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -471,6 +472,126 @@ func (s *Store) DeleteResults(ctx context.Context, userID, jobID int64) (int, er
 	return len(ids), nil
 }
 
+// DeleteJobFiles removes what a job of the person's leaves behind when the
+// person deletes it: its results, and the uploads it took that no other job
+// still takes. An upload another job takes stays with that job. It returns
+// how many files went.
+func (s *Store) DeleteJobFiles(ctx context.Context, userID, jobID int64) (int, error) {
+	n, err := s.DeleteResults(ctx, userID, jobID)
+	if err != nil {
+		return n, err
+	}
+	for {
+		gone, err := s.deleteInput(ctx, userID, jobID)
+		if err != nil || !gone {
+			return n, err
+		}
+		n++
+	}
+}
+
+// deleteInput deletes one upload job takes and no other job does, and
+// reports false when there is none. As in sweepUpload, the row is locked
+// while its object goes, so a job taking the file at that moment either
+// holds it first, and the file stays, or finds it gone.
+func (s *Store) deleteInput(ctx context.Context, userID, jobID int64) (bool, error) {
+	var gone bool
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		var id int64
+		var key string
+		err := tx.QueryRow(ctx, `
+			SELECT a.id, a.object_key FROM job_input i JOIN asset a ON a.id = i.asset_id
+			WHERE i.job_id = $1 AND a.user_id = $2 AND a.kind = 'upload'
+			  AND NOT EXISTS (
+			    SELECT 1 FROM job_input o JOIN job j ON j.id = o.job_id
+			    WHERE o.asset_id = a.id AND o.job_id <> $1 AND j.deleted_at IS NULL)
+			ORDER BY a.id
+			LIMIT 1
+			FOR UPDATE OF a SKIP LOCKED`, jobID, userID).Scan(&id, &key)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if err := s.bucket.Delete(ctx, key); err != nil {
+			return fmt.Errorf("delete the upload %d: %w", id, err)
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM asset WHERE id = $1`, id); err != nil {
+			return err
+		}
+		gone = true
+		return nil
+	})
+	return gone, err
+}
+
+// deleteWorkers is how many objects DeleteAll deletes at once.
+const deleteWorkers = 8
+
+// DeleteAll removes every file of the person's kept before before, uploads
+// and results, the object first and then its row, and returns how many went.
+// A file kept later, by a run that started while the account was being
+// deleted, is left. It stops at the first object that would not go; what
+// went stays gone, so a second call carries on.
+func (s *Store) DeleteAll(ctx context.Context, userID int64, before time.Time) (int, error) {
+	n := 0
+	for {
+		rows, err := s.pool.Query(ctx, `
+			SELECT id, object_key FROM asset WHERE user_id = $1 AND created_at <= $2
+			ORDER BY id LIMIT 256`, userID, before)
+		if err != nil {
+			return n, err
+		}
+		type file struct {
+			id  int64
+			key string
+		}
+		files, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (file, error) {
+			var f file
+			return f, r.Scan(&f.id, &f.key)
+		})
+		if err != nil || len(files) == 0 {
+			return n, err
+		}
+		errs := make([]error, len(files))
+		next := make(chan int)
+		var wg sync.WaitGroup
+		for range min(deleteWorkers, len(files)) {
+			wg.Go(func() {
+				for i := range next {
+					errs[i] = s.bucket.Delete(ctx, files[i].key)
+				}
+			})
+		}
+		for i := range files {
+			next <- i
+		}
+		close(next)
+		wg.Wait()
+		var ids []int64
+		var first error
+		for i, f := range files {
+			if errs[i] != nil {
+				if first == nil {
+					first = fmt.Errorf("delete the file %d: %w", f.id, errs[i])
+				}
+				continue
+			}
+			ids = append(ids, f.id)
+		}
+		if len(ids) > 0 {
+			if _, err := s.pool.Exec(ctx, `DELETE FROM asset WHERE id = ANY($1) AND user_id = $2`, ids, userID); err != nil {
+				return n, err
+			}
+			n += len(ids)
+		}
+		if first != nil {
+			return n, first
+		}
+	}
+}
+
 // Results are the files job id made, in order.
 func (s *Store) Results(ctx context.Context, jobID int64) ([]Asset, error) {
 	rows, err := s.pool.Query(ctx, `
@@ -533,6 +654,34 @@ func (s *Store) Link(ctx context.Context, userID, assetID int64, filename string
 		return "", err
 	}
 	return s.bucket.PresignGet(key, s.cfg.LinkTTL, disposition(filename))
+}
+
+// LinkAll is a presigned link to each of ids that is a file of the person's,
+// by id, as Link makes it: one read for a page of the history instead of one
+// per file. An id that is not theirs has no link.
+func (s *Store) LinkAll(ctx context.Context, userID int64, ids []int64) (map[int64]string, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := s.pool.Query(ctx, `SELECT id, object_key FROM asset WHERE id = ANY($1) AND user_id = $2`, ids, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[int64]string, len(ids))
+	for rows.Next() {
+		var id int64
+		var key string
+		if err := rows.Scan(&id, &key); err != nil {
+			return nil, err
+		}
+		link, err := s.bucket.PresignGet(key, s.cfg.LinkTTL, "")
+		if err != nil {
+			return nil, err
+		}
+		out[id] = link
+	}
+	return out, rows.Err()
 }
 
 // Usage is what a person keeps.

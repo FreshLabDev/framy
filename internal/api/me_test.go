@@ -38,7 +38,11 @@ func TestMeIsTheSignedInPerson(t *testing.T) {
 	if c, ok := m["connections"].([]any); !ok || len(c) != 0 {
 		t.Errorf("connections = %v", m["connections"])
 	}
-	if len(m) != len(want)+1 {
+	// The rig keeps files, so the settings learn how much.
+	if st, ok := m["storage"].(map[string]any); !ok || st["files"] != float64(0) || st["bytes"] != float64(0) {
+		t.Errorf("storage = %v", m["storage"])
+	}
+	if len(m) != len(want)+2 {
 		t.Errorf("fields %v", m)
 	}
 	if cc := resp.Header.Get("Cache-Control"); cc != "no-store" {

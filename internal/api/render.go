@@ -24,6 +24,15 @@ type jobJSON struct {
 	Kind   string `json:"kind"`
 	Offer  string `json:"offer"`
 	Free   bool   `json:"free"`
+	// Model, Prompt and Settings are what was asked for, for the result
+	// page and Again; Surface is where: site, mini_app, group or dm.
+	Model    string         `json:"model"`
+	Prompt   string         `json:"prompt"`
+	Settings map[string]any `json:"settings"`
+	Surface  string         `json:"surface"`
+	// Inputs are the files the job took that are still kept, in order, with
+	// links like the results'.
+	Inputs []resultJSON `json:"inputs"`
 	// Estimate is the price shown before the run, in the currency it was
 	// shown in; Cost is what the provider charged, once it is known.
 	Estimate *estimateJSON `json:"estimate,omitempty"`
@@ -91,11 +100,57 @@ type resultJSON struct {
 	URL string `json:"url,omitempty"`
 }
 
-// render makes the client's view of a state. lang writes the amounts; a done
-// job's results get their links here.
+// render makes the client's view of a state. lang writes the amounts; the
+// files get their links here.
 func (a *API) render(ctx context.Context, userID int64, s State, lang string) jobJSON {
+	return a.renderAll(ctx, userID, []State{s}, lang)[0]
+}
+
+// renderAll renders a page of states, with the links of all their files
+// made in one read.
+func (a *API) renderAll(ctx context.Context, userID int64, states []State, lang string) []jobJSON {
+	var ids []int64
+	for _, s := range states {
+		for _, f := range s.Inputs {
+			ids = append(ids, f.ID)
+		}
+		if s.Status == jobs.Done {
+			for _, f := range s.Results {
+				ids = append(ids, f.ID)
+			}
+		}
+	}
+	var links map[int64]string
+	if a.cfg.Links != nil && len(ids) > 0 {
+		var err error
+		if links, err = a.cfg.Links.LinkAll(ctx, userID, ids); err != nil {
+			// Never the link or the key, which the error may name.
+			a.log.Warn("file links not made", "files", len(ids))
+		}
+	}
+	out := make([]jobJSON, len(states))
+	for i, s := range states {
+		out[i] = a.renderOne(s, lang, links)
+	}
+	return out
+}
+
+func filesJSON(files []Result, links map[int64]string) []resultJSON {
+	out := make([]resultJSON, 0, len(files))
+	for _, r := range files {
+		out = append(out, resultJSON{ID: r.ID, ContentType: r.ContentType, Bytes: r.Bytes, Width: r.Width, Height: r.Height, URL: links[r.ID]})
+	}
+	return out
+}
+
+func (a *API) renderOne(s State, lang string, links map[int64]string) jobJSON {
+	settings := s.Settings
+	if settings == nil {
+		settings = map[string]any{}
+	}
 	v := jobJSON{
 		ID: s.ID, Seq: s.Seq, Status: string(s.Status), Kind: string(s.Kind), Offer: s.Offer, Free: s.Free,
+		Model: s.Model, Prompt: s.Prompt, Settings: settings, Surface: s.Surface, Inputs: filesJSON(s.Inputs, links),
 		CreatedAt: s.CreatedAt.UTC(), RetryAt: utc(s.RetryAt), FinishedAt: utc(s.FinishedAt),
 	}
 	code, perUSD := fx.USD, 1.0
@@ -113,19 +168,7 @@ func (a *API) render(ctx context.Context, userID int64, s State, lang string) jo
 		v.Error = &errorJSON{Class: string(s.ErrorClass), Message: publicMessage(s.ErrorClass, s.Error)}
 	}
 	if s.Status == jobs.Done {
-		v.Results = make([]resultJSON, 0, len(s.Results))
-		for _, r := range s.Results {
-			res := resultJSON{ID: r.ID, ContentType: r.ContentType, Bytes: r.Bytes, Width: r.Width, Height: r.Height}
-			if a.cfg.Links != nil {
-				if link, err := a.cfg.Links.Link(ctx, userID, r.ID, ""); err == nil {
-					res.URL = link
-				} else {
-					// Never the link or the key, which the error may name.
-					a.log.Warn("result link not made", "job", s.ID, "asset", r.ID)
-				}
-			}
-			v.Results = append(v.Results, res)
-		}
+		v.Results = filesJSON(s.Results, links)
 		v.Grounding = s.Grounding
 	}
 	return v

@@ -78,9 +78,11 @@ const (
 	DefaultCatalogTTL = time.Minute
 )
 
-// Queue starts jobs: *jobs.Queue.
+// Queue starts and stops jobs: *jobs.Queue. Cancel ends a draft or a queued
+// job and answers jobs.ErrRunning for a running one.
 type Queue interface {
 	Enqueue(ctx context.Context, n jobs.New) (id int64, created bool, err error)
+	Cancel(ctx context.Context, id int64) error
 }
 
 // Store is what the API asks the database about beyond jobs: *db.Store.
@@ -93,6 +95,12 @@ type Store interface {
 	Currency(ctx context.Context, userID int64) (string, error)
 	// UserLang is the person's language in core, "" when it has none.
 	UserLang(ctx context.Context, userID int64) (string, error)
+	// SetCurrency keeps the person's currency, "" for the default.
+	SetCurrency(ctx context.Context, userID int64, code string) error
+	// SetUserLang is the person's pick in core, for every bot of the family;
+	// ClearUserLang withdraws framy's pick.
+	SetUserLang(ctx context.Context, userID int64, lang string) error
+	ClearUserLang(ctx context.Context, userID int64) error
 	// Card is the name and photo of the person's last sign-in; a zero Card
 	// when there is none.
 	Card(ctx context.Context, userID int64) (db.Card, error)
@@ -115,15 +123,29 @@ type Uploads interface {
 	Upload(ctx context.Context, userID int64, r io.Reader) (storage.Asset, error)
 }
 
-// Links presigns a file of the person's: *storage.Store.
+// Links presigns files of the person's: *storage.Store. An id that is not
+// theirs gets no link.
 type Links interface {
-	Link(ctx context.Context, userID, assetID int64, filename string) (string, error)
+	LinkAll(ctx context.Context, userID int64, ids []int64) (map[int64]string, error)
 }
 
-// Connections lists the person's provider connections: *keys.Service. A nil
+// Connections are the person's provider keys: *keys.Service. A nil
 // *keys.Service answers keys.ErrDisabled, which is no connection.
 type Connections interface {
 	List(ctx context.Context, userID int64) ([]keys.Connection, error)
+	Save(ctx context.Context, userID int64, provider, key string) (keys.Connection, error)
+	Delete(ctx context.Context, userID int64, provider string) error
+	Recheck(ctx context.Context, userID int64, provider string) (keys.Connection, error)
+}
+
+// Files deletes the person's files and sums them: *storage.Store.
+type Files interface {
+	// DeleteJobFiles removes a job's results and the uploads no other job
+	// takes.
+	DeleteJobFiles(ctx context.Context, userID, jobID int64) (int, error)
+	// DeleteAll removes every file of the person's kept before before.
+	DeleteAll(ctx context.Context, userID int64, before time.Time) (int, error)
+	Usage(ctx context.Context, userID int64) (storage.Usage, error)
 }
 
 // Config is the API's setup.
@@ -133,11 +155,12 @@ type Config struct {
 	Pool  *pgxpool.Pool
 	Queue Queue
 	Store Store
-	// Uploads and Links are nil while framy keeps no files (no R2 token):
-	// uploading then answers 503, and a finished job lists its results
-	// without links.
+	// Uploads, Links and Files are nil while framy keeps no files (no R2
+	// token): uploading then answers 503, a finished job lists its results
+	// without links, and deleting a job that has files answers 503.
 	Uploads Uploads
 	Links   Links
+	Files   Files
 	// Keys is nil without a KEK file, which is no connection for anyone.
 	Keys Connections
 	// Allowance is nil in tests that leave the free allowance out: /api/me
@@ -147,6 +170,9 @@ type Config struct {
 	// Person names the signed-in person behind a request. No person: ok is
 	// false. It is asked on every request, so it has to be cheap.
 	Person func(*http.Request) (userID int64, ok bool)
+	// Revoke ends every session of the person, on the site and in the Mini
+	// App: internal/auth's RevokeAll. Deleting an account calls it last.
+	Revoke func(ctx context.Context, userID int64) error
 	Log    *slog.Logger
 
 	// MaxStreams per person, Ping, WriteTimeout and UploadSlots default to
@@ -194,8 +220,8 @@ type API struct {
 // New checks cfg and fills its defaults.
 func New(cfg Config) (*API, error) {
 	switch {
-	case cfg.Queue == nil || cfg.Store == nil || cfg.Person == nil:
-		return nil, errors.New("api: the queue, the store and Person are needed")
+	case cfg.Queue == nil || cfg.Store == nil || cfg.Person == nil || cfg.Revoke == nil:
+		return nil, errors.New("api: the queue, the store, Person and Revoke are needed")
 	case cfg.Pool == nil && cfg.data == nil:
 		return nil, errors.New("api: the pool is needed")
 	}
@@ -239,9 +265,23 @@ func (a *API) Register(site *web.Server) {
 	site.HandleFunc("POST /api/uploads", a.upload,
 		web.Limit(web.ClassUpload), web.Body(a.maxBody), web.Deadlines(uploadRead, uploadWrite))
 	site.HandleFunc("POST /api/jobs", a.create, web.Limit(web.ClassJob))
+	site.HandleFunc("GET /api/jobs", a.history)
 	site.HandleFunc("GET /api/jobs/{id}", a.get)
+	site.HandleFunc("DELETE /api/jobs/{id}", a.remove)
+	site.HandleFunc("POST /api/jobs/{id}/cancel", a.cancel)
 	site.HandleFunc("GET /api/jobs/{id}/events", a.events, web.Stream())
 	site.HandleFunc("GET /api/me", a.me)
+	site.HandleFunc("PATCH /api/me", a.settings, web.Body(smallBody))
+	// Deleting an account removes every file, which may take minutes.
+	site.HandleFunc("DELETE /api/me", a.deleteAccount, web.Limit(web.ClassAuth), web.Body(smallBody),
+		web.Deadlines(10*time.Second, accountDeadline+10*time.Second))
+	// Saving and checking a key ask the provider; the key check takes up to
+	// 15 s.
+	site.HandleFunc("PUT /api/connections/{provider}", a.saveConnection, web.Limit(web.ClassJob), web.Body(smallBody),
+		web.Deadlines(10*time.Second, 30*time.Second))
+	site.HandleFunc("DELETE /api/connections/{provider}", a.deleteConnection)
+	site.HandleFunc("POST /api/connections/{provider}/check", a.checkConnectionRoute, web.Limit(web.ClassJob),
+		web.Deadlines(10*time.Second, 30*time.Second))
 	site.HandleFunc("GET /api/catalog", a.catalogRoute)
 	site.HandleFunc("POST /api/quote", a.quoteRoute)
 }
@@ -303,6 +343,17 @@ const (
 	codeBusy              = "busy"
 	codeShuttingDown      = "shutting_down"
 	codeInternal          = "internal"
+	codeJobActive         = "job_active"
+	codeJobRunning        = "job_running"
+	codeJobDraft          = "job_draft"
+	codeJobsActive        = "jobs_active"
+	codeUnknownProvider   = "unknown_provider"
+	codeKeysOff           = "keys_off"
+	codeBadKey            = "bad_key"
+	codeKeyRejected       = "key_rejected"
+	codeKeyForbidden      = "key_forbidden"
+	codeKeyUnreadable     = "key_unreadable"
+	codeCheckUnavailable  = "check_unavailable"
 )
 
 // apiError is an answer that is not a success.

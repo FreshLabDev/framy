@@ -306,6 +306,21 @@ was written from, and the skeleton of the service.
   higher one. A free video from a start frame started on the site names the
   frame, as the chat does, instead of being refused by the allowance, and a
   setting may be a short list such as `frame_images`.
+- What the site's History and Settings need. `GET /api/jobs` is the
+  history, newest first, by kind and by a part of the prompt, in pages of up
+  to 100 with the links of every file signed in one read; each job now
+  carries its model, prompt, settings, surface and inputs. `DELETE
+  /api/jobs/{id}` deletes a job that ended with its results and the uploads
+  no other job takes, and `POST /api/jobs/{id}/cancel` stops one that is
+  still queued. `PUT`, `DELETE` and `POST .../check` on
+  `/api/connections/{provider}` save, delete and re-check a key, and say
+  plainly why a key was refused. `PATCH /api/me` sets the currency and the
+  language or puts them back to the default, and `GET /api/me` tells how
+  many files and bytes framy keeps for the person. `DELETE /api/me` deletes
+  the account: every file, the keys, the prompts and results, the profile,
+  and last every session; a failure half way leaves what is left to a
+  second try. A deleted job keeps a cleared row (migration 017), so
+  deleting a run, or the account, does not give free runs back.
 - The model picker's shape comes from `catalog/overlay.yaml`, so a new model
   needs no code: families with their generations and tiers, the variant a
   family opens on, outdated variants worked out from newer generations,

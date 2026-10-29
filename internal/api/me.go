@@ -33,6 +33,14 @@ type meJSON struct {
 	// Free is what is left of the free allowance; absent when framy runs
 	// without one.
 	Free *usageJSON `json:"free,omitempty"`
+	// Storage is how many files framy keeps for the person and their bytes,
+	// for the settings; absent when framy keeps no files.
+	Storage *storageJSON `json:"storage,omitempty"`
+}
+
+type storageJSON struct {
+	Files int   `json:"files"`
+	Bytes int64 `json:"bytes"`
 }
 
 // usageJSON is the person's use of the free allowance, by kind.
@@ -109,6 +117,14 @@ func (a *API) me(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		out.Free = &usageJSON{Images: meterOf(u.Images), Videos: meterOf(u.Videos)}
+	}
+	if a.cfg.Files != nil {
+		u, err := a.cfg.Files.Usage(ctx, user)
+		if err != nil {
+			a.internal(w, r, err)
+			return
+		}
+		out.Storage = &storageJSON{Files: u.Files, Bytes: u.Bytes}
 	}
 	writeJSON(w, http.StatusOK, out)
 }

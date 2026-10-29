@@ -229,7 +229,7 @@ func (w *world) instance(opts ...func(*rigOptions)) *instance {
 		c.Pool, c.Queue, c.Store, c.Keys, c.data = w.pool, w.queue, w.store, w.conns, nil
 		c.Ping, c.Keepalive, c.Backoff = time.Hour, 100*time.Millisecond, 300*time.Millisecond
 		c.listening = func() { w.listening.Add(1) }
-		c.Uploads = nil
+		c.Uploads, c.Files = nil, nil
 	}
 	opts = append([]func(*rigOptions){func(o *rigOptions) {
 		prev := o.cfg

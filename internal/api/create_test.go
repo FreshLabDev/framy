@@ -226,6 +226,22 @@ func TestEachRefusalOfTheQueueHasItsCode(t *testing.T) {
 	}
 }
 
+func TestARepeatedRequestOfADeletedJobStartsNoOther(t *testing.T) {
+	r := jobRig(t)
+	m := jsonOf(t, r.post(alice, "/api/jobs", "gone-key", body(testOffer, "key")))
+	id := int64(m["id"].(float64))
+	r.data.mu.Lock()
+	delete(r.data.states, id)
+	r.data.mu.Unlock()
+	again := r.post(alice, "/api/jobs", "gone-key", body(testOffer, "key"))
+	if m := jsonOf(t, again); again.StatusCode != http.StatusNotFound || m["error"] != "not_found" {
+		t.Fatalf("%d %v", again.StatusCode, m)
+	}
+	if r.queue.calls() != 1 {
+		t.Errorf("the queue was asked %d times", r.queue.calls())
+	}
+}
+
 func TestARepeatedRequestIsTheSameJob(t *testing.T) {
 	r := jobRig(t)
 	first := r.post(alice, "/api/jobs", "same-key", body(testOffer, "key"))

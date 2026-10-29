@@ -259,12 +259,17 @@ func run(log *slog.Logger) error {
 	// names.
 	var uploads api.Uploads
 	var links api.Links
+	var kept api.Files
 	if files != nil {
-		uploads, links = files, files
+		uploads, links, kept = files, files, files
 	}
 	jobAPI, err := api.New(api.Config{
-		Pool: store.Pool(), Queue: queue, Store: store, Uploads: uploads, Links: links, Keys: people,
+		Pool: store.Pool(), Queue: queue, Store: store, Uploads: uploads, Links: links, Files: kept, Keys: people,
 		Allowance: allowance, Person: signIn.Person, Log: log.With("component", "api"),
+		Revoke: func(ctx context.Context, userID int64) error {
+			_, err := signIn.RevokeAll(ctx, userID)
+			return err
+		},
 	})
 	if err != nil {
 		return err

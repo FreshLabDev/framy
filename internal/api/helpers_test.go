@@ -51,13 +51,16 @@ type fakeData struct {
 	owner  map[int64]int64 // asset id -> user
 	reads  int
 	failed error
+	// removed are the jobs deleted, and forgot the accounts.
+	removed map[int64]bool
+	forgot  []int64
 	// afterRead runs once, right after a read has taken its answer and
 	// before the reader has it: a change landing in that gap.
 	afterRead func()
 }
 
 func newFakeData() *fakeData {
-	return &fakeData{states: map[int64]State{}, owners: map[int64]int64{}, keys: map[string]int64{}, assets: map[int64]InputAsset{}, owner: map[int64]int64{}}
+	return &fakeData{states: map[int64]State{}, owners: map[int64]int64{}, keys: map[string]int64{}, assets: map[int64]InputAsset{}, owner: map[int64]int64{}, removed: map[int64]bool{}}
 }
 
 // set stores a job of user, bumping its seq as the trigger does when the
@@ -117,6 +120,73 @@ func (d *fakeData) Inputs(_ context.Context, userID int64, ids []int64) ([]Input
 	return out, nil
 }
 
+func (d *fakeData) List(_ context.Context, userID int64, f Filter) ([]State, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.reads++
+	if d.failed != nil {
+		return nil, d.failed
+	}
+	var out []State
+	for id, s := range d.states {
+		switch {
+		case d.owners[id] != userID, s.Status == jobs.Draft, d.removed[id]:
+		case f.Kind != "" && s.Kind != f.Kind:
+		case f.Query != "" && !strings.Contains(strings.ToLower(s.Prompt), strings.ToLower(f.Query)):
+		case f.Before != 0 && id >= f.Before:
+		default:
+			out = append(out, s)
+		}
+	}
+	slices.SortFunc(out, func(a, b State) int { return int(b.ID - a.ID) })
+	if len(out) > f.Limit {
+		out = out[:f.Limit]
+	}
+	return out, nil
+}
+
+func (d *fakeData) Remove(_ context.Context, userID, id int64) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	s, ok := d.states[id]
+	switch {
+	case !ok || d.owners[id] != userID || d.removed[id]:
+		return ErrNotFound
+	case !s.Ended():
+		return ErrActive
+	}
+	d.removed[id] = true
+	delete(d.states, id)
+	return nil
+}
+
+func (d *fakeData) Active(_ context.Context, userID int64) (bool, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for id, s := range d.states {
+		if d.owners[id] == userID && (s.Status == jobs.Queued || s.Status == jobs.Running) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (d *fakeData) Forget(ctx context.Context, userID int64) error {
+	if active, _ := d.Active(ctx, userID); active {
+		return ErrActive
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for id := range d.states {
+		if d.owners[id] == userID {
+			d.removed[id] = true
+			delete(d.states, id)
+		}
+	}
+	d.forgot = append(d.forgot, userID)
+	return nil
+}
+
 // addAsset gives user a file.
 func (d *fakeData) addAsset(user int64, a InputAsset) {
 	d.mu.Lock()
@@ -138,6 +208,9 @@ type fakeQueue struct {
 	err   error
 	next  int64
 	state State
+	// cancelErr fails Cancel; cancelled are the ids it was given.
+	cancelErr error
+	cancelled []int64
 }
 
 func (q *fakeQueue) Enqueue(_ context.Context, n jobs.New) (int64, bool, error) {
@@ -170,6 +243,27 @@ func (q *fakeQueue) Enqueue(_ context.Context, n jobs.New) (int64, bool, error) 
 	return s.ID, true, nil
 }
 
+// Cancel cancels a queued job as the queue does, and answers cancelErr
+// when it is set.
+func (q *fakeQueue) Cancel(_ context.Context, id int64) error {
+	q.mu.Lock()
+	err := q.cancelErr
+	q.cancelled = append(q.cancelled, id)
+	q.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	q.data.mu.Lock()
+	s := q.data.states[id]
+	q.data.mu.Unlock()
+	if s.Status == jobs.Queued || s.Status == jobs.Draft {
+		now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
+		s.Status, s.FinishedAt, s.Seq = jobs.Cancelled, &now, 0
+		q.data.set(q.data.owners[id], s)
+	}
+	return nil
+}
+
 func (q *fakeQueue) last() jobs.New {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -197,6 +291,8 @@ type fakeStore struct {
 	catalogReads int
 	catalogErr   error
 	syncedAt     time.Time
+	// cleared are the people whose language framy withdrew.
+	cleared []int64
 }
 
 func newFakeStore() *fakeStore {
@@ -233,6 +329,26 @@ func (s *fakeStore) Currency(_ context.Context, userID int64) (string, error) {
 
 func (s *fakeStore) UserLang(_ context.Context, userID int64) (string, error) {
 	return s.lang[userID], nil
+}
+
+func (s *fakeStore) SetCurrency(_ context.Context, userID int64, code string) error {
+	if code == "" {
+		delete(s.chosen, userID)
+	} else {
+		s.chosen[userID] = code
+	}
+	return nil
+}
+
+func (s *fakeStore) SetUserLang(_ context.Context, userID int64, lang string) error {
+	s.lang[userID] = lang
+	return nil
+}
+
+func (s *fakeStore) ClearUserLang(_ context.Context, userID int64) error {
+	delete(s.lang, userID)
+	s.cleared = append(s.cleared, userID)
+	return nil
 }
 
 func (s *fakeStore) Card(_ context.Context, userID int64) (db.Card, error) {
@@ -300,12 +416,82 @@ func (u *fakeUploads) Upload(ctx context.Context, userID int64, r io.Reader) (st
 	return a, err
 }
 
+// fakeConns is the keys service: List answers list and err; Save, Delete
+// and Recheck answer opErr, or act on list, and note the keys Save was
+// given.
 type fakeConns struct {
-	list []keys.Connection
-	err  error
+	list  []keys.Connection
+	err   error
+	opErr error
+	saved []string
 }
 
-func (c fakeConns) List(context.Context, int64) ([]keys.Connection, error) { return c.list, c.err }
+func (c *fakeConns) List(context.Context, int64) ([]keys.Connection, error) { return c.list, c.err }
+
+func (c *fakeConns) Save(_ context.Context, _ int64, provider, key string) (keys.Connection, error) {
+	c.saved = append(c.saved, key)
+	if c.opErr != nil {
+		return keys.Connection{}, c.opErr
+	}
+	conn := keys.Connection{ID: "c-" + provider, Provider: provider, Last4: key[len(key)-4:], Status: keys.Valid}
+	c.list = append(slices.DeleteFunc(c.list, func(x keys.Connection) bool { return x.Provider == provider }), conn)
+	return conn, nil
+}
+
+func (c *fakeConns) Delete(_ context.Context, _ int64, provider string) error {
+	if c.opErr != nil {
+		return c.opErr
+	}
+	n := len(c.list)
+	c.list = slices.DeleteFunc(c.list, func(x keys.Connection) bool { return x.Provider == provider })
+	if len(c.list) == n {
+		return keys.ErrNotFound
+	}
+	return nil
+}
+
+func (c *fakeConns) Recheck(_ context.Context, _ int64, provider string) (keys.Connection, error) {
+	if c.opErr != nil {
+		return keys.Connection{}, c.opErr
+	}
+	for _, x := range c.list {
+		if x.Provider == provider {
+			return x, nil
+		}
+	}
+	return keys.Connection{}, keys.ErrNotFound
+}
+
+// fakeFiles is the storage's deletions: it notes what it was asked and
+// answers err.
+type fakeFiles struct {
+	mu      sync.Mutex
+	err     error
+	jobs    []int64
+	all     []int64
+	usage   storage.Usage
+	allLeft int
+}
+
+func (f *fakeFiles) DeleteJobFiles(_ context.Context, _, jobID int64) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.jobs = append(f.jobs, jobID)
+	return 1, f.err
+}
+
+func (f *fakeFiles) DeleteAll(_ context.Context, userID int64, _ time.Time) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.all = append(f.all, userID)
+	return 3, f.err
+}
+
+func (f *fakeFiles) Usage(context.Context, int64) (storage.Usage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.usage, nil
+}
 
 // fakeAllowance is the free allowance: Usage answers usage, and Check
 // answers check after noting what it was asked.
@@ -345,8 +531,12 @@ func withAllowance(a *fakeAllowance) func(*rigOptions) {
 
 type fakeLinks struct{}
 
-func (fakeLinks) Link(_ context.Context, _, assetID int64, _ string) (string, error) {
-	return "https://files.example/obj-" + strconv.FormatInt(assetID, 10) + "?sig=secret", nil
+func (fakeLinks) LinkAll(_ context.Context, _ int64, ids []int64) (map[int64]string, error) {
+	out := map[int64]string{}
+	for _, id := range ids {
+		out[id] = "https://files.example/obj-" + strconv.FormatInt(id, 10) + "?sig=secret"
+	}
+	return out, nil
 }
 
 // ---- the server ----
@@ -363,7 +553,10 @@ type rig struct {
 	store *fakeStore
 	up    *fakeUploads
 	conns *fakeConns
-	stuck *stuckListener
+	files *fakeFiles
+	// revoked are the people whose sessions Revoke ended.
+	revoked []int64
+	stuck   *stuckListener
 }
 
 type rigOptions struct {
@@ -382,10 +575,14 @@ func newRig(t *testing.T, opts ...func(*rigOptions)) *rig {
 	for _, f := range opts {
 		f(&o)
 	}
-	r := &rig{t: t, data: newFakeData(), store: newFakeStore(), up: &fakeUploads{}, conns: &fakeConns{}}
+	r := &rig{t: t, data: newFakeData(), store: newFakeStore(), up: &fakeUploads{}, conns: &fakeConns{}, files: &fakeFiles{}}
 	r.queue = &fakeQueue{data: r.data}
 	cfg := Config{
-		Queue: r.queue, Store: r.store, Uploads: r.up, Links: fakeLinks{}, Keys: r.conns,
+		Queue: r.queue, Store: r.store, Uploads: r.up, Links: fakeLinks{}, Files: r.files, Keys: r.conns,
+		Revoke: func(_ context.Context, userID int64) error {
+			r.revoked = append(r.revoked, userID)
+			return nil
+		},
 		Person: func(req *http.Request) (int64, bool) {
 			id, err := strconv.ParseInt(req.Header.Get("X-Test-User"), 10, 64)
 			return id, err == nil

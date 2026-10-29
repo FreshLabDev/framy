@@ -13,6 +13,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -843,5 +844,104 @@ func TestATestBotWritesUnderItsPrefix(t *testing.T) {
 		if !strings.HasPrefix(key, "test/") {
 			t.Errorf("%q is outside the prefix", key)
 		}
+	}
+}
+
+// resultOf gives job a result file of user, as Keep would.
+func resultOf(t *testing.T, h *harness, user, job int64, key string) int64 {
+	t.Helper()
+	h.bucket.Put(key, r2test.Object{Data: []byte("png"), ContentType: "image/png"})
+	var id int64
+	err := h.pool.QueryRow(context.Background(), `
+		INSERT INTO framy.asset (user_id, kind, job_id, object_key, content_type, bytes, sha256)
+		VALUES ($1, 'result', $2, $3, 'image/png', 3, 'x') RETURNING id`, user, job, key).Scan(&id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func TestADeletedJobTakesItsResultsAndTheUploadsOnlyItTook(t *testing.T) {
+	h := newHarness(t, storage.Config{})
+	ctx := context.Background()
+	img := pngBytes(t, 8, 8, 255)
+	own := upload(t, h, alice, "u/3001/in/own.png", img)
+	shared := upload(t, h, alice, "u/3001/in/shared.png", img)
+	job := takenBy(t, h, "done", own, shared)
+	other := takenBy(t, h, "done", shared)
+	res := resultOf(t, h, alice, job, "u/3001/out/1-0.png")
+	kept := resultOf(t, h, alice, other, "u/3001/out/2-0.png")
+
+	n, err := h.store.DeleteJobFiles(ctx, alice, job)
+	if err != nil || n != 2 {
+		t.Fatalf("deleted %d, %v; want the result and the own upload", n, err)
+	}
+	for _, id := range []int64{own, res} {
+		if h.assetExists(t, id) {
+			t.Errorf("asset %d is still there", id)
+		}
+	}
+	for _, key := range []string{"u/3001/in/own.png", "u/3001/out/1-0.png"} {
+		if _, ok := h.bucket.Get(key); ok {
+			t.Errorf("%s is still in the bucket", key)
+		}
+	}
+	// The other job keeps the upload they share, and its own result.
+	for _, id := range []int64{shared, kept} {
+		if !h.assetExists(t, id) {
+			t.Errorf("asset %d went", id)
+		}
+	}
+	// Bob cannot delete alice's files through her job's id.
+	if n, err := h.store.DeleteJobFiles(ctx, bob, other); err != nil || n != 0 {
+		t.Errorf("bob deleted %d, %v", n, err)
+	}
+}
+
+func TestDeletingEveryFileOfAPerson(t *testing.T) {
+	h := newHarness(t, storage.Config{})
+	ctx := context.Background()
+	img := pngBytes(t, 8, 8, 255)
+	var keys []string
+	for i := range 300 {
+		key := fmt.Sprintf("u/3001/in/%d.png", i)
+		upload(t, h, alice, key, img)
+		keys = append(keys, key)
+	}
+	job := takenBy(t, h, "done")
+	resultOf(t, h, alice, job, "u/3001/out/9-0.png")
+	bobs := upload(t, h, bob, "u/3002/in/bob.png", img)
+	late := upload(t, h, alice, "u/3001/in/late.png", img)
+	if _, err := h.pool.Exec(ctx, `UPDATE framy.asset SET created_at = now() + interval '1 hour' WHERE id = $1`, late); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := h.store.DeleteAll(ctx, alice, time.Now())
+	if err != nil || n != 301 {
+		t.Fatalf("deleted %d, %v; want 301", n, err)
+	}
+	for _, key := range append(keys, "u/3001/out/9-0.png") {
+		if _, ok := h.bucket.Get(key); ok {
+			t.Fatalf("%s is still in the bucket", key)
+		}
+	}
+	// Bob's file stays, and so does one kept after the deletion began.
+	if !h.assetExists(t, bobs) || !h.assetExists(t, late) {
+		t.Error("a file that was not to go went")
+	}
+	if n, err := h.store.DeleteAll(ctx, alice, time.Now()); err != nil || n != 0 {
+		t.Errorf("a second pass deleted %d, %v", n, err)
+	}
+}
+
+func TestLinksOfAPageComeInOneRead(t *testing.T) {
+	h := newHarness(t, storage.Config{})
+	img := pngBytes(t, 8, 8, 255)
+	a := upload(t, h, alice, "u/3001/in/a.png", img)
+	b := upload(t, h, alice, "u/3001/in/b.png", img)
+	bobs := upload(t, h, bob, "u/3002/in/c.png", img)
+	links, err := h.store.LinkAll(context.Background(), alice, []int64{a, b, bobs})
+	if err != nil || len(links) != 2 || links[a] == "" || links[b] == "" || links[bobs] != "" {
+		t.Fatalf("%v, %v", links, err)
 	}
 }

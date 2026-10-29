@@ -193,7 +193,12 @@ func (a *API) create(w http.ResponseWriter, r *http.Request) {
 // accepted answers 202 with the job as it is now.
 func (a *API) accepted(w http.ResponseWriter, r *http.Request, user, id int64, created bool) {
 	st, err := a.data.State(r.Context(), user, id)
-	if err != nil {
+	switch {
+	case errors.Is(err, ErrNotFound):
+		// The job this key started was deleted since; the key starts no other.
+		newError(http.StatusNotFound, codeNotFound, "the job this request started was deleted").write(w)
+		return
+	case err != nil:
 		a.internal(w, r, err)
 		return
 	}
