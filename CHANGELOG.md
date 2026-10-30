@@ -489,6 +489,28 @@ was written from, and the skeleton of the service.
   goes. The week's limit is said in days and hours, and a refusal
   downloads nothing. `/img` on a video and `/edit` on a photo point to the
   other command, and the command menu calls `/edit` "Change a video".
+- The length of a clip in chat is the person's choice. The free preview of a
+  clip over 5 s offers all of it on the person's key, or the first 15 s past
+  what FLUX Video Edit takes, marked 🔑 while no key is connected; the
+  preview on the key offers the free 5 s back while the week's video is
+  left. framy reads the clip from Telegram again for that, since only the
+  part a run takes is kept (migration 019), and a draft's files can now be
+  replaced in a revision, checked by the free allowance like new ones.
+- Make a video and Make an image on a chat preview. A run of a prompt and at
+  most one photo turns into the week's free video, HeyGen at 5 s and 768p
+  (Grok Imagine Video Lite while the catalog lacks HeyGen), with the photo as
+  its start frame, and back; past the week's video it runs on the person's
+  key.
+- Animate under an image result in chat: the image becomes the start frame
+  of a new video draft with the same prompt. Its preview replies to the
+  result, and in a group only the requester sees it, admin rights or not. A
+  double tap makes one draft.
+- A direct chat needs no command. Words, alone or with a photo, get the
+  question "an image or a video", and the answer starts `/img` or the free
+  video with the message as the prompt. Words with a clip go straight to
+  `/edit` and an album with words to `/img`; a photo or a clip without words
+  gets a line on what to send. A reply to framy's preview takes none of its
+  pictures, a reply to a result takes the result.
 - CI on every push and weekly: modules, gofmt, build, vet, race tests,
   database tests on PostgreSQL 17, govulncheck, the image build, the photo
   and storage tests inside the image, on the ffmpeg it ships, and the local

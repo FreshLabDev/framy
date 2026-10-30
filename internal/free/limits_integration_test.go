@@ -448,6 +448,17 @@ func TestTheFreeEditTakesAClipOfUpToFiveSeconds(t *testing.T) {
 		t.Fatal(err)
 	}
 	asNotFree(t, h.q.Revise(ctx, id, edit(long)))
+	// A revision that takes another part of the clip is asked about that
+	// part: the first 5 s go free in place of the whole clip, and the whole
+	// clip back on the allowance is refused, the files left as they were.
+	if err := h.q.Revise(ctx, id, edit(cut)); err != nil {
+		t.Fatalf("the first 5 s in place of the clip: %v", err)
+	}
+	asNotFree(t, h.q.Revise(ctx, id, edit(long)))
+	var taken int64
+	if err := h.pool.QueryRow(ctx, `SELECT asset_id FROM framy.job_input WHERE job_id=$1`, id).Scan(&taken); err != nil || taken != cut {
+		t.Fatalf("the draft takes %d (%v), want the 5 s %d", taken, err, cut)
+	}
 	// 5 s cut from a longer clip comes out a frame over, and goes.
 	if _, created, err := h.q.Enqueue(ctx, edit(cut)); err != nil || !created {
 		t.Fatalf("a part of 5 s: %v, created %v", err, created)

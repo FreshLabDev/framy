@@ -43,10 +43,18 @@ type ChatRun struct {
 	Lang           string
 	Taken, Album   int
 	Note           string
-	Stage          string
+	// ClipFileID and ClipBytes are the clip the run edits as Telegram has
+	// it, and ClipSeconds its whole length; empty and zero for a run on
+	// pictures.
+	ClipFileID  string
+	ClipBytes   int64
+	ClipSeconds float64
+	Stage       string
 	// GenerateAt is when Generate was pressed; zero before.
 	GenerateAt time.Time
 	Stopped    bool
+	// ResultMessageID is the message the result went out in; zero before.
+	ResultMessageID int64
 
 	UserID int64
 	Prompt string
@@ -71,8 +79,8 @@ type ChatRun struct {
 const chatRunColumns = `
 	r.job_id, r.chat_id, r.thread_id, r.command_message_id, COALESCE(r.preview_message_id, 0),
 	r.preview_ephemeral, r.command_ephemeral, COALESCE(r.panel_message_id, 0), r.lang,
-	r.taken, r.album, r.note, r.stage, r.generate_at, r.stopped,
-	j.user_id, j.prompt, j.free, j.kind, j.status, COALESCE(j.error_class, ''), COALESCE(j.error, ''), COALESCE(m.name, o.name, j.model_id),
+	r.taken, r.album, r.note, r.clip_file_id, r.clip_bytes, r.clip_seconds, r.stage, r.generate_at, r.stopped,
+	COALESCE(r.result_message_id, 0), j.user_id, j.prompt, j.free, j.kind, j.status, COALESCE(j.error_class, ''), COALESCE(j.error, ''), COALESCE(m.name, o.name, j.model_id),
 	j.offer_id, j.settings, j.created_at`
 
 const chatRunFrom = `
@@ -85,8 +93,8 @@ func scanChatRun(row pgx.Row) (ChatRun, error) {
 	var at *time.Time
 	err := row.Scan(&r.JobID, &r.ChatID, &r.ThreadID, &r.CommandMessageID, &r.PreviewMessageID,
 		&r.PreviewEphemeral, &r.CommandEphemeral, &r.PanelMessageID, &r.Lang,
-		&r.Taken, &r.Album, &r.Note, &r.Stage, &at, &r.Stopped,
-		&r.UserID, &r.Prompt, &r.Free, &r.Kind, &r.Status, &r.ErrorClass, &r.Error, &r.Model,
+		&r.Taken, &r.Album, &r.Note, &r.ClipFileID, &r.ClipBytes, &r.ClipSeconds, &r.Stage, &at, &r.Stopped,
+		&r.ResultMessageID, &r.UserID, &r.Prompt, &r.Free, &r.Kind, &r.Status, &r.ErrorClass, &r.Error, &r.Model,
 		&r.OfferID, &r.Settings, &r.Created)
 	if at != nil {
 		r.GenerateAt = *at
@@ -100,11 +108,11 @@ func scanChatRun(row pgx.Row) (ChatRun, error) {
 func (s *Store) AddChatRun(ctx context.Context, r ChatRun) error {
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO chat_run (job_id, chat_id, thread_id, command_message_id, preview_message_id, lang, taken, album, note,
-		                      preview_ephemeral, command_ephemeral)
-		VALUES ($1, $2, $3, $4, NULLIF($5::bigint, 0), $6, $7, $8, $9, $10, $11)
+		                      preview_ephemeral, command_ephemeral, clip_file_id, clip_bytes, clip_seconds)
+		VALUES ($1, $2, $3, $4, NULLIF($5::bigint, 0), $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		ON CONFLICT (job_id) DO NOTHING`,
 		r.JobID, r.ChatID, r.ThreadID, r.CommandMessageID, r.PreviewMessageID, r.Lang, r.Taken, r.Album, r.Note,
-		r.PreviewEphemeral, r.CommandEphemeral)
+		r.PreviewEphemeral, r.CommandEphemeral, r.ClipFileID, r.ClipBytes, r.ClipSeconds)
 	if err != nil {
 		return fmt.Errorf("add the chat run of job %d: %w", r.JobID, err)
 	}
@@ -177,6 +185,31 @@ func (s *Store) SetChatRunPanel(ctx context.Context, jobID, panelID int64) error
 		return fmt.Errorf("set the panel of job %d: %w", jobID, err)
 	}
 	return nil
+}
+
+// SetChatRunNote records the line about what the run takes now: another
+// length of its clip is another note, or none.
+func (s *Store) SetChatRunNote(ctx context.Context, jobID int64, note string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE chat_run SET note = $2, updated_at = now() WHERE job_id = $1`, jobID, note)
+	if err != nil {
+		return fmt.Errorf("set the note of job %d: %w", jobID, err)
+	}
+	return nil
+}
+
+// ResultRun is the run whose result went out as the message, if any: a
+// reply to framy's own message takes its picture only when it is a result.
+func (s *Store) ResultRun(ctx context.Context, chatID, messageID int64) (int64, bool, error) {
+	var id int64
+	err := s.pool.QueryRow(ctx, `
+		SELECT job_id FROM chat_run WHERE chat_id = $1 AND result_message_id = $2`, chatID, messageID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("the run of result %d in %d: %w", messageID, chatID, err)
+	}
+	return id, true, nil
 }
 
 // StopChatRun marks a generating run whose job could not be cancelled: its

@@ -9,16 +9,19 @@ package jobs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river/rivertype"
 
@@ -298,6 +301,63 @@ func TestADraftIsRevisedInPlace(t *testing.T) {
 	}
 	if err := q.Revise(ctx, id, job(alice, imageOffer)); !errors.Is(err, ErrNotDraft) {
 		t.Fatalf("a queued job revised: %v", err)
+	}
+}
+
+// A revision with files takes them in place of the draft's, in order, and
+// only the person's own: another's leaves the draft as it was.
+func TestARevisionReplacesTheFiles(t *testing.T) {
+	q, pool := testQueue(t, newFake())
+	ctx := context.Background()
+	file := func(user int64) int64 {
+		var id int64
+		err := pool.QueryRow(ctx, `
+			INSERT INTO framy.asset (user_id, kind, object_key, content_type, bytes, sha256)
+			VALUES ($1, 'upload', $2, 'image/jpeg', 10, 'x') RETURNING id`, user, fmt.Sprintf("u/%d/in/%d", user, time.Now().UnixNano())).Scan(&id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	first, second, third, bobs := file(alice), file(alice), file(alice), file(bob)
+	inputs := func(id int64) []int64 {
+		rows, err := pool.Query(ctx, `SELECT asset_id FROM framy.job_input WHERE job_id=$1 ORDER BY position`, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := pgx.CollectRows(rows, pgx.RowTo[int64])
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	n := job(alice, imageOffer)
+	n.Inputs = []int64{first}
+	id, _, err := q.Draft(ctx, n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// No files in the revision: they stay.
+	if err := q.Revise(ctx, id, job(alice, imageOffer)); err != nil {
+		t.Fatal(err)
+	}
+	if got := inputs(id); !slices.Equal(got, []int64{first}) {
+		t.Fatalf("inputs after a revision without files = %v", got)
+	}
+	r := job(alice, imageOffer)
+	r.Inputs = []int64{third, second}
+	if err := q.Revise(ctx, id, r); err != nil {
+		t.Fatal(err)
+	}
+	if got := inputs(id); !slices.Equal(got, []int64{third, second}) {
+		t.Fatalf("inputs = %v, want %v", got, []int64{third, second})
+	}
+	r.Inputs = []int64{first, bobs}
+	if err := q.Revise(ctx, id, r); !errors.Is(err, ErrNoInput) {
+		t.Fatalf("another's file: %v, want ErrNoInput", err)
+	}
+	if got := inputs(id); !slices.Equal(got, []int64{third, second}) {
+		t.Fatalf("a refused revision changed the inputs: %v", got)
 	}
 }
 

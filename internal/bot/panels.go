@@ -50,10 +50,14 @@ func (b *Bot) onMessage(ctx context.Context, m *tg.Message) error {
 		return err
 	}
 	cmd, rest, ok := b.commandArgs(m)
+	private := m.Chat.Type == "private"
 	if !ok {
+		// In a direct chat no command is needed (docs/design.md, DM).
+		if private && b.flow != nil && m.From != nil && !m.From.IsBot && !strings.HasPrefix(strings.TrimSpace(m.Text), "/") {
+			b.flow.Plain(ctx, m)
+		}
 		return nil
 	}
-	private := m.Chat.Type == "private"
 	switch cmd {
 	case "img", "edit":
 		if b.flow != nil {

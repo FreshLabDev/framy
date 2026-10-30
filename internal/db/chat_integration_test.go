@@ -175,3 +175,57 @@ func TestStopOnlyStopsAGeneratingRun(t *testing.T) {
 		t.Fatalf("after the job: %v", err)
 	}
 }
+
+// A run of a clip keeps the clip as Telegram has it, for the other length
+// the preview offers; a done run is found by its result's message.
+func TestAClipRunKeepsItsClip(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+	job := chatJob(t, store, 4304, "tg:-100:40")
+	run := ChatRun{JobID: job, ChatID: -100, CommandMessageID: 40, PreviewMessageID: 41, Lang: "en", Taken: 1,
+		Note: "edit.clip_cut", ClipFileID: "BAACAgIAAxkBAAI", ClipBytes: 3 << 20, ClipSeconds: 12.4}
+	if err := store.AddChatRun(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.ChatRun(ctx, job)
+	if err != nil || got.ClipFileID != "BAACAgIAAxkBAAI" || got.ClipBytes != 3<<20 || got.ClipSeconds != 12.4 || got.ResultMessageID != 0 {
+		t.Fatalf("run = %+v, %v", got, err)
+	}
+	if err := store.SetChatRunNote(ctx, job, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := store.ChatRun(ctx, job); got.Note != "" {
+		t.Fatalf("note = %q", got.Note)
+	}
+	if _, found, err := store.ResultRun(ctx, -100, 41); err != nil || found {
+		t.Fatalf("a preview found as a result: %v %v", found, err)
+	}
+	if _, err := store.MoveChatRun(ctx, job, StagePreview, StageGenerating); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.FinishChatRun(ctx, job, StageDone, ChatResult{MessageID: 42, FileID: "f", FileUniqueID: "u"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := store.ChatRun(ctx, job); got.ResultMessageID != 42 {
+		t.Fatalf("result message = %d", got.ResultMessageID)
+	}
+	if id, found, err := store.ResultRun(ctx, -100, 42); err != nil || !found || id != job {
+		t.Fatalf("result run = %d %v %v", id, found, err)
+	}
+	// The same message number in another chat is another message.
+	if _, found, err := store.ResultRun(ctx, -101, 42); err != nil || found {
+		t.Fatalf("another chat: %v %v", found, err)
+	}
+
+	// A run of pictures has no clip, and the columns say so.
+	pics := chatJob(t, store, 4304, "tg:-100:50")
+	if err := store.AddChatRun(ctx, ChatRun{JobID: pics, ChatID: -100, CommandMessageID: 50, PreviewMessageID: 51, Lang: "en"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := store.ChatRun(ctx, pics); got.ClipFileID != "" || got.ClipBytes != 0 || got.ClipSeconds != 0 {
+		t.Fatalf("pictures = %+v", got)
+	}
+	if _, err := store.pool.Exec(ctx, `UPDATE chat_run SET clip_seconds = -1 WHERE job_id = $1`, pics); err == nil {
+		t.Fatal("a clip of negative length was taken")
+	}
+}

@@ -31,7 +31,7 @@ func (f *Flow) press(ctx context.Context, cq *tg.CallbackQuery) error {
 		_ = answer("")
 		return err
 	}
-	if _, ok := pressedOn(cq, run); !ok {
+	if _, ok := pressedOn(cq, run, action); !ok {
 		f.log.Debug("press on another message", "job", jobID, "message", cq.Message.MessageID, "ephemeral", cq.Message.EphemeralMessageID)
 		return answer("")
 	}
@@ -45,13 +45,8 @@ func (f *Flow) press(ctx context.Context, cq *tg.CallbackQuery) error {
 		_ = answer("")
 		return err
 	}
-	on, ok := pressedOn(cq, run)
-	if !ok {
-		return answer("")
-	}
-	if catalog.Kind(run.Kind) == catalog.Video && !mainAction(action) {
-		// A video run has no Model or Settings panel; old or forged data
-		// changes nothing.
+	on, ok := pressedOn(cq, run, action)
+	if !ok || !allowed(run, action) {
 		return answer("")
 	}
 	switch {
@@ -71,13 +66,32 @@ func (f *Flow) press(ctx context.Context, cq *tg.CallbackQuery) error {
 		return f.pickModel(ctx, cq, run, on, strings.TrimPrefix(action, actPickModel))
 	case strings.HasPrefix(action, actPickSetting):
 		return f.pickSetting(ctx, cq, run, on, strings.TrimPrefix(action, actPickSetting))
+	case action == actVideo:
+		return f.toVideo(ctx, cq, run, on)
+	case action == actImage:
+		return f.toImage(ctx, cq, run, on)
+	case action == actKeyClip, action == actFreeClip:
+		return f.otherLength(ctx, cq, run, on, action)
+	case action == actAnimate:
+		return f.animate(ctx, cq, run)
 	}
 	return answer("")
 }
 
-// mainAction: the action is Generate, No or Stop, the buttons every run has.
-func mainAction(action string) bool {
-	return action == actGenerate || action == actNo || action == actStop
+// allowed tells whether a run of its kind has the button, since old or
+// forged data must change nothing. Generate, No and Stop every run has. A
+// video run has no Model or Settings panel; only a video goes back to an
+// image or takes another length of its clip, and only an image becomes a
+// video or is animated.
+func allowed(run db.ChatRun, action string) bool {
+	video := catalog.Kind(run.Kind) == catalog.Video
+	switch action {
+	case actGenerate, actNo, actStop:
+		return true
+	case actImage, actKeyClip, actFreeClip:
+		return video
+	}
+	return !video
 }
 
 // Where a press came from.
@@ -89,14 +103,20 @@ const (
 	onPreview place = iota
 	// onPanel: the requester's ephemeral panel over a preview in the chat.
 	onPanel
+	// onResult: the message the result went out in.
+	onResult
 )
 
 // pressedOn tells which of the run's messages a press came from, if any:
-// a client can send any callback data against any message it sees.
-// Ephemeral messages are numbered apart from the chat's.
-func pressedOn(cq *tg.CallbackQuery, run db.ChatRun) (place, bool) {
+// a client can send any callback data against any message it sees. Animate
+// is on the result; the rest are on the preview or the panel. Ephemeral
+// messages are numbered apart from the chat's.
+func pressedOn(cq *tg.CallbackQuery, run db.ChatRun, action string) (place, bool) {
 	if cq.Message.Chat.ID != run.ChatID {
 		return 0, false
+	}
+	if action == actAnimate {
+		return onResult, run.ResultMessageID != 0 && cq.Message.EphemeralMessageID == 0 && cq.Message.MessageID == run.ResultMessageID
 	}
 	if id := cq.Message.EphemeralMessageID; id != 0 {
 		switch {

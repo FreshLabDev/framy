@@ -75,6 +75,8 @@ type Store interface {
 	MoveChatRun(ctx context.Context, jobID int64, from, to string) (bool, error)
 	SetChatRunPreview(ctx context.Context, jobID, messageID int64, ephemeral bool) error
 	SetChatRunPanel(ctx context.Context, jobID, panelID int64) error
+	SetChatRunNote(ctx context.Context, jobID int64, note string) error
+	ResultRun(ctx context.Context, chatID, messageID int64) (int64, bool, error)
 	StopChatRun(ctx context.Context, jobID int64) (bool, error)
 	FinishChatRun(ctx context.Context, jobID int64, stage string, res db.ChatResult) (bool, error)
 }
@@ -151,7 +153,7 @@ type Config struct {
 	MaxVideo int64
 }
 
-// Flow runs /img and /edit in chats.
+// Flow runs /img and /edit in chats, and a plain message in a DM.
 type Flow struct {
 	cfg    Config
 	log    *slog.Logger
@@ -166,6 +168,13 @@ type Flow struct {
 	files sync.Map // anim key → file_id
 	// ticks are when a running job last told its chat something.
 	ticks sync.Map // job id → *ticker
+	// animated is when Animate last made a draft of a result, so a second
+	// tap makes no second one.
+	animated sync.Map // job id → time.Time
+	// asks are the plain messages of a DM waiting for their answer, by the
+	// question; dmAlbums the albums of a DM being collected.
+	asks     sync.Map // askKey → ask
+	dmAlbums sync.Map // albumKey → *dmAlbum
 
 	wg sync.WaitGroup
 }
@@ -215,6 +224,11 @@ const (
 	CommandVideo = "edit"
 )
 
+// commandMotion is a video made from a prompt and at most one photo, its
+// start frame: the answer Video to the question of a DM. No command of the
+// bot's starts it.
+const commandMotion = "motion"
+
 // Command takes /img or /edit with the text after it and works it in the
 // background. The bot has checked the command is framy's.
 func (f *Flow) Command(ctx context.Context, m *tg.Message, command, prompt string) {
@@ -222,25 +236,38 @@ func (f *Flow) Command(ctx context.Context, m *tg.Message, command, prompt strin
 		return
 	}
 	f.wg.Go(func() {
-		select {
-		case f.slot <- struct{}{}:
-		case <-ctx.Done():
-			return
-		}
-		defer func() { <-f.slot }()
-		if err := f.command(ctx, m, command, strings.TrimSpace(prompt)); err != nil && ctx.Err() == nil {
-			f.log.Error("chat command failed", "chat", m.Chat.ID, "message", m.MessageID, "error", err)
-		}
+		f.withSlot(ctx, func() {
+			if err := f.command(ctx, m, command, strings.TrimSpace(prompt)); err != nil && ctx.Err() == nil {
+				f.log.Error("chat command failed", "chat", m.Chat.ID, "message", m.MessageID, "error", err)
+			}
+		})
 	})
 }
 
-// callbackPrefix starts the data of a run's buttons: "j:<job>:<action>".
-const callbackPrefix = "j:"
+// withSlot runs work as one of the commands worked at once, unless ctx ends
+// while it waits.
+func (f *Flow) withSlot(ctx context.Context, work func()) {
+	select {
+	case f.slot <- struct{}{}:
+	case <-ctx.Done():
+		return
+	}
+	defer func() { <-f.slot }()
+	work()
+}
 
-// Actions a run's buttons carry. They are a contract with previews already
-// sent. A model is picked with actPickModel and the hash of its id, a
-// setting with actPickSetting and "<setting>.<value>", numbered as the
-// panel lists them.
+// callbackPrefix starts the data of a run's buttons: "j:<job>:<action>".
+// askPrefix starts the answers to the question of a DM:
+// "d:<message>:<choice>".
+const (
+	callbackPrefix = "j:"
+	askPrefix      = "d:"
+)
+
+// Actions a run's buttons carry. They are a contract with previews and
+// results already sent. A model is picked with actPickModel and the hash of
+// its id, a setting with actPickSetting and "<setting>.<value>", numbered as
+// the panel lists them.
 const (
 	actGenerate    = "go"
 	actNo          = "no"
@@ -250,10 +277,24 @@ const (
 	actBack        = "b"
 	actPickModel   = "M"
 	actPickSetting = "S"
+	// actVideo turns a run of a prompt and at most one photo into a video
+	// from them, the photo its start frame; actImage turns it back.
+	actVideo = "v"
+	actImage = "i"
+	// actKeyClip takes as much of the clip as the model does, on the
+	// person's key; actFreeClip its first seconds, on the free video.
+	actKeyClip  = "k"
+	actFreeClip = "f"
+	// actAnimate, on an image result, makes the image the start frame of a
+	// video.
+	actAnimate = "a"
 )
 
-// Owns reports whether callback data is a run's button.
-func (f *Flow) Owns(data string) bool { return strings.HasPrefix(data, callbackPrefix) }
+// Owns reports whether callback data is a run's button or an answer to the
+// question of a DM.
+func (f *Flow) Owns(data string) bool {
+	return strings.HasPrefix(data, callbackPrefix) || strings.HasPrefix(data, askPrefix)
+}
 
 func callback(jobID int64, action string) string {
 	return callbackPrefix + strconv.FormatInt(jobID, 10) + ":" + action
@@ -281,7 +322,11 @@ func (f *Flow) Callback(ctx context.Context, cq *tg.CallbackQuery) {
 		return
 	}
 	f.wg.Go(func() {
-		if err := f.press(ctx, cq); err != nil && ctx.Err() == nil {
+		press := f.press
+		if strings.HasPrefix(cq.Data, askPrefix) {
+			press = f.answerAsk
+		}
+		if err := press(ctx, cq); err != nil && ctx.Err() == nil {
 			f.log.Error("chat press failed", "chat", cq.Message.Chat.ID, "data", cq.Data, "error", err)
 		}
 	})

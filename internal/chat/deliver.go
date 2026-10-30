@@ -196,19 +196,21 @@ func (f *Flow) deliver(ctx context.Context, run db.ChatRun) {
 }
 
 // sendImage puts a picture in the chat: a photo, or a document when
-// Telegram would not take it as one. The loop goes once a reply is sent.
+// Telegram would not take it as one, with Animate under it. The loop goes
+// once a reply is sent.
 func (f *Flow) sendImage(ctx context.Context, run db.ChatRun, a storage.Asset, caption string) (tg.Message, error) {
 	asPhoto := photoFits(a)
+	kb := resultKeyboard(run.Lang, run.JobID)
 	if asPhoto && f.now().Sub(run.GenerateAt) <= inPlaceWithin {
 		msg, err := f.withResult(ctx, a, func(file tg.InputFile) (tg.Message, error) {
-			return f.cfg.Telegram.EditMessageMediaMessage(ctx, run.ChatID, run.PreviewMessageID, tg.InputMediaPhoto{Media: file, Caption: caption}, nil)
+			return f.cfg.Telegram.EditMessageMediaMessage(ctx, run.ChatID, run.PreviewMessageID, tg.InputMediaPhoto{Media: file, Caption: caption}, kb)
 		})
 		if err == nil {
 			return msg, nil
 		}
 		f.log.Warn("result not put in place; replying", "job", run.JobID, "error", err)
 	}
-	opts := tg.CaptionOptions{ThreadID: run.ThreadID, ReplyTo: run.CommandMessageID, Caption: caption}
+	opts := tg.CaptionOptions{ThreadID: run.ThreadID, ReplyTo: run.CommandMessageID, Caption: caption, Markup: kb}
 	msg, err := f.withResult(ctx, a, func(file tg.InputFile) (tg.Message, error) {
 		if asPhoto {
 			return f.cfg.Telegram.SendPhoto(ctx, run.ChatID, file, opts)

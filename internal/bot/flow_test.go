@@ -14,6 +14,7 @@ import (
 type fakeFlow struct {
 	mu        sync.Mutex
 	commands  []flowCommand
+	plain     []string
 	callbacks []string
 }
 
@@ -25,7 +26,15 @@ func (f *fakeFlow) Command(_ context.Context, _ *tg.Message, command, prompt str
 	f.commands = append(f.commands, flowCommand{command, prompt})
 }
 
-func (f *fakeFlow) Owns(data string) bool { return strings.HasPrefix(data, "j:") }
+func (f *fakeFlow) Plain(_ context.Context, m *tg.Message) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.plain = append(f.plain, m.Text+m.Caption)
+}
+
+func (f *fakeFlow) Owns(data string) bool {
+	return strings.HasPrefix(data, "j:") || strings.HasPrefix(data, "d:")
+}
 
 func (f *fakeFlow) Callback(_ context.Context, cq *tg.CallbackQuery) {
 	f.mu.Lock()
@@ -98,5 +107,56 @@ func TestARunsButtonGoesToTheFlowAndAMenuButtonDoesNot(t *testing.T) {
 	}
 	if len(flow.callbacks) != 1 {
 		t.Fatalf("a menu press reached the flow: %v", flow.callbacks)
+	}
+}
+
+// A direct message that is no command goes to the flow, which asks what to
+// make of it; a group's plain chatter, an unknown command and a key do not.
+func TestAPlainDirectMessageGoesToTheFlow(t *testing.T) {
+	flow := &fakeFlow{}
+	b, _, client := newBotWith(WithFlow(flow))
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name    string
+		m       *tg.Message
+		reaches bool
+	}{
+		{"words", message(dmChat, 7, "a fox in the snow"), true},
+		{"a photo with words", &tg.Message{MessageID: 11, Chat: dmChat, From: &tg.User{ID: 7}, Caption: "make it night", Photo: []tg.Photo{{FileID: "p"}}}, true},
+		{"a photo alone", &tg.Message{MessageID: 12, Chat: dmChat, From: &tg.User{ID: 7}, Photo: []tg.Photo{{FileID: "p"}}}, true},
+		{"a group", message(groupChat, 7, "a fox in the snow"), false},
+		{"an unknown command", message(dmChat, 7, "/foo bar"), false},
+		{"another bot's command", message(dmChat, 7, "/img@other_bot a fox"), false},
+		{"a bot", &tg.Message{MessageID: 13, Chat: dmChat, From: &tg.User{ID: 8, IsBot: true}, Text: "a fox"}, false},
+		{"a command", message(dmChat, 7, "/img a fox"), false},
+		{"a key", message(dmChat, 7, openRouterKey), false},
+	} {
+		flow.plain = nil
+		if err := b.onMessage(ctx, tc.m); err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if got := len(flow.plain) == 1; got != tc.reaches {
+			t.Errorf("%s: reached the flow %v, want %v", tc.name, flow.plain, tc.reaches)
+		}
+	}
+	// The answers to the question are the flow's to work.
+	answer := callback(dmChat, 7, 7, "", 0)
+	answer.Data = "d:11:v"
+	if err := b.onCallback(ctx, answer); err != nil {
+		t.Fatal(err)
+	}
+	if len(flow.callbacks) != 1 || flow.callbacks[0] != "d:11:v" || len(client.answers) != 0 {
+		t.Fatalf("flow got %v, the bot answered %+v", flow.callbacks, client.answers)
+	}
+}
+
+// Without a flow a plain message stays unanswered, as before.
+func TestWithoutAFlowAPlainMessageIsLeftUnanswered(t *testing.T) {
+	b, _, client := newBot()
+	if err := b.onMessage(context.Background(), message(dmChat, 7, "a fox")); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.calls) != 0 {
+		t.Fatalf("sent %+v", client.calls)
 	}
 }

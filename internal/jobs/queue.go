@@ -257,10 +257,12 @@ func (q *Queue) Generate(ctx context.Context, id int64) error {
 }
 
 // Revise changes what a draft runs: the offer, the settings, who pays and
-// the price shown, as the chat's Model and Settings panels do. The person,
-// the prompt and the files stay, and so does the draft's age. A job that is
-// not a draft any more gives ErrNotDraft. A free revision asks the allowance
-// as a new job would.
+// the price shown, as the chat's panels do. The person and the prompt stay,
+// and so does the draft's age. The files stay too while n.Inputs is nil;
+// otherwise they are replaced by n.Inputs, in order, which must be the
+// person's own, or ErrNoInput. A job that is not a draft any more gives
+// ErrNotDraft. A free revision asks the allowance as a new job would, about
+// the files it takes after the change.
 func (q *Queue) Revise(ctx context.Context, id int64, n New) error {
 	return pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
 		a := Admission{Offer: n.Offer.ID, Kind: n.Offer.Kind, Settings: n.Settings}
@@ -274,6 +276,15 @@ func (q *Queue) Revise(ctx context.Context, id int64, n New) error {
 		}
 		if err != nil {
 			return err
+		}
+		if n.Inputs != nil {
+			if _, err := tx.Exec(ctx, `DELETE FROM job_input WHERE job_id=$1`, id); err != nil {
+				return fmt.Errorf("revise job %d inputs: %w", id, err)
+			}
+			if err := insertInputs(ctx, tx, id, a.UserID, n.Inputs); err != nil {
+				return err
+			}
+			a.Inputs = len(n.Inputs)
 		}
 		if n.Free && q.cfg.Admit != nil {
 			if n.Estimate != nil {
@@ -455,28 +466,36 @@ func (q *Queue) insert(ctx context.Context, tx pgx.Tx, n New, status Status) (in
 	if err != nil {
 		return 0, false, fmt.Errorf("insert job: %w", err)
 	}
-	if len(n.Inputs) > 0 {
-		// Only the person's own files: anyone else's id adds no row, and
-		// the job is not created.
-		tag, err := tx.Exec(ctx, `
-			INSERT INTO job_input (job_id, position, asset_id)
-			SELECT $1, u.ord - 1, a.id
-			FROM unnest($2::bigint[]) WITH ORDINALITY AS u(id, ord)
-			JOIN asset a ON a.id = u.id AND a.user_id = $3`,
-			id, n.Inputs, n.UserID)
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			// The sweep deleted a file no job had taken while this one read it.
-			return 0, false, ErrNoInput
-		}
-		if err != nil {
-			return 0, false, fmt.Errorf("insert job inputs: %w", err)
-		}
-		if tag.RowsAffected() != int64(len(n.Inputs)) {
-			return 0, false, ErrNoInput
-		}
+	if err := insertInputs(ctx, tx, id, n.UserID, n.Inputs); err != nil {
+		return 0, false, err
 	}
 	return id, true, nil
+}
+
+// insertInputs gives job id its files, in order. Only the person's own: an
+// id of anyone else's adds no row, and the whole change is ErrNoInput.
+func insertInputs(ctx context.Context, tx pgx.Tx, id, userID int64, inputs []int64) error {
+	if len(inputs) == 0 {
+		return nil
+	}
+	tag, err := tx.Exec(ctx, `
+		INSERT INTO job_input (job_id, position, asset_id)
+		SELECT $1, u.ord - 1, a.id
+		FROM unnest($2::bigint[]) WITH ORDINALITY AS u(id, ord)
+		JOIN asset a ON a.id = u.id AND a.user_id = $3`,
+		id, inputs, userID)
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+		// The sweep deleted a file no job had taken while this one read it.
+		return ErrNoInput
+	}
+	if err != nil {
+		return fmt.Errorf("insert job inputs: %w", err)
+	}
+	if tag.RowsAffected() != int64(len(inputs)) {
+		return ErrNoInput
+	}
+	return nil
 }
 
 // schedule inserts the River job that works job id, in the same

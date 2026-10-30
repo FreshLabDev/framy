@@ -94,6 +94,21 @@ func playTime(s float64) string {
 	return fmt.Sprintf("%d:%02d", n/60, n%60)
 }
 
+// seconds is how long the video comes out: as long as the clip kept, for
+// an edit, or as the duration setting says; 0 when not known.
+func (d draft) seconds() float64 {
+	if d.clip {
+		return d.keptSeconds
+	}
+	switch v := d.settings["duration"].(type) {
+	case int:
+		return float64(v)
+	case float64:
+		return v
+	}
+	return 0
+}
+
 // priceLine is what the run costs the person: the free tier left, or the
 // price on their own key.
 func priceLine(lang, pay, provider string, usage free.Meter, e price.Estimate, q fx.Quote) string {
@@ -148,8 +163,8 @@ func previewCaption(lang, prompt string, d draft, labelDrawn bool) string {
 func previewCard(lang string, d draft) anim.Preview {
 	p := anim.Preview{Lang: lang, Maker: d.model.Maker, Model: d.model.Name}
 	p.Aspect, p.Chips = settingChips(d.settings)
-	if d.video {
-		p.Chips = append([]string{playTime(d.keptSeconds)}, p.Chips...)
+	if secs := d.seconds(); d.video() && secs > 0 {
+		p.Chips = append([]string{playTime(secs)}, p.Chips...)
 	}
 	if d.pay == payFree {
 		p.Free, p.Left, p.Limit = true, d.usage.Left(), d.usage.Limit
@@ -229,24 +244,33 @@ func button(text, data, style string) tg.InlineKeyboardButton {
 	return tg.InlineKeyboardButton{Text: text, CallbackData: data, Style: style}
 }
 
-// previewKeyboard: Generate and No, and under them Model and Settings.
-func previewKeyboard(lang string, jobID int64) *tg.InlineKeyboardMarkup {
-	return &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{{
+// previewKeyboard: Generate and No, and under them what the run can
+// change. An image run has Model and Settings and, from a prompt and at most
+// one photo, Make a video of them; a video from a prompt has Make an image;
+// an edit of a clip offers the other length of it, when there is one. A
+// video run has no Model or Settings yet.
+func previewKeyboard(lang string, jobID int64, d draft) *tg.InlineKeyboardMarkup {
+	rows := [][]tg.InlineKeyboardButton{{
 		button(t(lang, "run.generate"), callback(jobID, actGenerate), "success"),
 		button(t(lang, "run.no"), callback(jobID, actNo), "danger"),
-	}, {
-		button(t(lang, "run.model"), callback(jobID, actModel), ""),
-		button(t(lang, "run.settings"), callback(jobID, actSettings), ""),
-	}}}
-}
-
-// videoKeyboard: Generate and No. A video run has no Model or Settings yet:
-// the edit runs on FLUX Video Edit as it is.
-func videoKeyboard(lang string, jobID int64) *tg.InlineKeyboardMarkup {
-	return &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{{
-		button(t(lang, "run.generate"), callback(jobID, actGenerate), "success"),
-		button(t(lang, "run.no"), callback(jobID, actNo), "danger"),
-	}}}
+	}}
+	switch {
+	case d.clip:
+		if c, ok := d.otherLength(); ok {
+			rows = append(rows, []tg.InlineKeyboardButton{button(c.label(lang, d), callback(jobID, c.action), "")})
+		}
+	case d.video():
+		rows = append(rows, []tg.InlineKeyboardButton{button(t(lang, "run.as_image"), callback(jobID, actImage), "")})
+	default:
+		rows = append(rows, []tg.InlineKeyboardButton{
+			button(t(lang, "run.model"), callback(jobID, actModel), ""),
+			button(t(lang, "run.settings"), callback(jobID, actSettings), ""),
+		})
+		if d.taken <= free.VideoHeyGen.MaxInputs {
+			rows = append(rows, []tg.InlineKeyboardButton{button(t(lang, "run.as_video"), callback(jobID, actVideo), "")})
+		}
+	}
+	return &tg.InlineKeyboardMarkup{InlineKeyboard: rows}
 }
 
 // generatingKeyboard: Stop.
@@ -256,26 +280,26 @@ func generatingKeyboard(lang string, jobID int64) *tg.InlineKeyboardMarkup {
 	}}}
 }
 
-// sendPreview draws the preview card in dir and sends it as a reply to the
-// command. In a group it goes to the requester alone when Telegram lets
-// framy: framy is an admin, or the command was ephemeral and the answer
+// sendPreview draws the preview card in dir and sends it as a reply to m:
+// the command, or the result a press of press asked for a video of. In a
+// group it goes to the requester alone when Telegram lets framy: framy is
+// an admin, or the command was ephemeral or the press was, and the answer
 // comes within 15 seconds. Otherwise, or when the ephemeral send is
 // refused, the chat sees it. ephemeral tells which, and the id is of that
 // kind.
-func (f *Flow) sendPreview(ctx context.Context, m *tg.Message, d draft, prompt, lang, dir string) (id int64, ephemeral bool, err error) {
+func (f *Flow) sendPreview(ctx context.Context, m *tg.Message, d draft, prompt, lang, dir, press string) (id int64, ephemeral bool, err error) {
 	pic, err := f.cfg.Renderer.Preview(ctx, dir, previewCard(lang, d), d.paths)
 	if err != nil {
 		return 0, false, fmt.Errorf("draw the preview: %w", err)
 	}
 	opts := tg.CaptionOptions{
 		ThreadID: threadOf(m), ReplyTo: m.MessageID,
-		Caption: previewCaption(lang, prompt, d, pic.TextDrawn), Markup: previewKeyboard(lang, d.id),
-	}
-	if d.video {
-		opts.Markup = videoKeyboard(lang, d.id)
+		Caption: previewCaption(lang, prompt, d, pic.TextDrawn), Markup: previewKeyboard(lang, d.id, d),
 	}
 	if m.Chat.Type != "private" {
 		switch {
+		case press != "":
+			opts.Ephemeral = &tg.Ephemeral{ReceiverUserID: m.From.ID, CallbackQueryID: press}
 		case ephemeralCommand(m):
 			opts.ReplyToEphemeral = m.EphemeralMessageID
 			opts.Ephemeral = &tg.Ephemeral{ReceiverUserID: m.From.ID}

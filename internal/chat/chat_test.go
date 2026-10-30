@@ -435,8 +435,13 @@ func TestAQuickResultReplacesTheLoop(t *testing.T) {
 	h.now = h.now.Add(12 * time.Second)
 	h.flow.step(context.Background(), id)
 	edits := h.tg.methods("editMessageMedia")
-	if len(edits) != 1 || edits[0].file != "photo upload:framy.png" || edits[0].markup != nil {
+	if len(edits) != 1 || edits[0].file != "photo upload:framy.png" {
 		t.Fatalf("edits = %+v", edits)
+	}
+	// Under the image: Animate.
+	if kb := edits[0].markup; kb == nil || len(kb.InlineKeyboard) != 1 || len(kb.InlineKeyboard[0]) != 1 ||
+		kb.InlineKeyboard[0][0].CallbackData != callback(id, actAnimate) || kb.InlineKeyboard[0][0].Text != i18n.T("en", "result.animate") {
+		t.Fatalf("the result's buttons: %+v", edits[0].markup)
 	}
 	if !strings.Contains(edits[0].text, "a fox") || !strings.Contains(edits[0].text, "MAI Image 2.6 Flash") {
 		t.Fatalf("caption = %q", edits[0].text)

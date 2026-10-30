@@ -105,17 +105,21 @@ func WithConnections(c Connections) Option { return func(b *Bot) { b.connections
 // out.
 func WithSiteURL(site string) Option { return func(b *Bot) { b.appURL = site } }
 
-// Flow runs /img and /edit and the buttons of their previews: *chat.Flow.
-// Both calls return at once and work in the background, since the bot
-// handles one update at a time.
+// Flow runs /img and /edit and the buttons of their previews, and answers a
+// plain message of a direct chat: *chat.Flow. The calls return at once and
+// work in the background, since the bot handles one update at a time.
 type Flow interface {
 	Command(ctx context.Context, m *tg.Message, command, prompt string)
-	// Owns reports whether callback data is a run's button.
+	// Plain takes a direct message that is no command: it is asked what
+	// to make of it.
+	Plain(ctx context.Context, m *tg.Message)
+	// Owns reports whether callback data is a run's button or an answer to
+	// the flow's question.
 	Owns(data string) bool
 	Callback(ctx context.Context, cq *tg.CallbackQuery)
 }
 
-// WithFlow answers /img and /edit.
+// WithFlow answers /img and /edit, and plain direct messages.
 func WithFlow(f Flow) Option { return func(b *Bot) { b.flow = f } }
 
 // New takes the username and the id Preflight returned: the username tells a

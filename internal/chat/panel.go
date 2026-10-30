@@ -25,6 +25,7 @@ import (
 	"github.com/FreshLabDev/framy/internal/fx"
 	"github.com/FreshLabDev/framy/internal/jobs"
 	"github.com/FreshLabDev/framy/internal/keys"
+	"github.com/FreshLabDev/framy/internal/media"
 	"github.com/FreshLabDev/framy/internal/price"
 	"github.com/FreshLabDev/framy/internal/storage"
 )
@@ -95,28 +96,44 @@ func (f *Flow) stateOf(ctx context.Context, run db.ChatRun) (state, error) {
 	s.id, s.model, s.offer = run.JobID, model, offer
 	s.settings = wholeNumbers(run.Settings)
 	s.taken, s.album, s.note = run.Taken, run.Album, run.Note
-	s.estimate = price.Of(model, offer, price.Request{Settings: s.settings, Prompt: run.Prompt, Images: sizesOf(inputs)})
+	for _, a := range inputs {
+		if strings.HasPrefix(a.ContentType, "video/") {
+			s.clip, s.keptSeconds = true, a.Seconds
+		}
+	}
+	if s.clip {
+		s.source = clip{fileID: run.ClipFileID, size: run.ClipBytes}
+		s.clipSeconds = max(run.ClipSeconds, s.keptSeconds)
+	}
+	s.estimate = price.Of(model, offer, requestOf(run.Prompt, s.settings, inputs))
 	if s.quote, err = f.quote(ctx, run.UserID, run.Lang); err != nil {
 		return state{}, err
 	}
-	s.pay = payKey
-	if run.Free {
-		s.pay = payFree
-		u, err := f.cfg.Allowance.Usage(ctx, run.UserID)
-		if err != nil {
-			f.log.Warn("free usage unread", "user", run.UserID, "error", err)
+	s.pay, s.hasKey = payKey, true
+	if !run.Free && !s.clip {
+		return s, nil
+	}
+	u, err := f.cfg.Allowance.Usage(ctx, run.UserID)
+	if err != nil {
+		f.log.Warn("free usage unread", "user", run.UserID, "error", err)
+	}
+	if !run.Free {
+		// An edit on the key may go back to the free video.
+		s.freeLeft = u.Videos.Limit > 0 && u.Videos.Left() > 0
+		return s, nil
+	}
+	s.pay, s.usage = payFree, u.Images
+	if s.video() {
+		s.usage = u.Videos
+	}
+	s.hasKey = false
+	if s.clip && s.clipSeconds > free.VideoEdit.MaxSourceSeconds+clipSlack {
+		// The preview offers the clip on the key, marked when there is none.
+		if s.hasKey, err = f.hasKey(ctx, run.UserID, offer.Provider); err != nil {
+			return state{}, err
 		}
-		s.usage = u.Images
 	}
 	return s, nil
-}
-
-func sizesOf(inputs []storage.Asset) []price.Image {
-	var out []price.Image
-	for _, a := range inputs {
-		out = append(out, price.Image{Width: a.Width, Height: a.Height})
-	}
-	return out
 }
 
 // wholeNumbers turns the whole numbers a job's settings come back with from
@@ -319,7 +336,7 @@ func (f *Flow) keyboardOf(ctx context.Context, run db.ChatRun, s state, v view) 
 		}
 		return &tg.InlineKeyboardMarkup{InlineKeyboard: append(rows, back)}, nil
 	}
-	return previewKeyboard(run.Lang, run.JobID), nil
+	return previewKeyboard(run.Lang, run.JobID, s.draft), nil
 }
 
 func sameSetting(a, b any) bool { return fmt.Sprint(a) == fmt.Sprint(b) }
@@ -501,7 +518,7 @@ func (f *Flow) revise(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun,
 		_ = f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, "")
 		return err
 	}
-	est := price.Of(model, offer, price.Request{Settings: settings, Prompt: run.Prompt, Images: sizesOf(inputs)})
+	est := price.Of(model, offer, requestOf(run.Prompt, settings, inputs))
 	q, err := f.quote(ctx, run.UserID, run.Lang)
 	if err != nil {
 		_ = f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, "")
@@ -523,7 +540,7 @@ func (f *Flow) revise(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun,
 			return kerr
 		}
 		if !has {
-			text := t(run.Lang, "run.closed")
+			text := closedText(run.Lang, offer.Kind)
 			if limit != nil {
 				text = f.limitText(run.Lang, limit)
 			}
@@ -555,14 +572,9 @@ func (f *Flow) redrawAfter(ctx context.Context, run db.ChatRun, on place, v view
 }
 
 // redraw draws the run's card again from its files and puts it on the
-// preview and on the panel. The chat's preview keeps its main keyboard while
-// the requester has a panel; the message pressed gets the view's.
+// preview and on the panel.
 func (f *Flow) redraw(ctx context.Context, run db.ChatRun, on place, v view) error {
 	s, err := f.stateOf(ctx, run)
-	if err != nil {
-		return err
-	}
-	kb, err := f.keyboardOf(ctx, run, s, v)
 	if err != nil {
 		return err
 	}
@@ -571,7 +583,40 @@ func (f *Flow) redraw(ctx context.Context, run db.ChatRun, on place, v view) err
 		return err
 	}
 	defer done()
-	paths, err := f.fetch(ctx, dir, s.inputs)
+	paths, err := f.cardPictures(ctx, dir, s)
+	if err != nil {
+		return err
+	}
+	return f.drawCard(ctx, run, on, v, s, dir, paths)
+}
+
+// cardPictures reads what the card holds into dir: the run's photos, or
+// the first frame of its clip.
+func (f *Flow) cardPictures(ctx context.Context, dir string, s state) ([]string, error) {
+	if !s.clip {
+		return f.fetch(ctx, dir, s.inputs)
+	}
+	for _, a := range s.inputs {
+		if !strings.HasPrefix(a.ContentType, "video/") {
+			continue
+		}
+		if err := f.save(ctx, a, filepath.Join(dir, media.In)); err != nil {
+			return nil, fmt.Errorf("the clip of the run: %w", err)
+		}
+		poster, err := f.cfg.Clips.Poster(ctx, dir)
+		if err != nil {
+			return nil, err
+		}
+		return []string{poster}, nil
+	}
+	return nil, nil
+}
+
+// drawCard draws the card of s with the pictures at paths and puts it on
+// the preview and on the panel. The chat's preview keeps its main keyboard
+// while the requester has a panel; the message pressed gets the view's.
+func (f *Flow) drawCard(ctx context.Context, run db.ChatRun, on place, v view, s state, dir string, paths []string) error {
+	kb, err := f.keyboardOf(ctx, run, s, v)
 	if err != nil {
 		return err
 	}
@@ -584,7 +629,7 @@ func (f *Flow) redraw(ctx context.Context, run db.ChatRun, on place, v view) err
 	if !run.PreviewEphemeral {
 		public := kb
 		if on == onPanel {
-			public = previewKeyboard(run.Lang, run.JobID)
+			public = previewKeyboard(run.Lang, run.JobID, s.draft)
 		}
 		msg, err := f.edit(ctx, run.ChatID, run.PreviewMessageID, pic, caption, public)
 		if err != nil && !tg.IsMessageNotModified(err) {

@@ -119,7 +119,7 @@ func (f *fakeTelegram) SendAnimation(_ context.Context, chatID int64, an tg.Inpu
 }
 
 func (f *fakeTelegram) SendDocument(_ context.Context, chatID int64, doc tg.InputFile, o tg.DocumentOptions) (tg.Message, error) {
-	m, err := f.record(call{method: "sendDocument", chatID: chatID, messageID: o.ReplyTo, thread: o.ThreadID, text: o.Caption, file: fileOf(doc)})
+	m, err := f.record(call{method: "sendDocument", chatID: chatID, messageID: o.ReplyTo, thread: o.ThreadID, text: o.Caption, markup: o.Markup, file: fileOf(doc)})
 	m.Document = &tg.Document{FileID: "doc-file", FileUniqueID: "doc-unique"}
 	return m, err
 }
@@ -267,8 +267,9 @@ type fakeStore struct {
 	keys     map[string]int64
 	offers   map[string]catalog.Offer
 	// models are the catalog: Offer finds an offer's model here, and
-	// Catalog lists them.
+	// Catalog lists them. hidden are offers the catalog does not offer.
 	models []catalog.Model
+	hidden map[string]bool
 	now    func() time.Time
 }
 
@@ -287,6 +288,9 @@ func (s *fakeStore) Offer(_ context.Context, id string) (catalog.Model, catalog.
 }
 
 func (s *fakeStore) offer(id string) (catalog.Model, catalog.Offer, error) {
+	if s.hidden[id] {
+		return catalog.Model{}, catalog.Offer{}, db.ErrNoOffer
+	}
 	for _, m := range s.models {
 		for _, o := range m.Offers {
 			if o.ID == id {
@@ -431,6 +435,26 @@ func (s *fakeStore) MoveChatRun(_ context.Context, jobID int64, from, to string)
 	return true, nil
 }
 
+func (s *fakeStore) SetChatRunNote(_ context.Context, jobID int64, note string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if r, ok := s.runs[jobID]; ok {
+		r.Note = note
+	}
+	return nil
+}
+
+func (s *fakeStore) ResultRun(_ context.Context, chatID, messageID int64) (int64, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, r := range s.runs {
+		if r.ChatID == chatID && r.ResultMessageID != 0 && r.ResultMessageID == messageID {
+			return id, true, nil
+		}
+	}
+	return 0, false, nil
+}
+
 func (s *fakeStore) StopChatRun(_ context.Context, jobID int64) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -442,14 +466,14 @@ func (s *fakeStore) StopChatRun(_ context.Context, jobID int64) (bool, error) {
 	return true, nil
 }
 
-func (s *fakeStore) FinishChatRun(_ context.Context, jobID int64, stage string, _ db.ChatResult) (bool, error) {
+func (s *fakeStore) FinishChatRun(_ context.Context, jobID int64, stage string, res db.ChatResult) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	r, ok := s.runs[jobID]
 	if !ok || r.Stage != db.StageGenerating {
 		return false, nil
 	}
-	r.Stage = stage
+	r.Stage, r.ResultMessageID = stage, res.MessageID
 	return true, nil
 }
 
@@ -492,6 +516,9 @@ func (q *fakeQueue) Revise(_ context.Context, id int64, n jobs.New) error {
 	}
 	q.revised = append(q.revised, n)
 	j.n.Offer, j.n.Settings, j.n.Free, j.n.Estimate, j.n.FX = n.Offer, n.Settings, n.Free, n.Estimate, n.FX
+	if n.Inputs != nil {
+		j.n.Inputs = n.Inputs
+	}
 	return nil
 }
 
@@ -730,13 +757,18 @@ func (r *fakeRenderer) ErrorCard(_ context.Context, text, lang string) (anim.Med
 	return anim.Media{Path: r.file("card.png"), ContentType: "image/png", Width: 1280, Height: 720, Key: "card", TextDrawn: lang != "ja"}, nil
 }
 
-// fakeAlbums is the bot's album cache.
+// fakeAlbums is the bot's album cache. With gate, an album is read once
+// the gate closes, as the real one waits for the album to come.
 type fakeAlbums struct {
 	items []db.AlbumItem
 	admin bool
+	gate  chan struct{}
 }
 
 func (a fakeAlbums) Album(context.Context, int64, string, time.Duration, time.Duration) ([]db.AlbumItem, error) {
+	if a.gate != nil {
+		<-a.gate
+	}
 	return a.items, nil
 }
 

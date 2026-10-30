@@ -103,8 +103,12 @@ func TestThePreviewHasModelAndSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	kb := h.tg.methods("sendPhoto")[0].markup
-	if len(kb.InlineKeyboard) != 2 || kb.InlineKeyboard[1][0].CallbackData != "j:1:m" || kb.InlineKeyboard[1][1].CallbackData != "j:1:s" ||
+	if len(kb.InlineKeyboard) != 3 || kb.InlineKeyboard[1][0].CallbackData != "j:1:m" || kb.InlineKeyboard[1][1].CallbackData != "j:1:s" ||
 		kb.InlineKeyboard[1][0].Text != i18n.T("en", "run.model") {
+		t.Fatalf("keyboard = %v", labels(kb))
+	}
+	// A prompt and at most one photo can become a video of them.
+	if row := kb.InlineKeyboard[2]; len(row) != 1 || row[0].CallbackData != "j:1:v" || row[0].Text != i18n.T("en", "run.as_video") {
 		t.Fatalf("keyboard = %v", labels(kb))
 	}
 }
