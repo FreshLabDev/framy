@@ -156,17 +156,17 @@ function renderFiles(m, pay) {
   const why = [...new Set(R.filter((r) => !r.go).map((r) => r.why))];
   // The first clip's part: the one picked, or a button to pick it.
   const ci = c ? S.files.indexOf(c) : -1, cutting = ci >= 0 && R[ci].go && c.secs > 0;
+  // A model that refuses real people (or children) in its files says so before the run, in the one hint there is.
+  const fc = m.traits?.faces, faces = fc && R.some((r) => r.go) ? t(fc === "adults" ? "files.faces_adults" : "files.faces_no") : "";
   if (cutting) {
     const need = needsCut(m, pay), mx = maxSecs(m, pay);
     const what = S.cut ? t("files.cut_taken", { a: fmtNum(S.cut.start, { maximumFractionDigits: 1 }), b: fmtNum(S.cut.start + S.cut.seconds, { maximumFractionDigits: 1 }) })
       : need ? t("files.clip_len", { len: fmtSecs(c.secs), n: fmtNum(mx) }) : "";
-    box.append(h("p", { class: "fhint cut", "data-k": "f-cut" }, what ? h("span", {}, what + " ") : null,
+    box.append(h("p", { class: "fhint cut", "data-k": "f-cut" }, faces ? h("span", { class: "fw" }, faces) : null, what ? h("span", {}, what + " ") : null,
       h("button", { type: "button", class: "link-t", onclick: openCut }, t(S.cut ? "act.change_part" : "act.pick_part"))));
   }
-  const note = why.length ? why.join(" ") : S.files.length ? (cutting ? "" : t("files.kept")) : cont ? "" : t("files.hint");
+  const note = why.length ? [...why, cutting ? "" : faces].filter(Boolean).join(" ") : S.files.length ? (cutting ? "" : faces || t("files.kept")) : cont ? "" : t("files.hint");
   if (note) box.append(h("p", { class: "fhint" + (why.length ? "" : " quiet"), "data-k": "f-hint" }, note));
-  const faces = m.traits?.faces;
-  if (faces && R.some((r) => r.go)) box.append(h("p", { class: "fhint quiet", "data-k": "f-faces" }, t(faces === "adults" ? "files.faces_adults" : "files.faces_no", { model: vname(m) })));
   const none = !S.files.length && !cont;
   box.classList.toggle("nofiles", none);
   $("#pwrap").classList.toggle("tools", none);

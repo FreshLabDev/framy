@@ -394,7 +394,7 @@ input.search::placeholder {color: var(--muted);}
   .composer .files.nofiles {display: none;}
   .composer .thumb, .composer .addfile {flex: none; width: 52px; height: 52px;}
   .composer .fgroup > .gt {flex-wrap: nowrap;}
-  .composer .fhint {flex: 1 0 200px; padding-left: 4px; font-size: 13px;}
+  .composer .fhint, .composer .fhint.cut {flex: 1 0 200px; padding-left: 4px; font-size: 13px;}
   .composer .bar {padding-top: 0;}
   .composer .pnum {font-size: 30px;}
   .composer .go {min-width: 136px;}
@@ -458,6 +458,7 @@ input.search::placeholder {color: var(--muted);}
 .thumb.clip .tag {font-variant-numeric: tabular-nums;}
 .thumb .noth {width: 100%; height: 100%; display: grid; place-items: center; color: var(--muted);}
 .fhint.cut {flex-basis: 100%; padding-left: 0; color: var(--soft);}
+.fhint .fw {display: block; color: var(--muted);}
 .fgroup.cont .gt {flex-wrap: nowrap;}
 .fgroup.cont .fhint {flex: 1 1 140px; padding-left: 4px; font-size: 13px;}
 

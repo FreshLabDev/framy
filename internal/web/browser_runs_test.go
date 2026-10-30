@@ -627,6 +627,15 @@ func TestBrowserVideoSettings(t *testing.T) {
 	await wait(700);
 	await pick("Seedance", "2.0 Mini");
 	const seedance = rows();
+	// A photo attached: the one hint under the files says the model takes no real people.
+	const cv = document.createElement("canvas"); cv.width = 64; cv.height = 36;
+	const png = await new Promise((r) => cv.toBlob(r, "image/png"));
+	const dt = new DataTransfer(); dt.items.add(new File([png], "p.png", { type: "image/png" }));
+	const inp = document.querySelector("#file"); inp.files = dt.files; inp.dispatchEvent(new Event("change", { bubbles: true }));
+	await wait(1200);
+	const hints = [...document.querySelectorAll("#files .fhint")].map((x) => x.textContent);
+	document.querySelector("#files .thumb .rm")?.click();
+	await wait(700);
 	await press("done", () => sent.length > 0);
 	await pick("Wan", "3.0");
 	const wan = rows();
@@ -636,11 +645,14 @@ func TestBrowserVideoSettings(t *testing.T) {
 	fast(false);
 	await wait(400);
 	await press("done", () => sent.length > 2);
-	return { seedance, wan, sent, dets };`)
+	return { seedance, wan, sent, dets, hints };`)
 	// Seedance refuses real people in files, and its card says so before the run.
 	if dets, _ := s["dets"].(map[string]any); !strings.Contains(fmt.Sprint(dets["Seedance"]), "People in filesNot taken") ||
 		strings.Contains(fmt.Sprint(dets["Wan"]), "People in files") {
 		t.Errorf("people in files: %v", dets)
+	}
+	if hints := fmt.Sprint(s["hints"]); hints != "[Does not take real people in photos or clips.]" {
+		t.Errorf("the hint under a photo for Seedance: %s", hints)
 	}
 	count := func(rows []any, label string) (n int) {
 		for _, r := range rows {
