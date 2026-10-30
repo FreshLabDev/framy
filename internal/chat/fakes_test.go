@@ -278,22 +278,6 @@ func (f *fakeTelegram) AnswerCallbackQuery(_ context.Context, _ string, text str
 	return nil
 }
 
-// SendMessageDraft records a draft: messageID is its id, and action "stop"
-// when it has Stop.
-func (f *fakeTelegram) SendMessageDraft(_ context.Context, chatID, draftID int64, text string, o tg.DraftOptions) error {
-	c := call{method: "sendMessageDraft", chatID: chatID, messageID: draftID, thread: o.ThreadID, text: text}
-	if o.CanStop {
-		c.action = "stop"
-	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if err := f.fail[c.method]; err != nil {
-		return err
-	}
-	f.calls = append(f.calls, c)
-	return nil
-}
-
 // AnswerInlineQuery keeps the answer whole in inlineAnswers.
 func (f *fakeTelegram) AnswerInlineQuery(_ context.Context, id string, answer tg.InlineAnswer) error {
 	if _, err := f.record(call{method: "answerInlineQuery", text: id}); err != nil {

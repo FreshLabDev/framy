@@ -232,7 +232,7 @@ func generatingCaption(lang, prompt, model string, elapsed time.Duration) string
 }
 
 // generatingLine is the model and, from a second on, the time taken: the
-// loop's last line, and a DM's draft.
+// loop's last line.
 func generatingLine(lang, model string, elapsed time.Duration) string {
 	line := t(lang, "run.generating", "model", "<b>"+html.EscapeString(model)+"</b>")
 	if elapsed >= time.Second {

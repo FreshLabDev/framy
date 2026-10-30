@@ -60,7 +60,6 @@ type Telegram interface {
 	AnswerCallbackQuery(ctx context.Context, callbackID, text string) error
 	AnswerCallbackQueryAlert(ctx context.Context, callbackID, text string) error
 	AnswerInlineQuery(ctx context.Context, inlineQueryID string, answer tg.InlineAnswer) error
-	SendMessageDraft(ctx context.Context, chatID, draftID int64, text string, opts tg.DraftOptions) error
 }
 
 // Store is framy's database: *db.Store.

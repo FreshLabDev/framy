@@ -193,10 +193,6 @@ func (f *Flow) showLoop(ctx context.Context, run db.ChatRun) {
 		return
 	}
 	kb := generatingKeyboard(run.Lang, run.JobID)
-	// In a DM the draft has Stop, and the loop needs none.
-	if inDM(run) && f.streamDraft(ctx, run, 0) {
-		kb, tk.bare = nil, true
-	}
 	caption := generatingCaption(run.Lang, run.Prompt, run.Model, 0)
 	if err == nil {
 		_, err = f.edit(ctx, run.ChatID, run.PreviewMessageID, loop, caption, kb)

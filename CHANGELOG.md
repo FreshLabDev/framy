@@ -546,12 +546,6 @@ was written from, and the skeleton of the service.
   the Mini App. framy now records what kind of file each result went out as
   (migration 021); a result from before that is not listed. Inline mode has
   to be turned on in BotFather (`/setinline`).
-- In a DM the progress of a run is also a draft with Telegram's own Stop
-  button, the model and the time taken. Stop cancels a queued job; on a
-  running one the result goes to the history and not to the DM, which is
-  told so. A DM's result and error card now always come as a new message,
-  which takes the draft's place. Where Telegram refuses the draft, the loop
-  keeps its Stop button, as in a group.
 - Each result in the job API has a `download` link that saves the file as
   `framy-<job>-<n>.<ext>`, so the site and the Mini App save a result under
   framy's name rather than the bucket's key.

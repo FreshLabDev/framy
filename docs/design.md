@@ -677,12 +677,8 @@ In groups one run makes one result. Proposal: more than one only on the site and
   - **After it.** The job gets a chat run that is done in the DM, so Animate and a reply to the result work as on any result there.
   - **Not yet:** a switch to turn this off; the person can block the bot or delete the messages.
 - **Message effects.** A finished result can carry a message effect (DMs only).
-- **Progress as a draft** (Bot API 10.3). Built (`internal/chat/draft.go`):
-  - **What it shows.** After Generate the loop comes as in a group, and under it a draft (`sendMessageDraft`): the model and the time taken, with Telegram's own Stop button (`can_stop`). The draft's id is the job's, so a press names the run. A draft lasts 30 s, so it goes again on every tick of the caption, every 10 s. The loop then has no Stop and no time of its own.
-  - **Stop** arrives as `stopped_message_generation`, which names the chat and the draft but not who pressed: in a DM that is the person. A queued job is cancelled and the loop goes. A running one ends in the person's history and not in the DM, since a request already sent is paid for; the DM is told so with `run.stopped`, as a reply to the command, since there is no press to answer.
-  - **The end.** The result and the error card come as new messages, which take the draft's place, and the loop goes. In place of the loop, as a quick image is in a group, they would leave the draft up for half a minute.
-  - **Without drafts.** Where Telegram refuses a draft, the loop keeps Stop and the time, as in a group, and sheds them again once a draft goes through. A ticker made after a restart takes the loop to have them.
-  - A rich draft (`sendRichMessageDraft`) is not used: the line is short HTML.
+- **Progress is the loop**, as in a group: one message whose caption has the time and whose Stop is a button under it. The result and the error card take the loop's place.
+  - **Not a draft.** framy streamed the progress as a draft (`sendMessageDraft`, Bot API 10.3) with Telegram's own Stop from 30 October, and took it out the same day: the draft is a second message under the loop, which said the same thing twice, and a plain draft is text only. A rich draft (`sendRichMessageDraft`) can show media by `file_id`; one holding the loop itself with the time and `can_stop` would be a single message again, and is not tried yet.
 
 ## Inline mode
 
@@ -817,7 +813,7 @@ Temporary domain `framy.ws04.cc`. Mobile first; on a wide screen the composer an
   - Main Mini App;
   - the Login Widget client with the site's URLs, which gives the client id and secret;
   - later, guest mode.
-- **`allowed_updates`:** `message`, `edited_message`, `callback_query`, `my_chat_member`, `inline_query` and `stopped_message_generation`; later `chosen_inline_result` and `guest_message`.
+- **`allowed_updates`:** `message`, `edited_message`, `callback_query`, `my_chat_member`, `inline_query`; later `chosen_inline_result` and `guest_message`.
 - **Server:** our `telegram-bot-api` in `--local` mode. framy and the server share a volume, so a result is sent by a path on that volume (`InputFileLocal`) instead of an upload. Uploads up to 2,000 MB and downloads of any size.
 
 ## Changes to tg
@@ -968,7 +964,7 @@ framy **(owner)**: a frame is both a still and a shot. Written in lowercase ever
 3. **Telegram in depth.**
    - Inline history and guest mode. The ephemeral Model and Settings panel came early, with `/img`.
    - The `getMessages` patch.
-   - DM drafts with Stop.
+   - DM progress as a rich draft that holds the loop, with Stop.
    - The mask editor.
 
 ## Before code

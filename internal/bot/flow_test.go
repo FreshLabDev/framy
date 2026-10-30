@@ -17,7 +17,6 @@ type fakeFlow struct {
 	plain     []string
 	callbacks []string
 	inline    []string
-	stops     []int64
 }
 
 type flowCommand struct{ command, prompt string }
@@ -50,26 +49,15 @@ func (f *fakeFlow) Inline(_ context.Context, q *tg.InlineQuery) {
 	f.inline = append(f.inline, q.Query)
 }
 
-func (f *fakeFlow) StopDraft(_ context.Context, s *tg.MessageGenerationStopped) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.stops = append(f.stops, s.DraftID)
-}
-
-// Stop on a draft of a DM goes to the flow; nobody is touched, since the
-// update names no one.
-func TestAStopOnADraftGoesToTheFlow(t *testing.T) {
+// framy streams no drafts: a Stop on one, which framy does not ask
+// Telegram for, touches nobody and reaches nothing.
+func TestAStopOnADraftIsLeftAlone(t *testing.T) {
 	flow := &fakeFlow{}
 	b, store, client := newBotWith(WithFlow(flow))
-	ctx := context.Background()
-	b.handle(ctx, tg.Update{UpdateID: 1, StoppedMessageGeneration: &tg.MessageGenerationStopped{Chat: dmChat, DraftID: 41}})
-	// Telegram drafts only into private chats.
-	b.handle(ctx, tg.Update{UpdateID: 2, StoppedMessageGeneration: &tg.MessageGenerationStopped{Chat: groupChat, DraftID: 42}})
-	if len(flow.stops) != 1 || flow.stops[0] != 41 || len(store.touches) != 0 || len(client.calls) != 0 {
-		t.Fatalf("stops %v, touches %+v, calls %+v", flow.stops, store.touches, client.calls)
+	b.handle(context.Background(), tg.Update{UpdateID: 1, StoppedMessageGeneration: &tg.MessageGenerationStopped{Chat: dmChat, DraftID: 41}})
+	if len(store.touches) != 0 || len(client.calls) != 0 || len(flow.callbacks) != 0 {
+		t.Fatalf("touches %+v, calls %+v, callbacks %v", store.touches, client.calls, flow.callbacks)
 	}
-	b, _, _ = newBot()
-	b.handle(ctx, tg.Update{UpdateID: 3, StoppedMessageGeneration: &tg.MessageGenerationStopped{Chat: dmChat, DraftID: 41}})
 }
 
 // An inline query goes to the flow, and its sender is touched with no chat,

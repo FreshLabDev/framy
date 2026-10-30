@@ -120,8 +120,6 @@ type Flow interface {
 	// Inline answers @framyin_bot typed in any chat with the person's past
 	// results.
 	Inline(ctx context.Context, q *tg.InlineQuery)
-	// StopDraft takes Stop on the draft a run streams into a DM.
-	StopDraft(ctx context.Context, s *tg.MessageGenerationStopped)
 }
 
 // WithFlow answers /img and /edit, and plain direct messages.
@@ -288,15 +286,6 @@ func (b *Bot) handle(ctx context.Context, u tg.Update) {
 		// An edit can swap the file of an item, and nothing else about it is
 		// handled: no touch, no command.
 		b.noteAlbumItem(ctx, u.EditedMessage)
-		return
-	}
-	// Stop on a draft names the chat, not who pressed it: in a DM that is
-	// the person, whom their own messages touch.
-	if s := u.StoppedMessageGeneration; s != nil {
-		if b.flow != nil && s.Chat.Type == tg.ChatPrivate {
-			b.flow.StopDraft(ctx, s)
-		}
-		metrics.UpdatesHandled.Inc()
 		return
 	}
 	var (
