@@ -220,8 +220,9 @@ export async function copyPrompt(text) {
 }
 
 // Share in the Mini App: framy saves the result as a prepared inline message,
-// and Telegram opens its chat picker with it. A prepared message is kept for
-// the next press until a minute before it ends.
+// and Telegram opens its chat picker with it. The message lives a day, but
+// the links Telegram fetches for a result never sent in a chat only an hour,
+// so a press within 50 minutes takes the same message again.
 const shared = new Map();
 export const canShare = (res) => {
   const tg = S.tg;
@@ -231,11 +232,11 @@ let sharing = false;
 export async function share(res, btn) {
   if (sharing || !canShare(res)) return;
   const kept = shared.get(res.id);
-  if (kept && kept.until - Date.now() > 60e3) return S.tg.shareMessage(kept.id);
+  if (kept && kept.until > Date.now()) return S.tg.shareMessage(kept.id);
   sharing = true; btn?.classList.add("wait");
   try {
     const p = await api(`/api/files/${res.id}/share`, { method: "POST" });
-    shared.set(res.id, { id: p.id, until: Date.parse(p.expires_at) || 0 });
+    shared.set(res.id, { id: p.id, until: Math.min(Date.parse(p.expires_at) || 0, Date.now() + 50 * 60e3) - 60e3 });
     S.tg.shareMessage(p.id);
   } catch (e) {
     toast(e.code === "not_shareable" ? t("share.no") : e.code === "network" ? t("err.network") : t("share.failed"));
