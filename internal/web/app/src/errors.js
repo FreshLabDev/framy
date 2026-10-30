@@ -20,34 +20,36 @@ export const BILLING = {
 
 export const providerOf = (j) => (j.free ? "openrouter" : String(j.offer || "").split(":")[0]);
 
-// failure says why job j failed: label (on the frame), text (only where the
-// label does not say it all), note (the money) and msg (the provider's
-// reason), and acts, the buttons that fit.
+// failure says why job j failed: label (on the frame), said (the provider's
+// own reason, on the frame under it), text (only where the label does not say
+// it all), note (the money), zero (a run on a key that cost nothing: its price
+// shows as 0 instead of a line saying so) and acts, the buttons that fit.
 export function failure(j) {
   const cls = j.error?.class || "", p = providerOf(j), P = PNAME[p] || p, free = j.free, vid = j.kind === "video";
-  const back = t(free ? "fail.free_back" : "fail.nothing");
+  const back = t("fail.free_back"), none = free ? { note: back } : { note: "", zero: true };
   // The most the run could have cost: the label of the estimate, which for "up to" is its top.
   const up = j.estimate && j.estimate.kind !== "unknown" ? j.estimate.label : "";
   const may = free ? back : up ? t("fail.may_charge", { p: up, provider: P }) : t("fail.may_charge_some", { provider: P });
   const msg = OWNWORDS.has(cls) && j.error?.message ? j.error.message.replace(/<link>/g, "").trim() : "";
+  const said = msg ? t("fail.said", { provider: P, text: msg }) : "";
   const again = ["retry", "edit"];
-  if (j.status === "cancelled") return { cls: "cancelled", label: t("stage.cancelled"), text: "", note: back, acts: again };
+  if (j.status === "cancelled") return { cls: "cancelled", label: t("stage.cancelled"), text: "", ...none, acts: again };
   switch (cls) {
-    case "moderation": return { cls, label: t("fail.moderation_l"), text: "", note: t(free ? "fail.free_spent" : "fail.nothing"), msg, acts: ["edit"] };
+    case "moderation": return { cls, label: t("fail.moderation_l"), text: "", ...(free ? { note: t("fail.free_spent") } : none), said, acts: ["edit"] };
     case "money": return free
       ? { cls, label: t("fail.free_closed_l"), text: t("fail.free_money"), note: t("fail.free_kept"), acts: ["bykey"], closeFree: 15 * 60e3 }
-      : { cls, label: t("fail.money_l"), text: "", note: t("fail.nothing"), acts: ["topup"], provider: p };
+      : { cls, label: t("fail.money_l"), text: "", ...none, acts: ["topup"], provider: p };
     case "key": return free
       ? { cls, label: t("fail.free_off_l"), text: t("fail.free_key"), note: t("fail.free_kept"), acts: ["bykey"] }
-      : { cls, label: t("fail.key_l"), text: t("fail.key", { provider: P }), note: t("fail.nothing"), acts: [], keyGone: true };
-    case "refused": return { cls, label: t("fail.refused_l"), text: t("fail.refused", { provider: P }), note: back, msg, acts: ["edit"] };
-    case "rate_limited": case "unavailable": return { cls, label: t("fail.no_answer_l"), text: "", note: back + " " + t("fail.later"), acts: again };
+      : { cls, label: t("fail.key_l"), text: t("fail.key", { provider: P }), ...none, acts: [], keyGone: true };
+    case "refused": return { cls, label: t("fail.refused_l"), text: t("fail.refused", { provider: P }), ...none, said, acts: ["edit"] };
+    case "rate_limited": case "unavailable": return { cls, label: t("fail.no_answer_l"), text: "", ...none, note: (free ? back + " " : "") + t("fail.later"), acts: again };
     case "timeout": return { cls, label: t("fail.timeout_l"), text: "", note: may, acts: again };
-    case "provider": return { cls, label: t("fail.provider_l"), text: "", note: may, msg, acts: again };
+    case "provider": return { cls, label: t("fail.provider_l"), text: "", note: may, said, acts: again };
     case "interrupted": return { cls, label: t("fail.interrupted_l"), text: t("fail.interrupted"), note: may, acts: again };
     case "storage": return { cls, label: t("fail.storage_l"), text: t(vid ? "fail.storage_video" : "fail.storage"), note: t(free ? "fail.free_back" : "fail.charged"), acts: again };
-    case "no_adapter": return { cls, label: t("stage.failed"), text: t("fail.no_adapter", { provider: P }), note: back, acts: ["edit"] };
-    case "draft_expired": return { cls, label: t("stage.expired"), text: t("fail.draft_expired"), note: back, acts: again };
+    case "no_adapter": return { cls, label: t("stage.failed"), text: t("fail.no_adapter", { provider: P }), ...none, acts: ["edit"] };
+    case "draft_expired": return { cls, label: t("stage.expired"), text: t("fail.draft_expired"), ...none, acts: again };
     default: return { cls: cls || "unknown", label: t(j.status === "expired" ? "stage.expired" : "stage.failed"), text: t("fail.unknown"), note: "", acts: again };
   }
 }

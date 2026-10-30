@@ -270,10 +270,13 @@ was written from, and the skeleton of the service.
   editor and the settings come next.
 - The site's stage, third stage: what happens when a run gives no result.
   A failed job says why in the person's words for each `error.class`,
-  whether anything was charged (or that the free run came back), and offers
-  what helps: try again, edit the prompt, top up the key, or run a free run
-  on the person's own key. The provider's own words show only for a refusal
-  by its rules, a request it did not accept, or its failure. A job that
+  what came of the money (a run on the person's key that cost nothing shows
+  its price as 0, one the provider may have charged says up to how much, a
+  free one says the free run came back), and offers what helps: try again,
+  edit the prompt, top up the key, or run a free run on the person's own
+  key. The provider's own words show, small on the frame under its label,
+  only for a refusal by its rules, a request it did not accept, or its
+  failure. A job that
   waits for a retry counts down to `retry_at`, and one still in the queue can
   be cancelled; one already running says it cannot be stopped. A press the
   server refused before any job (a higher price, the free allowance used up

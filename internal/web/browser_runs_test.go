@@ -276,7 +276,7 @@ const runHelpers = `
 const stage = () => {
   const st = document.querySelector("#stage");
   return { label: st.querySelector(".jbox .c b")?.textContent || "", sub: st.querySelector(".jbox .c small")?.textContent || "",
-    why: st.querySelector(".jwhy")?.textContent || "", said: st.querySelector(".jwhy .said")?.textContent || "",
+    why: st.querySelector(".jwhy")?.textContent || "", said: st.querySelector(".jbox .c .said")?.textContent || "",
     acts: [...st.querySelectorAll(".jacts > button, .jacts > a, .jacts > .busy")].map((b) => b.textContent.trim()),
     failed: !!st.querySelector(".jbox.failed"), done: !!st.querySelector(".jbox.done img"), line: st.querySelector(".jline")?.textContent || "",
     dots: !!st.querySelector(".jbox > canvas.ht"),
@@ -299,24 +299,26 @@ func TestBrowserRuns(t *testing.T) {
 	ctx := browser(t, ts.URL, 1440, 900, false)
 
 	// Every class a job can fail with has its own words, and the English
-	// message shows only where it is the provider's own reason.
+	// message shows, on the frame, only where it is the provider's own reason.
+	// A run on a key that cost nothing shows its price as $0 instead of a
+	// line saying so.
 	type want struct {
 		label, why, first string
-		said              bool
+		said, zero        bool
 	}
 	for cls, w := range map[string]want{
-		"moderation":   {"Refused by the rules", "Nothing was charged.", "Edit the prompt", true},
-		"money":        {"No money on the key", "Nothing was charged.", "Top up OpenRouter", false},
-		"key":          {"The key does not work", "no longer accepts the key", "Edit the prompt", false},
-		"refused":      {"Not accepted", "did not accept the request", "Edit the prompt", true},
-		"rate_limited": {"No answer", "Try again in a few minutes", "Try again", false},
-		"unavailable":  {"No answer", "Try again in a few minutes", "Try again", false},
-		"timeout":      {"Over an hour", "may have charged up to $0.040", "Try again", false},
-		"provider":     {"Provider failure", "may have charged up to $0.040", "Try again", true},
-		"interrupted":  {"Run interrupted", "was not sent again", "Try again", false},
-		"storage":      {"Not saved", "The provider charged for it", "Try again", false},
-		"no_adapter":   {"Did not work", "cannot run OpenRouter models", "Edit the prompt", false},
-		"internal":     {"Did not work", "It did not work. Try again.", "Try again", false},
+		"moderation":   {"Refused by the rules", "", "Edit the prompt", true, true},
+		"money":        {"No money on the key", "", "Top up OpenRouter", false, true},
+		"key":          {"The key does not work", "no longer accepts the key", "Edit the prompt", false, true},
+		"refused":      {"Not accepted", "did not accept the request", "Edit the prompt", true, true},
+		"rate_limited": {"No answer", "Try again in a few minutes", "Try again", false, true},
+		"unavailable":  {"No answer", "Try again in a few minutes", "Try again", false, true},
+		"timeout":      {"Over an hour", "may have charged up to $0.040", "Try again", false, false},
+		"provider":     {"Provider failure", "may have charged up to $0.040", "Try again", true, false},
+		"interrupted":  {"Run interrupted", "was not sent again", "Try again", false, false},
+		"storage":      {"Not saved", "The provider charged for it", "Try again", false, false},
+		"no_adapter":   {"Did not work", "cannot run OpenRouter models", "Edit the prompt", false, true},
+		"internal":     {"Did not work", "It did not work. Try again.", "Try again", false, false},
 	} {
 		s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`return await press("fail:`+cls+`", (s) => s.failed);`)
 		text, _ := s["text"].(string)
@@ -328,8 +330,11 @@ func TestBrowserRuns(t *testing.T) {
 		if s["timeout"] == true || s["label"] != w.label || !strings.Contains(s["why"].(string), w.why) || first != w.first || s["dots"] != true {
 			t.Errorf("%s: %v", cls, s)
 		}
-		if shown := strings.Contains(text, fakeMessage); shown != w.said {
-			t.Errorf("%s: the provider's message shown %v, want %v: %q", cls, shown, w.said, text)
+		if shown := strings.Contains(text, fakeMessage); shown != w.said || strings.Contains(s["said"].(string), fakeMessage) != w.said {
+			t.Errorf("%s: the provider's message shown %v, want %v on the frame: %q", cls, shown, w.said, text)
+		}
+		if zero := strings.HasSuffix(s["line"].(string), " · $0"); zero != w.zero || w.zero && strings.Contains(text, "Nothing was charged") {
+			t.Errorf("%s: the price shown as $0 %v, want %v: %q", cls, zero, w.zero, s["line"])
 		}
 	}
 
@@ -347,7 +352,7 @@ func TestBrowserRuns(t *testing.T) {
 	if !strings.HasPrefix(before, "OpenRouter asked to wait. Next try in 0:") || s["after"] == before || s["can"] != true || s["dots"] != true {
 		t.Errorf("retry: %v", s)
 	}
-	if end := s["end"].(map[string]any); end["label"] != "Cancelled" || !strings.Contains(end["why"].(string), "Nothing was charged") {
+	if end := s["end"].(map[string]any); end["label"] != "Cancelled" || end["why"] != "" || !strings.HasSuffix(end["line"].(string), " · $0") {
 		t.Errorf("cancelled retry: %v", end)
 	}
 

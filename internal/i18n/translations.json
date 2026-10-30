@@ -5363,24 +5363,6 @@
     "ja": "応答なし",
     "ar": "لا رد"
   },
-  "web.fail.nothing": {
-    "en": "Nothing was charged.",
-    "ru": "Ничего не списано.",
-    "uk": "Нічого не списано.",
-    "es": "No se ha cobrado nada.",
-    "fr": "Rien n’a été facturé.",
-    "de": "Es wurde nichts abgebucht.",
-    "it": "Non è stato addebitato nulla.",
-    "pl": "Nie pobrano żadnej opłaty.",
-    "cs": "Nic nebylo naúčtováno.",
-    "tr": "Hiçbir ücret alınmadı.",
-    "sv": "Inget har debiterats.",
-    "be": "Нічога не спісана.",
-    "ca": "No s’ha cobrat res.",
-    "zh": "没有扣费。",
-    "ja": "料金は請求されていません。",
-    "ar": "لم يُخصم أي مبلغ."
-  },
   "web.fail.provider_l": {
     "en": "Provider failure",
     "ru": "Сбой провайдера",

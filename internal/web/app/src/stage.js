@@ -88,7 +88,8 @@ function view(run) {
     return { fail: true, status: failEl(w.label), why: [w.text], acts: refusalActs(run, w.acts), ht: { fig: w.acts.includes("cut") ? "cut" : REFFIG[w.code] || "bang", still: true } };
   }
   if (run.phase === "cancelled") {
-    return { fail: true, status: failEl(t("stage.cancelled")), why: [t(run.pay === "free" ? "fail.free_back" : "fail.nothing")], acts: againActs(run), ht: { fig: "line", still: true } };
+    const free = run.pay === "free";
+    return { fail: true, status: failEl(t("stage.cancelled")), why: [free ? t("fail.free_back") : ""], zero: !free, acts: againActs(run), ht: { fig: "line", still: true } };
   }
   const st = j.status;
   if (st === "queued") {
@@ -102,9 +103,13 @@ function view(run) {
   const res = j.results?.[0];
   if (st === "done" && res) return { done: true, res, acts: doneActs(run, j, res) };
   const f = failure(j);
-  return { fail: true, status: failEl(f.label), why: [f.text, f.note], msg: f.msg, provider: f.provider, acts: failActs(run, f), ht: { fig: FAILFIG[f.cls] || "cross", still: true } };
+  return { fail: true, status: failEl(f.label, f.said), why: [f.text, f.note], zero: f.zero, acts: failActs(run, f), ht: { fig: FAILFIG[f.cls] || "cross", still: true } };
 }
-const failEl = (label) => h("div", { class: "c fail" }, h("b", {}, label));
+// The provider's own words stand small under the label, two lines of them; a press shows the rest.
+const failEl = (label, said) => h("div", { class: "c fail" }, h("b", {}, label),
+  said ? h("small", { class: "said", title: said, onclick: (e) => e.currentTarget.classList.toggle("open") }, said) : null);
+// A price of 0 in the person's currency, from a label of the run's own price.
+const zeroOf = (label) => (label || "$0").replace(/\d[\d.,]*/, "0");
 // The figure of each reason a run gave nothing; the rest show a cross.
 const FAILFIG = { moderation: "ban", refused: "ban", money: "coin", key: "key", timeout: "clock", draft_expired: "clock", rate_limited: "hush", unavailable: "hush", interrupted: "link", cancelled: "line" };
 const REFFIG = { price_changed: "coin", not_free: "coin", free_limit: "clock", free_closed: "clock", no_connection: "key", connection_invalid: "key", sign_in: "key",
@@ -182,13 +187,13 @@ function renderRun(st, run) {
   // The dots: a figure for the state, or the result showing through them as it arrives.
   if (v.ht) halftone(box, v.ht.fig, { ...v.ht, n: run.n, lost: going && run.net === "lost" });
   else if (v.done) halftone(box, "reveal", { n: run.n });
-  const cost = j?.cost?.label ? j.cost.label : j?.free || (run.pay === "free" && !v.fail) ? t("bar.free") : run.shownLabel && !v.fail ? run.shownLabel : "";
+  const cost = j?.cost?.label ? j.cost.label : v.zero ? zeroOf(j?.estimate?.label || run.priceLabel)
+    : j?.free || (run.pay === "free" && !v.fail) ? t("bar.free") : run.shownLabel && !v.fail ? run.shownLabel : "";
   const line = h("p", { class: "jline", "data-k": "j-line" }, [m ? vname(m) : "", cost].filter(Boolean).join(" · "),
     going && run.net === "poll" ? h("span", { class: "jtag", title: t("net.poll_tip") }, t("net.poll")) : null);
   const [text, note] = v.why || [];
-  const why = text || note || v.msg
-    ? h("div", { class: "jwhy", "data-k": "j-why" }, text || note ? h("p", {}, text, text && note ? " " : "", note ? h("span", { class: "note" }, note) : null) : null,
-        v.msg ? h("p", { class: "said" }, ic("info"), h("span", {}, t("fail.said", { provider: PNAME[v.provider] || PNAME[run.pay] || "", text: v.msg }))) : null)
+  const why = text || note
+    ? h("div", { class: "jwhy", "data-k": "j-why" }, h("p", {}, text, text && note ? " " : "", note ? h("span", { class: "note" }, note) : null))
     : null;
   const prompt = run.prompt ? h("p", { class: "jprompt", "data-k": "j-prompt", hidden: samePrompt(run) }, h("span", { class: "tx" }, run.prompt),
     h("button", { type: "button", class: "cp", "aria-label": t("act.copy"), title: t("act.copy"), onclick: () => copyPrompt(run.prompt) }, ic("copy"))) : null;

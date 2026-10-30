@@ -418,14 +418,14 @@ input.search::placeholder {color: var(--muted);}
 .jbox .c b {color: var(--soft);}
 .jbox.ht .c b {font-size: clamp(18px, 2.4vw, 28px);}
 .jbox .c small.lost {color: var(--soft);}
+.jbox .c small.said {max-width: 52ch; line-height: 1.35; color: var(--soft); cursor: pointer; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere;}
+.jbox .c small.said.open {-webkit-line-clamp: 8;}
 .jfoot {display: grid; gap: 12px; min-width: 0;}
 .jline {display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 14px; color: var(--soft); min-height: 1.45em;}
 .jtag {padding: 0 6px; background: var(--deep); font-size: 12px; color: var(--muted); cursor: help;}
 .jwhy {display: grid; gap: 4px; font-size: 15px; line-height: 1.4; text-wrap: pretty;}
 .jwhy .note {color: var(--soft);}
 .jprompt[hidden] {display: none;}
-.jwhy .said {display: flex; gap: 6px; color: var(--muted);}
-.jwhy .said .ic {width: 14px; height: 14px; margin-top: calc((1lh - 14px) / 2);}
 .jacts {display: flex; flex-wrap: wrap; gap: var(--gap);}
 .jacts > button, .jacts > a {height: 42px; padding: 0 14px; display: inline-flex; align-items: center; gap: 8px; background: var(--deep); color: var(--ink); text-decoration: none; font-weight: 600; font-size: 15px;}
 .jacts > .primary {background: var(--ink); color: var(--field);}

@@ -55,11 +55,11 @@ function fromComposer() {
   const files = going(m, pay), c = clip();
   return { kind: m.kind, model: m.id, pay, offer: offerOf(m, pay).id, prompt: $("#prompt").value.trim(), settings: set, files,
     clip: files.includes(c) ? c : null, cut: files.includes(c) && S.cut ? { ...S.cut } : null, cont: contFits(m, pay) ? S.cont : null,
-    shown: pay === "free" ? null : shownOf(e), shownLabel: e ? priceText(e) : "" };
+    shown: pay === "free" ? null : shownOf(e), shownLabel: e ? priceText(e) : "", priceLabel: e?.label || "" };
 }
 // A run again as it was: the same model, settings, files and words.
 const copyOf = (r, more = {}) => ({ kind: r.kind, model: r.model, pay: r.pay, offer: r.offer, prompt: r.prompt, settings: r.settings, files: r.files,
-  clip: r.clip, cut: r.cut, cont: r.cont, shown: r.shown, shownLabel: r.shownLabel, ...more });
+  clip: r.clip, cut: r.cut, cont: r.cont, shown: r.shown, shownLabel: r.shownLabel, priceLabel: r.priceLabel, ...more });
 
 export function generate() {
   if (!M() || S.busy) return;
@@ -200,7 +200,7 @@ export function again(run = S.run) {
 // The price went up: the person agreed to the new one.
 export function takePrice(run = S.run) {
   const e = run.why?.estimate;
-  start(copyOf(run, { shown: shownOf(e), shownLabel: priceText(e) }));
+  start(copyOf(run, { shown: shownOf(e), shownLabel: priceText(e), priceLabel: e?.label || "" }));
 }
 // A free run that could not go free: the same run on the person's own key.
 export const keyFor = (run) => { const m = C.byId[run.model]; return m?.offers.map((o) => o.provider).find(keyOk) || ""; };
@@ -209,7 +209,7 @@ export function byKey(run = S.run) {
   if (!p || !m) return;
   act(() => { restore(run, p); render(); });
   const set = settings(m, p), e = known(runItem(m, p, set))?.estimate;
-  start(copyOf(run, { pay: p, offer: offerOf(m, p).id, settings: set, shown: shownOf(e), shownLabel: e ? priceText(e) : "" }));
+  start(copyOf(run, { pay: p, offer: offerOf(m, p).id, settings: set, shown: shownOf(e), shownLabel: e ? priceText(e) : "", priceLabel: e?.label || "" }));
 }
 export function drop() { S.showJob = false; renderStage(); renderBar(); }
 // The clip was longer than framy takes whole: its part is picked in the editor.
