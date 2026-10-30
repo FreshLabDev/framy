@@ -51,7 +51,7 @@ func (h *harness) ask(t *testing.T, m *tg.Message) int64 {
 // answer presses an answer of the question.
 func (h *harness) answer(question int64, data string, from int64, reply *tg.Message) error {
 	cq := &tg.CallbackQuery{ID: "cq", From: tg.User{ID: from, LanguageCode: "en"}, Data: data,
-		Message: tg.Message{MessageID: question, Chat: dm, Date: 1, Text: "?", ReplyToMessage: reply}}
+		Message: &tg.Message{MessageID: question, Chat: dm, Date: 1, Text: "?", ReplyToMessage: reply}}
 	return h.flow.answerAsk(context.Background(), cq)
 }
 
@@ -186,7 +186,7 @@ func TestAnswerDataIsRead(t *testing.T) {
 	}
 	// In a group there is no question to answer.
 	h := dmHarness(t)
-	cq := &tg.CallbackQuery{ID: "cq", From: tg.User{ID: 7}, Data: "d:10:i", Message: tg.Message{MessageID: 11, Chat: group, Date: 1}}
+	cq := &tg.CallbackQuery{ID: "cq", From: tg.User{ID: 7}, Data: "d:10:i", Message: &tg.Message{MessageID: 11, Chat: group, Date: 1}}
 	if err := h.flow.answerAsk(context.Background(), cq); err != nil {
 		t.Fatal(err)
 	}

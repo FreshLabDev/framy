@@ -16,6 +16,8 @@ type fakeFlow struct {
 	commands  []flowCommand
 	plain     []string
 	callbacks []string
+	inline    []string
+	stops     []int64
 }
 
 type flowCommand struct{ command, prompt string }
@@ -40,6 +42,71 @@ func (f *fakeFlow) Callback(_ context.Context, cq *tg.CallbackQuery) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.callbacks = append(f.callbacks, cq.Data)
+}
+
+func (f *fakeFlow) Inline(_ context.Context, q *tg.InlineQuery) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.inline = append(f.inline, q.Query)
+}
+
+func (f *fakeFlow) StopDraft(_ context.Context, s *tg.MessageGenerationStopped) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.stops = append(f.stops, s.DraftID)
+}
+
+// Stop on a draft of a DM goes to the flow; nobody is touched, since the
+// update names no one.
+func TestAStopOnADraftGoesToTheFlow(t *testing.T) {
+	flow := &fakeFlow{}
+	b, store, client := newBotWith(WithFlow(flow))
+	ctx := context.Background()
+	b.handle(ctx, tg.Update{UpdateID: 1, StoppedMessageGeneration: &tg.MessageGenerationStopped{Chat: dmChat, DraftID: 41}})
+	// Telegram drafts only into private chats.
+	b.handle(ctx, tg.Update{UpdateID: 2, StoppedMessageGeneration: &tg.MessageGenerationStopped{Chat: groupChat, DraftID: 42}})
+	if len(flow.stops) != 1 || flow.stops[0] != 41 || len(store.touches) != 0 || len(client.calls) != 0 {
+		t.Fatalf("stops %v, touches %+v, calls %+v", flow.stops, store.touches, client.calls)
+	}
+	b, _, _ = newBot()
+	b.handle(ctx, tg.Update{UpdateID: 3, StoppedMessageGeneration: &tg.MessageGenerationStopped{Chat: dmChat, DraftID: 41}})
+}
+
+// An inline query goes to the flow, and its sender is touched with no chat,
+// since the query does not name one.
+func TestAnInlineQueryGoesToTheFlow(t *testing.T) {
+	flow := &fakeFlow{}
+	b, store, client := newBotWith(WithFlow(flow))
+	b.handle(context.Background(), tg.Update{UpdateID: 1, InlineQuery: &tg.InlineQuery{ID: "q", From: tg.User{ID: 7}, Query: "fox"}})
+	if len(flow.inline) != 1 || flow.inline[0] != "fox" || len(client.calls) != 0 {
+		t.Fatalf("flow got %v, the bot sent %+v", flow.inline, client.calls)
+	}
+	if want := (touch{7, 0}); len(store.touches) != 1 || store.touches[0] != want {
+		t.Fatalf("touches = %+v", store.touches)
+	}
+
+	// Without a flow there is nothing to answer with.
+	b, _, client = newBot()
+	b.handle(context.Background(), tg.Update{UpdateID: 2, InlineQuery: &tg.InlineQuery{ID: "q", From: tg.User{ID: 7}}})
+	if len(client.calls) != 0 || len(client.answers) != 0 {
+		t.Fatalf("the bot answered %+v %+v", client.calls, client.answers)
+	}
+}
+
+// A press on a button of an inline message has no message: it is answered,
+// touches its sender only, and reaches neither a panel nor the flow.
+func TestAPressOnAnInlineMessageIsOnlyAnswered(t *testing.T) {
+	flow := &fakeFlow{}
+	b, store, client := newBotWith(WithFlow(flow))
+	b.handle(context.Background(), tg.Update{UpdateID: 1, Callback: &tg.CallbackQuery{
+		ID: "cq", From: tg.User{ID: 7}, InlineMessageID: "im", Data: "j:5:g",
+	}})
+	if len(flow.callbacks) != 0 || len(client.answers) != 1 || client.answers[0] != "cq" {
+		t.Fatalf("flow got %v, the bot answered %+v", flow.callbacks, client.answers)
+	}
+	if want := (touch{7, 0}); len(store.touches) != 1 || store.touches[0] != want {
+		t.Fatalf("touches = %+v", store.touches)
+	}
 }
 
 func TestImgAndEditGoToTheFlow(t *testing.T) {

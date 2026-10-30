@@ -92,7 +92,7 @@ func run(log *slog.Logger) error {
 		// my_chat_member tells core which groups framy is in; Telegram leaves
 		// it out of the default set, so it has to be asked for. So does
 		// edited_message, which can swap the file of an album's item.
-		tg.WithAllowedUpdates("message", "edited_message", "callback_query", "my_chat_member"),
+		tg.WithAllowedUpdates("message", "edited_message", "callback_query", "my_chat_member", "inline_query", "stopped_message_generation"),
 		tg.WithLogger(log),
 		tg.WithObserver(func(e tg.Event) {
 			switch {
@@ -494,7 +494,7 @@ func openFlow(ctx context.Context, cfg config.Config, client *tg.Client, store *
 	clips := &media.Converter{FFmpeg: cfg.FFmpeg, FFprobe: cfg.FFprobe}
 	return chat.New(chat.Config{
 		Telegram: client, Store: store, Queue: queue, Files: files, Allowance: allowance, Keys: people,
-		Renderer: renderer, Clips: clips, Work: work, Log: log.With("component", "chat"),
+		Renderer: renderer, Clips: clips, Work: work, Log: log.With("component", "chat"), AppURL: cfg.SiteURL,
 	})
 }
 

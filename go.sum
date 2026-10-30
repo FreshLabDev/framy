@@ -1,5 +1,5 @@
-github.com/FreshLabDev/tg v0.2.0-alpha.2.0.20261030155035-8a764ea4728e h1:yvVBX8iu5ZVyFhEO3jr96mBNaHypcQakplD/xw3FYkA=
-github.com/FreshLabDev/tg v0.2.0-alpha.2.0.20261030155035-8a764ea4728e/go.mod h1:wsFn10qoSGmL5G1kkEQCxKG3N2BEqnry0yU1CrNwvrI=
+github.com/FreshLabDev/tg v0.2.0-alpha.2.0.20261030170217-623e16d89c73 h1:A7jjZMJMaaCn7jgZVko6ryr/oNzcjiKDqVLr9iycEe8=
+github.com/FreshLabDev/tg v0.2.0-alpha.2.0.20261030170217-623e16d89c73/go.mod h1:wsFn10qoSGmL5G1kkEQCxKG3N2BEqnry0yU1CrNwvrI=
 github.com/coreos/go-oidc/v3 v3.21.0 h1:wZo4Q9Pum8dYEj0eMUPrqR+kvuGkeUplbLpNCkBqoWM=
 github.com/coreos/go-oidc/v3 v3.21.0/go.mod h1:DYCf24+ncYi+XkIH97GY1+dqoRlbaSI26KVTCI9SrY4=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

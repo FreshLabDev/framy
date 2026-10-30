@@ -677,7 +677,23 @@ In groups one run makes one result. Proposal: more than one only on the site and
   - **After it.** The job gets a chat run that is done in the DM, so Animate and a reply to the result work as on any result there.
   - **Not yet:** a switch to turn this off; the person can block the bot or delete the messages.
 - **Message effects.** A finished result can carry a message effect (DMs only).
-- **Stage 3:** progress through `sendRichMessageDraft` with Stop (`can_stop`, Bot API 10.3).
+- **Progress as a draft** (Bot API 10.3). Built (`internal/chat/draft.go`):
+  - **What it shows.** After Generate the loop comes as in a group, and under it a draft (`sendMessageDraft`): the model and the time taken, with Telegram's own Stop button (`can_stop`). The draft's id is the job's, so a press names the run. A draft lasts 30 s, so it goes again on every tick of the caption, every 10 s. The loop then has no Stop and no time of its own.
+  - **Stop** arrives as `stopped_message_generation`, which names the chat and the draft but not who pressed: in a DM that is the person. A queued job is cancelled and the loop goes. A running one ends in the person's history and not in the DM, since a request already sent is paid for; the DM is told so with `run.stopped`, as a reply to the command, since there is no press to answer.
+  - **The end.** The result and the error card come as new messages, which take the draft's place, and the loop goes. In place of the loop, as a quick image is in a group, they would leave the draft up for half a minute.
+  - **Without drafts.** Where Telegram refuses a draft, the loop keeps Stop and the time, as in a group, and sheds them again once a draft goes through. A ticker made after a restart takes the loop to have them.
+  - A rich draft (`sendRichMessageDraft`) is not used: the line is short HTML.
+
+## Inline mode
+
+`@framyin_bot` typed in any chat lists the person's past results, to send again. Built (`internal/chat/inline.go`):
+
+- **What is listed.** The person's results that went out in Telegram as a photo or a video, newest first, 20 at a time; scrolling asks for the next 20, by the last job id. What is typed filters by the prompt, in any case, and `%` and `_` are only themselves. A deleted job is left out. Telegram takes a `file_id` again only as what it was sent as, and framy answers with cached photos and videos, so a result sent as a document, and an album's other pictures, are not listed. What a result went out as is `chat_run.result_file_type` (migration 021); a run that ended before it has none and is not listed.
+- **How it is sent.** By its `file_id`, so nothing is uploaded, with the caption it had: the prompt and the model. The title is the start of the prompt on one line, the description the model. No buttons: a press on an inline message carries no message and comes from a chat framy may not be in, so the bot only answers it.
+- **The button** above the results is "Open framy", a `web_app` to `SITE_URL`, or the bot's chat with `/start inline` when `SITE_URL` is not https. With nothing found it says "No results. Open framy".
+- **Cache.** The answer is personal and Telegram keeps it 5 s, so a result just made shows up on the next query.
+- **Needs** inline mode turned on in BotFather (`/setinline`) for each bot.
+- **Not yet:** `chosen_inline_result` and editing a sent inline message.
 
 ## Mini App
 
@@ -797,11 +813,11 @@ Temporary domain `framy.ws04.cc`. Mobile first; on a wide screen the composer an
 - **Bot:** register `@framyin_bot` (`framybot` and `framy_bot` are taken).
 - **BotFather:**
   - the `/img` and `/edit` commands, also through `setMyCommands` for `all_group_chats`;
-  - inline mode with feedback;
+  - inline mode (`/setinline`); feedback (`/setinlinefeedback`) once framy reads `chosen_inline_result`;
   - Main Mini App;
   - the Login Widget client with the site's URLs, which gives the client id and secret;
   - later, guest mode.
-- **`allowed_updates`:** `message`, `edited_message`, `callback_query`, `inline_query`, `chosen_inline_result`, `my_chat_member`; later `guest_message` and `stopped_message_generation`.
+- **`allowed_updates`:** `message`, `edited_message`, `callback_query`, `my_chat_member`, `inline_query` and `stopped_message_generation`; later `chosen_inline_result` and `guest_message`.
 - **Server:** our `telegram-bot-api` in `--local` mode. framy and the server share a volume, so a result is sent by a path on that volume (`InputFileLocal`) instead of an upload. Uploads up to 2,000 MB and downloads of any size.
 
 ## Changes to tg
@@ -834,14 +850,14 @@ Released in tg v0.2.0-alpha.1 on 27 October 2026. framy is on v0.2.0-alpha.2, wh
 
 ### Stage 3
 
-- Inline:
+- Inline (tg#12, built on tg's `dev`):
   - `InlineQueryResultCachedPhoto`, `CachedVideo`, `CachedMpeg4Gif`;
   - `InlineAnswer.Button` (`InlineQueryResultsButton` with `web_app`);
-  - `EditMessageText` and `EditMessageMedia` by `inline_message_id`.
-- `CallbackQuery.Message` becomes a pointer, and `inline_message_id` is added. A callback from an inline or guest message has no message. This is a breaking change: a minor bump before v1.0.0, and every consumer updates.
+  - `EditInlineMessageText`, `EditInlineMessageMedia`, `EditInlineMessageCaption` and `EditInlineMessageReplyMarkup` by `inline_message_id`.
+- `CallbackQuery.Message` becomes a pointer, and `inline_message_id` is added (tg#13, built on tg's `dev`). A callback from an inline or guest message has no message. This is a breaking change: a minor bump before v1.0.0, and every consumer updates.
 - `AnswerGuestQuery` and the `guest_message` update.
 - Ephemeral media and `EditEphemeralMessageMedia`, `EditEphemeralMessageCaption` and `EditEphemeralMessageReplyMarkup`: done in v0.2.0-alpha.2, for the Model and Settings panel.
-- `SendMessageDraft` and `SendRichMessageDraft` with `can_stop` and `keep_on_stop`, and the `stopped_message_generation` update.
+- `SendMessageDraft`, `SendRichDraftHTML` and `SendRichDraftMarkdown` with `can_stop` and `keep_on_stop`, and the `stopped_message_generation` update (tg#16, built on tg's `dev`). framy pins that commit until a tag.
 - `BotCommandScope` with a chat id and a user id.
 - `GetMessages`, only if the server patch lands. `Preflight` already refuses a server without it.
 

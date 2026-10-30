@@ -118,6 +118,9 @@ func TestASiteVideoArrivesWithItsCover(t *testing.T) {
 	if h.store.delivery(siteJob) != db.DeliverySent || h.store.runs[siteJob].ResultMessageID == 0 {
 		t.Fatalf("delivery %q, run %+v", h.store.delivery(siteJob), h.store.runs[siteJob])
 	}
+	if res := h.store.results[siteJob]; res.FileType != db.FileVideo || res.FileID != "video-file" {
+		t.Fatalf("result = %+v", res)
+	}
 }
 
 // Several pictures go as one album, the caption on the first; one that is

@@ -301,7 +301,7 @@ func TestOnlyTheRequesterPresses(t *testing.T) {
 		t.Fatal("someone else's press queued the job")
 	}
 	// A press against another message does nothing.
-	cq := &tg.CallbackQuery{ID: "x", From: tg.User{ID: 7}, Data: callback(id, actGenerate), Message: tg.Message{MessageID: 1, Chat: group}}
+	cq := &tg.CallbackQuery{ID: "x", From: tg.User{ID: 7}, Data: callback(id, actGenerate), Message: &tg.Message{MessageID: 1, Chat: group}}
 	if err := h.flow.press(context.Background(), cq); err != nil {
 		t.Fatal(err)
 	}
@@ -449,6 +449,10 @@ func TestAQuickResultReplacesTheLoop(t *testing.T) {
 	if h.store.stage(id) != db.StageDone || len(h.tg.methods("deleteMessage")) != 0 {
 		t.Fatalf("stage %s, calls %+v", h.store.stage(id), h.tg.calls)
 	}
+	// What inline mode sends again.
+	if res, want := h.store.results[id], (db.ChatResult{MessageID: edits[0].messageID, FileID: "result-file", FileUniqueID: "result-unique", FileType: db.FilePhoto}); res != want {
+		t.Fatalf("result = %+v, want %+v", res, want)
+	}
 }
 
 func TestASlowResultIsAReply(t *testing.T) {
@@ -478,6 +482,10 @@ func TestAHugeResultIsADocument(t *testing.T) {
 	h.flow.step(context.Background(), id)
 	if d := h.tg.methods("sendDocument"); len(d) != 1 || d[0].file != "upload:framy.png" {
 		t.Fatalf("documents = %+v", d)
+	}
+	// A document is not offered inline, which takes photos and videos.
+	if res := h.store.results[id]; res.FileType != db.FileDocument || res.FileID != "doc-file" {
+		t.Fatalf("result = %+v", res)
 	}
 }
 

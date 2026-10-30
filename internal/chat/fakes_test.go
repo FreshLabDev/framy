@@ -56,6 +56,8 @@ type fakeTelegram struct {
 	fail    map[string]error // by method
 	answers []string         // "text" or "alert:text"
 	files   map[string]string
+	// inlineAnswers are the inline answers, in order.
+	inlineAnswers []tg.InlineAnswer
 	// beforeEphemeral runs as an ephemeral send starts, as a stop would
 	// come in the middle of one.
 	beforeEphemeral func()
@@ -276,6 +278,33 @@ func (f *fakeTelegram) AnswerCallbackQuery(_ context.Context, _ string, text str
 	return nil
 }
 
+// SendMessageDraft records a draft: messageID is its id, and action "stop"
+// when it has Stop.
+func (f *fakeTelegram) SendMessageDraft(_ context.Context, chatID, draftID int64, text string, o tg.DraftOptions) error {
+	c := call{method: "sendMessageDraft", chatID: chatID, messageID: draftID, thread: o.ThreadID, text: text}
+	if o.CanStop {
+		c.action = "stop"
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.fail[c.method]; err != nil {
+		return err
+	}
+	f.calls = append(f.calls, c)
+	return nil
+}
+
+// AnswerInlineQuery keeps the answer whole in inlineAnswers.
+func (f *fakeTelegram) AnswerInlineQuery(_ context.Context, id string, answer tg.InlineAnswer) error {
+	if _, err := f.record(call{method: "answerInlineQuery", text: id}); err != nil {
+		return err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.inlineAnswers = append(f.inlineAnswers, answer)
+	return nil
+}
+
 func (f *fakeTelegram) AnswerCallbackQueryAlert(_ context.Context, _ string, text string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -329,6 +358,33 @@ type fakeStore struct {
 	site      []db.SiteResult
 	delivered map[int64]string
 	siteSince time.Time
+	// results are what each finished run recorded of its result message.
+	results map[int64]db.ChatResult
+	// inline are the person's results InlineResults lists, newest first,
+	// and inlineAsked what it was last asked.
+	inline      []db.InlineResult
+	inlineAsked inlineAsk
+}
+
+type inlineAsk struct {
+	user, before int64
+	search       string
+	limit        int
+}
+
+// InlineResults pages s.inline as the database would; finding the search
+// in the prompts is the database's, and tested there.
+func (s *fakeStore) InlineResults(_ context.Context, user int64, search string, before int64, limit int) ([]db.InlineResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.inlineAsked = inlineAsk{user: user, before: before, search: search, limit: limit}
+	var out []db.InlineResult
+	for _, r := range s.inline {
+		if (before == 0 || r.JobID < before) && len(out) < limit {
+			out = append(out, r)
+		}
+	}
+	return out, nil
 }
 
 func newStore() *fakeStore {
@@ -336,7 +392,7 @@ func newStore() *fakeStore {
 		jobs: map[int64]*fakeJob{}, runs: map[int64]*db.ChatRun{},
 		userLang: map[int64]string{}, chatLang: map[int64]string{}, currency: map[int64]string{},
 		quotes: map[string]fx.Quote{}, keys: map[string]int64{}, offers: map[string]catalog.Offer{},
-		delivered: map[int64]string{},
+		delivered: map[int64]string{}, results: map[int64]db.ChatResult{},
 	}
 }
 
@@ -389,6 +445,7 @@ func (s *fakeStore) SentSiteResult(_ context.Context, run db.ChatRun, res db.Cha
 	}
 	if _, ok := s.runs[run.JobID]; !ok {
 		s.runs[run.JobID] = &db.ChatRun{JobID: run.JobID, ChatID: run.ChatID, Lang: run.Lang, Stage: db.StageDone, ResultMessageID: res.MessageID}
+		s.results[run.JobID] = res
 	}
 	return nil
 }
@@ -592,6 +649,7 @@ func (s *fakeStore) FinishChatRun(_ context.Context, jobID int64, stage string, 
 		return false, nil
 	}
 	r.Stage, r.ResultMessageID = stage, res.MessageID
+	s.results[jobID] = res
 	return true, nil
 }
 
@@ -979,7 +1037,7 @@ func (h *harness) pressPanel(jobID int64, from int64, action string) error {
 }
 
 func (h *harness) pressOn(jobID, from int64, action string, msg tg.Message) error {
-	cq := &tg.CallbackQuery{ID: "cq", From: tg.User{ID: from, LanguageCode: "en"}, Data: callback(jobID, action), Message: msg}
+	cq := &tg.CallbackQuery{ID: "cq", From: tg.User{ID: from, LanguageCode: "en"}, Data: callback(jobID, action), Message: &msg}
 	return h.flow.press(context.Background(), cq)
 }
 

@@ -101,10 +101,10 @@ func (s *Store) SentSiteResult(ctx context.Context, run ChatRun, res ChatResult)
 		}
 		_, err := tx.Exec(ctx, `
 			INSERT INTO chat_run (job_id, chat_id, command_message_id, lang, stage,
-			                      result_message_id, result_file_id, result_file_unique_id)
-			VALUES ($1, $2, 0, $3, 'done', $4, NULLIF($5, ''), NULLIF($6, ''))
+			                      result_message_id, result_file_id, result_file_unique_id, result_file_type)
+			VALUES ($1, $2, 0, $3, 'done', $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''))
 			ON CONFLICT (job_id) DO NOTHING`,
-			run.JobID, run.ChatID, run.Lang, res.MessageID, res.FileID, res.FileUniqueID)
+			run.JobID, run.ChatID, run.Lang, res.MessageID, res.FileID, res.FileUniqueID, res.FileType)
 		return err
 	})
 	if err != nil {

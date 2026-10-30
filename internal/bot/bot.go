@@ -117,6 +117,11 @@ type Flow interface {
 	// the flow's question.
 	Owns(data string) bool
 	Callback(ctx context.Context, cq *tg.CallbackQuery)
+	// Inline answers @framyin_bot typed in any chat with the person's past
+	// results.
+	Inline(ctx context.Context, q *tg.InlineQuery)
+	// StopDraft takes Stop on the draft a run streams into a DM.
+	StopDraft(ctx context.Context, s *tg.MessageGenerationStopped)
 }
 
 // WithFlow answers /img and /edit, and plain direct messages.
@@ -285,6 +290,15 @@ func (b *Bot) handle(ctx context.Context, u tg.Update) {
 		b.noteAlbumItem(ctx, u.EditedMessage)
 		return
 	}
+	// Stop on a draft names the chat, not who pressed it: in a DM that is
+	// the person, whom their own messages touch.
+	if s := u.StoppedMessageGeneration; s != nil {
+		if b.flow != nil && s.Chat.Type == tg.ChatPrivate {
+			b.flow.StopDraft(ctx, s)
+		}
+		metrics.UpdatesHandled.Inc()
+		return
+	}
 	var (
 		user *tg.User
 		chat *tg.Chat
@@ -294,9 +308,17 @@ func (b *Bot) handle(ctx context.Context, u tg.Update) {
 		// Channel posts carry no sender.
 		user, chat = u.Message.From, &u.Message.Chat
 	case u.Callback != nil:
-		user, chat = &u.Callback.From, &u.Callback.Message.Chat
+		// A press on an inline message, which went out through the bot in
+		// someone else's chat, carries no message and so no chat.
+		user = &u.Callback.From
+		if u.Callback.Message != nil {
+			chat = &u.Callback.Message.Chat
+		}
 	case u.MyChatMember != nil:
 		user, chat = &u.MyChatMember.From, &u.MyChatMember.Chat
+	case u.InlineQuery != nil:
+		// Typed in someone else's chat, which the query does not name.
+		user = &u.InlineQuery.From
 	}
 	if user == nil || user.ID == 0 {
 		return
@@ -311,6 +333,10 @@ func (b *Bot) handle(ctx context.Context, u tg.Update) {
 		err = b.onMessage(ctx, u.Message)
 	case u.Callback != nil:
 		err = b.onCallback(ctx, u.Callback)
+	case u.InlineQuery != nil:
+		if b.flow != nil {
+			b.flow.Inline(ctx, u.InlineQuery)
+		}
 	}
 	if err != nil {
 		metrics.UpdatesFailed.Inc()

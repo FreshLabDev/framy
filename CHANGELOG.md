@@ -524,6 +524,19 @@ was written from, and the skeleton of the service.
   album, and a video with its cover. Each result goes at most once, a
   restart included (migration 020), and one that ended over an hour ago is
   not sent.
+- Inline mode: `@framyin_bot` in any chat lists the person's results that
+  went out as a photo or a video, newest first, 20 at a time, and typing
+  filters them by the prompt. A result is sent again by its `file_id`, with
+  its caption, so nothing is uploaded. The button above the results opens
+  the Mini App. framy now records what kind of file each result went out as
+  (migration 021); a result from before that is not listed. Inline mode has
+  to be turned on in BotFather (`/setinline`).
+- In a DM the progress of a run is also a draft with Telegram's own Stop
+  button, the model and the time taken. Stop cancels a queued job; on a
+  running one the result goes to the history and not to the DM, which is
+  told so. A DM's result and error card now always come as a new message,
+  which takes the draft's place. Where Telegram refuses the draft, the loop
+  keeps its Stop button, as in a group.
 - CI on every push and weekly: modules, gofmt, build, vet, race tests,
   database tests on PostgreSQL 17, govulncheck, the image build, the photo
   and storage tests inside the image, on the ffmpeg it ships, and the local

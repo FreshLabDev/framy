@@ -225,11 +225,22 @@ func (s *Store) StopChatRun(ctx context.Context, jobID int64) (bool, error) {
 	return tag.RowsAffected() == 1, nil
 }
 
+// File types of a result, as the message carried it.
+const (
+	FilePhoto     = "photo"
+	FileVideo     = "video"
+	FileAnimation = "animation"
+	FileDocument  = "document"
+)
+
 // ChatResult is the message a result went out in.
 type ChatResult struct {
 	MessageID    int64
 	FileID       string
 	FileUniqueID string
+	// FileType is FilePhoto, FileVideo, FileAnimation or FileDocument;
+	// empty for a message with no file.
+	FileType string
 }
 
 // FinishChatRun ends a generating run as done, with the message of its
@@ -240,8 +251,9 @@ func (s *Store) FinishChatRun(ctx context.Context, jobID int64, stage string, re
 	}
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE chat_run SET stage = $2, updated_at = now(),
-		       result_message_id = NULLIF($3::bigint, 0), result_file_id = NULLIF($4, ''), result_file_unique_id = NULLIF($5, '')
-		WHERE job_id = $1 AND stage = 'generating'`, jobID, stage, res.MessageID, res.FileID, res.FileUniqueID)
+		       result_message_id = NULLIF($3::bigint, 0), result_file_id = NULLIF($4, ''), result_file_unique_id = NULLIF($5, ''),
+		       result_file_type = NULLIF($6, '')
+		WHERE job_id = $1 AND stage = 'generating'`, jobID, stage, res.MessageID, res.FileID, res.FileUniqueID, res.FileType)
 	if err != nil {
 		return false, fmt.Errorf("finish the chat run of job %d: %w", jobID, err)
 	}

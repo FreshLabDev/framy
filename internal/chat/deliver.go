@@ -52,6 +52,9 @@ const (
 type ticker struct {
 	mu              sync.Mutex
 	action, caption time.Time
+	// bare: the loop of a DM has no Stop and no time, since the draft has
+	// them. A ticker made after a restart takes the loop to have them.
+	bare bool
 }
 
 func (f *Flow) ticker(jobID int64) *ticker {
@@ -161,12 +164,25 @@ func (f *Flow) progress(ctx context.Context, run db.ChatRun) {
 	}
 	if now.Sub(tk.caption) >= captionEvery && !run.GenerateAt.IsZero() {
 		tk.caption = now
-		caption := generatingCaption(run.Lang, run.Prompt, run.Model, now.Sub(run.GenerateAt))
-		_, err := f.cfg.Telegram.EditMessageCaption(ctx, run.ChatID, run.PreviewMessageID, caption,
-			tg.EditCaptionOptions{Markup: generatingKeyboard(run.Lang, run.JobID)})
-		if err != nil && !tg.IsMessageNotModified(err) {
-			f.log.Debug("caption not updated", "job", run.JobID, "error", err)
+		elapsed := now.Sub(run.GenerateAt)
+		if inDM(run) && f.streamDraft(ctx, run, elapsed) {
+			if !tk.bare {
+				// The draft has Stop and the time again: the loop sheds them.
+				f.loopCaption(ctx, run, generatingCaption(run.Lang, run.Prompt, run.Model, 0), nil)
+				tk.bare = true
+			}
+			return
 		}
+		tk.bare = false
+		f.loopCaption(ctx, run, generatingCaption(run.Lang, run.Prompt, run.Model, elapsed), generatingKeyboard(run.Lang, run.JobID))
+	}
+}
+
+// loopCaption puts caption and kb on the loop.
+func (f *Flow) loopCaption(ctx context.Context, run db.ChatRun, caption string, kb *tg.InlineKeyboardMarkup) {
+	_, err := f.cfg.Telegram.EditMessageCaption(ctx, run.ChatID, run.PreviewMessageID, caption, tg.EditCaptionOptions{Markup: kb})
+	if err != nil && !tg.IsMessageNotModified(err) {
+		f.log.Debug("caption not updated", "job", run.JobID, "error", err)
 	}
 }
 
@@ -194,7 +210,7 @@ func (f *Flow) deliver(ctx context.Context, run db.ChatRun) {
 		f.log.Error("result not sent", "job", run.JobID, "error", err)
 		return
 	}
-	res := db.ChatResult{MessageID: msg.MessageID, FileID: fileIDOf(msg), FileUniqueID: fileUniqueIDOf(msg)}
+	res := resultOf(msg)
 	if _, err := f.cfg.Store.FinishChatRun(ctx, run.JobID, db.StageDone, res); err != nil {
 		f.log.Error("run not finished", "job", run.JobID, "error", err)
 		return
@@ -208,7 +224,9 @@ func (f *Flow) deliver(ctx context.Context, run db.ChatRun) {
 func (f *Flow) sendImage(ctx context.Context, run db.ChatRun, a storage.Asset, caption string) (tg.Message, error) {
 	asPhoto := photoFits(a)
 	kb := resultKeyboard(run.Lang, run.JobID)
-	if asPhoto && f.now().Sub(run.GenerateAt) <= inPlaceWithin {
+	// In a DM the result is a new message, which takes the draft's place;
+	// in place of the loop it would leave the draft up for half a minute.
+	if asPhoto && !inDM(run) && f.now().Sub(run.GenerateAt) <= inPlaceWithin {
 		msg, err := f.withResult(ctx, a, func(file tg.InputFile) (tg.Message, error) {
 			return f.cfg.Telegram.EditMessageMediaMessage(ctx, run.ChatID, run.PreviewMessageID, tg.InputMediaPhoto{Media: file, Caption: caption}, kb)
 		})
@@ -473,7 +491,14 @@ func (f *Flow) failed(ctx context.Context, run db.ChatRun, key string) {
 			line = text
 		}
 		caption := lines(promptQuote(run.Prompt), line, "<b>"+html.EscapeString(run.Model)+"</b>")
-		_, err = f.edit(ctx, run.ChatID, run.PreviewMessageID, card, caption, nil)
+		if inDM(run) {
+			// A new message, which takes the draft's place.
+			if _, err = f.send(ctx, run.ChatID, run.CommandMessageID, run.ThreadID, card, caption, nil); err == nil {
+				f.deleteMessage(ctx, run.ChatID, run.PreviewMessageID)
+			}
+		} else {
+			_, err = f.edit(ctx, run.ChatID, run.PreviewMessageID, card, caption, nil)
+		}
 	}
 	if err != nil {
 		f.log.Warn("error card not shown; replying", "job", run.JobID, "error", err)

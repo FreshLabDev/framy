@@ -16,6 +16,7 @@ import (
 
 	"github.com/FreshLabDev/framy/internal/anim"
 	"github.com/FreshLabDev/framy/internal/catalog"
+	"github.com/FreshLabDev/framy/internal/db"
 	"github.com/FreshLabDev/framy/internal/free"
 	"github.com/FreshLabDev/framy/internal/fx"
 	"github.com/FreshLabDev/framy/internal/price"
@@ -227,12 +228,18 @@ func cardPrice(lang string, e price.Estimate, q fx.Quote) (usd, local, code stri
 // generatingCaption is the caption of the loop: the model and how long the
 // run has taken.
 func generatingCaption(lang, prompt, model string, elapsed time.Duration) string {
+	return lines(promptQuote(prompt), generatingLine(lang, model, elapsed))
+}
+
+// generatingLine is the model and, from a second on, the time taken: the
+// loop's last line, and a DM's draft.
+func generatingLine(lang, model string, elapsed time.Duration) string {
 	line := t(lang, "run.generating", "model", "<b>"+html.EscapeString(model)+"</b>")
 	if elapsed >= time.Second {
 		s := int(elapsed.Seconds())
 		line += fmt.Sprintf(" · %d:%02d", s/60, s%60)
 	}
-	return lines(promptQuote(prompt), line)
+	return line
 }
 
 // resultCaption is the caption of a result.
@@ -428,6 +435,27 @@ func fileIDOf(m tg.Message) string {
 		return m.Video.FileID
 	case m.Document != nil:
 		return m.Document.FileID
+	}
+	return ""
+}
+
+// resultOf is the result m went out as.
+func resultOf(m tg.Message) db.ChatResult {
+	return db.ChatResult{MessageID: m.MessageID, FileID: fileIDOf(m), FileUniqueID: fileUniqueIDOf(m), FileType: fileTypeOf(m)}
+}
+
+// fileTypeOf is what kind of file fileIDOf names: Telegram takes a file_id
+// again only as what it was sent as.
+func fileTypeOf(m tg.Message) string {
+	switch {
+	case m.Animation != nil:
+		return db.FileAnimation
+	case len(m.Photo) > 0:
+		return db.FilePhoto
+	case m.Video != nil:
+		return db.FileVideo
+	case m.Document != nil:
+		return db.FileDocument
 	}
 	return ""
 }

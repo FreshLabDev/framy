@@ -139,7 +139,7 @@ func (f *Flow) sendSiteResult(ctx context.Context, r db.SiteResult) {
 		return
 	}
 	run := db.ChatRun{JobID: r.JobID, ChatID: r.UserID, Lang: lang}
-	res := db.ChatResult{MessageID: msg.MessageID, FileID: fileIDOf(msg), FileUniqueID: fileUniqueIDOf(msg)}
+	res := resultOf(msg)
 	if err := f.cfg.Store.SentSiteResult(context.WithoutCancel(ctx), run, res); err != nil {
 		f.log.Error("site result not recorded as sent", "job", r.JobID, "error", err)
 	}

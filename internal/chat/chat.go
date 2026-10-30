@@ -59,6 +59,8 @@ type Telegram interface {
 	DownloadToFile(ctx context.Context, filePath, dst string, maxBytes int64) error
 	AnswerCallbackQuery(ctx context.Context, callbackID, text string) error
 	AnswerCallbackQueryAlert(ctx context.Context, callbackID, text string) error
+	AnswerInlineQuery(ctx context.Context, inlineQueryID string, answer tg.InlineAnswer) error
+	SendMessageDraft(ctx context.Context, chatID, draftID int64, text string, opts tg.DraftOptions) error
 }
 
 // Store is framy's database: *db.Store.
@@ -85,6 +87,7 @@ type Store interface {
 	ReleaseSiteResult(ctx context.Context, jobID int64) error
 	EndSiteResult(ctx context.Context, jobID int64, state string) error
 	SentSiteResult(ctx context.Context, run db.ChatRun, res db.ChatResult) error
+	InlineResults(ctx context.Context, user int64, search string, before int64, limit int) ([]db.InlineResult, error)
 }
 
 // Queue makes and works the jobs: *jobs.Queue.
@@ -157,6 +160,10 @@ type Config struct {
 	// MaxVideo caps a clip read from Telegram. 0 is storage's limit on a
 	// clip.
 	MaxVideo int64
+	// AppURL is the site (SITE_URL), which the button of an inline answer
+	// opens as a Mini App. Telegram takes only https; with anything else the
+	// button opens the bot's chat.
+	AppURL string
 }
 
 // Flow runs /img and /edit in chats, and a plain message in a DM, and sends
@@ -218,6 +225,7 @@ func New(cfg Config) (*Flow, error) {
 	if cfg.MaxVideo <= 0 {
 		cfg.MaxVideo = storage.DefaultMaxVideo
 	}
+	cfg.AppURL = miniAppURL(cfg.AppURL)
 	return &Flow{cfg: cfg, log: cfg.Log, now: time.Now, slot: make(chan struct{}, cfg.Commands)}, nil
 }
 
@@ -326,6 +334,11 @@ func parseCallback(data string) (jobID int64, action string, ok bool) {
 // Callback takes a press of a run's button and works it in the background.
 func (f *Flow) Callback(ctx context.Context, cq *tg.CallbackQuery) {
 	if cq == nil {
+		return
+	}
+	// A run's buttons are on messages in a chat, never on an inline one.
+	if cq.Message == nil {
+		f.wg.Go(func() { _ = f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, "") })
 		return
 	}
 	f.wg.Go(func() {

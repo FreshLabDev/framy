@@ -44,7 +44,7 @@ func (h *harness) delivered(t *testing.T, id int64, result storage.Asset) int64 
 func (h *harness) animate(id, from int64, chat tg.Chat, qid string) error {
 	run := h.store.runs[id]
 	cq := &tg.CallbackQuery{ID: qid, From: tg.User{ID: from, LanguageCode: "en"}, Data: callback(id, actAnimate),
-		Message: tg.Message{MessageID: run.ResultMessageID, Chat: chat, Date: 1, Photo: []tg.Photo{{FileID: "result-file"}}}}
+		Message: &tg.Message{MessageID: run.ResultMessageID, Chat: chat, Date: 1, Photo: []tg.Photo{{FileID: "result-file"}}}}
 	return h.flow.press(context.Background(), cq)
 }
 
@@ -155,11 +155,11 @@ func TestOnlyTheRequesterAnimates(t *testing.T) {
 func TestAnimateFromAnotherMessageMakesNothing(t *testing.T) {
 	h, id, result := animateHarness(t)
 	cq := &tg.CallbackQuery{ID: "cq-1", From: tg.User{ID: 7}, Data: callback(id, actAnimate),
-		Message: tg.Message{MessageID: result + 1, Chat: group, Date: 1}}
+		Message: &tg.Message{MessageID: result + 1, Chat: group, Date: 1}}
 	if err := h.flow.press(context.Background(), cq); err != nil {
 		t.Fatal(err)
 	}
-	cq.Message = tg.Message{EphemeralMessageID: result, Chat: group, Date: 1}
+	cq.Message = &tg.Message{EphemeralMessageID: result, Chat: group, Date: 1}
 	if err := h.flow.press(context.Background(), cq); err != nil {
 		t.Fatal(err)
 	}

@@ -313,7 +313,7 @@ func callback(chat tg.Chat, from, owner int64, action string, ephemeralID int64)
 	return &tg.CallbackQuery{
 		ID:      "cq",
 		From:    tg.User{ID: from, LanguageCode: "en"},
-		Message: tg.Message{MessageID: 10, Chat: chat, Text: "panel", EphemeralMessageID: ephemeralID},
+		Message: &tg.Message{MessageID: 10, Chat: chat, Text: "panel", EphemeralMessageID: ephemeralID},
 		Data:    cb(owner, action),
 	}
 }

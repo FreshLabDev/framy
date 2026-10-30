@@ -377,7 +377,7 @@ func (f *Flow) view(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun, o
 // which the chat keeps seeing as it was. It reports whether Telegram took
 // it; the press must be fresh, which it is when it comes here.
 func (f *Flow) openPanel(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun, s state, kb *tg.InlineKeyboardMarkup) bool {
-	id := fileIDOf(cq.Message)
+	id := fileIDOf(*cq.Message)
 	if cq.Message.Date == 0 || id == "" {
 		return false
 	}

@@ -183,6 +183,11 @@ func addressable(m tg.Message) bool {
 }
 
 func (b *Bot) onCallback(ctx context.Context, cq *tg.CallbackQuery) error {
+	// framy puts no button of its own on an inline message, so a press there
+	// is none of its panels or runs.
+	if cq.Message == nil {
+		return b.tg.AnswerCallbackQuery(ctx, cq.ID, "")
+	}
 	if b.flow != nil && b.flow.Owns(cq.Data) {
 		b.flow.Callback(ctx, cq)
 		return nil
@@ -199,7 +204,7 @@ func (b *Bot) onCallback(ctx context.Context, cq *tg.CallbackQuery) error {
 	if cq.From.ID != owner {
 		return b.tg.AnswerCallbackQueryAlert(ctx, cq.ID, i18n.T(i18n.Resolve(raw), "msg.not_yours"))
 	}
-	if !addressable(cq.Message) {
+	if !addressable(*cq.Message) {
 		return b.tg.AnswerCallbackQuery(ctx, cq.ID, "")
 	}
 	alert, err := b.runAction(ctx, cq, action, raw)

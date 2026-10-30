@@ -192,15 +192,19 @@ func (f *Flow) showLoop(ctx context.Context, run db.ChatRun) {
 		}
 		return
 	}
+	kb := generatingKeyboard(run.Lang, run.JobID)
+	// In a DM the draft has Stop, and the loop needs none.
+	if inDM(run) && f.streamDraft(ctx, run, 0) {
+		kb, tk.bare = nil, true
+	}
+	caption := generatingCaption(run.Lang, run.Prompt, run.Model, 0)
 	if err == nil {
-		_, err = f.edit(ctx, run.ChatID, run.PreviewMessageID, loop,
-			generatingCaption(run.Lang, run.Prompt, run.Model, 0), generatingKeyboard(run.Lang, run.JobID))
+		_, err = f.edit(ctx, run.ChatID, run.PreviewMessageID, loop, caption, kb)
 	}
 	if err != nil {
 		// The run goes on; the caption still says so.
 		f.log.Warn("generating loop not shown", "job", run.JobID, "error", err)
-		_, _ = f.cfg.Telegram.EditMessageCaption(ctx, run.ChatID, run.PreviewMessageID,
-			generatingCaption(run.Lang, run.Prompt, run.Model, 0), tg.EditCaptionOptions{Markup: generatingKeyboard(run.Lang, run.JobID)})
+		_, _ = f.cfg.Telegram.EditMessageCaption(ctx, run.ChatID, run.PreviewMessageID, caption, tg.EditCaptionOptions{Markup: kb})
 	}
 }
 
@@ -217,30 +221,39 @@ func (f *Flow) no(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun) err
 	return nil
 }
 
-// stop cancels a queued job, or lets a running one end in the person's
-// history without the chat, since a request already sent is paid for.
+// stop is Stop on the loop: see halt. A run that had started is told
+// stopped in the press's answer.
 func (f *Flow) stop(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun) error {
 	if run.Stage != db.StageGenerating {
 		return f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, "")
 	}
-	err := f.cfg.Queue.Cancel(ctx, run.JobID)
+	running, err := f.halt(ctx, run)
+	text := ""
+	if running {
+		text = t(run.Lang, "run.stopped")
+	}
+	_ = f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, text)
+	return err
+}
+
+// halt cancels a queued job, or lets a running one end in the person's
+// history without the chat, since a request already sent is paid for. The
+// loop goes either way. It tells whether the job was running.
+func (f *Flow) halt(ctx context.Context, run db.ChatRun) (running bool, err error) {
+	err = f.cfg.Queue.Cancel(ctx, run.JobID)
 	switch {
 	case errors.Is(err, jobs.ErrRunning):
 		if _, err := f.cfg.Store.StopChatRun(ctx, run.JobID); err != nil {
-			_ = f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, "")
-			return err
+			return false, err
 		}
-		_ = f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, t(run.Lang, "run.stopped"))
 		f.removePreview(ctx, run)
 		f.forget(run.JobID)
-		return nil
+		return true, nil
 	case err != nil:
-		_ = f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, "")
-		return err
+		return false, err
 	}
-	_ = f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, "")
 	f.close(ctx, run, db.StageGenerating)
-	return nil
+	return false, nil
 }
 
 // close ends a run that leaves nothing in the chat: the preview or the loop

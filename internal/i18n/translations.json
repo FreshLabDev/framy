@@ -1097,6 +1097,24 @@
     "ja": "認証が必要",
     "ar": "يحتاج إلى تحقق"
   },
+  "inline.empty": {
+    "en": "No results. Open framy",
+    "ru": "Ничего не найдено. Открыть framy",
+    "uk": "Нічого не знайдено. Відкрити framy",
+    "es": "Sin resultados. Abrir framy",
+    "fr": "Aucun résultat. Ouvrir framy",
+    "de": "Keine Ergebnisse. framy öffnen",
+    "it": "Nessun risultato. Apri framy",
+    "pl": "Brak wyników. Otwórz framy",
+    "cs": "Žádné výsledky. Otevřít framy",
+    "tr": "Sonuç yok. framy’yi aç",
+    "sv": "Inga resultat. Öppna framy",
+    "be": "Нічога не знойдзена. Адкрыць framy",
+    "ca": "Cap resultat. Obre framy",
+    "zh": "没有结果。打开 framy",
+    "ja": "結果がありません。framy を開く",
+    "ar": "لا توجد نتائج. افتح framy"
+  },
   "lang.group_hint": {
     "en": "The group’s language: framy writes in it here. Only admins change it.",
     "ru": "Язык группы: на нём framy пишет здесь. Меняют только админы.",
