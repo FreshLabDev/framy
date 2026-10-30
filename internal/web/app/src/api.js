@@ -60,16 +60,18 @@ const wait = (ms, sig) => new Promise((done) => { const t = setTimeout(done, ms)
 /* A job's events (GET /api/jobs/{id}/events). Server-sent events read through fetch, since the Mini App
    needs its Authorization header and EventSource cannot send one. Each event is the whole job; a
    reconnect says Last-Event-ID and gets only what changed. When the server has three streams of the
-   person's open already (429 too_many_streams), the job is read every 5 seconds instead. */
-export function watchJob(id, onJob, onError) {
+   person's open already (429 too_many_streams), the job is read every 5 seconds instead. onNet hears
+   how the page hears: "live" over the stream, "poll" every 5 seconds, "lost" while nothing gets through. */
+export function watchJob(id, onJob, onError, onNet = () => {}) {
   const stop = new AbortController();
-  let last = "", retry = 2000;
+  let last = "", retry = 2000, net = "";
+  const say = (v) => { if (v !== net && !stop.signal.aborted) { net = v; onNet(v); } };
   const deliver = (j) => { if (stop.signal.aborted) return; onJob(j); if (isFinal(j.status)) stop.abort(); };
 
   async function poll() {
     while (!stop.signal.aborted) {
-      try { deliver(await api(`/api/jobs/${id}`, { signal: stop.signal })); }
-      catch (e) { if (e.name === "AbortError") return; if (e.status === 404) { onError?.(e); return; } }
+      try { const j = await api(`/api/jobs/${id}`, { signal: stop.signal }); say("poll"); deliver(j); }
+      catch (e) { if (e.name === "AbortError") return; if (e.status === 404) { onError?.(e); return; } if (e.code === "network") say("lost"); }
       await wait(5000, stop.signal);
     }
   }
@@ -84,22 +86,22 @@ export function watchJob(id, onJob, onError) {
         r = await fetch(`/api/jobs/${id}/events`, { headers, signal: stop.signal, cache: "no-store" });
       } catch (e) {
         if (stop.signal.aborted) return;
-        fails++; await wait(Math.min(retry * fails, 15000), stop.signal); continue;
+        fails++; say("lost"); await wait(Math.min(retry * fails, 15000), stop.signal); continue;
       }
       if (r.status === 204) {
         // Final and already seen: read it once for the result.
         try { deliver(await api(`/api/jobs/${id}`, { signal: stop.signal })); } catch {}
         return;
       }
-      if (r.status === 429) { r.body?.cancel(); return poll(); }
+      if (r.status === 429) { r.body?.cancel(); say("poll"); return poll(); }
       if (r.status === 503 || r.status === 502 || r.status === 504) {
         r.body?.cancel(); fails++;
         await wait((+(r.headers.get("Retry-After") || 0) * 1000) || Math.min(retry * fails, 15000), stop.signal); continue;
       }
       if (r.status === 401 && session.mini && fails < 2) { r.body?.cancel(); fails++; continue; }
       if (!r.ok) { const b = await r.json().catch(() => null); onError?.(new ApiError(r.status, b, r)); return; }
-      fails = 0;
-      try { await read(r.body); } catch (e) { if (stop.signal.aborted) return; }
+      fails = 0; say("live");
+      try { await read(r.body); } catch (e) { if (stop.signal.aborted) return; say("lost"); }
       if (stop.signal.aborted) return;
       await wait(retry, stop.signal);
     }

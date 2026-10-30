@@ -11,8 +11,8 @@ import { mountComposer, wireComposer, render, renderBar, tuneClosed } from "./co
 import { mountPicker, prefetchPicker } from "./picker.js";
 import { renderStage } from "./stage.js";
 import { closeSheets, onSheets, toast, sheetOpen } from "./ui.js";
-import { signIn, signOut, refreshMe, generate } from "./run.js";
-import { clearPrices } from "./price.js";
+import { signIn, signOut, refreshMe, generate, netState } from "./run.js";
+import { mountCutter, openCut } from "./clips.js";
 
 const B = window.framy;
 
@@ -45,6 +45,7 @@ function mount() {
     h("section", { class: "sheet half", id: "tune", hidden: true, "aria-label": t("tune.title"), role: "dialog", "aria-modal": "true" },
       h("header", {}, h("h3", {}, t("tune.title")), h("button", { type: "button", class: "x", "data-close": "" }, t("pick.done"))),
       h("div", { class: "body", id: "tuneBody" })),
+    mountCutter(),
     h("div", { class: "ask", id: "ask", hidden: true, role: "alertdialog", "aria-modal": "true", "aria-labelledby": "askT" }));
   app.addEventListener("click", (e) => { if (e.target.closest("[data-close]")) closeSheets(); });
   $("#tune").addEventListener("closed", tuneClosed);
@@ -74,7 +75,7 @@ function telegram(tg) {
   let run = null;
   const sync = (nx) => {
     if (!nx) return;
-    run = nx.act === "create" ? generate : nx.act === "signin" ? signIn : null;
+    run = nx.act === "create" ? generate : nx.act === "signin" ? signIn : nx.act === "cut" ? openCut : null;
     mb.setParams({ text: nx.label, is_active: !!nx.on, is_visible: true, color: "#FFFFFF", text_color: "#00606E" });
   };
   addEventListener("framy:button", (e) => sync(e.detail));
@@ -82,6 +83,8 @@ function telegram(tg) {
   renderBar();
   onSheets((open) => { if (open) tg.BackButton.show(); else tg.BackButton.hide(); });
   tg.BackButton.onClick(() => closeSheets());
+  // Telegram could not send a prepared message; closing the picker is no failure.
+  tg.onEvent?.("shareMessageFailed", (e) => { if (e?.error !== "USER_DECLINED") toast(t("share.failed")); });
 }
 
 async function main() {
@@ -114,9 +117,14 @@ async function main() {
   if (authFail) toast(t(authFail.error === "init_data_expired" ? "auth.mini_expired" : "auth.mini_failed"), { ms: 8000 });
 
   addEventListener("framy:me", () => { renderTop(); render(); });
-  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && S.signed) refreshMe(); });
-  addEventListener("online", () => { S.online = true; renderBar(); });
-  addEventListener("offline", () => { S.online = false; renderBar(); });
+  // Back on the page after a while: the free counts and the keys may have changed elsewhere.
+  let hidAt = 0;
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") { hidAt = Date.now(); return; }
+    if (S.signed && hidAt && Date.now() - hidAt > 30000) refreshMe();
+  });
+  addEventListener("online", () => { S.online = true; netState("live"); renderBar(); });
+  addEventListener("offline", () => { S.online = false; netState("lost"); renderBar(); });
   (window.requestIdleCallback || setTimeout)(warmFormats);
   prefetchPicker();
   B.tg.then(telegram);

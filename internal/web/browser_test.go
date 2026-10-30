@@ -33,7 +33,11 @@ import (
 )
 
 // fakeAPI is the site with the routes the page calls before anyone signs in.
-func fakeAPI(t *testing.T) *httptest.Server {
+func fakeAPI(t *testing.T) *httptest.Server { t.Helper(); return fakeSite(t, nil) }
+
+// fakeSite is the site with the catalog and the prices; signed, when there is
+// one, registers who is signed in and the routes of their runs.
+func fakeSite(t *testing.T, signed func(*Server)) *httptest.Server {
 	t.Helper()
 	app, err := NewApp()
 	if err != nil {
@@ -52,11 +56,15 @@ func fakeAPI(t *testing.T) *httptest.Server {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(cat)
 	})
-	srv.HandleFunc("GET /api/me", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = w.Write([]byte(`{"error":"sign_in","message":"sign in first"}`))
-	})
+	if signed != nil {
+		signed(srv)
+	} else {
+		srv.HandleFunc("GET /api/me", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"sign_in","message":"sign in first"}`))
+		})
+	}
 	srv.HandleFunc("POST /api/quote", fakeQuote)
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)

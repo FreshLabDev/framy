@@ -268,6 +268,31 @@ was written from, and the skeleton of the service.
   hashed names, and nothing comes from outside but Telegram's script. All
   the lines are in the sixteen languages. The library, the viewer, the
   editor and the settings come next.
+- The site's stage, third stage: what happens when a run gives no result.
+  A failed job says why in the person's words for each `error.class`,
+  whether anything was charged (or that the free run came back), and offers
+  what helps: try again, edit the prompt, top up the key, or run a free run
+  on the person's own key. The provider's own words show only for a refusal
+  by its rules, a request it did not accept, or its failure. A job that
+  waits for a retry counts down to `retry_at`, and one still in the queue can
+  be cancelled; one already running says it cannot be stopped. A press the
+  server refused before any job (a higher price, the free allowance used up
+  or paused, files that do not fit, a clip too long) says so with the next
+  step, such as "Create for" the new price. The page tells when it lost and
+  regained its connection, and marks a run it reads every 5 seconds instead
+  of the stream. A result has Again, Edit the prompt, Continue for a video
+  (on the same model where it goes on, else from its last frame) and a copy
+  button for the prompt. In the Mini App it also has Share, which opens
+  Telegram's chat picker with the result; one Telegram will not take says
+  to download it instead.
+- Clips on the site. A clip is added like a photo, turns the composer to
+  video and to a model that takes one, and shows its length; one longer than
+  the model takes, or than a free run takes, opens an editor that picks the
+  part, frame by frame, with a timeline of its frames. On Create the clip goes straight to the bucket by a
+  presigned PUT with its progress shown, framy takes it or cuts the part, and
+  a clip framy keeps already is only cut. A clip over a minute, a file that is
+  not a video, or a format framy cannot read is refused with a line that says
+  so; a clip only too long keeps its upload for a part.
 - Sign-in, in `internal/auth`. On the site it is Telegram Login, Telegram's
   OpenID Connect with PKCE: framy checks the id token's signature, issuer,
   audience, expiry, nonce and state, and takes the account from the `id`

@@ -3,17 +3,18 @@
 // glide from where they stood to where they stand now.
 import { $, $$, h, ic, isPhone, MAC } from "./dom.js";
 import { anim, rise, spin, opt, placeSegs, placeSeg, fitSegs, snap, ticker, roll, follow, EASE, SPRING, OUT, motion } from "./motion.js";
-import { t, fmtNum, fmtIn } from "./i18n.js";
+import { t, fmtNum, fmtIn, fmtSecs } from "./i18n.js";
 import { C, PNAME, vname, famLogo, lg, provMark, freePlan, pays, offerOf, facts, factEl, deprecation, fieldsOf, SECONDARY, SEARCH, SICON,
   label, show, ordered, ratioNum, ratioOfSize, sizeK, resScore, needsVideo } from "./catalog.js";
-import { S, M, images, payOf, usable, keyOk, connection, freeLeft, freeLimit, freesAt, freePer, settings, route, runItem, altItem, next, sourceRatio, quoteNow } from "./state.js";
+import { S, M, images, clip, payOf, usable, keyOk, connection, freeLeft, freeLimit, freesAt, freePer, settings, route, runItem, altItem, next, sourceRatio, quoteNow,
+  maxSecs, needsCut, contFits } from "./state.js";
 import { priceEl, priceText, known, need, onPrices, usd } from "./price.js";
-import { renderStage, stageFrom, refit } from "./stage.js";
+import { renderStage, stageFrom, refit, runOver } from "./stage.js";
 import { openPicker } from "./picker.js";
 import { openSheet, closeSheets } from "./ui.js";
 import { addFiles, removeFile } from "./files.js";
 import { generate, signIn } from "./run.js";
-import { isFinal } from "./api.js";
+import { openCut, thumbMedia, frameEl, looksLikeClip } from "./clips.js";
 
 const FORM = { rel: true, dur: 380, after: 90,
   enter: (el, i, wait) => anim(el, [{ opacity: 0, transform: "translateY(6px)" }, { opacity: 1, transform: "none" }], { duration: 280, delay: 110 + wait + i * 30, fill: "backwards" }),
@@ -28,7 +29,7 @@ export function act(fn) {
   const how = $("#how"), host = $("#composer");
   const a = snap(how, FORM), b = snap($("#files"), FILES), c = follow(host), d = stageFrom();
   // A change after a result is the next run being set up: the stage shows its frame again.
-  if (S.job && S.showJob && isFinal(S.job.status)) S.showJob = false;
+  if (S.showJob && runOver(S.run)) S.showJob = false;
   ACTING++;
   try { fn(); renderStage(); } finally { ACTING--; }
   a(); b(); c(); d();
@@ -43,7 +44,7 @@ export function mountComposer() {
       h("textarea", { id: "prompt", rows: 3, maxlength: 4000 }),
       h("div", { class: "ptools", id: "ptools" })),
     h("div", { class: "files", id: "files" }),
-    h("input", { type: "file", id: "file", multiple: true, accept: "image/png,image/jpeg,image/webp,image/gif,image/avif,image/heic", hidden: true }),
+    h("input", { type: "file", id: "file", multiple: true, accept: "image/png,image/jpeg,image/webp,image/gif,image/avif,image/heic,video/mp4,video/quicktime,video/webm,video/x-matroska,.mkv,.mov,.m4v", hidden: true }),
     h("div", { class: "how", id: "how" }),
     h("div", { class: "bar", id: "bar" },
       h("div", { class: "price", "aria-live": "polite" }, h("b", { class: "pnum", id: "pnum" }), h("span", { id: "pcap" })),
@@ -74,11 +75,13 @@ export function wireComposer() {
     if (fs.length) { e.preventDefault(); addFiles(fs); }
   });
   document.addEventListener("paste", (e) => {
-    const fs = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith("image/"));
+    const fs = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith("image/") || looksLikeClip(f));
     if (fs.length) { e.preventDefault(); addFiles(fs); }
   });
   // A price can make a row of tiles stack, and its marker has to follow.
   onPrices(() => { renderBar(); for (const g of fitSegs($$("#how [data-seg]"))) placeSeg(g, false, true); });
+  // A clip turned the composer to video: the form slides over as on a switch.
+  addEventListener("framy:kind", (e) => anim($("#how"), [{ opacity: 0, transform: `translateX(${e.detail === "video" ? 36 : -36}px)` }, { opacity: 1, transform: "none" }], { duration: 420, easing: EASE }));
   // On a phone the composer is a dock: the page keeps room for it under the stage.
   addEventListener("resize", () => { if (howStale && howShown()) render(); });
   new ResizeObserver(() => { document.documentElement.style.setProperty("--dockh", comp.offsetHeight + "px"); if (isPhone()) refit(); }).observe(comp);
@@ -88,9 +91,11 @@ export function render() {
   const m = M();
   if (!m) return;
   const pay = payOf(m);
+  // A part picked for a model that takes more than the next one does is picked again.
+  if (S.cut && (!clip() || S.cut.seconds > maxSecs(m, pay) + 0.05)) S.cut = null;
   $("#kind").replaceChildren(...[["image", t("kind.image")], ["video", t("kind.video")]].map(([k, l]) =>
     opt({ key: "kind", v: k, on: S.kind === k, title: l, pick: () => setKind(k) }, ic(k), h("span", { class: "t" }, l))));
-  $("#prompt").placeholder = needsVideo(m) ? t("prompt.clip") : m.kind === "video" ? t("prompt.video") : images().length ? t("prompt.photo") : t("prompt.image");
+  $("#prompt").placeholder = contFits(m, pay) ? t("prompt.cont") : needsVideo(m) ? t("prompt.clip") : m.kind === "video" ? t("prompt.video") : images().length ? t("prompt.photo") : t("prompt.image");
   renderTools(m, pay);
   renderFiles(m, pay);
   if (howShown()) { renderHow(m, pay); howStale = false; } else howStale = true;
@@ -114,7 +119,7 @@ function renderTools(m) {
   $("#dtools").replaceChildren(
     h("button", { type: "button", class: "chipbtn", onclick: openPicker, "aria-haspopup": "dialog" }, lg(famLogo(f), f.maker, "o"), h("span", { class: "nm" }, h("span", {}, vname(m))), ic("chevd")),
     h("button", { type: "button", class: "chipbtn set", onclick: openTune, "aria-label": t("tune.title") }, ic("sliders"), h("span", {}, t("tune.short"))),
-    h("button", { type: "button", class: "chipbtn att", onclick: () => $("#file").click(), "aria-label": t("files.photo") }, ic("plus")));
+    h("button", { type: "button", class: "chipbtn att", onclick: () => $("#file").click(), "aria-label": t("files.add") }, ic("plus")));
 }
 // On a phone the settings live in a sheet: they are built when it opens, not
 // on every change behind it.
@@ -129,30 +134,54 @@ export function openTune() {
 }
 export function tuneClosed() { const how = $("#how"); if (how.parentElement !== $("#composer")) $("#composer").insertBefore(how, $("#bar")); placeSegs($("#composer")); }
 
-/* Files: photos stay in the browser until Create; the ones the model will not take stand apart. */
+/* Files: photos and clips stay in the browser until Create; the ones the model will not take stand apart. */
 function renderFiles(m, pay) {
-  const box = $("#files"), R = route(m, pay);
+  const box = $("#files"), R = route(m, pay), c = clip();
   box.replaceChildren();
-  const thumb = (f, r) => h("div", { class: "thumb" + (r.go ? "" : " off"), title: f.name + (r.why ? ": " + r.why : ""), "data-k": "f" + f.id },
-    h("img", { src: f.url, alt: "" }),
+  const thumb = (f, r) => h("div", { class: "thumb" + (r.go ? "" : " off") + (f.kind === "video" ? " clip" : ""), title: f.name + (r.why ? ": " + r.why : ""), "data-k": "f" + f.id },
+    thumbMedia(f),
+    f.kind === "video" ? h("span", { class: "tag" }, ic("film"), r.go && r.tag ? r.tag : f.secs ? fmtSecs(f.secs) : "") : null,
     h("button", { type: "button", class: "rm", "aria-label": t("files.remove"), onclick: () => act(() => { removeFile(f); render(); }) }, ic("close")));
   const go = [], off = [];
   S.files.forEach((f, i) => (R[i].go ? go : off).push(thumb(f, R[i])));
+  const cont = contEl(m, pay);
+  if (cont) box.append(cont);
   const max = R.filter((r) => r.go).length;
   if (!off.length) box.append(...go);
   else {
     if (go.length) box.append(h("div", { class: "fgroup", "data-k": "g-go" }, h("span", { class: "gl" }, t("files.going", { n: max })), h("div", { class: "gt" }, go)));
     box.append(h("div", { class: "fgroup out", "data-k": "g-off" }, h("span", { class: "gl" }, t("files.off")), h("div", { class: "gt" }, off)));
   }
-  box.append(h("button", { type: "button", class: "addfile", "data-k": "f-add", onclick: () => $("#file").click() }, ic("plus"), t("files.photo")));
+  box.append(h("button", { type: "button", class: "addfile", "data-k": "f-add", onclick: () => $("#file").click() }, ic("plus"), t("files.add")));
   const why = [...new Set(R.filter((r) => !r.go).map((r) => r.why))];
-  const note = why.length ? why.join(" ") : S.files.length ? t("files.kept") : t("files.hint");
-  box.append(h("p", { class: "fhint" + (why.length ? "" : " quiet"), "data-k": "f-hint" }, note));
-  const none = !S.files.length;
+  // The first clip's part: the one picked, or a button to pick it.
+  const ci = c ? S.files.indexOf(c) : -1, cutting = ci >= 0 && R[ci].go && c.secs > 0;
+  if (cutting) {
+    const need = needsCut(m, pay), mx = maxSecs(m, pay);
+    const what = S.cut ? t("files.cut_taken", { a: fmtNum(S.cut.start, { maximumFractionDigits: 1 }), b: fmtNum(S.cut.start + S.cut.seconds, { maximumFractionDigits: 1 }) })
+      : need ? t("files.clip_len", { len: fmtSecs(c.secs), n: fmtNum(mx) }) : "";
+    box.append(h("p", { class: "fhint cut", "data-k": "f-cut" }, what ? h("span", {}, what + " ") : null,
+      h("button", { type: "button", class: "link-t", onclick: openCut }, t(S.cut ? "act.change_part" : "act.pick_part"))));
+  }
+  const note = why.length ? why.join(" ") : S.files.length ? (cutting ? "" : t("files.kept")) : cont ? "" : t("files.hint");
+  if (note) box.append(h("p", { class: "fhint" + (why.length ? "" : " quiet"), "data-k": "f-hint" }, note));
+  const none = !S.files.length && !cont;
   box.classList.toggle("nofiles", none);
   $("#pwrap").classList.toggle("tools", none);
-  $("#ptools").replaceChildren(...(none ? [h("button", { type: "button", class: "pattach", onclick: () => $("#file").click() }, ic("plus"), t("files.photo")), h("span", {}, t("files.or_drop"))] : []));
+  $("#ptools").replaceChildren(...(none ? [h("button", { type: "button", class: "pattach", onclick: () => $("#file").click() }, ic("plus"), t("files.add")), h("span", {}, t("files.or_drop"))] : []));
   fitPrompt();
+}
+// The video a run goes on from: its last frame as a still, and why it does
+// not go when the model or the payment is another.
+function contEl(m, pay) {
+  const c = S.cont;
+  if (!c || m.kind !== "video") return null;
+  const fits = contFits(m, pay), other = C.byId[c.model];
+  return h("div", { class: "fgroup cont" + (fits ? "" : " out"), "data-k": "g-cont" }, h("span", { class: "gl" }, t("cont.label")),
+    h("div", { class: "gt" }, h("div", { class: "thumb clip" + (fits ? "" : " off"), "data-k": "f-cont" }, frameEl(c.url, Math.max(0, (c.secs || 0) - 0.05)),
+      h("span", { class: "tag" }, ic("next"), c.secs ? fmtSecs(c.secs) : ""),
+      h("button", { type: "button", class: "rm", "aria-label": t("files.remove"), onclick: () => act(() => { S.cont = null; render(); }) }, ic("close"))),
+      h("p", { class: "fhint quiet" }, fits ? t("cont.hint") : t("cont.only", { model: other ? vname(other) : "" }))));
 }
 // The prompt is as tall as its text.
 function fitPrompt() {
@@ -428,7 +457,7 @@ export function renderBar() {
   const btn = $("#go");
   btn.replaceChildren(nx.icon ? ic(nx.icon) : "", nx.label, nx.on ? h("small", { class: "kbd" }, MAC ? "⌘↵" : "Ctrl ↵") : "");
   btn.disabled = !nx.on;
-  btn.onclick = nx.act === "create" ? generate : nx.act === "signin" ? signIn : null;
+  btn.onclick = nx.act === "create" ? generate : nx.act === "signin" ? signIn : nx.act === "cut" ? openCut : null;
   btn.title = nx.on ? `${nx.label} (${MAC ? "⌘ Enter" : "Ctrl+Enter"})` : "";
   window.dispatchEvent(new CustomEvent("framy:button", { detail: nx }));
 }

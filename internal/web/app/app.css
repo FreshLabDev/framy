@@ -228,7 +228,7 @@ input[type="range"]::-moz-range-thumb {width: 20px; height: 20px; background: va
 }
 @media (min-width: 960px) {
   .composer > .bar {position: sticky; top: 0; z-index: 6; margin: -6px 0; padding: 8px 0 10px; background: var(--field);}
-  .composer > .bar.stuck {box-shadow: 0 1px 0 var(--line), 0 10px 18px -12px rgba(0, 0, 0, .35);}
+  .composer > .bar.stuck {box-shadow: 0 1px 0 var(--line);}
 }
 @media (hover: none) {
   .kbd {display: none;}
@@ -246,7 +246,6 @@ input[type="range"]::-moz-range-thumb {width: 20px; height: 20px; background: va
 .sheet h3 {margin: 0 auto 0 0; font-size: 20px; font-weight: 700;}
 .sheet .x {height: 38px; padding: 0 14px; display: flex; align-items: center; gap: 6px; background: var(--deep); font-weight: 600;}
 .scrim.light {background: transparent; pointer-events: none;}
-.sheet.half {box-shadow: 0 -14px 32px rgba(0, 20, 24, .35);}
 @media (max-width: 899px) {
   /* A fixed height: a choice in the sheet changes what is in it, never where it is. */
   .sheet.half {top: auto; height: 64vh;}
@@ -420,9 +419,85 @@ input.search::placeholder {color: var(--muted);}
   .spin {animation: spin 1s linear infinite;}
 }
 @keyframes spin {to {transform: rotate(1turn);}}
-.jline {font-size: 14px; color: var(--soft); min-height: 1.45em;}
+.jbox.failed .c > .ic {color: var(--soft);}
+.jbox .c small.lost {color: var(--soft);}
+.jfoot {display: grid; gap: 12px; min-width: 0;}
+.jline {display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 14px; color: var(--soft); min-height: 1.45em;}
+.jtag {padding: 0 6px; background: var(--deep); font-size: 12px; color: var(--muted); cursor: help;}
+.jwhy {display: grid; gap: 4px; font-size: 15px; line-height: 1.4; text-wrap: pretty;}
+.jwhy p + p {color: var(--soft); font-size: 14px;}
+.jwhy .said {display: flex; gap: 6px; color: var(--muted);}
+.jwhy .said .ic {width: 14px; height: 14px; margin-top: calc((1lh - 14px) / 2);}
 .jacts {display: flex; flex-wrap: wrap; gap: var(--gap);}
+.jacts > button, .jacts > a {height: 42px; padding: 0 14px; display: inline-flex; align-items: center; gap: 8px; background: var(--deep); color: var(--ink); text-decoration: none; font-weight: 600; font-size: 15px;}
+.jacts > .primary {background: var(--ink); color: var(--field);}
+.jacts > .wait {opacity: .5; pointer-events: none;}
+.jacts > .busy {display: inline-flex; align-items: center; gap: 8px; min-height: 42px; font-size: 14px; color: var(--muted);}
+.jacts > .busy .ic {width: 16px; height: 16px;}
+@media (max-width: 959px) {
+  .jacts > .primary {flex: 1 1 auto; min-width: 0; justify-content: center;}
+  .jacts > .primary > .t {overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
+  .jacts > .sq {flex: none; width: 42px; padding: 0; justify-content: center;}
+  .jacts > .sq > .t {display: none;}
+}
+@media (max-width: 389.98px) {
+  .jacts > .sq2 {flex: none; width: 42px; padding: 0; justify-content: center;}
+  .jacts > .sq2 > .t {display: none;}
+}
+.jprompt {display: flex; align-items: flex-start; gap: 8px; min-width: 0; font-size: 15px; color: var(--muted);}
+.jprompt > .tx {flex: 1; min-width: 0; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;}
+.jprompt > .cp {flex: none; width: 28px; height: 28px; margin: -3px 0 -4px; display: grid; place-items: center; color: var(--muted);}
+.jprompt > .cp .ic {width: 14px; height: 14px;}
 .stage > .link.back {justify-self: start;}
+@media (prefers-reduced-motion: no-preference) {
+  .jacts > button, .jacts > a, .jprompt > .cp {transition: background-color .16s, color .16s;}
+}
+@media (hover: hover) {
+  .jacts > button:not(.primary):hover, .jacts > a:not(.primary):hover, .jprompt > .cp:hover {background-color: var(--line); color: var(--ink);}
+}
+
+/* Clips in the composer: the length on the thumbnail, the part picked, the video a run goes on from. */
+.thumb.clip .tag {font-variant-numeric: tabular-nums;}
+.thumb .noth {width: 100%; height: 100%; display: grid; place-items: center; color: var(--muted);}
+.fhint.cut {flex-basis: 100%; padding-left: 0; color: var(--soft);}
+.fgroup.cont .gt {flex-wrap: nowrap;}
+.fgroup.cont .fhint {flex: 1 1 140px; padding-left: 4px; font-size: 13px;}
+
+/* The part of a clip: a viewer, the transport, the timeline with its window. */
+.cutter .body {gap: 10px;}
+.viewer {position: relative; max-height: 42vh; background: #00262B; overflow: hidden; justify-self: center; width: 100%;}
+.viewer video {position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain;}
+.viewer .tc {position: absolute; left: 0; bottom: 0; padding: 4px 8px; background: var(--deep); font-weight: 700; font-variant-numeric: tabular-nums;}
+.transport {display: flex; gap: var(--gap); align-items: stretch;}
+.ib {flex: none; width: 46px; min-height: 46px; display: grid; place-items: center; background: var(--deep);}
+.transport .ib:nth-child(2) {background: var(--ink); color: var(--field);}
+.transport .edges {flex: 1;}
+.transport .edges > button {flex-direction: row; gap: 6px; min-height: 46px; font-size: 14px;}
+.transport .edges small {font-variant-numeric: tabular-nums;}
+.timeline {position: relative; display: flex; gap: 2px; height: 64px; margin: 10px 0 4px; touch-action: none; user-select: none; -webkit-user-select: none;}
+.timeline canvas {flex: 1; min-width: 0; height: 100%; display: block; background: var(--deep);}
+.timeline .shade {position: absolute; top: 0; bottom: 0; background: rgba(0, 38, 43, .72); pointer-events: none;}
+.timeline .win {position: absolute; top: -5px; bottom: -5px; cursor: grab; border-top: 2px solid rgba(255, 255, 255, .7); border-bottom: 2px solid rgba(255, 255, 255, .7);}
+.timeline .win i {position: absolute; width: 14px; height: 14px; border: 0 solid var(--ink); pointer-events: none;}
+.timeline .win .a {left: -4px; top: -6px; border-left-width: 5px; border-top-width: 5px;}
+.timeline .win .b {right: -4px; top: -6px; border-right-width: 5px; border-top-width: 5px;}
+.timeline .win .c {left: -4px; bottom: -6px; border-left-width: 5px; border-bottom-width: 5px;}
+.timeline .win .d {right: -4px; bottom: -6px; border-right-width: 5px; border-bottom-width: 5px;}
+.timeline .win .hl, .timeline .win .hr {position: absolute; top: 0; bottom: 0; width: 22px; cursor: ew-resize;}
+.timeline .win .hl {left: -12px;}
+.timeline .win .hr {right: -12px;}
+.timeline .ph {position: absolute; left: 0; top: -9px; bottom: -9px; width: 2px; margin-left: -1px; background: var(--ink); pointer-events: none;}
+.readout {font-size: 16px; font-variant-numeric: tabular-nums;}
+.readout b {font-weight: 700;}
+.cutter .note {font-size: 13px; color: var(--muted);}
+.cutter .take {height: 52px; margin-top: 6px; display: flex; align-items: center; justify-content: center; gap: 10px; background: var(--ink); color: var(--field); font-size: 17px; font-weight: 700;}
+@media (hover: none) {
+  .cutter .note {display: none;}
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ib {transition: background-color .16s, color .16s;}
+  .cutter .take:active {transform: scale(.98);}
+}
 
 /* The header. */
 .top .sp {flex: 1;}
@@ -433,7 +508,7 @@ input.search::placeholder {color: var(--muted);}
 .snote {margin: -4px 0 0; font-size: 13px; line-height: 1.35; color: var(--muted); text-wrap: pretty;}
 
 /* The toast and the one question. */
-.toast {position: fixed; z-index: 90; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); display: flex; align-items: baseline; gap: 14px; width: max-content; max-width: min(520px, calc(100vw - 32px)); padding: 12px 16px; background: var(--ink); color: var(--field); font-size: 15px; font-weight: 600; box-shadow: 0 8px 24px rgba(0, 0, 0, .25);}
+.toast {position: fixed; z-index: 90; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); display: flex; align-items: baseline; gap: 14px; width: max-content; max-width: min(520px, calc(100vw - 32px)); padding: 12px 16px; background: var(--ink); color: var(--field); font-size: 15px; font-weight: 600;}
 .toast .link-t {flex: none; color: var(--field);}
 @media (max-width: 959px) {
   .toast {bottom: calc(var(--dockh, 0px) + 12px);}

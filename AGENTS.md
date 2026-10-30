@@ -25,10 +25,12 @@ careful with people's keys, and production-minded.
   cache rules, rate limits), sign-in (`internal/auth`: Telegram Login on the
   site, `initData` in the Mini App, sessions of which the database keeps
   only a hash), the job API with progress over SSE (`internal/api`), and a
-  clean stop on SIGTERM, and the first two stages of the site and the Mini
-  App (`internal/web/app`): sign-in, the API client with its event stream,
-  the composer and the model picker, and the result shown on the stage.
-  The library, the viewer, the editor and the settings are still to come.
+  clean stop on SIGTERM, and the first three stages of the site and the
+  Mini App (`internal/web/app`): sign-in, the API client with its event
+  stream, the composer and the model picker, the result on the stage, the
+  reasons a run failed or was refused with what helps, retries, cancelling,
+  clips with the editor of their part, and Continue. The library, the
+  viewer, the editor of a result and the settings are still to come.
 - The service will be one Go binary (module `github.com/FreshLabDev/framy`):
   the HTTP server (site, Mini App, API, SSE, OAuth callbacks, provider
   webhooks), the bot, the job workers, the hourly catalog sync and the
