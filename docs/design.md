@@ -828,7 +828,7 @@ Every change below is an issue in FreshLabDev/tg, [#2](https://github.com/FreshL
 
 ### Stage 1
 
-Released in tg v0.2.0-alpha.1 on 27 October 2026. framy is on v0.2.0-alpha.2, which adds the ephemeral media of Stage 3.
+Released in tg v0.2.0-alpha.1 on 27 October 2026. framy is on v0.2.0-alpha.3 (30 October 2026), which adds Stage 2 and the inline, callback and draft changes of Stage 3; v0.2.0-alpha.2 added the ephemeral media.
 
 | Change | Why |
 |:--|:--|
@@ -846,18 +846,18 @@ Released in tg v0.2.0-alpha.1 on 27 October 2026. framy is on v0.2.0-alpha.2, wh
 ### Stage 2
 
 - `SavePreparedInlineMessage` with photo, video and `mpeg4_gif` results, moved from maply: `shareMessage` in the Mini App.
-- `VideoOptions`: `cover`, `start_timestamp`, `show_caption_above_media`. `SendMessage` options for `disable_notification`, `protect_content` and `message_effect_id`. `docs/limitations.md` already says the next variant should become an option rather than a fourth method. Built on tg's `dev` (tg#11): the three on `VideoOptions`, and the send options on every captioned send through `CaptionOptions`; text messages do not have them yet. framy pins that commit until a tag.
+- `VideoOptions`: `cover`, `start_timestamp`, `show_caption_above_media`. `SendMessage` options for `disable_notification`, `protect_content` and `message_effect_id`. `docs/limitations.md` already says the next variant should become an option rather than a fourth method. Released in v0.2.0-alpha.3 (tg#11): the three on `VideoOptions`, and the send options on every captioned send through `CaptionOptions`; text messages do not have them yet.
 
 ### Stage 3
 
-- Inline (tg#12, built on tg's `dev`):
+- Inline (tg#12, released in v0.2.0-alpha.3):
   - `InlineQueryResultCachedPhoto`, `CachedVideo`, `CachedMpeg4Gif`;
   - `InlineAnswer.Button` (`InlineQueryResultsButton` with `web_app`);
   - `EditInlineMessageText`, `EditInlineMessageMedia`, `EditInlineMessageCaption` and `EditInlineMessageReplyMarkup` by `inline_message_id`.
-- `CallbackQuery.Message` becomes a pointer, and `inline_message_id` is added (tg#13, built on tg's `dev`). A callback from an inline or guest message has no message. This is a breaking change: a minor bump before v1.0.0, and every consumer updates.
+- `CallbackQuery.Message` becomes a pointer, and `inline_message_id` is added (tg#13, released in v0.2.0-alpha.3). A callback from an inline or guest message has no message. This is a breaking change: a minor bump before v1.0.0, and every consumer updates.
 - `AnswerGuestQuery` and the `guest_message` update.
 - Ephemeral media and `EditEphemeralMessageMedia`, `EditEphemeralMessageCaption` and `EditEphemeralMessageReplyMarkup`: done in v0.2.0-alpha.2, for the Model and Settings panel.
-- `SendMessageDraft`, `SendRichDraftHTML` and `SendRichDraftMarkdown` with `can_stop` and `keep_on_stop`, and the `stopped_message_generation` update (tg#16, built on tg's `dev`). framy pins that commit until a tag.
+- `SendMessageDraft`, `SendRichDraftHTML` and `SendRichDraftMarkdown` with `can_stop` and `keep_on_stop`, and the `stopped_message_generation` update (tg#16, released in v0.2.0-alpha.3).
 - `BotCommandScope` with a chat id and a user id.
 - `GetMessages`, only if the server patch lands. `Preflight` already refuses a server without it.
 
