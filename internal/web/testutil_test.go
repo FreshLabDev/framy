@@ -67,7 +67,7 @@ func newSite(t *testing.T, cfg Config) *site {
 			_, _ = w.Write([]byte("<!doctype html><title>t</title>"))
 		}
 	}
-	srv.Handle("GET /{$}", Placeholder())
+	srv.Handle("GET /{$}", html(""))
 	srv.HandleFunc("/healthz", json)
 	srv.HandleFunc("/api/ping", json)
 	srv.HandleFunc("/api/jobs", json, Limit(ClassJob))

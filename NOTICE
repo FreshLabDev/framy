@@ -8,3 +8,8 @@ The renderer of loops and cards in internal/anim embeds the Sofia Sans and
 Sofia Sans Extra Condensed fonts (SIL Open Font License 1.1, Copyright 2019 The
 Sofia Sans Project Authors), with the license beside them in
 internal/anim/fonts/OFL.txt.
+
+The site in internal/web/app serves the same fonts, with the licenses in
+internal/web/app/fonts/, and the makers' marks of LobeHub's lobe-icons (MIT
+License, Copyright (c) 2023 LobeHub), with the license and a note on the
+trademarks in internal/web/app/logos/LICENSE.

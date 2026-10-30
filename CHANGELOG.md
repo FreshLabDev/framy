@@ -251,8 +251,23 @@ was written from, and the skeleton of the service.
   for sign-in, uploads and job creation, answering 429 with `Retry-After`.
   The visitor's address is read from `CF-Connecting-IP` only when the request
   comes from `TRUSTED_PROXIES`, the addresses cloudflared connects from. An
-  event stream or a slow upload asks for longer deadlines per route. `/` is a
-  placeholder page until the frontend lands.
+  event stream or a slow upload asks for longer deadlines per route.
+- The site and the Mini App, first two stages, at `/`. A person signs in
+  with Telegram on the site, or is signed in by the Mini App itself, and
+  makes an image or a video from a prompt and photos: the kind, the model
+  with its variants, the way to pay (the free allowance or a key), the
+  settings the model has, and the price of exactly that run, which follows
+  every choice. The model picker shows recommendations, the families by
+  maker or by price with the cheapest way to run each, and a detail card.
+  Create starts the run and the stage follows it live over the event stream
+  (polling every 5 seconds when too many streams are open) until the result
+  shows. On a phone the composer is a dock at the bottom and the settings
+  open in a sheet; in Telegram, its main and back buttons stand in for ours.
+  The page paints a skeleton at once and fetches the catalog and the person
+  in its first line, the rest arrives as one script and one stylesheet of
+  hashed names, and nothing comes from outside but Telegram's script. All
+  the lines are in the sixteen languages. The library, the viewer, the
+  editor and the settings come next.
 - Sign-in, in `internal/auth`. On the site it is Telegram Login, Telegram's
   OpenID Connect with PKCE: framy checks the id token's signature, issuer,
   audience, expiry, nonce and state, and takes the account from the `id`

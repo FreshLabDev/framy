@@ -6,7 +6,10 @@ go 1.27.3
 
 require (
 	github.com/FreshLabDev/tg v0.2.0-alpha.3
+	github.com/chromedp/cdproto v0.157.8
+	github.com/chromedp/chromedp v0.21.0
 	github.com/coreos/go-oidc/v3 v3.21.0
+	github.com/evanw/esbuild v0.28.2
 	github.com/go-text/typesetting v0.3.5
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/riverqueue/river v0.49.0
@@ -20,6 +23,7 @@ require (
 
 require (
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
+	github.com/go-json-experiment/json v0.0.0-20260213210345-44df1a37e875 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect

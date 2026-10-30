@@ -25,8 +25,10 @@ careful with people's keys, and production-minded.
   cache rules, rate limits), sign-in (`internal/auth`: Telegram Login on the
   site, `initData` in the Mini App, sessions of which the database keeps
   only a hash), the job API with progress over SSE (`internal/api`), and a
-  clean stop on SIGTERM. Nothing reaches people yet: there is no frontend,
-  and the bot starts no job.
+  clean stop on SIGTERM, and the first two stages of the site and the Mini
+  App (`internal/web/app`): sign-in, the API client with its event stream,
+  the composer and the model picker, and the result shown on the stage.
+  The library, the viewer, the editor and the settings are still to come.
 - The service will be one Go binary (module `github.com/FreshLabDev/framy`):
   the HTTP server (site, Mini App, API, SSE, OAuth callbacks, provider
   webhooks), the bot, the job workers, the hourly catalog sync and the
@@ -139,8 +141,23 @@ screen, a command or a table, check how the siblings do it.
   proportion, square corners, no shadows, gradients or rounded panels. The
   owner wants it original, not the usual generator layout of a chat box over a
   grid of pictures.
-- Plain HTML, CSS and JavaScript without a bundler. Fonts and libraries are
-  served by the service itself; only `telegram-web-app.js` comes from outside.
+- Plain HTML, CSS and JavaScript modules, with no framework. `go generate
+  ./internal/web` bundles them with esbuild, which runs as a Go library (no
+  Node anywhere), into `internal/web/dist`: one minified script, one
+  stylesheet, the fonts, the makers' marks and the lines of each language,
+  every file named by its content and cached for a year. `dist/` is
+  committed, and CI fails when it differs from what the sources give. The
+  page inlines only its skeleton style and boot script, which the CSP allows
+  by their hashes (`web.App.CSP`); the boot script asks for the catalog and
+  the person while the skeleton paints. The site's lines are the `web.*` keys
+  of `internal/i18n/translations.json`. Motion is transform and opacity only,
+  with the Web Animations API, and `go test -tags=browser ./internal/web/`
+  checks the layout at 390 and 1440 px and that no task holds the main thread
+  over 50 ms on a CPU four times slower than an M-series laptop (the test
+  measures the machine and slows a slower one less; `cpuRef` in
+  `browser_test.go`). Fonts and libraries are served by
+  the service itself; only `telegram-web-app.js` comes from outside, and only
+  the Mini App loads it.
 
 ## Data And Security
 

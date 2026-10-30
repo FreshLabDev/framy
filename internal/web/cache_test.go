@@ -43,7 +43,7 @@ func TestCacheControlByRoute(t *testing.T) {
 		{"hashed, wrong method", req{method: http.MethodPost, target: "/assets/app.3f9a1c2b.js", header: map[string]string{"Sec-Fetch-Site": "same-origin"}}, 200, "no-store"},
 
 		// Pages revalidate; nothing is cached because nobody said.
-		{"placeholder", req{target: "/"}, 200, "no-cache"},
+		{"page", req{target: "/"}, 200, "no-cache"},
 		{"html page", req{target: "/page"}, 200, "no-cache"},
 		{"health", req{target: "/healthz"}, 200, "no-store"},
 		{"a missing path", req{target: "/nope"}, 404, "no-store"},

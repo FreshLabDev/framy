@@ -213,18 +213,24 @@ func run(log *slog.Logger) error {
 	}
 
 	started := time.Now()
+	// The site and the Mini App: the page and its assets, built by go generate.
+	app, err := web.NewApp()
+	if err != nil {
+		return err
+	}
 	// Every route of the public listener is registered on site: it adds the
 	// security headers, the CSRF check, the cache rules and the rate limits.
 	site, err := web.New(web.Config{
 		Log:            log.With("component", "web"),
 		R2Endpoint:     cfg.R2.Endpoint,
+		CSPExtra:       app.CSP(),
 		TrustedProxies: cfg.Web.TrustedProxies,
 		Person:         signIn.PersonKey,
 	})
 	if err != nil {
 		return err
 	}
-	site.Handle("GET /{$}", web.Placeholder())
+	app.Mount(site)
 	signIn.Mount(site)
 	site.Handle("/healthz", health.New(store, b.LastPoll, b.Initialized, started, health.Build{
 		Version: version, Commit: commit, Date: date,

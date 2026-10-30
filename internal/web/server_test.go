@@ -37,42 +37,6 @@ func TestServerSettings(t *testing.T) {
 	}
 }
 
-func TestPlaceholderPage(t *testing.T) {
-	s := newSite(t, Config{})
-	rr := s.get(t, "/")
-	body := rr.Body.String()
-	if rr.Code != 200 || rr.Header().Get("Content-Type") != "text/html; charset=utf-8" {
-		t.Fatalf("status %d, type %q", rr.Code, rr.Header().Get("Content-Type"))
-	}
-	if !strings.Contains(body, "framy is coming") || !strings.Contains(body, `lang="en"`) {
-		t.Errorf("body = %s", body)
-	}
-	// It has to work under the CSP, with nothing from outside.
-	for _, bad := range []string{"<script", "<link", "<style", "http://", "https://", " style="} {
-		if strings.Contains(body, bad) {
-			t.Errorf("the placeholder contains %q", bad)
-		}
-	}
-	etag := rr.Header().Get("ETag")
-	if etag == "" || rr.Header().Get("Cache-Control") != "no-cache" || rr.Header().Get("Content-Security-Policy") != wantCSP {
-		t.Errorf("etag %q, cache %q, csp %q", etag, rr.Header().Get("Cache-Control"), rr.Header().Get("Content-Security-Policy"))
-	}
-	// A revalidation costs a 304.
-	rr = s.do(t, req{target: "/", header: map[string]string{"If-None-Match": etag}})
-	if rr.Code != http.StatusNotModified || rr.Body.Len() != 0 {
-		t.Errorf("revalidation: status %d, %d bytes", rr.Code, rr.Body.Len())
-	}
-	// HEAD, which is what `curl -I` sends, carries the same headers.
-	rr = s.do(t, req{method: http.MethodHead, target: "/"})
-	if rr.Code != 200 || rr.Body.Len() != 0 || rr.Header().Get("Content-Security-Policy") != wantCSP ||
-		rr.Header().Get("Strict-Transport-Security") == "" {
-		t.Errorf("HEAD: status %d, headers %v", rr.Code, rr.Header())
-	}
-	if rr := s.do(t, req{method: http.MethodPost, target: "/"}); rr.Code != http.StatusMethodNotAllowed {
-		t.Errorf("POST /: %d", rr.Code)
-	}
-}
-
 func TestHealthzKeepsItsBehaviour(t *testing.T) {
 	srv, err := New(Config{})
 	if err != nil {
