@@ -558,7 +558,7 @@ Two commands **(owner, 27 October)**: `/img` makes or edits images, `/edit` edit
 - **The length.** The free run takes the first 5 s of a longer clip and a run on the key the model's 15 s, and the preview says what was taken. A clip under the model's 0.7 s is refused. When the queue refuses the free run after the meter said it was left, the same clip runs on the key.
 - **The clip** is read from Telegram and kept through the clip pipeline (see Storage), the cut included.
 - **The preview card** holds the clip's first frame, or the frame a second in when the first is one colour, and its length as a chip ("0:05"). Its buttons are Generate and No: Model and Settings list image models alone so far, and a press of theirs on a video run changes nothing.
-- **The result** goes through the clip pipeline as well, which moves its index to the front and copies the streams when they are fit, and comes as a video (`sendVideo`, `supports_streaming`), in place of the loop within 25 s or as a reply after. One the pipeline cannot read goes as it came, not marked as streaming.
+- **The result** goes through the clip pipeline as well, which moves its index to the front and copies the streams when they are fit, and comes as a video (`sendVideo`, `supports_streaming`), always as a reply to the command, and the loop is deleted: a video takes longer than the 25 s a result in place gets, and a reply notifies. One the pipeline cannot read goes as it came, not marked as streaming.
 - `/edit` on a photo, or on nothing, and `/img` on a video point to the other command.
 
 Later: a cover for the video (tg#11), "Pick in framy" and the whole clip on the key in the preview, Model and Settings for the video editors, and "Animate" on every image result (proposal).
@@ -609,7 +609,7 @@ What `internal/chat` does today, and what comes later. The bot handles updates o
    - A result ready within 25 s of Generate: `editMessageMedia` turns the loop into it in place **(owner)**.
    - A slower one: a new message as a reply to the command, and the loop is deleted **(owner)**. An edit makes no notification; a reply does.
    - A picture Telegram would not take as a photo (over 10 MB, width plus height over 10000, or sides over 20 : 1) goes as a document.
-   - A video goes as a video, in place or as a reply the same way (see `/edit` above).
+   - A video always comes as a reply (see `/edit` above).
    - The caption holds the prompt and the model.
    - The result's `file_id` and `file_unique_id` are kept in `chat_run`.
    - **Later:** the buttons **Again**, **Animate**, **Original** (a full-size `sendDocument` on demand) and **Open on the site**, and `(chat, message_id) → generation` for replies.

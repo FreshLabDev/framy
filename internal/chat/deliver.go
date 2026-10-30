@@ -222,8 +222,9 @@ func (f *Flow) sendImage(ctx context.Context, run db.ChatRun, a storage.Asset, c
 	return msg, nil
 }
 
-// sendVideo puts a video in the chat as one Telegram plays while it loads,
-// in place of the loop or as a reply, as sendImage does a picture. The
+// sendVideo puts a video in the chat as one Telegram plays while it loads:
+// always as a reply to the command, which notifies, since a video takes
+// longer than an in-place result is waited for, and the loop goes. The
 // result goes through the clip pipeline first, which moves the index to the
 // front and copies the streams when they are fit; a result the pipeline
 // cannot read goes as it came.
@@ -237,21 +238,9 @@ func (f *Flow) sendVideo(ctx context.Context, run db.ChatRun, a storage.Asset, c
 	if err != nil {
 		return tg.Message{}, err
 	}
-	seconds := int(math.Ceil(v.Seconds))
-	if f.now().Sub(run.GenerateAt) <= inPlaceWithin {
-		msg, err := withFileAt(v.Path, func(file tg.InputFile) (tg.Message, error) {
-			return f.cfg.Telegram.EditMessageMediaMessage(ctx, run.ChatID, run.PreviewMessageID, tg.InputMediaVideo{
-				Media: file, Caption: caption, Width: v.Width, Height: v.Height, Duration: seconds, SupportsStreaming: streams,
-			}, nil)
-		})
-		if err == nil {
-			return msg, nil
-		}
-		f.log.Warn("result not put in place; replying", "job", run.JobID, "error", err)
-	}
 	opts := tg.VideoOptions{
 		CaptionOptions: tg.CaptionOptions{ThreadID: run.ThreadID, ReplyTo: run.CommandMessageID, Caption: caption},
-		Width:          v.Width, Height: v.Height, Duration: seconds, SupportsStreaming: streams,
+		Width:          v.Width, Height: v.Height, Duration: int(math.Ceil(v.Seconds)), SupportsStreaming: streams,
 	}
 	msg, err := withFileAt(v.Path, func(file tg.InputFile) (tg.Message, error) {
 		return f.cfg.Telegram.SendVideo(ctx, run.ChatID, file, opts)

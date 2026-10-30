@@ -485,8 +485,8 @@ was written from, and the skeleton of the service.
   to 15 s, and the preview says so before Generate, so nothing is cut
   unseen. The preview card shows the clip's first frame and its length, with
   Generate and No. The result is remuxed with its index at the front and
-  comes as a video Telegram streams, in place of the loop within 25 s or as
-  a reply after. The week's limit is said in days and hours, and a refusal
+  comes as a video Telegram streams, as a reply that notifies, and the loop
+  goes. The week's limit is said in days and hours, and a refusal
   downloads nothing. `/img` on a video and `/edit` on a photo point to the
   other command, and the command menu calls `/edit` "Change a video".
 - CI on every push and weekly: modules, gofmt, build, vet, race tests,

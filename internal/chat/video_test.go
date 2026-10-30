@@ -267,39 +267,31 @@ func (h *harness) generatingVideo(t *testing.T) int64 {
 	return 1
 }
 
-func TestAQuickVideoResultReplacesTheLoop(t *testing.T) {
-	h := videoHarness(t)
-	id := h.generatingVideo(t)
-	h.store.setStatus(id, jobs.Done, "")
-	h.now = h.now.Add(20 * time.Second)
-	h.flow.step(context.Background(), id)
-	edits := h.tg.methods("editMessageMedia")
-	if len(edits) != 1 || edits[0].file != "video upload:framy.mp4" || edits[0].video != "1080x1920 5s streams" || edits[0].markup != nil {
-		t.Fatalf("edits = %+v", edits)
-	}
-	if !strings.Contains(edits[0].text, "rain") || !strings.Contains(edits[0].text, "FLUX Video Edit") {
-		t.Errorf("caption = %q", edits[0].text)
-	}
-	if h.store.stage(id) != db.StageDone || len(h.tg.methods("deleteMessage")) != 0 || h.clips.normalized != 1 {
-		t.Fatalf("stage %s, calls %+v", h.store.stage(id), h.tg.calls)
-	}
-}
-
-func TestASlowVideoResultIsAReply(t *testing.T) {
-	h := videoHarness(t)
-	id := h.generatingVideo(t)
-	h.store.setStatus(id, jobs.Done, "")
-	h.now = h.now.Add(40 * time.Second)
-	h.flow.step(context.Background(), id)
-	sent := h.tg.methods("sendVideo")
-	if len(sent) != 1 || sent[0].messageID != 10 || sent[0].file != "upload:framy.mp4" || sent[0].video != "1080x1920 5s streams" {
-		t.Fatalf("sent = %+v", sent)
-	}
-	if d := h.tg.methods("deleteMessage"); len(d) != 1 || d[0].messageID != h.store.runs[id].PreviewMessageID {
-		t.Fatalf("the loop stayed: %+v", d)
-	}
-	if h.store.stage(id) != db.StageDone {
-		t.Fatalf("stage %s", h.store.stage(id))
+// A video comes as a reply, which notifies, however soon it is ready, and
+// the loop goes.
+func TestAVideoResultIsAReply(t *testing.T) {
+	for _, after := range []time.Duration{10 * time.Second, 40 * time.Second} {
+		h := videoHarness(t)
+		id := h.generatingVideo(t)
+		h.store.setStatus(id, jobs.Done, "")
+		h.now = h.now.Add(after)
+		h.flow.step(context.Background(), id)
+		sent := h.tg.methods("sendVideo")
+		if len(sent) != 1 || sent[0].messageID != 10 || sent[0].file != "upload:framy.mp4" || sent[0].video != "1080x1920 5s streams" {
+			t.Fatalf("%s: sent = %+v", after, sent)
+		}
+		if !strings.Contains(sent[0].text, "rain") || !strings.Contains(sent[0].text, "FLUX Video Edit") {
+			t.Errorf("%s: caption = %q", after, sent[0].text)
+		}
+		if len(h.tg.methods("editMessageMedia")) != 0 || h.clips.normalized != 1 {
+			t.Errorf("%s: calls %+v", after, h.tg.calls)
+		}
+		if d := h.tg.methods("deleteMessage"); len(d) != 1 || d[0].messageID != h.store.runs[id].PreviewMessageID {
+			t.Fatalf("%s: the loop stayed: %+v", after, d)
+		}
+		if h.store.stage(id) != db.StageDone {
+			t.Fatalf("%s: stage %s", after, h.store.stage(id))
+		}
 	}
 }
 
