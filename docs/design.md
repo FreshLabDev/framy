@@ -813,7 +813,7 @@ Temporary domain `framy.ws04.cc`. Mobile first; on a wide screen the composer an
 - **Bot:** register `@framyin_bot` (`framybot` and `framy_bot` are taken).
 - **BotFather:**
   - the `/img` and `/edit` commands, also through `setMyCommands` for `all_group_chats`;
-  - inline mode (`/setinline`), on for both bots; feedback (`/setinlinefeedback`) matters once framy reads `chosen_inline_result`;
+  - inline mode (`/setinline`), on for both bots since 30 October 2026, and inline feedback (`/setinlinefeedback`), enabled for both on 26 October; it does nothing until framy asks for `chosen_inline_result`;
   - Main Mini App;
   - the Login Widget client with the site's URLs, which gives the client id and secret;
   - later, guest mode.
