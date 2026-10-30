@@ -71,7 +71,8 @@ func TestPollingGivesTheStateOfTheStream(t *testing.T) {
 		t.Fatalf("%v", m)
 	}
 	res := m["results"].([]any)[0].(map[string]any)
-	if res["url"] != "https://files.example/obj-70?sig=secret" || res["content_type"] != "image/png" {
+	if res["url"] != "https://files.example/obj-70?sig=secret" || res["content_type"] != "image/png" ||
+		res["download"] != "https://files.example/obj-70?sig=secret&save=framy-7-1.png" {
 		t.Errorf("%v", res)
 	}
 	if c := m["cost"].(map[string]any); c["usd"] != cost || c["label"] != "$0.04" || c["currency"] != "USD" {

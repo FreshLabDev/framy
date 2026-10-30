@@ -940,8 +940,22 @@ func TestLinksOfAPageComeInOneRead(t *testing.T) {
 	a := upload(t, h, alice, "u/3001/in/a.png", img)
 	b := upload(t, h, alice, "u/3001/in/b.png", img)
 	bobs := upload(t, h, bob, "u/3002/in/c.png", img)
-	links, err := h.store.LinkAll(context.Background(), alice, []int64{a, b, bobs})
-	if err != nil || len(links) != 2 || links[a] == "" || links[b] == "" || links[bobs] != "" {
-		t.Fatalf("%v, %v", links, err)
+	names := map[int64]string{a: "framy-5-1.png", bobs: "framy-6-1.png"}
+	links, err := h.store.LinkAll(context.Background(), alice, []int64{a, b, bobs}, names)
+	if err != nil || len(links) != 2 || links[a].URL == "" || links[a].Download == "" || links[b].URL == "" ||
+		links[b].Download != "" || links[bobs] != (storage.FileLinks{}) {
+		t.Fatalf("%d links, %v", len(links), err)
+	}
+	// The download link saves the file under its name; the other opens it.
+	for link, want := range map[string]string{links[a].Download: `attachment; filename="framy-5-1.png"`, links[a].URL: ""} {
+		resp, err := http.Get(link)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if d := resp.Header.Get("Content-Disposition"); resp.StatusCode != 200 || !bytes.Equal(body, img) || !strings.HasPrefix(d, want) || (want == "" && d != "") {
+			t.Errorf("%d, disposition %q, want %q", resp.StatusCode, d, want)
+		}
 	}
 }

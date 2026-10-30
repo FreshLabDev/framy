@@ -4,6 +4,7 @@ package api
 import (
 	"context"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -11,6 +12,7 @@ import (
 	"github.com/FreshLabDev/framy/internal/fx"
 	"github.com/FreshLabDev/framy/internal/jobs"
 	"github.com/FreshLabDev/framy/internal/price"
+	"github.com/FreshLabDev/framy/internal/storage"
 )
 
 // jobJSON is a job as the client sees it: the answer of GET /api/jobs/{id},
@@ -100,6 +102,10 @@ type resultJSON struct {
 	// URL is a presigned link, for the owner only, good for minutes. Absent
 	// when the file is gone or framy keeps none.
 	URL string `json:"url,omitempty"`
+	// Download is a link like URL whose answer saves the file, as
+	// framy-<job>-<n>.<ext>, n counting the job's results from 1. Results
+	// only; absent where URL is.
+	Download string `json:"download,omitempty"`
 }
 
 // render makes the client's view of a state. lang writes the amounts; the
@@ -112,20 +118,22 @@ func (a *API) render(ctx context.Context, userID int64, s State, lang string) jo
 // made in one read.
 func (a *API) renderAll(ctx context.Context, userID int64, states []State, lang string) []jobJSON {
 	var ids []int64
+	names := map[int64]string{}
 	for _, s := range states {
 		for _, f := range s.Inputs {
 			ids = append(ids, f.ID)
 		}
 		if s.Status == jobs.Done {
-			for _, f := range s.Results {
+			for i, f := range s.Results {
 				ids = append(ids, f.ID)
+				names[f.ID] = downloadName(s.ID, i+1, f.ContentType)
 			}
 		}
 	}
-	var links map[int64]string
+	var links map[int64]storage.FileLinks
 	if a.cfg.Links != nil && len(ids) > 0 {
 		var err error
-		if links, err = a.cfg.Links.LinkAll(ctx, userID, ids); err != nil {
+		if links, err = a.cfg.Links.LinkAll(ctx, userID, ids, names); err != nil {
 			// Never the link or the key, which the error may name.
 			a.log.Warn("file links not made", "files", len(ids))
 		}
@@ -137,23 +145,35 @@ func (a *API) renderAll(ctx context.Context, userID int64, states []State, lang 
 	return out
 }
 
-func filesJSON(files []Result, links map[int64]string) []resultJSON {
+// filesJSON lists files with their links; a download link only where
+// download says, so an input that is also a result gets none as an input.
+func filesJSON(files []Result, links map[int64]storage.FileLinks, download bool) []resultJSON {
 	out := make([]resultJSON, 0, len(files))
 	for _, r := range files {
-		out = append(out, resultJSON{ID: r.ID, ContentType: r.ContentType, Bytes: r.Bytes, Width: r.Width, Height: r.Height,
-			Seconds: r.Seconds, URL: links[r.ID]})
+		l := links[r.ID]
+		v := resultJSON{ID: r.ID, ContentType: r.ContentType, Bytes: r.Bytes, Width: r.Width, Height: r.Height,
+			Seconds: r.Seconds, URL: l.URL}
+		if download {
+			v.Download = l.Download
+		}
+		out = append(out, v)
 	}
 	return out
 }
 
-func (a *API) renderOne(s State, lang string, links map[int64]string) jobJSON {
+// downloadName is what the n-th result of job saves as.
+func downloadName(job int64, n int, contentType string) string {
+	return "framy-" + strconv.FormatInt(job, 10) + "-" + strconv.Itoa(n) + storage.Ext(contentType)
+}
+
+func (a *API) renderOne(s State, lang string, links map[int64]storage.FileLinks) jobJSON {
 	settings := s.Settings
 	if settings == nil {
 		settings = map[string]any{}
 	}
 	v := jobJSON{
 		ID: s.ID, Seq: s.Seq, Status: string(s.Status), Kind: string(s.Kind), Offer: s.Offer, Free: s.Free,
-		Model: s.Model, Prompt: s.Prompt, Settings: settings, Surface: s.Surface, Inputs: filesJSON(s.Inputs, links),
+		Model: s.Model, Prompt: s.Prompt, Settings: settings, Surface: s.Surface, Inputs: filesJSON(s.Inputs, links, false),
 		CreatedAt: s.CreatedAt.UTC(), RetryAt: utc(s.RetryAt), FinishedAt: utc(s.FinishedAt),
 	}
 	code, perUSD := fx.USD, 1.0
@@ -171,7 +191,7 @@ func (a *API) renderOne(s State, lang string, links map[int64]string) jobJSON {
 		v.Error = &errorJSON{Class: string(s.ErrorClass), Message: publicMessage(s.ErrorClass, s.Error)}
 	}
 	if s.Status == jobs.Done {
-		v.Results = filesJSON(s.Results, links)
+		v.Results = filesJSON(s.Results, links, true)
 		v.Grounding = s.Grounding
 	}
 	return v

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/jobs"
 )
 
@@ -63,6 +64,38 @@ func TestAResultWithoutAStoreHasNoLink(t *testing.T) {
 	res := m["results"].([]any)[0].(map[string]any)
 	if _, ok := res["url"]; ok || res["id"] != float64(70) {
 		t.Errorf("%v", res)
+	}
+	if _, ok := res["download"]; ok {
+		t.Errorf("%v", res)
+	}
+}
+
+// Each result of a job saves under the job's id and its place among the
+// results, with the extension of its type; an input is not saved.
+func TestResultsSaveAsFilesOfTheJob(t *testing.T) {
+	r := newRig(t)
+	r.data.set(alice, State{ID: 9, Status: jobs.Done, Kind: catalog.Video,
+		Inputs:  []Result{{ID: 80, ContentType: "image/jpeg"}},
+		Results: []Result{{ID: 90, ContentType: "image/webp"}, {ID: 91, ContentType: "video/mp4"}}})
+	m := jsonOf(t, r.do(alice, "GET", "/api/jobs/9", nil))
+	if in := m["inputs"].([]any)[0].(map[string]any); in["url"] == nil || in["download"] != nil {
+		t.Errorf("input %v", in)
+	}
+	res := m["results"].([]any)
+	for i, want := range []string{"framy-9-1.webp", "framy-9-2.mp4"} {
+		if got, _ := res[i].(map[string]any)["download"].(string); !strings.HasSuffix(got, "&save="+want) {
+			t.Errorf("result %d saves as %q, want %s", i, got, want)
+		}
+	}
+}
+
+func TestADownloadNameHasTheExtensionOfItsType(t *testing.T) {
+	for ct, want := range map[string]string{
+		"image/jpeg": "framy-3-1.jpg", "image/png": "framy-3-1.png", "video/quicktime": "framy-3-1.mov", "application/x-what": "framy-3-1.bin",
+	} {
+		if got := downloadName(3, 1, ct); got != want {
+			t.Errorf("%s: %s, want %s", ct, got, want)
+		}
 	}
 }
 

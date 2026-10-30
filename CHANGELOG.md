@@ -552,6 +552,9 @@ was written from, and the skeleton of the service.
   told so. A DM's result and error card now always come as a new message,
   which takes the draft's place. Where Telegram refuses the draft, the loop
   keeps its Stop button, as in a group.
+- Each result in the job API has a `download` link that saves the file as
+  `framy-<job>-<n>.<ext>`, so the site and the Mini App save a result under
+  framy's name rather than the bucket's key.
 - CI on every push and weekly: modules, gofmt, build, vet, race tests,
   database tests on PostgreSQL 17, govulncheck, the image build, the photo
   and storage tests inside the image, on the ffmpeg it ships, and the local

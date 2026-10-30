@@ -947,6 +947,17 @@ func TestAPhotoBroughtOverHTTPIsAJobInputOfItsOwnerAlone(t *testing.T) {
 			if !strings.HasPrefix(link, bucket.URL) {
 				t.Errorf("a result link should point at the bucket")
 			}
+			// Its download link, signed by the bucket too, saves it as a
+			// file of the job.
+			dl, _ := res[0].(map[string]any)["download"].(string)
+			u, err := url.Parse(dl)
+			if err != nil {
+				t.Fatal("the download link does not parse")
+			}
+			want := fmt.Sprintf(`attachment; filename="framy-%d-1.`, idOf(t, job))
+			if d := u.Query().Get("response-content-disposition"); !strings.HasPrefix(dl, bucket.URL) || !strings.HasPrefix(d, want) {
+				t.Errorf("download saves as %q, want %s...", d, want)
+			}
 			break
 		}
 	}

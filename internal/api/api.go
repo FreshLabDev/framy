@@ -124,9 +124,9 @@ type Uploads interface {
 }
 
 // Links presigns files of the person's: *storage.Store. An id that is not
-// theirs gets no link.
+// theirs gets no link, and a file named in names a download link as well.
 type Links interface {
-	LinkAll(ctx context.Context, userID int64, ids []int64) (map[int64]string, error)
+	LinkAll(ctx context.Context, userID int64, ids []int64, names map[int64]string) (map[int64]storage.FileLinks, error)
 }
 
 // Connections are the person's provider keys: *keys.Service. A nil

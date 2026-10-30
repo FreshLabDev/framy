@@ -690,10 +690,19 @@ func (s *Store) Link(ctx context.Context, userID, assetID int64, filename string
 	return s.bucket.PresignGet(key, s.cfg.LinkTTL, disposition(filename))
 }
 
-// LinkAll is a presigned link to each of ids that is a file of the person's,
-// by id, as Link makes it: one read for a page of the history instead of one
-// per file. An id that is not theirs has no link.
-func (s *Store) LinkAll(ctx context.Context, userID int64, ids []int64) (map[int64]string, error) {
+// FileLinks are the presigned links to one file: URL opens it, and
+// Download, when the file was given a name, saves it under that name.
+type FileLinks struct {
+	URL, Download string
+}
+
+// LinkAll is the presigned links to each of ids that is a file of the
+// person's, by id, as Link makes them: one read for a page of the history
+// instead of one per file. A file named in names also gets a Download link,
+// which saves it as that name; the browser takes a download name only from
+// the response, since a link to another origin cannot ask for one. An id
+// that is not theirs has no links.
+func (s *Store) LinkAll(ctx context.Context, userID int64, ids []int64, names map[int64]string) (map[int64]FileLinks, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
@@ -702,18 +711,23 @@ func (s *Store) LinkAll(ctx context.Context, userID int64, ids []int64) (map[int
 		return nil, err
 	}
 	defer rows.Close()
-	out := make(map[int64]string, len(ids))
+	out := make(map[int64]FileLinks, len(ids))
 	for rows.Next() {
 		var id int64
 		var key string
 		if err := rows.Scan(&id, &key); err != nil {
 			return nil, err
 		}
-		link, err := s.bucket.PresignGet(key, s.cfg.LinkTTL, "")
-		if err != nil {
+		var l FileLinks
+		if l.URL, err = s.bucket.PresignGet(key, s.cfg.LinkTTL, ""); err != nil {
 			return nil, err
 		}
-		out[id] = link
+		if name := names[id]; name != "" {
+			if l.Download, err = s.bucket.PresignGet(key, s.cfg.LinkTTL, disposition(name)); err != nil {
+				return nil, err
+			}
+		}
+		out[id] = l
 	}
 	return out, rows.Err()
 }
@@ -794,6 +808,10 @@ var exts = map[string]string{
 	"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/avif": ".avif", "image/heif": ".heic",
 	"image/gif": ".gif", "video/mp4": ".mp4", "video/webm": ".webm", "video/quicktime": ".mov",
 }
+
+// Ext is the file extension of a content type framy keeps, with its dot:
+// ".bin" for any other.
+func Ext(contentType string) string { return ext(contentType) }
 
 func ext(contentType string) string {
 	if e, ok := exts[contentType]; ok {

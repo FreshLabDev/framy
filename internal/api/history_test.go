@@ -66,6 +66,10 @@ func TestTheHistoryIsThePersonsJobsNewestFirst(t *testing.T) {
 		!strings.Contains(res[0].(map[string]any)["url"].(string), "obj-601") {
 		t.Errorf("inputs %v, results %v", in, res)
 	}
+	// Only a result saves as a file of framy's.
+	if _, ok := in[0].(map[string]any)["download"]; ok || !strings.HasSuffix(res[0].(map[string]any)["download"].(string), "save=framy-11-1.png") {
+		t.Errorf("downloads: inputs %v, results %v", in, res)
+	}
 }
 
 func TestTheHistoryFiltersSearchesAndPages(t *testing.T) {
