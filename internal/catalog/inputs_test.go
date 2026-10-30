@@ -70,6 +70,7 @@ func TestInputsCheck(t *testing.T) {
 		Audio:  &ClipInputs{Max: 3, Role: RoleReference},
 		Files:  12,
 	}
+	editor := Inputs{Videos: &ClipInputs{Min: 1, Max: 1, Role: RoleSource, Secs: &Span{Max: 10}, MaxBytes: 48 << 20}}
 	frameOnly := Inputs{Images: &ImageInputs{Max: 1, Frames: 1}}
 	styles := Inputs{Images: &ImageInputs{Min: 1, Max: 10, Refs: 10}}
 	for _, tc := range []struct {
@@ -89,6 +90,8 @@ func TestInputsCheck(t *testing.T) {
 		{"a long clip", seedance, Video, Count{Videos: 1, VideoSecs: []float64{16}}, "at most 15 s"},
 		{"a short clip", seedance, Video, Count{Videos: 1, VideoSecs: []float64{1}}, "at least 2 s"},
 		{"clips too long together", seedance, Video, Count{Videos: 2, VideoSecs: []float64{10, 10}}, "together"},
+		{"a clip an editor takes", editor, Video, Count{Videos: 1, VideoSecs: []float64{8}, VideoBytes: []int64{30 << 20}}, ""},
+		{"a clip too big for an editor", editor, Video, Count{Videos: 1, VideoSecs: []float64{8}, VideoBytes: []int64{49 << 20}}, "at most 50.3 MB"},
 		{"a reference to a frame-only model", frameOnly, Video, Count{Images: 1}, "send the image as a frame"},
 		{"a frame to a frame-only model", frameOnly, Video, Count{Images: 1, Frames: 1}, ""},
 		{"a video to a model without", frameOnly, Video, Count{Videos: 1}, "no videos"},

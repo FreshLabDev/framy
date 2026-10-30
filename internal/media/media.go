@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -45,8 +46,17 @@ type Converter struct {
 	FFmpeg, FFprobe string
 	MaxPixels       int64
 	LongSide        int
-	// Timeout bounds each subprocess.
+	// Timeout bounds each subprocess of a picture.
 	Timeout time.Duration
+
+	// MaxSeconds is the longest clip kept, LongSide's counterpart for video
+	// is VideoLongSide, and VideoTimeout bounds each subprocess of a clip.
+	MaxSeconds    float64
+	VideoLongSide int
+	VideoTimeout  time.Duration
+
+	zscaleOnce sync.Once
+	zscale     bool
 }
 
 // Image is a normalized picture.
@@ -323,7 +333,12 @@ const stderrTail = 1024
 
 // run starts a subprocess with an empty environment and returns its output.
 func (c *Converter) run(ctx context.Context, name string, args []string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, c.timeout())
+	return c.runFor(ctx, c.timeout(), name, args)
+}
+
+// runFor is run with its own timeout, for the longer work of a clip.
+func (c *Converter) runFor(ctx context.Context, timeout time.Duration, name string, args []string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = []string{}

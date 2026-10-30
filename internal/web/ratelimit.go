@@ -37,7 +37,7 @@ const (
 	// an HMAC, so there is nothing to guess, and everyone who opens the Mini
 	// App calls it, many of them from behind one carrier address.
 	ClassMiniApp Class = "miniapp"
-	// ClassUpload is the routes that take a photo.
+	// ClassUpload is the routes that take a photo or a clip, or make one.
 	ClassUpload Class = "upload"
 	// ClassJob is the routes that start a generation.
 	ClassJob Class = "job"

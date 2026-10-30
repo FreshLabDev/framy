@@ -92,6 +92,8 @@ type Result struct {
 	Bytes       int64
 	Width       int
 	Height      int
+	// Seconds is a clip's length, 0 for a picture and where it is not known.
+	Seconds float64
 }
 
 // InputAsset is a file of the person's that a new job would take.
@@ -100,6 +102,10 @@ type InputAsset struct {
 	ContentType string
 	Width       int
 	Height      int
+	Bytes       int64
+	// Seconds is a clip's length as ffprobe read it, 0 for a picture and
+	// where it is not known.
+	Seconds float64
 }
 
 // ErrActive: the job is queued or running, or, for the account, some job is.
@@ -120,6 +126,9 @@ type data interface {
 	// Inputs are the person's files among ids, in the order of ids; fewer
 	// than asked when some are not theirs or do not exist.
 	Inputs(ctx context.Context, userID int64, ids []int64) ([]InputAsset, error)
+	// Continuation is a job of the person's that a run would continue:
+	// ErrNotFound for anyone else's, and for one the person deleted.
+	Continuation(ctx context.Context, userID, id int64) (Continuation, error)
 	// Remove clears a job of the person's that ended, once its files are
 	// gone: ErrNotFound, or ErrActive for one that has not ended.
 	Remove(ctx context.Context, userID, id int64) error
@@ -248,10 +257,10 @@ func (d pgData) files(ctx context.Context, userID int64, states []State) error {
 			job int64
 			Result
 		}
-		return x, r.Scan(&x.job, &x.ID, &x.ContentType, &x.Bytes, &x.Width, &x.Height)
+		return x, r.Scan(&x.job, &x.ID, &x.ContentType, &x.Bytes, &x.Width, &x.Height, &x.Seconds)
 	}
 	rows, err := d.pool.Query(ctx, `
-		SELECT i.job_id, a.id, a.content_type, a.bytes, COALESCE(a.width, 0), COALESCE(a.height, 0)
+		SELECT i.job_id, a.id, a.content_type, a.bytes, COALESCE(a.width, 0), COALESCE(a.height, 0), COALESCE(a.seconds, 0)::float8
 		FROM job_input i JOIN asset a ON a.id = i.asset_id AND a.user_id = $2
 		WHERE i.job_id = ANY($1)
 		ORDER BY i.job_id, i.position`, ids, userID)
@@ -267,7 +276,7 @@ func (d pgData) files(ctx context.Context, userID int64, states []State) error {
 		s.Inputs = append(s.Inputs, x.Result)
 	}
 	rows, err = d.pool.Query(ctx, `
-		SELECT job_id, id, content_type, bytes, COALESCE(width, 0), COALESCE(height, 0)
+		SELECT job_id, id, content_type, bytes, COALESCE(width, 0), COALESCE(height, 0), COALESCE(seconds, 0)::float8
 		FROM asset WHERE job_id = ANY($1) AND user_id = $2 AND kind = 'result'
 		ORDER BY job_id, id`, ids, userID)
 	if err != nil {
@@ -302,7 +311,7 @@ func (d pgData) Inputs(ctx context.Context, userID int64, ids []int64) ([]InputA
 		return nil, nil
 	}
 	rows, err := d.pool.Query(ctx, `
-		SELECT u.id, a.content_type, COALESCE(a.width, 0), COALESCE(a.height, 0)
+		SELECT u.id, a.content_type, COALESCE(a.width, 0), COALESCE(a.height, 0), a.bytes, COALESCE(a.seconds, 0)::float8
 		FROM unnest($2::bigint[]) WITH ORDINALITY AS u(id, ord)
 		JOIN asset a ON a.id = u.id AND a.user_id = $1
 		ORDER BY u.ord`, userID, ids)
@@ -311,8 +320,37 @@ func (d pgData) Inputs(ctx context.Context, userID int64, ids []int64) ([]InputA
 	}
 	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (InputAsset, error) {
 		var x InputAsset
-		return x, r.Scan(&x.ID, &x.ContentType, &x.Width, &x.Height)
+		return x, r.Scan(&x.ID, &x.ContentType, &x.Width, &x.Height, &x.Bytes, &x.Seconds)
 	})
+}
+
+func (d pgData) Continuation(ctx context.Context, userID, id int64) (Continuation, error) {
+	var c Continuation
+	var videoID *int64
+	var v InputAsset
+	err := d.pool.QueryRow(ctx, `
+		SELECT j.model_id, j.provider, COALESCE(j.provider_job_id, ''), j.status, j.free,
+		       r.id, COALESCE(r.content_type, ''), COALESCE(r.width, 0), COALESCE(r.height, 0), COALESCE(r.bytes, 0),
+		       COALESCE(r.seconds, 0)::float8
+		FROM job j
+		LEFT JOIN LATERAL (
+		  SELECT a.id, a.content_type, a.width, a.height, a.bytes, a.seconds FROM asset a
+		  WHERE a.job_id = j.id AND a.kind = 'result' AND a.content_type LIKE 'video/%'
+		  ORDER BY a.id LIMIT 1) r ON true
+		WHERE j.id = $1 AND j.user_id = $2 AND j.deleted_at IS NULL`, id, userID).Scan(
+		&c.ModelID, &c.Provider, &c.ProviderJobID, &c.Status, &c.Free,
+		&videoID, &v.ContentType, &v.Width, &v.Height, &v.Bytes, &v.Seconds)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Continuation{}, ErrNotFound
+	}
+	if err != nil {
+		return Continuation{}, fmt.Errorf("read the job to continue: %w", err)
+	}
+	if videoID != nil {
+		v.ID = *videoID
+		c.Video = &v
+	}
+	return c, nil
 }
 
 // cleared is what a deleted job keeps: its kind, offer, payer, status,

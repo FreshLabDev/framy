@@ -49,8 +49,11 @@ type fakeData struct {
 	keys   map[string]int64
 	assets map[int64]InputAsset
 	owner  map[int64]int64 // asset id -> user
-	reads  int
-	failed error
+	// conts are the jobs a run may continue, by job id; owners says whose.
+	conts       map[int64]Continuation
+	failedConts error
+	reads       int
+	failed      error
 	// removed are the jobs deleted, and forgot the accounts.
 	removed map[int64]bool
 	forgot  []int64
@@ -60,7 +63,7 @@ type fakeData struct {
 }
 
 func newFakeData() *fakeData {
-	return &fakeData{states: map[int64]State{}, owners: map[int64]int64{}, keys: map[string]int64{}, assets: map[int64]InputAsset{}, owner: map[int64]int64{}, removed: map[int64]bool{}}
+	return &fakeData{states: map[int64]State{}, owners: map[int64]int64{}, keys: map[string]int64{}, assets: map[int64]InputAsset{}, owner: map[int64]int64{}, removed: map[int64]bool{}, conts: map[int64]Continuation{}}
 }
 
 // set stores a job of user, bumping its seq as the trigger does when the
@@ -99,6 +102,19 @@ func (d *fakeData) State(_ context.Context, userID, id int64) (State, error) {
 		hook()
 	}
 	return s, nil
+}
+
+func (d *fakeData) Continuation(_ context.Context, userID, id int64) (Continuation, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.failedConts != nil {
+		return Continuation{}, d.failedConts
+	}
+	c, ok := d.conts[id]
+	if !ok || d.owners[id] != userID || d.removed[id] {
+		return Continuation{}, ErrNotFound
+	}
+	return c, nil
 }
 
 func (d *fakeData) ByKey(_ context.Context, key string) (int64, bool, error) {

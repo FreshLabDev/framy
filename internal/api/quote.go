@@ -50,6 +50,9 @@ type quoteItem struct {
 	// browser read of them.
 	Inputs []int64    `json:"inputs"`
 	Files  []fileMeta `json:"files"`
+	// Continues is a finished job of the person's whose video the run would
+	// continue, as in POST /api/jobs.
+	Continues int64 `json:"continues"`
 }
 
 // fileMeta is what the browser reads of a file before Generate
@@ -183,6 +186,24 @@ func (a *API) quoteRoute(w http.ResponseWriter, r *http.Request) {
 				fillFree(settings, plan, files)
 			}
 		}
+		var source *InputAsset
+		var cannot *apiError
+		switch {
+		case it.Continues == 0:
+		case !signedIn:
+			cannot = newError(http.StatusUnprocessableEntity, codeCannotContinue, "sign in to continue a video of yours").with("continues", it.Continues)
+		default:
+			c, aerr := a.continuation(r, user, it.Continues, m, offer, it.Pay == payFree)
+			switch {
+			case aerr != nil && aerr.status == http.StatusInternalServerError:
+				aerr.write(w)
+				return
+			case aerr != nil:
+				cannot = aerr
+			default:
+				settings[c.setting], source = c.providerJobID, &c.video
+			}
+		}
 		count := countOf(settings, inputs, it.Files)
 		fillFrames(settings, m, offer, count.Images)
 		count.Frames = frameCount(settings)
@@ -194,17 +215,22 @@ func (a *API) quoteRoute(w http.ResponseWriter, r *http.Request) {
 			}
 			fillDefaults(settings, offer, shapeOf(sizes...))
 		}
-		preq := priceRequest(m, it.Prompt, settings, inputs)
+		preq := priceRequest(m, it.Prompt, settings, inputs, source)
 		addFiles(&preq, m, it.Files)
 		est := price.Of(m, offer, preq)
 		item.Estimate = estimateJSONOf(est.USD, &est, q.Code, q.PerUSD, lang)
 		item.Estimate.RateDate = out.RateDate
-		item.Settings = settings
+		item.Settings = withoutContinuation(settings)
 
 		wrong := checkInputs(m, offer, count)
+		if wrong == nil {
+			wrong = checkLengths(inputs)
+		}
 		switch {
 		case wrong != nil:
 			item.Refusal = refusalJSON(wrong)
+		case cannot != nil:
+			item.Refusal = refusalJSON(cannot)
 		case !signedIn || it.Pay == "":
 		case missing:
 			item.Refusal = refusalJSON(newError(http.StatusUnprocessableEntity, codeUnknownInput, "an input is not one of your files"))
@@ -216,7 +242,8 @@ func (a *API) quoteRoute(w http.ResponseWriter, r *http.Request) {
 			item.Refusal = refusalJSON(a.refusal(&free.NotFreeError{Reason: offer.ID + " is not a model of the free allowance"}))
 		case a.cfg.Allowance != nil:
 			err := a.cfg.Allowance.Check(ctx, jobs.Admission{
-				UserID: user, Offer: offer.ID, Kind: offer.Kind, Settings: settings, Inputs: files, EstimateUSD: est.USD,
+				UserID: user, Offer: offer.ID, Kind: offer.Kind, Settings: settings, Inputs: files,
+				Videos: count.VideoSecs, EstimateUSD: est.USD,
 			})
 			if err != nil {
 				e := a.refusal(err)
@@ -230,6 +257,18 @@ func (a *API) quoteRoute(w http.ResponseWriter, r *http.Request) {
 		out.Items = append(out.Items, item)
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// withoutContinuation is settings less the ones framy fills from the job a
+// run continues: the client sends continues, never those.
+func withoutContinuation(settings map[string]any) map[string]any {
+	out := make(map[string]any, len(settings))
+	for k, v := range settings {
+		if !continuationSetting[k] {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 // refusalJSON is an error answer as a field of another answer.
@@ -305,6 +344,8 @@ func decodeQuote(r *http.Request) (quoteRequest, *apiError) {
 			return req, badRequest(prefix+"pay", `pay is "free", "key" or absent`)
 		case len(it.Inputs)+len(it.Files) > maxInputs:
 			return req, badRequest(prefix+"files", fmt.Sprintf("at most %d input files", maxInputs))
+		case it.Continues < 0:
+			return req, badRequest(prefix+"continues", "continues is the id of a job of yours")
 		}
 		if e := checkRun(prefix, it.Prompt, it.Settings, it.Inputs); e != nil {
 			return req, e

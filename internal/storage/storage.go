@@ -37,6 +37,7 @@ import (
 
 	"github.com/FreshLabDev/framy/internal/jobs"
 	"github.com/FreshLabDev/framy/internal/media"
+	"github.com/FreshLabDev/framy/internal/r2"
 )
 
 const (
@@ -72,8 +73,10 @@ var (
 type Bucket interface {
 	Put(ctx context.Context, key, contentType string, body io.ReaderAt, size int64, sum string) error
 	Get(ctx context.Context, key string) (io.ReadCloser, error)
+	Head(ctx context.Context, key string) (r2.Object, error)
 	Delete(ctx context.Context, key string) error
 	PresignGet(key string, ttl time.Duration, disposition string) (string, error)
+	PresignPut(key string, ttl time.Duration) (string, error)
 }
 
 // Config is the store's setup. Pool's search_path is framy.
@@ -93,9 +96,13 @@ type Config struct {
 	Log       *slog.Logger
 	MaxUpload int64
 	MaxResult int64
-	InputTTL  time.Duration
-	LinkTTL   time.Duration
-	AlertStep int64
+	// MaxVideo bounds a clip put into incoming/, IncomingTTL the link to
+	// put it.
+	MaxVideo    int64
+	IncomingTTL time.Duration
+	InputTTL    time.Duration
+	LinkTTL     time.Duration
+	AlertStep   int64
 }
 
 // Store keeps the files.
@@ -120,6 +127,8 @@ func New(cfg Config) (*Store, error) {
 	}
 	setDefault(&cfg.MaxUpload, DefaultMaxUpload)
 	setDefault(&cfg.MaxResult, DefaultMaxResult)
+	setDefault(&cfg.MaxVideo, DefaultMaxVideo)
+	setDefault(&cfg.IncomingTTL, DefaultIncomingTTL)
 	setDefault(&cfg.InputTTL, DefaultInputTTL)
 	setDefault(&cfg.LinkTTL, DefaultLinkTTL)
 	setDefault(&cfg.AlertStep, DefaultAlertStep)
@@ -146,8 +155,22 @@ type Asset struct {
 	Bytes       int64
 	Width       int
 	Height      int
-	SHA256      string
-	CreatedAt   time.Time
+	// Seconds, FPS and Audio are a clip's, as ffprobe read them; Seconds is
+	// 0 for a picture and for a video kept before framy read them.
+	Seconds   float64
+	FPS       float64
+	Audio     bool
+	SHA256    string
+	CreatedAt time.Time
+}
+
+// audio is a clip's sound for its row: NULL for a picture, and for a video
+// whose length is not known.
+func (a Asset) audio() *bool {
+	if a.Seconds == 0 {
+		return nil
+	}
+	return &a.Audio
 }
 
 // Upload normalizes a photo the person brought and keeps it. The person is
@@ -273,6 +296,11 @@ func (s *Store) keep(ctx context.Context, j jobs.Job, i int, r jobs.Result) erro
 		a.Key = resultKey(s.cfg.Prefix, j, i, a.ContentType)
 		info, _ := media.Inspect(bytes.NewReader(r.Data), int64(len(r.Data)))
 		a.Width, a.Height = info.Width, info.Height
+		if strings.HasPrefix(a.ContentType, "video/") {
+			if err := s.probeData(ctx, &a, r.Data); err != nil {
+				return err
+			}
+		}
 		sum := sha256.Sum256(r.Data)
 		a.SHA256, a.Bytes = hex.EncodeToString(sum[:]), int64(len(r.Data))
 		if err := s.bucket.Put(ctx, a.Key, a.ContentType, bytes.NewReader(r.Data), a.Bytes, a.SHA256); err != nil {
@@ -303,6 +331,7 @@ func (s *Store) keep(ctx context.Context, j jobs.Job, i int, r jobs.Result) erro
 			}
 			f.Close()
 		}
+		s.probeResult(ctx, &a, path)
 		if err := s.putFile(ctx, &a, path); err != nil {
 			return err
 		}
@@ -310,11 +339,12 @@ func (s *Store) keep(ctx context.Context, j jobs.Job, i int, r jobs.Result) erro
 		return errors.New("the result has neither bytes nor a link")
 	}
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO asset (user_id, kind, job_id, object_key, content_type, bytes, width, height, sha256)
-		VALUES ($1, 'result', $2, $3, $4, $5, NULLIF($6, 0), NULLIF($7, 0), $8)
+		INSERT INTO asset (user_id, kind, job_id, object_key, content_type, bytes, width, height, sha256, seconds, fps, audio)
+		VALUES ($1, 'result', $2, $3, $4, $5, NULLIF($6, 0), NULLIF($7, 0), $8, NULLIF($9, 0), NULLIF($10, 0), $11)
 		ON CONFLICT (object_key) DO UPDATE SET bytes = EXCLUDED.bytes, sha256 = EXCLUDED.sha256,
-		  content_type = EXCLUDED.content_type, width = EXCLUDED.width, height = EXCLUDED.height`,
-		a.UserID, a.JobID, a.Key, a.ContentType, a.Bytes, a.Width, a.Height, a.SHA256)
+		  content_type = EXCLUDED.content_type, width = EXCLUDED.width, height = EXCLUDED.height,
+		  seconds = EXCLUDED.seconds, fps = EXCLUDED.fps, audio = EXCLUDED.audio`,
+		a.UserID, a.JobID, a.Key, a.ContentType, a.Bytes, a.Width, a.Height, a.SHA256, a.Seconds, a.FPS, a.audio())
 	if err != nil {
 		return fmt.Errorf("record the result: %w", err)
 	}
@@ -595,7 +625,8 @@ func (s *Store) DeleteAll(ctx context.Context, userID int64, before time.Time) (
 // Results are the files job id made, in order.
 func (s *Store) Results(ctx context.Context, jobID int64) ([]Asset, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, user_id, object_key, content_type, bytes, COALESCE(width, 0), COALESCE(height, 0), sha256, created_at
+		SELECT id, user_id, object_key, content_type, bytes, COALESCE(width, 0), COALESCE(height, 0),
+		  COALESCE(seconds, 0), COALESCE(fps, 0), COALESCE(audio, false), sha256, created_at
 		FROM asset WHERE job_id=$1 AND kind='result' ORDER BY id`, jobID)
 	if err != nil {
 		return nil, err
@@ -604,7 +635,8 @@ func (s *Store) Results(ctx context.Context, jobID int64) ([]Asset, error) {
 	var out []Asset
 	for rows.Next() {
 		a := Asset{Kind: "result", JobID: jobID}
-		if err := rows.Scan(&a.ID, &a.UserID, &a.Key, &a.ContentType, &a.Bytes, &a.Width, &a.Height, &a.SHA256, &a.CreatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.UserID, &a.Key, &a.ContentType, &a.Bytes, &a.Width, &a.Height,
+			&a.Seconds, &a.FPS, &a.Audio, &a.SHA256, &a.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, a)
@@ -617,7 +649,8 @@ func (s *Store) Results(ctx context.Context, jobID int64) ([]Asset, error) {
 // A file deleted since is left out.
 func (s *Store) JobInputs(ctx context.Context, jobID int64) ([]Asset, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT a.id, a.user_id, a.kind, a.object_key, a.content_type, a.bytes, COALESCE(a.width, 0), COALESCE(a.height, 0), a.sha256, a.created_at
+		SELECT a.id, a.user_id, a.kind, a.object_key, a.content_type, a.bytes, COALESCE(a.width, 0), COALESCE(a.height, 0),
+		  COALESCE(a.seconds, 0), COALESCE(a.fps, 0), COALESCE(a.audio, false), a.sha256, a.created_at
 		FROM job_input i JOIN asset a ON a.id = i.asset_id
 		WHERE i.job_id = $1
 		ORDER BY i.position`, jobID)
@@ -628,7 +661,8 @@ func (s *Store) JobInputs(ctx context.Context, jobID int64) ([]Asset, error) {
 	var out []Asset
 	for rows.Next() {
 		var a Asset
-		if err := rows.Scan(&a.ID, &a.UserID, &a.Kind, &a.Key, &a.ContentType, &a.Bytes, &a.Width, &a.Height, &a.SHA256, &a.CreatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.UserID, &a.Kind, &a.Key, &a.ContentType, &a.Bytes, &a.Width, &a.Height,
+			&a.Seconds, &a.FPS, &a.Audio, &a.SHA256, &a.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, a)

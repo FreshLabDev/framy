@@ -161,6 +161,8 @@ type Config struct {
 	Uploads Uploads
 	Links   Links
 	Files   Files
+	// Videos is nil while framy keeps no files: the clip routes answer 503.
+	Videos Videos
 	// Keys is nil without a KEK file, which is no connection for anyone.
 	Keys Connections
 	// Allowance is nil in tests that leave the free allowance out: /api/me
@@ -182,6 +184,8 @@ type Config struct {
 	Ping         time.Duration
 	WriteTimeout time.Duration
 	UploadSlots  int
+	// VideoSlots is how many clips are worked on at once.
+	VideoSlots int
 	// UploadWait is how long an upload waits for a free slot before it is
 	// sent away with 503.
 	UploadWait time.Duration
@@ -215,6 +219,11 @@ type API struct {
 	now     func() time.Time
 	maxBody int64
 	catalog *catalogCache
+	videos  *videoTasks
+	// bg is the context of the work that outlives a request, a clip's task;
+	// Run's end and Close cancel it.
+	bg     context.Context
+	stopBG context.CancelFunc
 }
 
 // New checks cfg and fills its defaults.
@@ -232,6 +241,7 @@ func New(cfg Config) (*API, error) {
 	setDefault(&cfg.Ping, DefaultPing)
 	setDefault(&cfg.WriteTimeout, DefaultWriteTimeout)
 	setDefault(&cfg.UploadSlots, DefaultUploadSlots)
+	setDefault(&cfg.VideoSlots, DefaultVideoSlots)
 	setDefault(&cfg.UploadWait, uploadWait)
 	setDefault(&cfg.MaxUpload, storage.DefaultMaxUpload)
 	setDefault(&cfg.Keepalive, 30*time.Second)
@@ -247,7 +257,9 @@ func New(cfg Config) (*API, error) {
 		now:     cfg.Now,
 		maxBody: cfg.MaxUpload + uploadSlack,
 		catalog: &catalogCache{ttl: cfg.CatalogTTL},
+		videos:  newVideoTasks(cfg.VideoSlots, cfg.Now),
 	}
+	a.bg, a.stopBG = context.WithCancel(context.Background())
 	if a.data == nil {
 		a.data = pgData{pool: cfg.Pool}
 	}
@@ -264,6 +276,12 @@ func setDefault[T int | int64 | time.Duration](v *T, d T) {
 func (a *API) Register(site *web.Server) {
 	site.HandleFunc("POST /api/uploads", a.upload,
 		web.Limit(web.ClassUpload), web.Body(a.maxBody), web.Deadlines(uploadRead, uploadWrite))
+	site.HandleFunc("POST /api/videos/uploads", a.videoUpload, web.Limit(web.ClassUpload))
+	site.HandleFunc("POST /api/videos", a.videoStart, web.Limit(web.ClassUpload), web.Body(smallBody))
+	site.HandleFunc("GET /api/videos/{task}", a.videoTask)
+	// The last frame reads the clip from the bucket first.
+	site.HandleFunc("POST /api/files/{id}/last-frame", a.lastFrame, web.Limit(web.ClassUpload),
+		web.Deadlines(10*time.Second, 3*time.Minute))
 	site.HandleFunc("POST /api/jobs", a.create, web.Limit(web.ClassJob))
 	site.HandleFunc("GET /api/jobs", a.history)
 	site.HandleFunc("GET /api/jobs/{id}", a.get)
@@ -297,11 +315,13 @@ func PersonKey(person func(*http.Request) (int64, bool)) func(*http.Request) str
 	}
 }
 
-// Run listens for job events until ctx ends, then ends every open stream.
+// Run listens for job events until ctx ends, then ends every open stream
+// and stops the clips being worked on.
 // A lost connection is made again, and the streams reread their jobs when it
 // is. Call it once, in its own goroutine.
 func (a *API) Run(ctx context.Context) {
 	defer a.hub.close()
+	defer a.stopBG()
 	if a.cfg.Pool == nil {
 		<-ctx.Done()
 		return
@@ -315,7 +335,10 @@ func (a *API) Run(ctx context.Context) {
 
 // Close ends every open stream now. Run does it when its context ends; a
 // server that stops without cancelling that context calls Close.
-func (a *API) Close() { a.hub.close() }
+func (a *API) Close() {
+	a.stopBG()
+	a.hub.close()
+}
 
 // ---- answers ----
 
@@ -354,6 +377,12 @@ const (
 	codeKeyForbidden      = "key_forbidden"
 	codeKeyUnreadable     = "key_unreadable"
 	codeCheckUnavailable  = "check_unavailable"
+	codeCannotContinue    = "cannot_continue"
+	codeNoUpload          = "no_upload"
+	codeNotAVideo         = "not_a_video"
+	codeVideoTooLong      = "video_too_long"
+	codeFrameTooLarge     = "frame_too_large"
+	codeBadCut            = "bad_cut"
 )
 
 // apiError is an answer that is not a success.
@@ -412,8 +441,13 @@ func notFound(w http.ResponseWriter) {
 }
 
 func (a *API) internal(w http.ResponseWriter, r *http.Request, err error) {
+	a.internalError(r, err).write(w)
+}
+
+// internalError logs err and is the answer to it.
+func (a *API) internalError(r *http.Request, err error) *apiError {
 	a.log.Error("api request failed", "method", r.Method, "path", r.URL.Path, "error", err)
-	newError(http.StatusInternalServerError, codeInternal, "something went wrong; try again").write(w)
+	return newError(http.StatusInternalServerError, codeInternal, "something went wrong; try again")
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

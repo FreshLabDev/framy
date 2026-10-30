@@ -6,6 +6,7 @@ package free
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -394,5 +395,61 @@ func TestUsageAndCheckSayWhatAdmitWouldWithoutTakingASlot(t *testing.T) {
 	}
 	if metric("framy_free_refused_total", "reason", "image_limit") != refused {
 		t.Fatal("a look at the allowance counted as a refusal")
+	}
+}
+
+func TestTheFreeEditTakesAClipOfUpToFiveSeconds(t *testing.T) {
+	h := newHarness(t, 100)
+	ctx := context.Background()
+	file := func(contentType string, seconds any) int64 {
+		var id int64
+		err := h.pool.QueryRow(ctx, `
+			INSERT INTO framy.asset (user_id, kind, object_key, content_type, bytes, sha256, seconds)
+			VALUES ($1, 'upload', 'u/1001/in/' || gen_random_uuid(), $2, 10, 'x', $3) RETURNING id`, alice, contentType, seconds).Scan(&id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	long, cut, photo, unknown := file("video/mp4", 6.0), file("video/mp4", 5.033), file("image/jpeg", nil), file("video/mp4", nil)
+	edit := func(inputs ...int64) jobs.New {
+		n := newJob(alice, VideoEdit, 0.15)
+		n.Inputs = inputs
+		return n
+	}
+	for name, tc := range map[string]struct {
+		inputs []int64
+		want   string
+	}{
+		"a clip of 6 s":            {[]int64{long}, "pick 5 s of it"},
+		"a photo":                  {[]int64{photo}, "not a picture"},
+		"a clip of unknown length": {[]int64{unknown}, "not known"},
+	} {
+		_, created, err := h.q.Enqueue(ctx, edit(tc.inputs...))
+		if e := asNotFree(t, err); !strings.Contains(e.Reason, tc.want) || created {
+			t.Errorf("%s: %q, created %v", name, e.Reason, created)
+		}
+	}
+	// A draft is checked as it was stored, and a revision to the free edit
+	// as a new run.
+	open, err := jobs.NewQueue(h.pool, jobs.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _, err := open.Draft(ctx, edit(long))
+	if err != nil {
+		t.Fatal(err)
+	}
+	asNotFree(t, h.q.Generate(ctx, id))
+	paid := edit(long)
+	paid.Free = false
+	id, _, err = open.Draft(ctx, paid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	asNotFree(t, h.q.Revise(ctx, id, edit(long)))
+	// 5 s cut from a longer clip comes out a frame over, and goes.
+	if _, created, err := h.q.Enqueue(ctx, edit(cut)); err != nil || !created {
+		t.Fatalf("a part of 5 s: %v, created %v", err, created)
 	}
 }

@@ -459,6 +459,26 @@ was written from, and the skeleton of the service.
   lacks libx264. The loops and cards are kept in `ANIM_CACHE_DIR` (by default
   `framy-anim` in the system temp directory), outside `WORK_DIR`, which is
   swept every hour.
+- Clips from the site, and videos that go on. `POST /api/videos/uploads`
+  gives a presigned PUT into `incoming/` for one clip of up to 512 MiB, past
+  Cloudflare's 100 MB per request; `POST /api/videos` then takes it, or cuts
+  a part of a clip framy keeps, as a task the client polls at
+  `GET /api/videos/{task}`, since encoding can outlast Cloudflare's 100 s.
+  A clip is only remuxed when it is H.264 yuv420p up to 1920 px, 60 fps and
+  10 Mbit/s with AAC or no sound, and encoded again otherwise; HDR comes to
+  BT.709, a rotated clip comes upright, and its metadata, location included,
+  goes. Its length, frame rate and sound are kept with the file (migration
+  018), for uploads and for the videos providers make, so a run on a clip is
+  checked and priced by what framy read, not by the browser.
+  `POST /api/files/{id}/last-frame` keeps a clip's last frame as a photo, the
+  frame before a fade when the last one is flat. A run names the job it
+  continues with `continues`: framy fills `previous_job_id` or Omni's
+  `previous_interaction_id` from that job, only the person's own finished
+  job on the same model and provider, on their key, and prices the whole
+  clip. A client that sends either setting itself is refused. The free edit
+  on FLUX Video Edit now takes a clip of up to 5 s only, checked from the
+  stored length in the queue's transaction. `/edit` in chat still answers
+  that video is not open there.
 - CI on every push and weekly: modules, gofmt, build, vet, race tests,
   database tests on PostgreSQL 17, govulncheck, the image build, the photo
   and storage tests inside the image, on the ffmpeg it ships, and the local

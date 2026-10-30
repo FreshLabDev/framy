@@ -279,6 +279,9 @@ func (q *Queue) Revise(ctx context.Context, id int64, n New) error {
 			if n.Estimate != nil {
 				a.EstimateUSD = n.Estimate.USD
 			}
+			if a.Videos, err = draftVideos(ctx, tx, id); err != nil {
+				return err
+			}
 			if err := q.cfg.Admit.Admit(ctx, tx, a); err != nil {
 				return err
 			}
@@ -325,7 +328,35 @@ func (q *Queue) admitNew(ctx context.Context, tx pgx.Tx, n New) error {
 	if n.Estimate != nil {
 		a.EstimateUSD = n.Estimate.USD
 	}
+	if len(n.Inputs) > 0 {
+		rows, err := tx.Query(ctx, `
+			SELECT COALESCE(a.seconds, 0)::float8
+			FROM unnest($1::bigint[]) WITH ORDINALITY AS u(id, ord)
+			JOIN asset a ON a.id = u.id AND a.user_id = $2
+			WHERE a.content_type LIKE 'video/%'
+			ORDER BY u.ord`, n.Inputs, n.UserID)
+		if err != nil {
+			return err
+		}
+		if a.Videos, err = pgx.CollectRows(rows, pgx.RowTo[float64]); err != nil {
+			return err
+		}
+	}
 	return q.cfg.Admit.Admit(ctx, tx, a)
+}
+
+// draftVideos is the length of each clip a draft takes, 0 where it is not
+// known.
+func draftVideos(ctx context.Context, tx pgx.Tx, id int64) ([]float64, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT COALESCE(a.seconds, 0)::float8
+		FROM job_input i JOIN asset a ON a.id = i.asset_id
+		WHERE i.job_id = $1 AND a.content_type LIKE 'video/%'
+		ORDER BY i.position`, id)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[float64])
 }
 
 // admitDraft asks the allowance about a free draft about to be queued. The
@@ -351,6 +382,9 @@ func (q *Queue) admitDraft(ctx context.Context, tx pgx.Tx, id int64) error {
 		return err
 	}
 	a.EstimateUSD = deref(estimate)
+	if a.Videos, err = draftVideos(ctx, tx, id); err != nil {
+		return err
+	}
 	return q.cfg.Admit.Admit(ctx, tx, a)
 }
 

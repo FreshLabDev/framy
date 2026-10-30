@@ -52,6 +52,9 @@ type Plan struct {
 	// fixed is every setting of the run, with its value. A job may not set
 	// another, or the same to another value.
 	fixed map[string]any
+	// MaxSourceSeconds is the longest clip the run takes, for an edit; 0 for
+	// a run that takes none.
+	MaxSourceSeconds float64
 	// startFrame: the run's one optional file is the video's first frame. The
 	// job says so with frame_images, since the adapter would otherwise send
 	// the photo as a reference, which OpenRouter prices apart (HeyGen at
@@ -99,12 +102,22 @@ var (
 	// VideoGrok is the cheaper video from another vendor, if HeyGen fails.
 	VideoGrok = startFrameOf(openRouterPlan("x-ai/grok-imagine-video-1.5-lite", catalog.Video, 0, 1, map[string]any{"duration": 5, "resolution": "720p"}))
 	// VideoEdit is the weekly video as an edit of a clip up to 5 s (owner,
-	// 27 October). The clip is the run's one input; its length is the
-	// surface's to check, since the price follows it.
-	VideoEdit = openRouterPlan("black-forest-labs/flux-video-edit", catalog.Video, 1, 1, map[string]any{})
+	// 27 October). The clip is the run's one input, and the price follows
+	// its length.
+	VideoEdit = sourceOf(openRouterPlan("black-forest-labs/flux-video-edit", catalog.Video, 1, 1, map[string]any{}), 5)
 
 	plans = []Plan{ImageMAI, ImageKlein, VideoHeyGen, VideoGrok, VideoEdit}
 )
+
+func sourceOf(p Plan, seconds float64) Plan {
+	p.MaxSourceSeconds = seconds
+	return p
+}
+
+// sourceSlack is how much longer than MaxSourceSeconds a clip may be. A
+// part cut to 5 s comes out up to a frame longer, as the container counts
+// it from the first frame's offset.
+const sourceSlack = 0.1
 
 func startFrameOf(p Plan) Plan {
 	p.startFrame = true
@@ -164,6 +177,20 @@ func (p Plan) check(a jobs.Admission) error {
 	}
 	if a.Inputs < p.MinInputs || a.Inputs > p.MaxInputs {
 		return &NotFreeError{Reason: fmt.Sprintf("%s takes %s on the free allowance, not %d", a.Offer, inputsName(p), a.Inputs)}
+	}
+	if p.MaxSourceSeconds > 0 {
+		if len(a.Videos) != a.Inputs {
+			return &NotFreeError{Reason: fmt.Sprintf("%s edits a clip on the free allowance, not a picture", a.Offer)}
+		}
+		for _, secs := range a.Videos {
+			switch {
+			case secs <= 0:
+				return &NotFreeError{Reason: fmt.Sprintf("the clip's length is not known, and the free edit takes up to %g s", p.MaxSourceSeconds)}
+			case secs > p.MaxSourceSeconds+sourceSlack:
+				return &NotFreeError{Reason: fmt.Sprintf("the free edit takes a clip up to %g s, and this one is %.1f s: pick %g s of it, or run it on your key",
+					p.MaxSourceSeconds, secs, p.MaxSourceSeconds)}
+			}
+		}
 	}
 	set := map[string]any{}
 	for name, v := range a.Settings {

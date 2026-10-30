@@ -156,6 +156,9 @@ type Admission struct {
 	// many of the person's files it takes.
 	Settings map[string]any
 	Inputs   int
+	// Videos is the length of each clip among the files, 0 where it is not
+	// known: the free edit takes a clip up to 5 s.
+	Videos []float64
 	// EstimateUSD is the price shown before the run; zero when there is none.
 	EstimateUSD float64
 }

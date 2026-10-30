@@ -95,6 +95,8 @@ type resultJSON struct {
 	Bytes       int64  `json:"bytes"`
 	Width       int    `json:"width,omitempty"`
 	Height      int    `json:"height,omitempty"`
+	// Seconds is a clip's length; absent for a picture.
+	Seconds float64 `json:"seconds,omitempty"`
 	// URL is a presigned link, for the owner only, good for minutes. Absent
 	// when the file is gone or framy keeps none.
 	URL string `json:"url,omitempty"`
@@ -138,7 +140,8 @@ func (a *API) renderAll(ctx context.Context, userID int64, states []State, lang 
 func filesJSON(files []Result, links map[int64]string) []resultJSON {
 	out := make([]resultJSON, 0, len(files))
 	for _, r := range files {
-		out = append(out, resultJSON{ID: r.ID, ContentType: r.ContentType, Bytes: r.Bytes, Width: r.Width, Height: r.Height, URL: links[r.ID]})
+		out = append(out, resultJSON{ID: r.ID, ContentType: r.ContentType, Bytes: r.Bytes, Width: r.Width, Height: r.Height,
+			Seconds: r.Seconds, URL: links[r.ID]})
 	}
 	return out
 }

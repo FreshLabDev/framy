@@ -129,8 +129,10 @@ func clipInputs(n int, c *Clip) *ClipInputs {
 // go as frames; the rest are references.
 type Count struct {
 	Images, Frames, Videos, Audio int
-	// VideoSecs and AudioSecs are the length of each clip, where known.
-	VideoSecs, AudioSecs []float64
+	// VideoSecs and AudioSecs are the length of each clip, and VideoBytes
+	// and AudioBytes its size, where known.
+	VideoSecs, AudioSecs   []float64
+	VideoBytes, AudioBytes []int64
 }
 
 // Check says what the run's files break of the offer's limits, nil when
@@ -160,13 +162,13 @@ func (in Inputs) Check(kind Kind, c Count) error {
 	case in.Files > 0 && c.Images+c.Videos+c.Audio > in.Files:
 		return fmt.Errorf("at most %d files in all, and %d are attached", in.Files, c.Images+c.Videos+c.Audio)
 	}
-	if err := in.Videos.check("videos", c.Videos, c.VideoSecs); err != nil {
+	if err := in.Videos.check("videos", c.Videos, c.VideoSecs, c.VideoBytes); err != nil {
 		return err
 	}
-	return in.Audio.check("sounds", c.Audio, c.AudioSecs)
+	return in.Audio.check("sounds", c.Audio, c.AudioSecs, c.AudioBytes)
 }
 
-func (l *ClipInputs) check(what string, n int, secs []float64) error {
+func (l *ClipInputs) check(what string, n int, secs []float64, sizes []int64) error {
 	if l == nil {
 		if n > 0 {
 			return fmt.Errorf("no %s", what)
@@ -193,6 +195,11 @@ func (l *ClipInputs) check(what string, n int, secs []float64) error {
 	}
 	if l.TotalSecs > 0 && total > l.TotalSecs {
 		return fmt.Errorf("%s of at most %g s together, and these are %g s", what, l.TotalSecs, total)
+	}
+	for _, b := range sizes {
+		if l.MaxBytes > 0 && b > l.MaxBytes {
+			return fmt.Errorf("%s of at most %.1f MB, and one is %.1f MB", what, float64(l.MaxBytes)/1e6, float64(b)/1e6)
+		}
 	}
 	return nil
 }

@@ -69,6 +69,10 @@ type createRequest struct {
 	// price_changed and the new estimate, and waits for another press. A
 	// lower price runs as it is. Absent: no check.
 	ShownUSD *float64 `json:"shown_usd"`
+	// Continues is the id of a finished job of the person's whose video this
+	// run continues, on the model that made it, where the catalog says the
+	// model continues one (continue in its traits). 0 for none.
+	Continues int64 `json:"continues"`
 }
 
 // create answers POST /api/jobs: 202 with the job at once. The run happens
@@ -135,6 +139,15 @@ func (a *API) create(w http.ResponseWriter, r *http.Request) {
 		aerr.write(w)
 		return
 	}
+	var source *InputAsset
+	if req.Continues != 0 {
+		c, aerr := a.continuation(r, user, req.Continues, m, offer, isFree)
+		if aerr != nil {
+			aerr.write(w)
+			return
+		}
+		settings[c.setting], source = c.providerJobID, &c.video
+	}
 	inputs, err := a.data.Inputs(ctx, user, req.Inputs)
 	if err != nil {
 		a.internal(w, r, err)
@@ -142,6 +155,10 @@ func (a *API) create(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(inputs) != len(req.Inputs) {
 		newError(http.StatusUnprocessableEntity, codeUnknownInput, "an input is not one of your files").write(w)
+		return
+	}
+	if aerr := checkLengths(inputs); aerr != nil {
+		aerr.write(w)
 		return
 	}
 	files := countOf(settings, inputs, nil)
@@ -155,7 +172,7 @@ func (a *API) create(w http.ResponseWriter, r *http.Request) {
 		fillDefaults(settings, offer, shapeOf(assetSizes(inputs)...))
 	}
 
-	estimate := price.Of(m, offer, priceRequest(m, req.Prompt, settings, inputs))
+	estimate := price.Of(m, offer, priceRequest(m, req.Prompt, settings, inputs, source))
 	lang := a.language(ctx, r, user)
 	quote, err := a.quote(r, user, lang)
 	if err != nil {
@@ -366,21 +383,41 @@ func (a *API) quote(r *http.Request, user int64, lang string) (fx.Quote, error) 
 
 // priceRequest is the estimate's input. The first pictures are frames, as
 // many as frame_images names, and the rest references, as the adapter sends
-// them.
-func priceRequest(m catalog.Model, prompt string, settings map[string]any, inputs []InputAsset) price.Request {
+// them. The source video is the one the run continues, or else the first
+// clip it takes.
+func priceRequest(m catalog.Model, prompt string, settings map[string]any, inputs []InputAsset, continues *InputAsset) price.Request {
 	req := price.Request{Settings: settings, Prompt: prompt}
+	if continues != nil {
+		req.Video = &price.Video{Seconds: continues.Seconds, Width: continues.Width, Height: continues.Height}
+	}
 	frames := frameCount(settings)
 	for _, in := range inputs {
-		if !strings.HasPrefix(in.ContentType, "image/") {
-			continue
-		}
-		if req.Frames < frames {
+		switch {
+		case strings.HasPrefix(in.ContentType, "video/"):
+			if req.Video == nil {
+				req.Video = &price.Video{Seconds: in.Seconds, Width: in.Width, Height: in.Height}
+			}
+		case !strings.HasPrefix(in.ContentType, "image/"):
+		case req.Frames < frames:
 			req.Frames++
-		} else {
+		default:
 			req.Images = append(req.Images, price.Image{Width: in.Width, Height: in.Height})
 		}
 	}
 	return req
+}
+
+// checkLengths refuses a kept clip whose length framy does not know: its
+// limits cannot be checked, nor its price. Every clip kept since framy read
+// lengths has one; an older one gets one by being cut (POST /api/videos).
+func checkLengths(inputs []InputAsset) *apiError {
+	for i, in := range inputs {
+		if strings.HasPrefix(in.ContentType, "video/") && in.Seconds <= 0 {
+			return newError(http.StatusUnprocessableEntity, codeWrongInputs,
+				fmt.Sprintf("the length of input %d is not known; cut it to the part to use first", i+1)).with("input", in.ID)
+		}
+	}
+	return nil
 }
 
 // frameCount is how many frame types the frame_images setting names.
@@ -423,23 +460,25 @@ func fillFrames(settings map[string]any, m catalog.Model, offer catalog.Offer, i
 // the browser. Frames is left to the caller.
 func countOf(settings map[string]any, inputs []InputAsset, files []fileMeta) catalog.Count {
 	var c catalog.Count
-	add := func(contentType string, seconds float64) {
+	add := func(contentType string, seconds float64, bytes int64) {
 		switch kind, _, _ := strings.Cut(contentType, "/"); kind {
 		case "image":
 			c.Images++
 		case "video":
 			c.Videos++
 			c.VideoSecs = append(c.VideoSecs, seconds)
+			c.VideoBytes = append(c.VideoBytes, bytes)
 		case "audio":
 			c.Audio++
 			c.AudioSecs = append(c.AudioSecs, seconds)
+			c.AudioBytes = append(c.AudioBytes, bytes)
 		}
 	}
 	for _, in := range inputs {
-		add(in.ContentType, 0)
+		add(in.ContentType, in.Seconds, in.Bytes)
 	}
 	for _, f := range files {
-		add(f.ContentType, f.Seconds)
+		add(f.ContentType, f.Seconds, f.Bytes)
 	}
 	c.Frames = frameCount(settings)
 	return c
@@ -479,6 +518,8 @@ func decode(r *http.Request) (createRequest, *apiError) {
 		return req, badRequest("surface", `surface must be "site" or "mini_app"`)
 	case req.ShownUSD != nil && (math.IsNaN(*req.ShownUSD) || *req.ShownUSD < 0):
 		return req, badRequest("shown_usd", "shown_usd is the price shown, in dollars")
+	case req.Continues < 0:
+		return req, badRequest("continues", "continues is the id of a job of yours")
 	}
 	if e := checkRun("", req.Prompt, req.Settings, req.Inputs); e != nil {
 		return req, e
@@ -510,6 +551,11 @@ func checkRun(prefix, prompt string, settings map[string]any, inputs []int64) *a
 	for name, v := range settings {
 		if name == "" || len(name) > maxSetting || !utf8.ValidString(name) || strings.ContainsRune(name, 0) {
 			return badRequest(prefix+"settings", "a setting has no usable name")
+		}
+		if continuationSetting[name] {
+			// framy fills it from a job of the person's own, so nobody can
+			// point a run at another person's video at the provider.
+			return badRequest(prefix+"settings."+name, "say which job of yours the run continues with continues")
 		}
 		switch v := v.(type) {
 		case nil, bool, float64:

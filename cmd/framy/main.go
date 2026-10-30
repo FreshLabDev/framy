@@ -260,11 +260,12 @@ func run(log *slog.Logger) error {
 	var uploads api.Uploads
 	var links api.Links
 	var kept api.Files
+	var clips api.Videos
 	if files != nil {
-		uploads, links, kept = files, files, files
+		uploads, links, kept, clips = files, files, files, files
 	}
 	jobAPI, err := api.New(api.Config{
-		Pool: store.Pool(), Queue: queue, Store: store, Uploads: uploads, Links: links, Files: kept, Keys: people,
+		Pool: store.Pool(), Queue: queue, Store: store, Uploads: uploads, Links: links, Files: kept, Videos: clips, Keys: people,
 		Allowance: allowance, Person: signIn.Person, Log: log.With("component", "api"),
 		Revoke: func(ctx context.Context, userID int64) error {
 			_, err := signIn.RevokeAll(ctx, userID)
@@ -447,6 +448,9 @@ func openStorage(ctx context.Context, cfg config.Config, store *db.Store, client
 	conv := &media.Converter{FFmpeg: cfg.FFmpeg, FFprobe: cfg.FFprobe}
 	if err := conv.Check(ctx); err != nil {
 		return nil, work, fmt.Errorf("ffmpeg cannot normalize photos: %w", err)
+	}
+	if err := conv.CheckVideo(ctx); err != nil {
+		return nil, work, fmt.Errorf("ffmpeg cannot encode clips: %w", err)
 	}
 	var notify func(context.Context, string) error
 	if cfg.OperatorChatID != 0 {
