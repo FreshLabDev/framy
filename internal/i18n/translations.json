@@ -5237,24 +5237,6 @@
     "ja": "{provider} が料金を請求した可能性があります。{provider} の利用履歴で確認できます。",
     "ar": "قد يكون {provider} قد خصم مبلغًا مقابل ذلك: يظهر ذلك في سجل مصروفاتك لدى {provider}."
   },
-  "web.fail.moderation": {
-    "en": "The model refused: the prompt did not pass its rules.",
-    "ru": "Модель отказалась: запрос не прошёл её правила.",
-    "uk": "Модель відмовилась: запит не відповідає її правилам.",
-    "es": "El modelo se negó: el prompt no cumplía sus reglas.",
-    "fr": "Le modèle a refusé : le prompt ne respecte pas ses règles.",
-    "de": "Das Modell hat abgelehnt: Der Prompt entspricht nicht seinen Regeln.",
-    "it": "Il modello ha rifiutato: il prompt non rispetta le sue regole.",
-    "pl": "Model odmówił: zapytanie nie spełnia jego zasad.",
-    "cs": "Model odmítl: zadání nevyhovuje jeho pravidlům.",
-    "tr": "Model reddetti: istem kurallarına uymadı.",
-    "sv": "Modellen vägrade: prompten uppfyller inte dess regler.",
-    "be": "Мадэль адмовілася: запыт не адпавядае яе правілам.",
-    "ca": "El model ha refusat: el prompt no ha superat les seves regles.",
-    "zh": "模型拒绝了：提示词没有通过它的规则。",
-    "ja": "モデルが拒否しました。プロンプトがモデルのルールを通りませんでした。",
-    "ar": "رفض النموذج: لم يجتز الطلب قواعده."
-  },
   "web.fail.moderation_l": {
     "en": "Refused by the rules",
     "ru": "Отказ по правилам",
@@ -5272,24 +5254,6 @@
     "zh": "因规则被拒绝",
     "ja": "ルールにより拒否",
     "ar": "رُفض بسبب القواعد"
-  },
-  "web.fail.money": {
-    "en": "The {provider} key ran out of money or hit its limit.",
-    "ru": "На ключе {provider} кончились деньги или упёрся лимит.",
-    "uk": "На ключі {provider} закінчилися кошти або вичерпано ліміт.",
-    "es": "La clave de {provider} se ha quedado sin saldo o ha llegado a su límite.",
-    "fr": "La clé {provider} n’a plus de fonds ou a atteint sa limite.",
-    "de": "Auf dem {provider}-Schlüssel ist kein Guthaben mehr, oder das Limit ist erreicht.",
-    "it": "La chiave {provider} ha finito i fondi o ha raggiunto il limite.",
-    "pl": "Na kluczu {provider} skończyły się środki albo osiągnięto limit.",
-    "cs": "Na klíči {provider} došel kredit nebo byl dosažen limit.",
-    "tr": "{provider} anahtarının bakiyesi bitti veya limitine ulaştı.",
-    "sv": "{provider}-nyckeln har slut på kredit eller har nått sin gräns.",
-    "be": "На ключы {provider} скончыліся сродкі або вычарпаны ліміт.",
-    "ca": "La clau de {provider} s’ha quedat sense saldo o ha arribat al límit.",
-    "zh": "{provider} 密钥的余额用完了，或已达到上限。",
-    "ja": "{provider} のキーの残高がなくなったか、上限に達しました。",
-    "ar": "نفد رصيد مفتاح {provider} أو بلغ حدّه."
   },
   "web.fail.money_l": {
     "en": "No money on the key",
@@ -5327,24 +5291,6 @@
     "ja": "framy は現在 {provider} のモデルを実行できません。",
     "ar": "لا يستطيع framy تشغيل نماذج {provider} الآن."
   },
-  "web.fail.no_answer": {
-    "en": "{provider} did not answer five times in a row.",
-    "ru": "{provider} не ответил пять раз подряд.",
-    "uk": "{provider} не відповів п’ять разів поспіль.",
-    "es": "{provider} no ha respondido cinco veces seguidas.",
-    "fr": "{provider} n’a pas répondu cinq fois de suite.",
-    "de": "{provider} hat fünfmal hintereinander nicht geantwortet.",
-    "it": "{provider} non ha risposto per cinque volte di fila.",
-    "pl": "{provider} nie odpowiedział pięć razy z rzędu.",
-    "cs": "{provider} pětkrát po sobě neodpověděl.",
-    "tr": "{provider} art arda beş kez yanıt vermedi.",
-    "sv": "{provider} svarade inte fem gånger i rad.",
-    "be": "{provider} не адказаў пяць разоў запар.",
-    "ca": "{provider} no ha respost cinc vegades seguides.",
-    "zh": "{provider} 连续五次没有响应。",
-    "ja": "{provider} から 5 回続けて応答がありませんでした。",
-    "ar": "لم يردّ {provider} خمس مرات متتالية."
-  },
   "web.fail.no_answer_l": {
     "en": "No answer",
     "ru": "Провайдер не ответил",
@@ -5380,24 +5326,6 @@
     "zh": "没有扣费。",
     "ja": "料金は請求されていません。",
     "ar": "لم يُخصم أي مبلغ."
-  },
-  "web.fail.provider": {
-    "en": "{provider} failed, and there is no result.",
-    "ru": "Сбой у {provider}, результата нет.",
-    "uk": "Збій у {provider}, результату немає.",
-    "es": "{provider} ha fallado y no hay resultado.",
-    "fr": "{provider} a rencontré une erreur, et il n’y a pas de résultat.",
-    "de": "Bei {provider} ist ein Fehler aufgetreten, es gibt kein Ergebnis.",
-    "it": "{provider} ha avuto un errore e non c’è nessun risultato.",
-    "pl": "Awaria po stronie {provider}, brak wyniku.",
-    "cs": "U {provider} došlo k chybě, výsledek není.",
-    "tr": "{provider} tarafında bir hata oluştu, sonuç yok.",
-    "sv": "Fel hos {provider}, det finns inget resultat.",
-    "be": "Збой у {provider}, выніку няма.",
-    "ca": "{provider} ha fallat i no hi ha resultat.",
-    "zh": "{provider} 出错了，没有生成结果。",
-    "ja": "{provider} 側で障害が起き、結果はありません。",
-    "ar": "حدث عطل لدى {provider} ولا توجد نتيجة."
   },
   "web.fail.provider_l": {
     "en": "Provider failure",
@@ -5524,24 +5452,6 @@
     "zh": "视频已生成，但 framy 没能保存。",
     "ja": "動画はできましたが、framy が保存できませんでした。",
     "ar": "اكتمل الفيديو، لكن framy لم يستطع حفظه."
-  },
-  "web.fail.timeout": {
-    "en": "The model did not finish within an hour, and there is no result.",
-    "ru": "Модель не закончила за час, результата нет.",
-    "uk": "Модель не завершила за годину, результату немає.",
-    "es": "El modelo no terminó en una hora y no hay resultado.",
-    "fr": "Le modèle n’a pas terminé en une heure, et il n’y a pas de résultat.",
-    "de": "Das Modell wurde innerhalb einer Stunde nicht fertig, es gibt kein Ergebnis.",
-    "it": "Il modello non ha finito entro un’ora e non c’è nessun risultato.",
-    "pl": "Model nie skończył w ciągu godziny, wyniku nie ma.",
-    "cs": "Model za hodinu nedokončil, výsledek není.",
-    "tr": "Model bir saat içinde bitiremedi, sonuç yok.",
-    "sv": "Modellen blev inte klar inom en timme, och det finns inget resultat.",
-    "be": "Мадэль не скончыла за гадзіну, выніку няма.",
-    "ca": "El model no ha acabat en una hora i no hi ha resultat.",
-    "zh": "模型一小时内没有完成，没有结果。",
-    "ja": "モデルが 1 時間以内に完了せず、結果はありません。",
-    "ar": "لم ينتهِ النموذج خلال ساعة ولا توجد نتيجة."
   },
   "web.fail.timeout_l": {
     "en": "Over an hour",

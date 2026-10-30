@@ -75,14 +75,13 @@ const live = (text, cls = "") => { const el = h("small", { class: ("tk " + cls).
 
 // What the stage says about run: the frame's status, the reason under it and the buttons.
 function view(run) {
-  const m = C.byId[run.model], j = run.job, kind = run.kind;
-  const name = m ? vname(m) : "";
+  const j = run.job, kind = run.kind;
   // ht is the figure of the halftone in the frame (halftone.js).
   const spin = (label, sub, ht) => ({ status: h("div", { class: "c run" }, h("b", {}, label), sub), ht });
   const stop = h("button", { type: "button", onclick: () => cancel(run) }, ic("stop"), t("act.cancel"));
   if (run.phase === "prep") {
     const s = run.step;
-    return { ...spin(t("stage.starting"), s ? live(s.text) : h("small", {}, name), s?.fig ? { fig: s.fig, until: s.until, prog: s.prog } : { fig: "start" }), acts: run.sending ? [] : [stop] };
+    return { ...spin(t("stage.starting"), s ? live(s.text) : null, s?.fig ? { fig: s.fig, until: s.until, prog: s.prog } : { fig: "start" }), acts: run.sending ? [] : [stop] };
   }
   if (run.phase === "refused") {
     const w = run.why;
@@ -95,10 +94,10 @@ function view(run) {
   if (st === "queued") {
     const w = waiting(j);
     if (w) return { ...spin(t("stage.retry"), live(() => w.line(left(w.at))), { fig: "wait", until: w.at }), acts: [stop] };
-    return { ...spin(t("stage.queued"), h("small", {}, name), { fig: "queue" }), acts: [stop] };
+    return { ...spin(t("stage.queued"), null, { fig: "queue" }), acts: [stop] };
   }
   if (st === "running") {
-    return { ...spin(t("stage.running"), h("small", {}, name), { fig: "loop" }), acts: [h("span", { class: "busy" }, ic("info"), t(kind === "video" ? "cancel.running_video" : "cancel.running"))] };
+    return { ...spin(t("stage.running"), null, { fig: "loop" }), acts: [h("span", { class: "busy" }, ic("info"), t(kind === "video" ? "cancel.running_video" : "cancel.running"))] };
   }
   const res = j.results?.[0];
   if (st === "done" && res) return { done: true, res, acts: doneActs(run, j, res) };
@@ -173,7 +172,10 @@ function renderRun(st, run) {
   }
   // While the page cannot reach framy, the frame says so; it hears again by itself.
   const going = run.phase === "job" && !isFinal(j.status);
-  if (going && run.net === "lost" && v.status) v.status.querySelector("small")?.replaceWith(h("small", { class: "lost" }, t("net.lost_line")));
+  if (going && run.net === "lost" && v.status) {
+    const lost = h("small", { class: "lost" }, t("net.lost_line")), sub = v.status.querySelector("small");
+    if (sub) sub.replaceWith(lost); else v.status.append(lost);
+  }
   const box = h("div", { class: "jbox" + (v.done ? " done" : "") + (v.fail ? " failed" : ""), "data-k": "pv", style: { width: b.w + "px", height: b.h + "px" } },
     v.done ? media : [h("i"), h("i"), h("i"), h("i")], v.status || null);
   box._r = r; box._under = v.fail ? 150 : 70;
@@ -183,16 +185,24 @@ function renderRun(st, run) {
   const cost = j?.cost?.label ? j.cost.label : j?.free || (run.pay === "free" && !v.fail) ? t("bar.free") : run.shownLabel && !v.fail ? run.shownLabel : "";
   const line = h("p", { class: "jline", "data-k": "j-line" }, [m ? vname(m) : "", cost].filter(Boolean).join(" · "),
     going && run.net === "poll" ? h("span", { class: "jtag", title: t("net.poll_tip") }, t("net.poll")) : null);
-  const why = v.why?.filter(Boolean).length || v.msg
-    ? h("div", { class: "jwhy", "data-k": "j-why" }, v.why.filter(Boolean).map((x) => h("p", {}, x)),
+  const [text, note] = v.why || [];
+  const why = text || note || v.msg
+    ? h("div", { class: "jwhy", "data-k": "j-why" }, text || note ? h("p", {}, text, text && note ? " " : "", note ? h("span", { class: "note" }, note) : null) : null,
         v.msg ? h("p", { class: "said" }, ic("info"), h("span", {}, t("fail.said", { provider: PNAME[v.provider] || PNAME[run.pay] || "", text: v.msg }))) : null)
     : null;
-  const prompt = run.prompt ? h("p", { class: "jprompt", "data-k": "j-prompt" }, h("span", { class: "tx" }, run.prompt),
+  const prompt = run.prompt ? h("p", { class: "jprompt", "data-k": "j-prompt", hidden: samePrompt(run) }, h("span", { class: "tx" }, run.prompt),
     h("button", { type: "button", class: "cp", "aria-label": t("act.copy"), title: t("act.copy"), onclick: () => copyPrompt(run.prompt) }, ic("copy"))) : null;
   const acts = h("div", { class: "jacts acts", "data-k": "j-acts" }, v.acts.filter(Boolean),
     runOver(run) ? h("button", { type: "button", class: "sq", "aria-label": t("stage.next"), title: t("stage.next"), onclick: () => drop() }, ic("plus"), h("span", { class: "t" }, t("stage.next"))) : null);
   st.replaceChildren(h("div", { class: "preview", "data-k": "pvbox" }, box), h("div", { class: "jfoot", "data-k": "j-foot" }, line, why, acts, prompt));
 }
+
+// The composer holds the run's prompt still: the stage does not say it twice.
+const samePrompt = (run) => ($("#prompt")?.value || "").trim() === (run.prompt || "").trim();
+addEventListener("input", (e) => {
+  const p = e.target?.id === "prompt" && S.run && $("#stage .jprompt");
+  if (p) p.hidden = samePrompt(S.run);
+});
 
 // Download saves the original. res.download is a link that asks for an
 // attachment, which a browser saves where it is and Telegram's downloadFile

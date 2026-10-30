@@ -20,8 +20,9 @@ export const BILLING = {
 
 export const providerOf = (j) => (j.free ? "openrouter" : String(j.offer || "").split(":")[0]);
 
-// failure says why job j failed: label (on the frame), text, note (the money)
-// and msg (the provider's reason), and acts, the buttons that fit.
+// failure says why job j failed: label (on the frame), text (only where the
+// label does not say it all), note (the money) and msg (the provider's
+// reason), and acts, the buttons that fit.
 export function failure(j) {
   const cls = j.error?.class || "", p = providerOf(j), P = PNAME[p] || p, free = j.free, vid = j.kind === "video";
   const back = t(free ? "fail.free_back" : "fail.nothing");
@@ -32,17 +33,17 @@ export function failure(j) {
   const again = ["retry", "edit"];
   if (j.status === "cancelled") return { cls: "cancelled", label: t("stage.cancelled"), text: "", note: back, acts: again };
   switch (cls) {
-    case "moderation": return { cls, label: t("fail.moderation_l"), text: t("fail.moderation"), note: t(free ? "fail.free_spent" : "fail.nothing"), msg, acts: ["edit"] };
+    case "moderation": return { cls, label: t("fail.moderation_l"), text: "", note: t(free ? "fail.free_spent" : "fail.nothing"), msg, acts: ["edit"] };
     case "money": return free
       ? { cls, label: t("fail.free_closed_l"), text: t("fail.free_money"), note: t("fail.free_kept"), acts: ["bykey"], closeFree: 15 * 60e3 }
-      : { cls, label: t("fail.money_l"), text: t("fail.money", { provider: P }), note: t("fail.nothing"), acts: ["topup"], provider: p };
+      : { cls, label: t("fail.money_l"), text: "", note: t("fail.nothing"), acts: ["topup"], provider: p };
     case "key": return free
       ? { cls, label: t("fail.free_off_l"), text: t("fail.free_key"), note: t("fail.free_kept"), acts: ["bykey"] }
       : { cls, label: t("fail.key_l"), text: t("fail.key", { provider: P }), note: t("fail.nothing"), acts: [], keyGone: true };
     case "refused": return { cls, label: t("fail.refused_l"), text: t("fail.refused", { provider: P }), note: back, msg, acts: ["edit"] };
-    case "rate_limited": case "unavailable": return { cls, label: t("fail.no_answer_l"), text: t("fail.no_answer", { provider: P }), note: back + " " + t("fail.later"), acts: again };
-    case "timeout": return { cls, label: t("fail.timeout_l"), text: t("fail.timeout"), note: may, acts: again };
-    case "provider": return { cls, label: t("fail.provider_l"), text: t("fail.provider", { provider: P }), note: may, msg, acts: again };
+    case "rate_limited": case "unavailable": return { cls, label: t("fail.no_answer_l"), text: "", note: back + " " + t("fail.later"), acts: again };
+    case "timeout": return { cls, label: t("fail.timeout_l"), text: "", note: may, acts: again };
+    case "provider": return { cls, label: t("fail.provider_l"), text: "", note: may, msg, acts: again };
     case "interrupted": return { cls, label: t("fail.interrupted_l"), text: t("fail.interrupted"), note: may, acts: again };
     case "storage": return { cls, label: t("fail.storage_l"), text: t(vid ? "fail.storage_video" : "fail.storage"), note: t(free ? "fail.free_back" : "fail.charged"), acts: again };
     case "no_adapter": return { cls, label: t("stage.failed"), text: t("fail.no_adapter", { provider: P }), note: back, acts: ["edit"] };

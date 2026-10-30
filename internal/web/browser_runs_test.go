@@ -305,14 +305,14 @@ func TestBrowserRuns(t *testing.T) {
 		said              bool
 	}
 	for cls, w := range map[string]want{
-		"moderation":   {"Refused by the rules", "did not pass its rules", "Edit the prompt", true},
-		"money":        {"No money on the key", "ran out of money", "Top up OpenRouter", false},
+		"moderation":   {"Refused by the rules", "Nothing was charged.", "Edit the prompt", true},
+		"money":        {"No money on the key", "Nothing was charged.", "Top up OpenRouter", false},
 		"key":          {"The key does not work", "no longer accepts the key", "Edit the prompt", false},
 		"refused":      {"Not accepted", "did not accept the request", "Edit the prompt", true},
-		"rate_limited": {"No answer", "five times in a row", "Try again", false},
-		"unavailable":  {"No answer", "five times in a row", "Try again", false},
+		"rate_limited": {"No answer", "Try again in a few minutes", "Try again", false},
+		"unavailable":  {"No answer", "Try again in a few minutes", "Try again", false},
 		"timeout":      {"Over an hour", "may have charged up to $0.040", "Try again", false},
-		"provider":     {"Provider failure", "OpenRouter failed", "Try again", true},
+		"provider":     {"Provider failure", "may have charged up to $0.040", "Try again", true},
 		"interrupted":  {"Run interrupted", "was not sent again", "Try again", false},
 		"storage":      {"Not saved", "The provider charged for it", "Try again", false},
 		"no_adapter":   {"Did not work", "cannot run OpenRouter models", "Edit the prompt", false},
@@ -353,7 +353,8 @@ func TestBrowserRuns(t *testing.T) {
 
 	// A job already running cannot be stopped, and the stage says so instead of a Cancel.
 	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+`return await press("running", (s) => s.label === "Making it");`)
-	if acts := fmt.Sprint(s["acts"]); !strings.Contains(acts, "being made already") || strings.Contains(acts, "Cancel") || s["dots"] != true {
+	if acts := fmt.Sprint(s["acts"]); !strings.Contains(acts, "being made already") || strings.Contains(acts, "Cancel") || s["dots"] != true ||
+		s["sub"] != "" || !strings.HasPrefix(s["line"].(string), "MAI-Image") {
 		t.Errorf("running: %v", s)
 	}
 
@@ -386,12 +387,15 @@ func TestBrowserRuns(t *testing.T) {
 	const revealing = stage().dots;
 	for (let i = 0; i < 40 && stage().dots; i++) await wait(100);
 	s.revealing = revealing; s.settled = !stage().dots && stage().done;
+	s.twice = !document.querySelector("#stage .jprompt").hidden;
 	document.querySelector("#prompt").value = "";
+	document.querySelector("#prompt").dispatchEvent(new Event("input", { bubbles: true }));
+	s.once = !document.querySelector("#stage .jprompt").hidden;
 	[...document.querySelectorAll("#stage .jacts > button")].find((b) => b.textContent.trim() === "Edit the prompt").click();
 	await wait(600);
 	return { ...s, prompt: document.querySelector("#prompt").value, ghost: !!document.querySelector("#stage .ghost") };`)
 	if acts := fmt.Sprint(s["acts"]); s["done"] != true || !strings.HasPrefix(acts, "[Download Again Edit the prompt") || s["prompt"] != "done" || s["ghost"] != true ||
-		s["revealing"] != true || s["settled"] != true {
+		s["revealing"] != true || s["settled"] != true || s["twice"] != false || s["once"] != true {
 		t.Errorf("result: %v", s)
 	}
 	noErrors(t, ctx)
