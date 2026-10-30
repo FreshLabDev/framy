@@ -511,6 +511,19 @@ was written from, and the skeleton of the service.
   `/edit` and an album with words to `/img`; a photo or a clip without words
   gets a line on what to send. A reply to framy's preview takes none of its
   pictures, a reply to a result takes the result.
+- A video result in chat opens on a cover: the frame its preview card shows,
+  the first that is not one colour, sent as a JPEG beside the video, so every
+  client shows the same picture before it plays. A frame Telegram would not
+  take as a photo, or a cover it refuses, leaves the video without one rather
+  than holding it back.
+- Results made on the site arrive in the person's DM when the bot may write
+  there: the person allowed it at sign-in (`telegram:bot_access`) or pressed
+  `/start`. framy checks with a chat action before any upload, so a person
+  who allowed neither costs one call and gets nothing. An image comes with
+  Animate and works as any result in the DM, several pictures come as one
+  album, and a video with its cover. Each result goes at most once, a
+  restart included (migration 020), and one that ended over an hour ago is
+  not sent.
 - CI on every push and weekly: modules, gofmt, build, vet, race tests,
   database tests on PostgreSQL 17, govulncheck, the image build, the photo
   and storage tests inside the image, on the ffmpeg it ships, and the local

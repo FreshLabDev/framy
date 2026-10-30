@@ -18,8 +18,8 @@ import (
 	"github.com/FreshLabDev/framy/internal/storage"
 )
 
-// image is the result of the image runs below.
-var image = storage.Asset{ID: 50, UserID: 7, Kind: "result", ContentType: "image/png", Bytes: 1 << 20, Width: 1024, Height: 1024}
+// picture is the result of the image runs below.
+var picture = storage.Asset{ID: 50, UserID: 7, Kind: "result", ContentType: "image/png", Bytes: 1 << 20, Width: 1024, Height: 1024}
 
 // delivered makes the run's result go out as a reply, and returns the
 // message it went out in.
@@ -53,7 +53,7 @@ func animateHarness(t *testing.T) (*harness, int64, int64) {
 	h := newHarness(t)
 	withHeyGen(h)
 	id := h.generating(t)
-	return h, id, h.delivered(t, id, image)
+	return h, id, h.delivered(t, id, picture)
 }
 
 // In a group the preview goes to the requester alone, which the press lets
@@ -69,7 +69,7 @@ func TestAnimateMakesAVideoOfTheImage(t *testing.T) {
 	job := h.store.jobs[2]
 	want := map[string]any{"duration": 5, "resolution": "768p", "frame_images": []string{"first_frame"}}
 	if job == nil || !job.n.Free || job.n.Offer.ID != free.VideoHeyGen.Offer || !reflect.DeepEqual(job.n.Settings, want) ||
-		!reflect.DeepEqual(job.n.Inputs, []int64{image.ID}) || job.n.Prompt != "a fox" || job.n.DedupeKey != "tg:cb:cq-1" ||
+		!reflect.DeepEqual(job.n.Inputs, []int64{picture.ID}) || job.n.Prompt != "a fox" || job.n.DedupeKey != "tg:cb:cq-1" ||
 		job.n.Estimate == nil || job.n.Estimate.USD <= 0 {
 		t.Fatalf("job = %+v", job)
 	}
@@ -183,7 +183,7 @@ func TestAnimateInADirectChat(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.tg.reset()
-	result := h.delivered(t, 1, image)
+	result := h.delivered(t, 1, picture)
 	if err := h.animate(1, 7, dm, "cq-1"); err != nil {
 		t.Fatal(err)
 	}

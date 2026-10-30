@@ -46,6 +46,7 @@ type Telegram interface {
 	SendAnimation(ctx context.Context, chatID int64, animation tg.InputFile, opts tg.AnimationOptions) (tg.Message, error)
 	SendDocument(ctx context.Context, chatID int64, document tg.InputFile, opts tg.DocumentOptions) (tg.Message, error)
 	SendVideo(ctx context.Context, chatID int64, video tg.InputFile, opts tg.VideoOptions) (tg.Message, error)
+	SendMediaGroup(ctx context.Context, chatID int64, media []tg.InputMedia, threadID int) ([]tg.Message, error)
 	EditMessageMediaMessage(ctx context.Context, chatID, messageID int64, media tg.InputMedia, markup *tg.InlineKeyboardMarkup) (tg.Message, error)
 	EditMessageCaption(ctx context.Context, chatID, messageID int64, caption string, opts tg.EditCaptionOptions) (tg.Message, error)
 	EditMessageReplyMarkup(ctx context.Context, chatID, messageID int64, markup *tg.InlineKeyboardMarkup) error
@@ -79,6 +80,11 @@ type Store interface {
 	ResultRun(ctx context.Context, chatID, messageID int64) (int64, bool, error)
 	StopChatRun(ctx context.Context, jobID int64) (bool, error)
 	FinishChatRun(ctx context.Context, jobID int64, stage string, res db.ChatResult) (bool, error)
+	SiteResults(ctx context.Context, since time.Time, limit int) ([]db.SiteResult, error)
+	ClaimSiteResult(ctx context.Context, jobID int64) (bool, error)
+	ReleaseSiteResult(ctx context.Context, jobID int64) error
+	EndSiteResult(ctx context.Context, jobID int64, state string) error
+	SentSiteResult(ctx context.Context, run db.ChatRun, res db.ChatResult) error
 }
 
 // Queue makes and works the jobs: *jobs.Queue.
@@ -153,7 +159,8 @@ type Config struct {
 	MaxVideo int64
 }
 
-// Flow runs /img and /edit in chats, and a plain message in a DM.
+// Flow runs /img and /edit in chats, and a plain message in a DM, and sends
+// the results made on the site to the DM.
 type Flow struct {
 	cfg    Config
 	log    *slog.Logger

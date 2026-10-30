@@ -3,8 +3,11 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"html"
+	"image/jpeg"
+	"image/png"
 	"io"
 	"math"
 	"os"
@@ -58,8 +61,12 @@ func (f *Flow) ticker(jobID int64) *ticker {
 
 // Run follows the open runs until ctx ends: the progress of a running job,
 // and its result or error once it ends. It draws the generating loop first,
-// so the first Generate does not wait for it.
+// so the first Generate does not wait for it. Beside them it sends the
+// results made on the site to the DMs.
 func (f *Flow) Run(ctx context.Context) {
+	var site sync.WaitGroup
+	site.Go(func() { f.runSite(ctx) })
+	defer site.Wait()
 	if _, err := f.cfg.Renderer.Generating(ctx); err != nil && ctx.Err() == nil {
 		f.log.Warn("generating loop not drawn ahead", "error", err)
 	}
@@ -211,12 +218,7 @@ func (f *Flow) sendImage(ctx context.Context, run db.ChatRun, a storage.Asset, c
 		f.log.Warn("result not put in place; replying", "job", run.JobID, "error", err)
 	}
 	opts := tg.CaptionOptions{ThreadID: run.ThreadID, ReplyTo: run.CommandMessageID, Caption: caption, Markup: kb}
-	msg, err := f.withResult(ctx, a, func(file tg.InputFile) (tg.Message, error) {
-		if asPhoto {
-			return f.cfg.Telegram.SendPhoto(ctx, run.ChatID, file, opts)
-		}
-		return f.cfg.Telegram.SendDocument(ctx, run.ChatID, file, tg.DocumentOptions{CaptionOptions: opts})
-	})
+	msg, err := f.postImage(ctx, run.ChatID, a, opts)
 	if err != nil {
 		return tg.Message{}, err
 	}
@@ -224,13 +226,37 @@ func (f *Flow) sendImage(ctx context.Context, run db.ChatRun, a storage.Asset, c
 	return msg, nil
 }
 
+// postImage sends a picture to the chat as a new message: a photo, or a
+// document when Telegram would not take it as one.
+func (f *Flow) postImage(ctx context.Context, chatID int64, a storage.Asset, opts tg.CaptionOptions) (tg.Message, error) {
+	return f.withResult(ctx, a, func(file tg.InputFile) (tg.Message, error) {
+		if photoFits(a) {
+			return f.cfg.Telegram.SendPhoto(ctx, chatID, file, opts)
+		}
+		return f.cfg.Telegram.SendDocument(ctx, chatID, file, tg.DocumentOptions{CaptionOptions: opts})
+	})
+}
+
 // sendVideo puts a video in the chat as one Telegram plays while it loads:
 // always as a reply to the command, which notifies, since a video takes
 // longer than an in-place result is waited for, and the loop goes. The
 // result goes through the clip pipeline first, which moves the index to the
 // front and copies the streams when they are fit; a result the pipeline
-// cannot read goes as it came.
+// cannot read goes as it came. Its cover is the frame the result card would
+// show, so every client opens on the same picture.
 func (f *Flow) sendVideo(ctx context.Context, run db.ChatRun, a storage.Asset, caption string) (tg.Message, error) {
+	opts := tg.CaptionOptions{ThreadID: run.ThreadID, ReplyTo: run.CommandMessageID, Caption: caption}
+	msg, err := f.postVideo(ctx, run.ChatID, a, opts)
+	if err != nil {
+		return tg.Message{}, err
+	}
+	f.deleteMessage(ctx, run.ChatID, run.PreviewMessageID)
+	return msg, nil
+}
+
+// postVideo readies a video result and sends it to the chat as a new
+// message, with its cover.
+func (f *Flow) postVideo(ctx context.Context, chatID int64, a storage.Asset, co tg.CaptionOptions) (tg.Message, error) {
 	dir, done, err := f.cfg.Work.Dir("result")
 	if err != nil {
 		return tg.Message{}, err
@@ -241,17 +267,94 @@ func (f *Flow) sendVideo(ctx context.Context, run db.ChatRun, a storage.Asset, c
 		return tg.Message{}, err
 	}
 	opts := tg.VideoOptions{
-		CaptionOptions: tg.CaptionOptions{ThreadID: run.ThreadID, ReplyTo: run.CommandMessageID, Caption: caption},
+		CaptionOptions: co,
 		Width:          v.Width, Height: v.Height, Duration: int(math.Ceil(v.Seconds)), SupportsStreaming: streams,
 	}
-	msg, err := withFileAt(v.Path, func(file tg.InputFile) (tg.Message, error) {
-		return f.cfg.Telegram.SendVideo(ctx, run.ChatID, file, opts)
-	})
-	if err != nil {
-		return tg.Message{}, err
+	return f.uploadVideo(ctx, chatID, v.Path, f.coverOf(ctx, dir, a.ID), opts)
+}
+
+// uploadVideo sends the video at path, with the cover at cover when there is
+// one. A cover Telegram refuses does not keep the video back: it goes again
+// without one, and clients pick a frame of their own.
+func (f *Flow) uploadVideo(ctx context.Context, chatID int64, path, cover string, opts tg.VideoOptions) (tg.Message, error) {
+	send := func(o tg.VideoOptions) (tg.Message, error) {
+		return withFileAt(path, "framy.mp4", func(file tg.InputFile) (tg.Message, error) {
+			return f.cfg.Telegram.SendVideo(ctx, chatID, file, o)
+		})
 	}
-	f.deleteMessage(ctx, run.ChatID, run.PreviewMessageID)
-	return msg, nil
+	if cover == "" {
+		return send(opts)
+	}
+	msg, err := withFileAt(cover, "cover.jpg", func(c tg.InputFile) (tg.Message, error) {
+		o := opts
+		o.Cover = c
+		return send(o)
+	})
+	var apiErr *tg.APIError
+	if err == nil || !errors.As(err, &apiErr) || apiErr.ErrorCode != 400 {
+		return msg, err
+	}
+	f.log.Warn("cover refused; video sent without one", "error", err)
+	return send(opts)
+}
+
+// coverQuality is the JPEG quality of a cover: no visible loss, and a
+// frame stays far below a photo's 10 MB, the limit Telegram puts on a cover.
+const coverQuality = 90
+
+// coverOf writes the cover of the video read into dir and returns its path:
+// the frame the result card shows, the first that is not one colour, as a
+// JPEG, which is a small upload next to the video. It returns "" when there
+// is none, and the video goes without.
+func (f *Flow) coverOf(ctx context.Context, dir string, asset int64) string {
+	poster, err := f.cfg.Clips.Poster(ctx, dir)
+	if err == nil {
+		var path string
+		if path, err = jpegCover(poster, filepath.Join(dir, "cover.jpg")); err == nil {
+			return path
+		}
+	}
+	if ctx.Err() == nil {
+		f.log.Warn("video result has no cover", "asset", asset, "error", err)
+	}
+	return ""
+}
+
+// jpegCover writes the PNG at in as the JPEG at out, when Telegram takes it
+// as a photo.
+func jpegCover(in, out string) (string, error) {
+	src, err := os.Open(in)
+	if err != nil {
+		return "", err
+	}
+	img, err := png.Decode(src)
+	src.Close()
+	if err != nil {
+		return "", fmt.Errorf("read the poster: %w", err)
+	}
+	b := img.Bounds()
+	if !photoFits(storage.Asset{ContentType: "image/jpeg", Width: b.Dx(), Height: b.Dy()}) {
+		return "", fmt.Errorf("a %dx%d frame is no photo", b.Dx(), b.Dy())
+	}
+	dst, err := os.OpenFile(out, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return "", err
+	}
+	err = jpeg.Encode(dst, img, &jpeg.Options{Quality: coverQuality})
+	if cerr := dst.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return "", err
+	}
+	st, err := os.Stat(out)
+	if err != nil {
+		return "", err
+	}
+	if st.Size() > maxPhotoBytes {
+		return "", fmt.Errorf("a cover of %d bytes is no photo", st.Size())
+	}
+	return out, nil
 }
 
 // readyVideo reads a video result into dir and makes it what Telegram
@@ -287,14 +390,14 @@ func (f *Flow) readyVideo(ctx context.Context, a storage.Asset, dir string) (v m
 	return media.Video{Path: in, ContentType: a.ContentType, Width: a.Width, Height: a.Height, Seconds: a.Seconds}, false, nil
 }
 
-// withFileAt hands send the file at path as an upload.
-func withFileAt(path string, send func(tg.InputFile) (tg.Message, error)) (tg.Message, error) {
+// withFileAt hands send the file at path as an upload named name.
+func withFileAt(path, name string, send func(tg.InputFile) (tg.Message, error)) (tg.Message, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return tg.Message{}, err
 	}
 	defer file.Close()
-	return send(tg.InputFileUpload{Filename: "framy.mp4", Data: file})
+	return send(tg.InputFileUpload{Filename: name, Data: file})
 }
 
 // withResult reads the result from the bucket and hands it to send.

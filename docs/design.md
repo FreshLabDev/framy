@@ -560,9 +560,10 @@ Two commands **(owner, 27 October)**: `/img` makes or edits images, `/edit` edit
 - **The clip** is read from Telegram and kept through the clip pipeline (see Storage), the cut included.
 - **The preview card** holds the clip's first frame, or the frame a second in when the first is one colour, and its length as a chip ("0:05"). Its buttons are Generate and No, and the other length when there is one: Model and Settings list image models alone so far, and a press of theirs on a video run changes nothing.
 - **The result** goes through the clip pipeline as well, which moves its index to the front and copies the streams when they are fit, and comes as a video (`sendVideo`, `supports_streaming`), always as a reply to the command, and the loop is deleted: a video takes longer than the 25 s a result in place gets, and a reply notifies. One the pipeline cannot read goes as it came, not marked as streaming.
+- **The cover** (`cover`, tg#11) is the frame the preview card would show, the first that is not one colour, as a JPEG at quality 90 uploaded beside the video. Clients then open on the same picture instead of one they pick. A frame Telegram would not take as a photo (the sides over 10000 together, or one 20 times the other) goes without a cover, and a cover Telegram refuses with a 400 sends the video again without one: the cover never holds a result back.
 - `/edit` on a photo, or on nothing, and `/img` on a video point to the other command.
 
-Later: a cover for the video (tg#11), "Pick in framy", and Model and Settings for the video editors.
+Later: "Pick in framy", and Model and Settings for the video editors.
 
 ### Albums
 
@@ -668,7 +669,13 @@ In groups one run makes one result. Proposal: more than one only on the site and
   - the default models are left out, since nothing stores them yet.
 - The reads are made when the panel is drawn, on `/start` and on Back, under one 3-second deadline. A read that fails is logged and its line is left out, so the panel always answers.
 - "Open framy" is the one Primary button of the panel, above the tabs. Telegram takes `web_app` buttons only in a private chat, so a group's panel has none. It and the menu button need an https `SITE_URL`; without one the button is left out and the menu button is left as it was. At start the bot sets the default menu button (`setChatMenuButton` without a chat), a `web_app` button labelled "framy" in every language.
-- **Results made on the site** come here when the person has allowed it (`telegram:bot_access` at sign-in, or `/start`).
+- **Results made on the site** come here when the person has allowed it (`telegram:bot_access` at sign-in, or `/start`). Built (`internal/chat/site.go`):
+  - **What is sent.** A job of the site (`surface = 'site'`; the Mini App's are in Telegram already) that ended done in the last hour and is not deleted. framy reads them every 5 s, 20 at a time, four sent at once. One that ended earlier stays on the site: held back by an outage, it is old news by then.
+  - **At most once.** A row of `site_delivery` (migration 020) is written before anything goes out: `sending`, then `sent` with the message, `closed` or `failed`. A send a restart cut short stays `sending` and is not tried again, since it may have arrived.
+  - **May the bot write?** A chat action (`upload_photo` or `upload_video`) goes first and tells before any upload. A 403 (never started, blocked) or a 400 (a chat the bot does not know) closes the result: the person gets nothing and is not asked again for it. Any other failure gives the claim back, and the next round tries again.
+  - **How it looks.** The same caption as in a group, the prompt and the model. One image comes with Animate, as a photo or as a document when Telegram would not take it as a photo; several pictures come as one album, the caption on the first, all as documents when one is no photo, and without Animate, since an album takes no keyboard; a video comes with its cover. It is a new message that notifies.
+  - **After it.** The job gets a chat run that is done in the DM, so Animate and a reply to the result work as on any result there.
+  - **Not yet:** a switch to turn this off; the person can block the bot or delete the messages.
 - **Message effects.** A finished result can carry a message effect (DMs only).
 - **Stage 3:** progress through `sendRichMessageDraft` with Stop (`can_stop`, Bot API 10.3).
 
@@ -823,7 +830,7 @@ Released in tg v0.2.0-alpha.1 on 27 October 2026. framy is on v0.2.0-alpha.2, wh
 ### Stage 2
 
 - `SavePreparedInlineMessage` with photo, video and `mpeg4_gif` results, moved from maply: `shareMessage` in the Mini App.
-- `VideoOptions`: `cover`, `start_timestamp`, `show_caption_above_media`. `SendMessage` options for `disable_notification`, `protect_content` and `message_effect_id`. `docs/limitations.md` already says the next variant should become an option rather than a fourth method.
+- `VideoOptions`: `cover`, `start_timestamp`, `show_caption_above_media`. `SendMessage` options for `disable_notification`, `protect_content` and `message_effect_id`. `docs/limitations.md` already says the next variant should become an option rather than a fourth method. Built on tg's `dev` (tg#11): the three on `VideoOptions`, and the send options on every captioned send through `CaptionOptions`; text messages do not have them yet. framy pins that commit until a tag.
 
 ### Stage 3
 

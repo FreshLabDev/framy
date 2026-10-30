@@ -57,7 +57,7 @@ func TestTheBudgetCountsEstimatesThenActualCosts(t *testing.T) {
 	ctx := context.Background()
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if _, err := h.pool.Exec(ctx, `TRUNCATE framy.chat_run, framy.job_input, framy.asset, framy.job, framy.river_job`); err != nil {
+			if _, err := h.pool.Exec(ctx, `TRUNCATE framy.site_delivery, framy.chat_run, framy.job_input, framy.asset, framy.job, framy.river_job`); err != nil {
 				t.Fatal(err)
 			}
 			for i, r := range c.rows {

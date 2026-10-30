@@ -2,8 +2,12 @@
 package chat
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"image"
+	"image/jpeg"
+	"io"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -277,7 +281,8 @@ func TestAVideoResultIsAReply(t *testing.T) {
 		h.now = h.now.Add(after)
 		h.flow.step(context.Background(), id)
 		sent := h.tg.methods("sendVideo")
-		if len(sent) != 1 || sent[0].messageID != 10 || sent[0].file != "upload:framy.mp4" || sent[0].video != "1080x1920 5s streams" {
+		if len(sent) != 1 || sent[0].messageID != 10 || sent[0].file != "upload:framy.mp4" || sent[0].video != "1080x1920 5s streams" ||
+			sent[0].cover != "upload:cover.jpg" {
 			t.Fatalf("%s: sent = %+v", after, sent)
 		}
 		if !strings.Contains(sent[0].text, "rain") || !strings.Contains(sent[0].text, "FLUX Video Edit") {
@@ -309,6 +314,62 @@ func TestAVideoResultThePipelineCannotReadGoesAsItCame(t *testing.T) {
 	}
 	if h.store.stage(id) != db.StageDone {
 		t.Fatalf("stage %s", h.store.stage(id))
+	}
+}
+
+// The cover is a JPEG of the poster frame.
+func TestAVideoResultsCoverIsAJPEGOfItsFrame(t *testing.T) {
+	h := videoHarness(t)
+	id := h.generatingVideo(t)
+	h.store.setStatus(id, jobs.Done, "")
+	h.now = h.now.Add(40 * time.Second)
+	var cover []byte
+	h.tg.onVideo = func(o tg.VideoOptions) {
+		cover, _ = io.ReadAll(o.Cover.(tg.InputFileUpload).Data)
+	}
+	h.flow.step(context.Background(), id)
+	img, err := jpeg.Decode(bytes.NewReader(cover))
+	if err != nil || img.Bounds().Dx() != 16 || img.Bounds().Dy() != 9 {
+		t.Fatalf("cover: %v, %v", img, err)
+	}
+}
+
+// A video goes without a cover when there is none to make, or the frame
+// is no photo; it goes again without one when Telegram refuses the cover.
+func TestAVideoResultGoesWithoutACoverItCannotHave(t *testing.T) {
+	for name, set := range map[string]func(h *harness){
+		"no poster":  func(h *harness) { h.clips.posterErr = media.ErrUnreadableVideo },
+		"too narrow": func(h *harness) { h.clips.poster = image.Pt(2100, 100) },
+		"refused": func(h *harness) {
+			h.tg.fail["cover"] = &tg.APIError{Method: "sendVideo", StatusCode: 400, ErrorCode: 400, Description: "Bad Request: IMAGE_PROCESS_FAILED"}
+		},
+	} {
+		h := videoHarness(t)
+		id := h.generatingVideo(t)
+		h.store.setStatus(id, jobs.Done, "")
+		set(h)
+		h.now = h.now.Add(40 * time.Second)
+		h.flow.step(context.Background(), id)
+		sent := h.tg.methods("sendVideo")
+		if len(sent) != 1 || sent[0].cover != "" || sent[0].file != "upload:framy.mp4" || sent[0].video != "1080x1920 5s streams" {
+			t.Fatalf("%s: sent = %+v", name, sent)
+		}
+		if h.store.stage(id) != db.StageDone {
+			t.Fatalf("%s: stage %s", name, h.store.stage(id))
+		}
+	}
+}
+
+// Any other refusal is the video's: it is not sent twice.
+func TestAVideoRefusedForAnotherReasonIsNotSentAgain(t *testing.T) {
+	h := videoHarness(t)
+	id := h.generatingVideo(t)
+	h.store.setStatus(id, jobs.Done, "")
+	h.tg.fail["cover"] = &tg.APIError{Method: "sendVideo", StatusCode: 403, ErrorCode: 403, Description: "Forbidden: bot was kicked"}
+	h.now = h.now.Add(40 * time.Second)
+	h.flow.step(context.Background(), id)
+	if sent := h.tg.methods("sendVideo"); len(sent) != 0 || h.store.stage(id) == db.StageDone {
+		t.Fatalf("sent = %+v, stage %s", sent, h.store.stage(id))
 	}
 }
 

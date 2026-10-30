@@ -2,8 +2,11 @@
 package chat
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"image"
+	"image/png"
 	"io"
 	"os"
 	"path/filepath"
@@ -38,8 +41,8 @@ type call struct {
 	file      string // "upload:<name>" or the file_id sent
 	action    string
 	// video is what a video send said of it: "<w>x<h> <s>s", and
-	// " streams" when it streams.
-	video string
+	// " streams" when it streams; cover is its cover, as file is.
+	video, cover string
 	// ephemeral is what an ephemeral send asked for; nil for one the chat
 	// sees. replyEphemeral is the ephemeral message it answers.
 	ephemeral      *tg.Ephemeral
@@ -56,6 +59,8 @@ type fakeTelegram struct {
 	// beforeEphemeral runs as an ephemeral send starts, as a stop would
 	// come in the middle of one.
 	beforeEphemeral func()
+	// onVideo sees a video send before its files are read.
+	onVideo func(tg.VideoOptions)
 }
 
 func newTelegram() *fakeTelegram {
@@ -63,7 +68,8 @@ func newTelegram() *fakeTelegram {
 }
 
 // record keeps a call. An ephemeral send fails with fail["ephemeral"], and
-// comes back with an ephemeral id instead of a message id.
+// comes back with an ephemeral id instead of a message id; a send with a
+// cover fails with fail["cover"].
 func (f *fakeTelegram) record(c call) (tg.Message, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -74,6 +80,9 @@ func (f *fakeTelegram) record(c call) (tg.Message, error) {
 		return tg.Message{}, err
 	}
 	if err := f.fail["ephemeral"]; err != nil && c.ephemeral != nil {
+		return tg.Message{}, err
+	}
+	if err := f.fail["cover"]; err != nil && c.cover != "" {
 		return tg.Message{}, err
 	}
 	f.calls = append(f.calls, c)
@@ -125,8 +134,15 @@ func (f *fakeTelegram) SendDocument(_ context.Context, chatID int64, doc tg.Inpu
 }
 
 func (f *fakeTelegram) SendVideo(_ context.Context, chatID int64, v tg.InputFile, o tg.VideoOptions) (tg.Message, error) {
-	m, err := f.record(call{method: "sendVideo", chatID: chatID, messageID: o.ReplyTo, thread: o.ThreadID, text: o.Caption, file: fileOf(v),
-		video: videoOf(o.Width, o.Height, o.Duration, o.SupportsStreaming)})
+	if f.onVideo != nil {
+		f.onVideo(o)
+	}
+	c := call{method: "sendVideo", chatID: chatID, messageID: o.ReplyTo, thread: o.ThreadID, text: o.Caption, file: fileOf(v),
+		video: videoOf(o.Width, o.Height, o.Duration, o.SupportsStreaming)}
+	if o.Cover != nil {
+		c.cover = fileOf(o.Cover)
+	}
+	m, err := f.record(c)
 	m.Video = &tg.Video{FileID: "video-file", FileUniqueID: "video-unique"}
 	return m, err
 }
@@ -195,6 +211,43 @@ func (f *fakeTelegram) EditEphemeralMessageReplyMarkup(_ context.Context, chatID
 func (f *fakeTelegram) DeleteEphemeralMessage(_ context.Context, chatID, receiver, id int64) error {
 	_, err := f.record(call{method: "deleteEphemeralMessage", chatID: chatID, messageID: id, action: strconv.FormatInt(receiver, 10)})
 	return err
+}
+
+// SendMediaGroup records an album as one call: file lists its items as
+// "<type>:<file>", and text is the first item's caption. Each item comes
+// back as a message of its own.
+func (f *fakeTelegram) SendMediaGroup(_ context.Context, chatID int64, items []tg.InputMedia, threadID int) ([]tg.Message, error) {
+	var files []string
+	var caption string
+	for i, item := range items {
+		switch v := item.(type) {
+		case tg.InputMediaPhoto:
+			files = append(files, "photo:"+fileOf(v.Media))
+			if i == 0 {
+				caption = v.Caption
+			}
+		case tg.InputMediaDocument:
+			files = append(files, "document:"+fileOf(v.Media))
+			if i == 0 {
+				caption = v.Caption
+			}
+		default:
+			files = append(files, "?")
+		}
+	}
+	m, err := f.record(call{method: "sendMediaGroup", chatID: chatID, thread: threadID, text: caption, file: strings.Join(files, ",")})
+	if err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := []tg.Message{m}
+	for range items[1:] {
+		f.next++
+		out = append(out, tg.Message{MessageID: f.next})
+	}
+	out[0].Photo = []tg.Photo{{FileID: "album-file", FileUniqueID: "album-unique"}}
+	return out, nil
 }
 
 func (f *fakeTelegram) SendChatAction(_ context.Context, chatID int64, threadID int, action string) error {
@@ -271,6 +324,11 @@ type fakeStore struct {
 	models []catalog.Model
 	hidden map[string]bool
 	now    func() time.Time
+	// site are the site's done jobs SiteResults lists, and delivered how
+	// far each was sent; siteSince is what the last SiteResults was asked.
+	site      []db.SiteResult
+	delivered map[int64]string
+	siteSince time.Time
 }
 
 func newStore() *fakeStore {
@@ -278,7 +336,67 @@ func newStore() *fakeStore {
 		jobs: map[int64]*fakeJob{}, runs: map[int64]*db.ChatRun{},
 		userLang: map[int64]string{}, chatLang: map[int64]string{}, currency: map[int64]string{},
 		quotes: map[string]fx.Quote{}, keys: map[string]int64{}, offers: map[string]catalog.Offer{},
+		delivered: map[int64]string{},
 	}
+}
+
+func (s *fakeStore) SiteResults(_ context.Context, since time.Time, limit int) ([]db.SiteResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.siteSince = since
+	var out []db.SiteResult
+	for _, r := range s.site {
+		if _, ok := s.delivered[r.JobID]; !ok && len(out) < limit {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+func (s *fakeStore) ClaimSiteResult(_ context.Context, jobID int64) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.delivered[jobID]; ok {
+		return false, nil
+	}
+	s.delivered[jobID] = db.DeliverySending
+	return true, nil
+}
+
+func (s *fakeStore) ReleaseSiteResult(_ context.Context, jobID int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.delivered[jobID] == db.DeliverySending {
+		delete(s.delivered, jobID)
+	}
+	return nil
+}
+
+func (s *fakeStore) EndSiteResult(_ context.Context, jobID int64, state string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.delivered[jobID] == db.DeliverySending {
+		s.delivered[jobID] = state
+	}
+	return nil
+}
+
+func (s *fakeStore) SentSiteResult(_ context.Context, run db.ChatRun, res db.ChatResult) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.delivered[run.JobID] == db.DeliverySending {
+		s.delivered[run.JobID] = db.DeliverySent
+	}
+	if _, ok := s.runs[run.JobID]; !ok {
+		s.runs[run.JobID] = &db.ChatRun{JobID: run.JobID, ChatID: run.ChatID, Lang: run.Lang, Stage: db.StageDone, ResultMessageID: res.MessageID}
+	}
+	return nil
+}
+
+func (s *fakeStore) delivery(jobID int64) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.delivered[jobID]
 }
 
 func (s *fakeStore) Offer(_ context.Context, id string) (catalog.Model, catalog.Offer, error) {
@@ -676,7 +794,10 @@ type fakeClips struct {
 	seconds    float64
 	probeErr   error
 	normErr    error
+	posterErr  error
 	normalized int
+	// poster is the size of the frame Poster writes; zero is 16x9.
+	poster image.Point
 }
 
 func (c *fakeClips) length() float64 {
@@ -695,12 +816,30 @@ func (c *fakeClips) ProbeVideo(_ context.Context, path string) (media.Video, err
 	return media.Video{Path: path, ContentType: "video/mp4", Width: 1280, Height: 720, Seconds: c.length()}, nil
 }
 
+// Poster writes a grey frame of c.poster as a PNG.
 func (c *fakeClips) Poster(_ context.Context, dir string) (string, error) {
+	c.mu.Lock()
+	err, size := c.posterErr, c.poster
+	c.mu.Unlock()
+	if err != nil {
+		return "", err
+	}
 	if _, err := os.Stat(filepath.Join(dir, media.In)); err != nil {
 		return "", err
 	}
+	if size == (image.Point{}) {
+		size = image.Pt(16, 9)
+	}
+	img := image.NewGray(image.Rectangle{Max: size})
+	for i := range img.Pix {
+		img.Pix[i] = 0x80
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return "", err
+	}
 	path := filepath.Join(dir, "poster.png")
-	return path, os.WriteFile(path, []byte("poster"), 0o600)
+	return path, os.WriteFile(path, buf.Bytes(), 0o600)
 }
 
 func (c *fakeClips) NormalizeVideo(_ context.Context, dir string, _ *media.Cut) (media.Video, error) {
