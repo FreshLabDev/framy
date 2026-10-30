@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -260,6 +261,9 @@ const (
 	Moderation Class = "moderation"
 	// Refused: the provider refused the request itself, such as a setting.
 	Refused Class = "refused"
+	// Faces: the provider refused a real person in an input, such as
+	// Seedance on BytePlus. Another model may take the same files.
+	Faces Class = "faces"
 	// Invalid: framy did not send the request, as the adapter could tell it
 	// would fail, such as a setting the offer lacks. Its message is framy's,
 	// and nothing reached the provider.
@@ -297,6 +301,17 @@ func (e *Error) Error() string {
 }
 
 func (e *Error) Unwrap() error { return e.Err }
+
+// Said is what the provider said, in its own words and without framy's
+// wrapping: the message a person is shown. It is empty when the provider
+// said nothing of its own, such as a run framy did not send.
+func (e *Error) Said() string {
+	var s interface{ Said() string }
+	if errors.As(e.Err, &s) {
+		return strings.TrimSpace(s.Said())
+	}
+	return ""
+}
 
 // retryable: the provider refused before the run started, so nothing was
 // paid and sending again is safe.

@@ -647,6 +647,28 @@ func TestAnotherPersonsJobIsNotFoundEverywhere(t *testing.T) {
 	}
 }
 
+// A failed job's message is the provider's words when it said any, without
+// framy's line around them; otherwise framy's line, as before.
+func TestAFailedJobSaysWhatTheProviderSaid(t *testing.T) {
+	w := newWorld(t)
+	in := w.instance()
+	_, m, _ := in.post(alice, "faces", body(paidOffer, "key"))
+	id := idOf(t, m)
+	exec(t, w.pool, `UPDATE job SET status='failed', finished_at=now(), error_class='faces',
+		error='faces: openrouter 400 InputVideoSensitiveContentDetected.PrivacyInformation at BytePlus: The input video may contain real person.',
+		provider_message='The input video may contain real person.' WHERE id=$1`, id)
+	path := fmt.Sprintf("/api/jobs/%d", id)
+	got := jsonOf(t, in.do(alice, "GET", path, nil))["error"].(map[string]any)
+	if got["class"] != "faces" || got["message"] != "The input video may contain real person." {
+		t.Fatalf("error = %v", got)
+	}
+	exec(t, w.pool, `UPDATE job SET error_class='invalid_request', error='invalid_request: fast is not a setting', provider_message=NULL WHERE id=$1`, id)
+	got = jsonOf(t, in.do(alice, "GET", path, nil))["error"].(map[string]any)
+	if got["class"] != "invalid_request" || got["message"] != "invalid_request: fast is not a setting" {
+		t.Fatalf("error = %v", got)
+	}
+}
+
 func TestARepeatedPostStartsOneJob(t *testing.T) {
 	w := newWorld(t)
 	in := w.instance()

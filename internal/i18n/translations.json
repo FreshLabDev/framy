@@ -719,6 +719,24 @@
     "ja": "モデルは作成できませんでした。もう一度お試しください。",
     "ar": "لم يستطع النموذج إنجاز ذلك. حاول مرة أخرى."
   },
+  "err.faces": {
+    "en": "This model does not take photos or videos of real people. Try another model.",
+    "ru": "Эта модель не берёт фото и видео с реальными людьми. Попробуй другую модель.",
+    "uk": "Ця модель не бере фото й відео з реальними людьми. Спробуй іншу модель.",
+    "es": "Este modelo no acepta fotos ni vídeos de personas reales. Prueba otro modelo.",
+    "fr": "Ce modèle n’accepte pas les photos ni les vidéos de personnes réelles. Essaie un autre modèle.",
+    "de": "Dieses Modell nimmt keine Fotos oder Videos von echten Menschen. Versuche ein anderes Modell.",
+    "it": "Questo modello non accetta foto o video di persone reali. Prova un altro modello.",
+    "pl": "Ten model nie przyjmuje zdjęć ani filmów z prawdziwymi ludźmi. Spróbuj innego modelu.",
+    "cs": "Tento model nebere fotky ani videa se skutečnými lidmi. Zkus jiný model.",
+    "tr": "Bu model gerçek kişilerin olduğu fotoğraf ve videoları kabul etmiyor. Başka bir model dene.",
+    "sv": "Den här modellen tar inte foton eller videor med riktiga människor. Prova en annan modell.",
+    "be": "Гэтая мадэль не бярэ фота і відэа з сапраўднымі людзьмі. Паспрабуй іншую мадэль.",
+    "ca": "Aquest model no accepta fotos ni vídeos de persones reals. Prova un altre model.",
+    "zh": "这个模型不接受有真人的照片或视频。请换一个模型。",
+    "ja": "このモデルは実在の人物が写った写真や動画を受け付けません。別のモデルをお試しください。",
+    "ar": "هذا النموذج لا يقبل صورًا أو فيديوهات لأشخاص حقيقيين. جرّب نموذجًا آخر."
+  },
   "err.key": {
     "en": "The provider refused your key. Replace it on the site.",
     "ru": "Провайдер не принял твой ключ. Замени его на сайте.",

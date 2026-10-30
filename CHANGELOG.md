@@ -499,6 +499,13 @@ was written from, and the skeleton of the service.
   run in `chat_run` (migration 014), so a restart picks it up where it was.
   `/edit` is in the group menu for video and answers that video in chats is
   not open yet. Again and Animate come later.
+- A provider's refusal of a real person in a photo or a clip is its own
+  error class, `faces`: Seedance on BytePlus answers so through OpenRouter.
+  The chat says the model does not take real people and to try another
+  model, in all sixteen languages, instead of "the model could not make it".
+  A failed job's `error.message` is now the provider's own words, without
+  framy's prefixes, the JSON OpenRouter wraps them in and the request id;
+  the whole line stays in the job's error for the logs (migration 023).
 - The chat preview is a rich message: the card on top, the prompt quoted
   under it, then Model and Settings as sections that open in place, and
   Generate and No below. Model lists every model of the run's kind the way

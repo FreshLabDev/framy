@@ -33,8 +33,10 @@ type State struct {
 	Free   bool
 
 	ErrorClass jobs.Class
-	Error      string
-	RetryAt    *time.Time
+	// Error is what the provider said, in its own words, or framy's line
+	// when it said nothing of its own.
+	Error   string
+	RetryAt *time.Time
 
 	EstimateUSD *float64
 	// Estimate is the estimate with its lines, as saved with the job.
@@ -143,7 +145,7 @@ type pgData struct{ pool *pgxpool.Pool }
 
 // stateColumns are what State and List read of a job row, in the order of
 // scanState.
-const stateColumns = `id, event_seq, status, kind, offer_id, free, error_class, error, retry_at,
+const stateColumns = `id, event_seq, status, kind, offer_id, free, error_class, COALESCE(provider_message, error), retry_at,
 	estimate_usd::float8, estimate, actual_usd::float8,
 	currency, fx_rate::float8, fx_date, created_at, finished_at, grounding,
 	model_id, prompt, settings, surface`

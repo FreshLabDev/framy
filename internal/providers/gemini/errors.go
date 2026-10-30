@@ -189,6 +189,9 @@ type APIError struct {
 	RetryDelay time.Duration
 }
 
+// Said is Google's words, for the person.
+func (e *APIError) Said() string { return e.Message }
+
 func (e *APIError) Error() string {
 	var b strings.Builder
 	b.WriteString("gemini")

@@ -592,6 +592,58 @@ func TestOnlyARefusalBeforeTheRunIsRetried(t *testing.T) {
 		})
 	}
 
+	t.Run("the provider's words", func(t *testing.T) {
+		p := newFake()
+		p.submit = func(context.Context, Job) (Submission, error) {
+			return Submission{}, &Error{Class: Faces, Err: said("openrouter 400 InputVideoSensitiveContentDetected.PrivacyInformation: real person", "The input video may contain real person.")}
+		}
+		q, pool := testQueue(t, p)
+		id := enqueue(t, q, job(alice, imageOffer))
+		for range 2 {
+			if err := q.work(ctx, id); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var line, words string
+		if err := pool.QueryRow(ctx, `SELECT error, provider_message FROM framy.job WHERE id=$1`, id).Scan(&line, &words); err != nil {
+			t.Fatal(err)
+		}
+		if j := get(t, q, id); j.Status != Failed || j.ErrorClass != Faces ||
+			line != "faces: openrouter 400 InputVideoSensitiveContentDetected.PrivacyInformation: real person" || words != "The input video may contain real person." {
+			t.Fatalf("%s %s, error %q, provider_message %q", j.Status, j.ErrorClass, line, words)
+		}
+	})
+
+	t.Run("a refusal that waits has the provider's words until the next request", func(t *testing.T) {
+		p := newFake()
+		refuse := true
+		p.submit = func(context.Context, Job) (Submission, error) {
+			if refuse {
+				refuse = false
+				return Submission{}, &Error{Class: Unavailable, Err: said("openrouter 503: overloaded", "The model is overloaded.")}
+			}
+			return done(0.02), nil
+		}
+		q, pool := testQueue(t, p)
+		id := enqueue(t, q, job(alice, imageOffer))
+		if err := q.work(ctx, id); !isSnooze(err) {
+			t.Fatalf("after a 503: %v, want a snooze", err)
+		}
+		var words *string
+		if err := pool.QueryRow(ctx, `SELECT provider_message FROM framy.job WHERE id=$1`, id).Scan(&words); err != nil || words == nil || *words != "The model is overloaded." {
+			t.Fatalf("waiting: %v, %v", words, err)
+		}
+		if _, err := pool.Exec(ctx, `UPDATE framy.job SET retry_at=now() WHERE id=$1`, id); err != nil {
+			t.Fatal(err)
+		}
+		if err := q.work(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+		if err := pool.QueryRow(ctx, `SELECT provider_message FROM framy.job WHERE id=$1`, id).Scan(&words); err != nil || words != nil {
+			t.Fatalf("after the retry: %v, %v", words, err)
+		}
+	})
+
 	t.Run("a provider that keeps refusing", func(t *testing.T) {
 		p := newFake()
 		p.submit = func(context.Context, Job) (Submission, error) { return Submission{}, &Error{Class: Unavailable} }
@@ -608,6 +660,14 @@ func TestOnlyARefusalBeforeTheRunIsRetried(t *testing.T) {
 		}
 	})
 }
+
+// saying is a provider's error with its own words, as an adapter's is.
+type saying struct{ line, words string }
+
+func (s saying) Error() string { return s.line }
+func (s saying) Said() string  { return s.words }
+
+func said(line, words string) error { return saying{line, words} }
 
 func TestNothingIsPaidWithoutAnAdapter(t *testing.T) {
 	q, pool := testQueue(t, newFake())

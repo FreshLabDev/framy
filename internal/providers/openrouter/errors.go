@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -28,7 +29,13 @@ type APIError struct {
 	// InBody: the error came in a 200, after the provider took the request.
 	InBody bool
 	// Type is metadata.error_type, such as content_policy_violation.
-	Type     string
+	Type string
+	// Code is the code of the provider behind OpenRouter when OpenRouter
+	// passes its answer on, such as
+	// InputVideoSensitiveContentDetected.PrivacyInformation from BytePlus.
+	Code string
+	// Message is the provider's words: OpenRouter's own, or those of the
+	// provider whose answer it passed on, without the request id.
 	Message  string
 	Provider string
 	// Reasons are the moderation's categories.
@@ -39,6 +46,17 @@ type APIError struct {
 	// LimitSource says which limit a 402 or a 403 hit, such as
 	// openrouter_key_limit.
 	LimitSource string
+	// noBody: the answer had no error of OpenRouter's, and Message is the
+	// status's name, such as Cloudflare's page for a 524.
+	noBody bool
+}
+
+// Said is the provider's words, for the person.
+func (e *APIError) Said() string {
+	if e.noBody {
+		return ""
+	}
+	return e.Message
 }
 
 func (e *APIError) Error() string {
@@ -49,6 +67,9 @@ func (e *APIError) Error() string {
 	}
 	if e.Type != "" {
 		b.WriteString(" " + e.Type)
+	}
+	if e.Code != "" {
+		b.WriteString(" " + e.Code)
 	}
 	if e.Provider != "" {
 		fmt.Fprintf(&b, " at %s", e.Provider)
@@ -111,6 +132,8 @@ var budgetLimits = map[string]bool{
 // whether the run was paid.
 func (e *APIError) class() jobs.Class {
 	switch s := e.Status; {
+	case facesCode.MatchString(e.Code):
+		return jobs.Faces
 	case e.Moderated():
 		return jobs.Moderation
 	case s == http.StatusPaymentRequired || e.Type == "payment_required":
@@ -156,7 +179,7 @@ func statusError(status int, h http.Header, data []byte) *jobs.Error {
 		e.fill(env.Error)
 	} else {
 		// Not OpenRouter's body, such as Cloudflare's page for a 524.
-		e.Message = http.StatusText(status)
+		e.Message, e.noBody = http.StatusText(status), true
 	}
 	pe := &jobs.Error{Class: e.class(), Err: e}
 	wait := retryAfter(h, time.Now())
@@ -183,7 +206,7 @@ func bodyError(b *errorBody) *jobs.Error {
 }
 
 func (e *APIError) fill(b *errorBody) {
-	e.Message = strings.TrimSpace(b.Message)
+	e.Code, e.Message = passedOn(strings.TrimSpace(b.Message))
 	if e.Status == 0 {
 		e.Status = code(b.Code)
 	}
@@ -199,6 +222,55 @@ func (e *APIError) fill(b *errorBody) {
 	default:
 		e.InputFlagged = true
 	}
+}
+
+// facesCode is a provider's refusal of a real person in an input: BytePlus
+// answers Seedance's with InputVideoSensitiveContentDetected.PrivacyInformation
+// for a clip and InputImageSensitiveContentDetected.PrivacyInformation for a
+// picture (live, 30 October 2026).
+var facesCode = regexp.MustCompile(`^Input\w*SensitiveContentDetected\.PrivacyInformation$`)
+
+var (
+	// wrapped is the provider's own answer as OpenRouter passes it on in its
+	// message: "HTTP 400: {"error": {"code", "message"}}".
+	wrapped = regexp.MustCompile(`(?s)^HTTP \d{3}:\s*(\{.*\})$`)
+	// requestID is the request id a provider ends its words with.
+	requestID = regexp.MustCompile(`(?i)[\s.]*\brequest id:?\s*[\w-]+\.?$`)
+)
+
+// passedOn reads OpenRouter's message: when it passes on the provider's own
+// answer, the provider's code and its words without the wrapping and the
+// request id; any other message as it is.
+func passedOn(message string) (code, words string) {
+	m := wrapped.FindStringSubmatch(message)
+	if m == nil {
+		return "", message
+	}
+	var body struct {
+		Error *struct {
+			Code    any    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+		Code    any    `json:"code"`
+		Message string `json:"message"`
+	}
+	if json.Unmarshal([]byte(m[1]), &body) != nil {
+		return "", message
+	}
+	c, w := body.Code, body.Message
+	if body.Error != nil {
+		c, w = body.Error.Code, body.Error.Message
+	}
+	if c != nil {
+		code = strings.TrimSpace(fmt.Sprint(c))
+	}
+	if w = strings.TrimSpace(requestID.ReplaceAllString(w, "")); w == "" {
+		return code, message
+	}
+	if !strings.HasSuffix(w, ".") && !strings.HasSuffix(w, "!") && !strings.HasSuffix(w, "?") {
+		w += "."
+	}
+	return code, w
 }
 
 func code(v any) int {

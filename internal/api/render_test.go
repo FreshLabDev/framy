@@ -27,6 +27,8 @@ func TestAnErrorIsShownWhenItWasWrittenForPeople(t *testing.T) {
 		// A link may open a person's file to whoever holds it.
 		{jobs.Refused, "cannot fetch https://r2.example/u/1/in/a.jpg?X-Amz-Signature=abc&X-Amz-Expires=900 for the run", "cannot fetch <link> for the run"},
 		{jobs.ProviderFailed, "   padded   ", "padded"},
+		// A real person in an input, in the provider's words.
+		{jobs.Faces, "The request failed because the input video 'content[1]' may contain real person.", "The request failed because the input video 'content[1]' may contain real person."},
 		// framy's own words on a run it did not send.
 		{jobs.Invalid, "invalid_request: fast is not a setting of openrouter:alibaba/wan-3.0", "invalid_request: fast is not a setting of openrouter:alibaba/wan-3.0"},
 	} {

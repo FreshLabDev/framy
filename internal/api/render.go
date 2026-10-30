@@ -254,7 +254,7 @@ func estimateJSONOf(usd float64, est *price.Estimate, code string, perUSD float6
 // a path, so only its class goes out.
 var showable = map[jobs.Class]bool{
 	jobs.RateLimited: true, jobs.Unavailable: true, jobs.Money: true, jobs.Moderation: true,
-	jobs.Refused: true, jobs.Invalid: true, jobs.Key: true, jobs.Timeout: true, jobs.Interrupted: true,
+	jobs.Refused: true, jobs.Faces: true, jobs.Invalid: true, jobs.Key: true, jobs.Timeout: true, jobs.Interrupted: true,
 	jobs.Storage: true, jobs.NoAdapter: true, jobs.ProviderFailed: true,
 }
 

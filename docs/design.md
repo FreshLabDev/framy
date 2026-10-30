@@ -483,13 +483,14 @@ Progress for SSE goes through `pg_notify('framy_events', …)` in the transactio
 | 403 with `metadata.reasons` or `flagged_input`, or `error_type` `content_policy_violation` or `refusal` | `moderation` | no |
 | 402; a 403 whose `limit_source` is a budget or the key's limit | `money` | no; a 402 for the in-flight budget with `Retry-After` waits that long and goes again |
 | 401; any other 403, such as a guardrail on the model | `key` | no |
+| 400 that passes on a provider's refusal of a real person in an input (`Input…SensitiveContentDetected.PrivacyInformation`, BytePlus for Seedance) | `faces` | no |
 | 400, 404, 413, 422, image errors such as `image_download_failed` | `refused` | no |
 | 429 | `rate_limited` | after `Retry-After` |
 | 502, 503, 529, a connection that was never made | `unavailable` | after `Retry-After` or 5 s × requests² |
 | 408, 504, Cloudflare's 524 | `timeout` | no: the run may go on and be paid |
 | 500, an answer that cannot be read | `provider` | no |
 
-The moderation's reasons and the provider's name go into the job's error; the flagged text itself does not. OpenRouter's documentation calls a 502 a model that is down or an answer it could not read; whether a run that ended in a 502 is ever billed is not checked.
+The moderation's reasons and the provider's name go into the job's error; the flagged text itself does not. OpenRouter passes on the answer of the provider behind it as its message, `HTTP 400: {"error": {"code", "message"}}`: framy reads the provider's code and words out of it and drops the request id at their end. The code goes into the job's error for the logs. The words, the provider's own as every adapter has them (`Said`), are kept apart in `job.provider_message` (migration 023), and the API gives them as `error.message` in place of framy's whole line: "The request failed because the input video 'content[1]' may contain real person." A run framy did not send, or an answer with no words of the provider's, keeps framy's line. OpenRouter's documentation calls a 502 a model that is down or an answer it could not read; whether a run that ended in a 502 is ever billed is not checked.
 
 **OpenRouter video** (`internal/providers/openrouter`, `video.go` and `hook.go`). `POST /api/v1/videos` answers 202 with a job id. The settings go as fields of the request and are checked against the offer's parameters before anything is paid:
 - a file is a frame or a reference. The `frame_images` setting lists the frame type of each of the job's first files (`["first_frame"]`, `["first_frame", "last_frame"]`), and the other files go in `input_references` as `image_url`, `video_url` or `audio_url`. OpenRouter keeps the frames and drops the references when both come, so a run with both is refused. The free plans of a video from a start frame (`internal/free`) set `frame_images` themselves, since a photo sent as a reference is priced apart: HeyGen's 768p is $0.10 a second that way and $0.036 as a start frame;
@@ -623,7 +624,7 @@ What `internal/chat` does today, and what comes later. The bot handles updates o
    - The result's `file_id` and `file_unique_id` are kept in `chat_run`, with the message it went out in, which finds the run of a reply to it (`chat_run_result`).
    - **Animate** is the button under an image result: the image becomes the start frame of a new draft of the weekly free video, with the image's prompt, on the person's key past the week's video. Its preview is a reply to the result, and in a group it goes to the requester alone: the press lets framy send an ephemeral message within 15 s, admin or not (`callback_query_id`). A double tap within 5 s is one press, and the press's id is the draft's key, so a replayed update makes no second one. A video result has no Animate.
    - **Later:** the buttons **Again**, **Original** (a full-size `sendDocument` on demand) and **Open on the site**.
-10. **Failure:** `editMessageMedia` into the error card (media cannot turn back into text). The card gives the reason in plain words: the model refused, the key is out of credits, the provider refused the key, the model took too long, or the model could not make it. **Later:** **Retry** and **Change model**.
+10. **Failure:** `editMessageMedia` into the error card (media cannot turn back into text). The card gives the reason in plain words: the model refused, the model does not take real people (`faces`: try another model), the key is out of credits, the provider refused the key, the model took too long, or the model could not make it. **Later:** **Retry** and **Change model**.
 11. **Stop:** a queued job is cancelled and the loop deleted. A running one cannot be stopped at the provider: it finishes in the person's history and is not posted, and the answer to the press says so.
 12. **An unconfirmed preview** expires with its draft after 10 minutes and is deleted.
 
@@ -966,7 +967,7 @@ Main tables of the `framy` schema, created by a core migration with its own `fra
 | `profile` | `user_id`, currency, default models, delivery to Telegram (the interface language is core's, shared with the other bots); the currency is there since #8, the rest comes with the settings |
 | `connection` | provider, encrypted key with its wrapped data key and KEK version, `last4`, status, last success, last error class; one per person and provider |
 | `catalog_model`, `catalog_offer` | models with the overlay's flags and traits; offers with their parameters, routes and prices, `expires_on`, `hidden`, `fetched_at`, `disabled_at` |
-| `job` | requester (`user_id`), surface, chat and preview message, `dedupe_key`, offer, prompt, settings, `free`, status, idempotency key, River job, paid requests with `submitted_at` and `retry_at`, provider job id, the estimate with its lines, the actual cost, results, error class, the currency with `fx_rate` and `fx_date` |
+| `job` | requester (`user_id`), surface, chat and preview message, `dedupe_key`, offer, prompt, settings, `free`, status, idempotency key, River job, paid requests with `submitted_at` and `retry_at`, provider job id, the estimate with its lines, the actual cost, results, error class with framy's line and the provider's own words, the currency with `fx_rate` and `fx_date` |
 | `asset` | uploads and results: owner, job, storage key, size, type, picture size, SHA-256, `file_id`, `file_unique_id` |
 | `job_input` | the files a job takes, in order; an empty place is a file deleted before the run |
 | `album_item` | the 48-hour album cache: chat, `media_group_id`, message, author, kind, `file_id`, `file_unique_id`, size and date, never the text; no foreign keys, since a DM is not a chat in core and a failed touch must not lose an item |

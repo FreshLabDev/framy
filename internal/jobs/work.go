@@ -103,7 +103,7 @@ func (q *Queue) work(ctx context.Context, id int64) error {
 		var pe *Error
 		switch {
 		case errors.As(err, &pe):
-			return q.end(ctx, j.ID, ending{status: Failed, class: pe.Class, msg: pe.Error()})
+			return q.end(ctx, j.ID, ending{status: Failed, class: pe.Class, msg: pe.Error(), said: pe.Said()})
 		case err != nil:
 			return fmt.Errorf("inputs of job %d: %w", j.ID, err)
 		}
@@ -150,7 +150,7 @@ func (q *Queue) claim(ctx context.Context, j Job) (bool, error) {
 func (q *Queue) submit(ctx context.Context, p Provider, j Job) error {
 	// The mark goes in before the request does.
 	tag, err := q.pool.Exec(ctx, `
-		UPDATE job SET submitted_at=now(), submits=submits+1, error_class=NULL, error=NULL, updated_at=now()
+		UPDATE job SET submitted_at=now(), submits=submits+1, error_class=NULL, error=NULL, provider_message=NULL, updated_at=now()
 		WHERE id=$1 AND status='running' AND submitted_at IS NULL`, j.ID)
 	if err != nil {
 		return err
@@ -181,7 +181,7 @@ func (q *Queue) submit(ctx context.Context, p Provider, j Job) error {
 		if pe.retryable() && j.Submits < maxSubmits {
 			return q.requeue(ctx, j, pe)
 		}
-		return q.end(ctx, j.ID, ending{status: Failed, class: pe.Class, msg: pe.Error()})
+		return q.end(ctx, j.ID, ending{status: Failed, class: pe.Class, msg: pe.Error(), said: pe.Said()})
 	}
 	if sub.ProviderJobID != "" {
 		if _, err := q.pool.Exec(ctx, `UPDATE job SET provider_job_id=$2, updated_at=now() WHERE id=$1`, j.ID, sub.ProviderJobID); err != nil {
@@ -209,8 +209,8 @@ func (q *Queue) requeue(ctx context.Context, j Job, pe *Error) error {
 	err := pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			UPDATE job SET status='queued', submitted_at=NULL, retry_at=now() + make_interval(secs => $2),
-			       error_class=$3, error=$4, updated_at=now()
-			WHERE id=$1 AND status='running'`, j.ID, wait.Seconds(), pe.Class, clip(pe.Error()))
+			       error_class=$3, error=$4, provider_message=NULLIF($5, ''), updated_at=now()
+			WHERE id=$1 AND status='running'`, j.ID, wait.Seconds(), pe.Class, clip(redact(pe.Error())), clip(redact(pe.Said())))
 		if err != nil || tag.RowsAffected() == 0 {
 			return err
 		}
@@ -244,11 +244,11 @@ func (q *Queue) poll(ctx context.Context, p Provider, j Job) error {
 	switch {
 	case pe != nil && (pe.retryable() || pe.Class == ProviderFailed || pe.Class == Timeout || pe.Class == Interrupted):
 		if late {
-			return q.end(ctx, j.ID, ending{status: Expired, class: pe.Class, msg: "the provider did not finish within an hour: " + pe.Error()})
+			return q.end(ctx, j.ID, ending{status: Expired, class: pe.Class, msg: "the provider did not finish within an hour: " + pe.Error(), said: pe.Said()})
 		}
 		return river.JobSnooze(max(q.cfg.PollEvery, pe.RetryAfter))
 	case pe != nil:
-		return q.end(ctx, j.ID, ending{status: Failed, class: pe.Class, msg: pe.Error()})
+		return q.end(ctx, j.ID, ending{status: Failed, class: pe.Class, msg: pe.Error(), said: pe.Said()})
 	case out.Running:
 		if late {
 			return q.end(ctx, j.ID, ending{status: Expired, class: Timeout, msg: "the provider did not finish within an hour"})
@@ -285,9 +285,11 @@ func (q *Queue) settle(ctx context.Context, j Job, out Outcome) error {
 
 // ending is how a job ends.
 type ending struct {
-	status  Status
-	class   Class
-	msg     string
+	status Status
+	class  Class
+	msg    string
+	// said is the provider's own words, when it said any (Error.Said).
+	said    string
 	cost    *float64
 	results int
 	// grounding goes with the results it came with.
@@ -297,7 +299,7 @@ type ending struct {
 // end finishes a job that is still queued or running and wakes the person's
 // next job. A job that ended already keeps its ending: the first one wins.
 func (q *Queue) end(ctx context.Context, id int64, e ending) error {
-	e.msg = redact(e.msg)
+	e.msg, e.said = redact(e.msg), redact(e.said)
 	var grounding []byte
 	if e.grounding != nil {
 		var err error
@@ -310,12 +312,12 @@ func (q *Queue) end(ctx context.Context, id int64, e ending) error {
 	ended := false
 	err := pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx, `
-			UPDATE job SET status=$2, error_class=NULLIF($3, ''), error=NULLIF($4, ''),
+			UPDATE job SET status=$2, error_class=NULLIF($3, ''), error=NULLIF($4, ''), provider_message=NULLIF($8, ''),
 			       actual_usd=COALESCE($5, actual_usd), results=$6, grounding=COALESCE($7::jsonb, grounding),
 			       retry_at=NULL, finished_at=now(), updated_at=now()
 			WHERE id=$1 AND status IN ('queued', 'running')
 			RETURNING user_id, estimate_usd::float8, actual_usd::float8`,
-			id, e.status, e.class, clip(e.msg), e.cost, e.results, grounding).Scan(&userID, &estimate, &actual)
+			id, e.status, e.class, clip(e.msg), e.cost, e.results, grounding, clip(e.said)).Scan(&userID, &estimate, &actual)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}

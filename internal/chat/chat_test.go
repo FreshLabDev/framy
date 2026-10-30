@@ -497,6 +497,8 @@ func TestAFailedRunShowsTheCard(t *testing.T) {
 		want   string
 	}{
 		{jobs.Failed, jobs.Moderation, true, "err.moderation"},
+		// A real person in an input: another model may take it.
+		{jobs.Failed, jobs.Faces, false, "err.faces"},
 		{jobs.Failed, jobs.Money, false, "err.money"},
 		{jobs.Failed, jobs.Money, true, "err.failed"},
 		{jobs.Failed, jobs.Key, false, "err.key"},

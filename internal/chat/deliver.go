@@ -456,6 +456,8 @@ func reason(run db.ChatRun) string {
 	switch jobs.Class(run.ErrorClass) {
 	case jobs.Moderation:
 		return "err.moderation"
+	case jobs.Faces:
+		return "err.faces"
 	case jobs.Money:
 		if run.Free {
 			return "err.failed"

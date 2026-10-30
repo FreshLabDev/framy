@@ -53,6 +53,9 @@ type APIError struct {
 	Categories []string
 }
 
+// Said is OpenAI's words, for the person.
+func (e *APIError) Said() string { return e.Message }
+
 func (e *APIError) Error() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "openai %d", e.Status)
