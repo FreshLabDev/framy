@@ -91,7 +91,7 @@ func pg(t *testing.T) (*db.Store, *pgxpool.Pool) {
 		    '{text,image}', '{"input_references":{"type":"range","min":0,"max":4}}',
 		    '[{"prices":[{"billable":"output_image","unit":"image","cost_usd":0.04}]}]', now()),
 		   ('openrouter:microsoft/mai-image-2.6-flash', 'microsoft/mai-image-2.6-flash', 'openrouter', 'microsoft/mai-image-2.6-flash', 'MAI 2.6 Flash',
-		    '{text,image}', '{"input_references":{"type":"range","min":0,"max":4}}',
+		    '{text,image}', '{"input_references":{"type":"range","min":0,"max":4},"n":{"type":"range","min":1,"max":4},"aspect_ratio":{"type":"enum","values":["1:1","16:9"]}}',
 		    '[{"prices":[{"billable":"output_image","unit":"image","cost_usd":0.0195}]}]', now())
 		 ON CONFLICT (id) DO UPDATE SET input_modalities = EXCLUDED.input_modalities, params = EXCLUDED.params,
 		   routes = EXCLUDED.routes, disabled_at = NULL, hidden = NULL`,
@@ -700,7 +700,7 @@ func TestTheFreeAllowanceSpeaksThroughTheAPI(t *testing.T) {
 
 	// Another setting, a model off the list, and a paid offer are not free.
 	for name, b := range map[string]string{
-		"a locked setting": freeBody(`"settings":{"quality":"high"}`),
+		"a locked setting": freeBody(`"settings":{"aspect_ratio":"16:9"}`),
 		"a locked value":   freeBody(`"settings":{"n":4}`),
 		"another model":    body(paidOffer, "free"),
 	} {
