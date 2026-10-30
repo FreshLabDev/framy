@@ -168,6 +168,11 @@ func (in Inputs) Check(kind Kind, c Count) error {
 	return in.Audio.check("sounds", c.Audio, c.AudioSecs, c.AudioBytes)
 }
 
+// secsSlack is how much longer than its limit a clip may be. A part cut to
+// 15 s comes out a frame longer (15.015 s at 59.94 fps), as the container
+// counts it from the first frame's offset; free.sourceSlack is the same.
+const secsSlack = 0.1
+
 func (l *ClipInputs) check(what string, n int, secs []float64, sizes []int64) error {
 	if l == nil {
 		if n > 0 {
@@ -181,19 +186,20 @@ func (l *ClipInputs) check(what string, n int, secs []float64, sizes []int64) er
 	case n < l.Min:
 		return fmt.Errorf("at least %d %s, and %d are attached", l.Min, what, n)
 	}
-	total := 0.0
+	total, counted := 0.0, 0
 	for _, s := range secs {
 		switch {
 		case s <= 0:
 			continue
 		case l.Secs != nil && l.Secs.Min > 0 && s < l.Secs.Min:
 			return fmt.Errorf("%s of at least %g s, and one is %g s", what, l.Secs.Min, s)
-		case l.Secs != nil && l.Secs.Max > 0 && s > l.Secs.Max:
+		case l.Secs != nil && l.Secs.Max > 0 && s > l.Secs.Max+secsSlack:
 			return fmt.Errorf("%s of at most %g s, and one is %g s", what, l.Secs.Max, s)
 		}
 		total += s
+		counted++
 	}
-	if l.TotalSecs > 0 && total > l.TotalSecs {
+	if l.TotalSecs > 0 && total > l.TotalSecs+secsSlack*float64(counted) {
 		return fmt.Errorf("%s of at most %g s together, and these are %g s", what, l.TotalSecs, total)
 	}
 	for _, b := range sizes {

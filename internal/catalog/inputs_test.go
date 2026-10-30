@@ -88,6 +88,10 @@ func TestInputsCheck(t *testing.T) {
 		{"ten images", seedance, Video, Count{Images: 10}, "at most 9 images"},
 		{"too many files", seedance, Video, Count{Images: 9, Videos: 3, Audio: 1}, "at most 12 files"},
 		{"a long clip", seedance, Video, Count{Videos: 1, VideoSecs: []float64{16}}, "at most 15 s"},
+		// A part cut to the limit comes out a frame longer.
+		{"a part cut to 15 s at 59.94 fps", seedance, Video, Count{Videos: 1, VideoSecs: []float64{15.015}}, ""},
+		{"a clip past the frame", seedance, Video, Count{Videos: 1, VideoSecs: []float64{15.2}}, "at most 15 s"},
+		{"two parts cut to 15 s together", seedance, Video, Count{Videos: 2, VideoSecs: []float64{7.53, 7.53}}, ""},
 		{"a short clip", seedance, Video, Count{Videos: 1, VideoSecs: []float64{1}}, "at least 2 s"},
 		{"clips too long together", seedance, Video, Count{Videos: 2, VideoSecs: []float64{10, 10}}, "together"},
 		{"a clip an editor takes", editor, Video, Count{Videos: 1, VideoSecs: []float64{8}, VideoBytes: []int64{30 << 20}}, ""},
