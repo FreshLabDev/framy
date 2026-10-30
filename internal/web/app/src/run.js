@@ -91,7 +91,7 @@ async function start(base, key = newKey()) {
       run.phase = "refused";
       resend = err.status >= 500 || err.status === 0;
       run.why = refusal(err, { kind: run.kind, clip: err.clip || (!err.file && !!run.clip && err.code !== "price_changed"), name: err.file?.name, maxBytes: err.maxBytes,
-        shown: run.shownLabel, provider: PNAME[run.pay], lastFrame: !!run.cont });
+        shown: run.shownLabel, provider: PNAME[run.pay], lastFrame: !!run.cont, clipSecs: run.clipSecs, cut: !!run.cut });
       // The same press again keeps its key when the server may have made the job.
       if (resend) run.retryKey = run.key;
       afterRefusal(run, err);
@@ -113,6 +113,7 @@ async function prepare(run) {
     if (f.kind === "image") { ids.push(f.upload); continue; }
     try { ids.push(await takeClip(f, f === run.clip ? run.cut : null, { signal: sig, step: (s) => setStep(run, s) })); }
     catch (e) { e.clip = true; throw e; }
+    if (f === run.clip) run.clipSecs = f.secsOf?.[ids.at(-1)] || 0;
   }
   return ids;
 }

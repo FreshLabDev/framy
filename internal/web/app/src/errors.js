@@ -3,7 +3,7 @@
 // before any job existed. Each says what happened to the money and which
 // buttons fit. The English message of a job is shown only where it is the
 // provider's own reason.
-import { t, fmtTime, fmtIn, fmtSecs } from "./i18n.js";
+import { t, fmtTime, fmtIn, fmtSecs, fmtNum } from "./i18n.js";
 import { PNAME } from "./catalog.js";
 import { priceText } from "./price.js";
 
@@ -72,7 +72,12 @@ export function refusal(err, ctx = {}) {
     case "free_closed": return R(t("ref.free_closed_l"), t("ref.free_closed", { time: fmtTime(Date.parse(b.until) || Date.now()) }), ["bykey"], { until: Date.parse(b.until) || 0 });
     case "not_free": return R(t("ref.not_free_l"), t("err.not_free"));
     case "no_connection": case "connection_invalid": return R(t("ref.key_l"), t("err.no_key", { provider: PNAME[b.provider] || ctx.provider || "" }));
-    case "wrong_inputs": case "unknown_input": return R(t("ref.files_l"), t("ref.wrong_inputs"));
+    case "wrong_inputs": case "unknown_input": {
+      // The clip came out longer than the model takes: say so, with its part to pick.
+      const mx = b.inputs?.videos?.secs?.max;
+      if (mx && ctx.clipSecs > mx) return R(t("ref.part_long_l"), t("ref.part_long", { len: t("unit.s", { n: fmtNum(ctx.clipSecs, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }), max: fmtSecs(mx) }), ctx.cut ? ["cut"] : []);
+      return R(t("ref.files_l"), t("ref.wrong_inputs"));
+    }
     case "unknown_offer": return R(t("ref.model_l"), t("err.unknown_offer"));
     case "cannot_continue": return R(t("ref.cont_l"), t("ref.cannot_continue"), ctx.lastFrame ? ["lastframe"] : []);
     case "video_too_long": return R(t("ref.too_long_l"), t("ref.too_long", { len: clock(b.seconds) }), ["cut"], { seconds: b.seconds });

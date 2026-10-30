@@ -156,6 +156,8 @@ export async function takeClip(f, cut, { signal, step, again = false }) {
   if (body.upload) f.token = "";
   if (cut) f.cuts[key] = file.id; else f.upload = file.id;
   if (!f.secs && file.seconds) { f.secs = file.seconds; f.meta.seconds = file.seconds; }
+  // How long the clip framy keeps came out, to tell a part a frame too long.
+  if (file.seconds) (f.secsOf ||= {})[file.id] = file.seconds;
   return file.id;
 }
 
@@ -176,7 +178,10 @@ export function openCut() {
   const c = clip(), m = M();
   if (!c || !m || !c.secs) return;
   const pay = payOf(m), fps = c.fps || 30, total = Math.max(1, Math.round(c.secs * fps));
-  const maxF = Math.min(total, Math.round(Math.min(maxSecs(m, pay), c.secs) * fps)), minF = Math.max(1, Math.round(Math.max(0.1, minSecs(m, pay)) * fps));
+  // framy cuts on the clip's own frames and rounds the end up to one, and
+  // the frame rate is not known here: a part a twentieth of a second under
+  // the limit keeps the cut within it at any rate from 20 frames a second.
+  const lim = maxSecs(m, pay), maxF = Math.min(total, lim < c.secs ? Math.floor((lim - 0.05) * fps) : total), minF = Math.max(1, Math.round(Math.max(0.1, minSecs(m, pay)) * fps));
   const start = S.cut ? Math.round(S.cut.start * fps) : 0;
   Object.assign(ED, { c, fps, total, maxF, minF, start, end: Math.min(total, S.cut ? start + Math.round(S.cut.seconds * fps) : start + maxF), edge: "start", playing: false });
   if (ED.end - ED.start > maxF) ED.end = ED.start + maxF;
@@ -247,7 +252,9 @@ function startPlay() {
   ED.playing = true;
   ED.play.replaceChildren(ic("pause"));
   ED.view.currentTime = ED.start / ED.fps;
-  ED.view.play().catch(() => stopPlay());
+  // Played on a press, the part is heard; stepping through frames stays silent.
+  ED.view.muted = false;
+  ED.view.play().catch(() => { ED.view.muted = true; ED.view.play().catch(() => stopPlay()); });
   const tick = () => {
     if (!ED.playing) return;
     const f = Math.floor(ED.view.currentTime * ED.fps);
@@ -262,6 +269,7 @@ function stopPlay() {
   ED.playing = false;
   cancelAnimationFrame(ED.raf);
   ED.view.pause();
+  ED.view.muted = true;
   ED.play.replaceChildren(ic("play"));
 }
 // The window moves when dragged, an edge when its handle is, and a press

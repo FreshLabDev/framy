@@ -92,7 +92,7 @@ export function render() {
   if (!m) return;
   const pay = payOf(m);
   // A part picked for a model that takes more than the next one does is picked again.
-  if (S.cut && (!clip() || S.cut.seconds > maxSecs(m, pay) + 0.05)) S.cut = null;
+  if (S.cut && (!clip() || S.cut.seconds > maxSecs(m, pay) + 0.005)) S.cut = null;
   $("#kind").replaceChildren(...[["image", t("kind.image")], ["video", t("kind.video")]].map(([k, l]) =>
     opt({ key: "kind", v: k, on: S.kind === k, title: l, pick: () => setKind(k) }, ic(k), h("span", { class: "t" }, l))));
   $("#prompt").placeholder = contFits(m, pay) ? t("prompt.cont") : needsVideo(m) ? t("prompt.clip") : m.kind === "video" ? t("prompt.video") : images().length ? t("prompt.photo") : t("prompt.image");

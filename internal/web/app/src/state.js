@@ -82,7 +82,9 @@ export function maxSecs(m, pay) {
   return plan?.max_source_seconds ? Math.min(mx, plan.max_source_seconds) : mx;
 }
 export const minSecs = (m, pay) => inputsOf(m, pay).videos?.secs?.min || m.traits?.source_video?.min_seconds || 0;
-const SLACK = 0.05;
+// framy checks a clip against the model's limits to the millisecond, so only
+// rounding is let through here.
+const SLACK = 0.005;
 const lenOf = (f) => (f === clip() && S.cut ? S.cut.seconds : f.secs);
 // The first clip is longer than the model takes, and no part of it is chosen yet.
 export function needsCut(m = M(), pay = payOf(m)) {
