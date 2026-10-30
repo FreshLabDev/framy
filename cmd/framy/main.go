@@ -270,9 +270,17 @@ func run(log *slog.Logger) error {
 	if files != nil {
 		uploads, links, kept, clips = files, files, files, files
 	}
+	// Send to Telegram (#37): the flow prepares a result for shareMessage and
+	// serves Telegram the files of the ones it never sent. The wait for a
+	// slot and a picture made a JPEG take more than ten seconds to answer.
+	var sharing api.Sharing
+	if flow != nil {
+		sharing = flow
+		site.HandleFunc("GET "+chat.SharePath+"{token}", flow.ServeShare, web.Deadlines(10*time.Second, time.Minute))
+	}
 	jobAPI, err := api.New(api.Config{
 		Pool: store.Pool(), Queue: queue, Store: store, Uploads: uploads, Links: links, Files: kept, Videos: clips, Keys: people,
-		Allowance: allowance, Person: signIn.Person, Log: log.With("component", "api"),
+		Allowance: allowance, Person: signIn.Person, Sharing: sharing, Log: log.With("component", "api"),
 		Revoke: func(ctx context.Context, userID int64) error {
 			_, err := signIn.RevokeAll(ctx, userID)
 			return err

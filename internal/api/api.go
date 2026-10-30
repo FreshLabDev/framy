@@ -36,6 +36,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/FreshLabDev/framy/internal/catalog"
+	"github.com/FreshLabDev/framy/internal/chat"
 	"github.com/FreshLabDev/framy/internal/db"
 	"github.com/FreshLabDev/framy/internal/free"
 	"github.com/FreshLabDev/framy/internal/fx"
@@ -129,6 +130,13 @@ type Links interface {
 	LinkAll(ctx context.Context, userID int64, ids []int64, names map[int64]string) (map[int64]storage.FileLinks, error)
 }
 
+// Sharing prepares a result for shareMessage in the Mini App: *chat.Flow.
+// It answers db.ErrNoResult for a file that is not a done result of the
+// person's, and chat.ErrNotShareable for one Telegram cannot be given.
+type Sharing interface {
+	Share(ctx context.Context, userID, assetID int64) (chat.Shared, error)
+}
+
 // Connections are the person's provider keys: *keys.Service. A nil
 // *keys.Service answers keys.ErrDisabled, which is no connection.
 type Connections interface {
@@ -163,6 +171,8 @@ type Config struct {
 	Files   Files
 	// Videos is nil while framy keeps no files: the clip routes answer 503.
 	Videos Videos
+	// Sharing is nil without the bot's flow: sharing answers 503.
+	Sharing Sharing
 	// Keys is nil without a KEK file, which is no connection for anyone.
 	Keys Connections
 	// Allowance is nil in tests that leave the free allowance out: /api/me
@@ -282,6 +292,7 @@ func (a *API) Register(site *web.Server) {
 	// The last frame reads the clip from the bucket first.
 	site.HandleFunc("POST /api/files/{id}/last-frame", a.lastFrame, web.Limit(web.ClassUpload),
 		web.Deadlines(10*time.Second, 3*time.Minute))
+	site.HandleFunc("POST /api/files/{id}/share", a.share, web.Limit(web.ClassJob))
 	site.HandleFunc("POST /api/jobs", a.create, web.Limit(web.ClassJob))
 	site.HandleFunc("GET /api/jobs", a.history)
 	site.HandleFunc("GET /api/jobs/{id}", a.get)
@@ -383,6 +394,8 @@ const (
 	codeVideoTooLong      = "video_too_long"
 	codeFrameTooLarge     = "frame_too_large"
 	codeBadCut            = "bad_cut"
+	codeNotShareable      = "not_shareable"
+	codeTelegramDown      = "telegram_unavailable"
 )
 
 // apiError is an answer that is not a success.

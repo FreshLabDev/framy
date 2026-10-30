@@ -549,6 +549,14 @@ was written from, and the skeleton of the service.
 - Each result in the job API has a `download` link that saves the file as
   `framy-<job>-<n>.<ext>`, so the site and the Mini App save a result under
   framy's name rather than the bucket's key.
+- Send to Telegram from the Mini App: `POST /api/files/{id}/share` saves a
+  result as a prepared inline message, and the Mini App hands it to
+  `shareMessage`, so the person sends it to any chat, framy in it or not. A
+  result that went out in a chat goes by its `file_id`; any other goes by a
+  link Telegram fetches from framy, which makes a JPEG of a picture and
+  passes an MP4 on as it is. The links are signed and last an hour. A video
+  over 20 MB or a WebM cannot go and gets `not_shareable`. framy now builds
+  on tg `dev` (fe692f2) for `savePreparedInlineMessage`.
 - CI on every push and weekly: modules, gofmt, build, vet, race tests,
   database tests on PostgreSQL 17, govulncheck, the image build, the photo
   and storage tests inside the image, on the ffmpeg it ships, and the local

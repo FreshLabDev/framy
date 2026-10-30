@@ -60,6 +60,7 @@ type Telegram interface {
 	AnswerCallbackQuery(ctx context.Context, callbackID, text string) error
 	AnswerCallbackQueryAlert(ctx context.Context, callbackID, text string) error
 	AnswerInlineQuery(ctx context.Context, inlineQueryID string, answer tg.InlineAnswer) error
+	SavePreparedInlineMessage(ctx context.Context, userID int64, result tg.InlineQueryResult, chats tg.PreparedChats) (tg.PreparedInlineMessage, error)
 }
 
 // Store is framy's database: *db.Store.
@@ -87,6 +88,7 @@ type Store interface {
 	EndSiteResult(ctx context.Context, jobID int64, state string) error
 	SentSiteResult(ctx context.Context, run db.ChatRun, res db.ChatResult) error
 	InlineResults(ctx context.Context, user int64, search string, before int64, limit int) ([]db.InlineResult, error)
+	ShareSource(ctx context.Context, userID, assetID int64) (db.ShareSource, error)
 }
 
 // Queue makes and works the jobs: *jobs.Queue.
@@ -188,6 +190,10 @@ type Flow struct {
 	// question; dmAlbums the albums of a DM being collected.
 	asks     sync.Map // askKey → ask
 	dmAlbums sync.Map // albumKey → *dmAlbum
+	// shareKey signs the links of shared results; shareSlots bounds the
+	// pictures made for them at once.
+	shareKey   [32]byte
+	shareSlots chan struct{}
 
 	wg sync.WaitGroup
 }
@@ -225,7 +231,8 @@ func New(cfg Config) (*Flow, error) {
 		cfg.MaxVideo = storage.DefaultMaxVideo
 	}
 	cfg.AppURL = miniAppURL(cfg.AppURL)
-	return &Flow{cfg: cfg, log: cfg.Log, now: time.Now, slot: make(chan struct{}, cfg.Commands)}, nil
+	return &Flow{cfg: cfg, log: cfg.Log, now: time.Now, slot: make(chan struct{}, cfg.Commands),
+		shareKey: newShareKey(), shareSlots: make(chan struct{}, shareSlots)}, nil
 }
 
 // Wait waits for the commands and presses in flight; the caller cancels

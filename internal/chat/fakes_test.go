@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"image"
 	"image/png"
 	"io"
@@ -58,6 +59,8 @@ type fakeTelegram struct {
 	files   map[string]string
 	// inlineAnswers are the inline answers, in order.
 	inlineAnswers []tg.InlineAnswer
+	// prepared are the results saved for shareMessage, in order.
+	prepared []tg.InlineQueryResult
 	// beforeEphemeral runs as an ephemeral send starts, as a stop would
 	// come in the middle of one.
 	beforeEphemeral func()
@@ -278,6 +281,21 @@ func (f *fakeTelegram) AnswerCallbackQuery(_ context.Context, _ string, text str
 	return nil
 }
 
+// SavePreparedInlineMessage keeps the result in prepared and answers
+// "prep-<n>", which ends a day later.
+func (f *fakeTelegram) SavePreparedInlineMessage(_ context.Context, userID int64, result tg.InlineQueryResult, chats tg.PreparedChats) (tg.PreparedInlineMessage, error) {
+	if _, err := f.record(call{method: "savePreparedInlineMessage", chatID: userID}); err != nil {
+		return tg.PreparedInlineMessage{}, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if chats != tg.AnyChat {
+		return tg.PreparedInlineMessage{}, fmt.Errorf("chats %+v", chats)
+	}
+	f.prepared = append(f.prepared, result)
+	return tg.PreparedInlineMessage{ID: fmt.Sprintf("prep-%d", len(f.prepared)), ExpirationDate: clock.Add(24 * time.Hour).Unix()}, nil
+}
+
 // AnswerInlineQuery keeps the answer whole in inlineAnswers.
 func (f *fakeTelegram) AnswerInlineQuery(_ context.Context, id string, answer tg.InlineAnswer) error {
 	if _, err := f.record(call{method: "answerInlineQuery", text: id}); err != nil {
@@ -348,6 +366,21 @@ type fakeStore struct {
 	// and inlineAsked what it was last asked.
 	inline      []db.InlineResult
 	inlineAsked inlineAsk
+	// shares are the results ShareSource finds, by asset id.
+	shares map[int64]db.ShareSource
+	// shareOwner is whose each of shares is.
+	shareOwner map[int64]int64
+}
+
+// ShareSource finds the person's result in s.shares.
+func (s *fakeStore) ShareSource(_ context.Context, userID, assetID int64) (db.ShareSource, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	src, ok := s.shares[assetID]
+	if !ok || s.shareOwner[assetID] != userID {
+		return db.ShareSource{}, db.ErrNoResult
+	}
+	return src, nil
 }
 
 type inlineAsk struct {
@@ -731,6 +764,9 @@ type fakeFiles struct {
 	uploads int
 	fail    error
 	results map[int64][]storage.Asset
+	// blobs are what Open reads of an object, by its key; any other reads
+	// "result".
+	blobs map[string][]byte
 	// store has the jobs, whose inputs JobInputs reads.
 	store  *fakeStore
 	assets map[int64]storage.Asset
@@ -811,7 +847,12 @@ func (f *fakeFiles) Results(_ context.Context, jobID int64) ([]storage.Asset, er
 	return f.results[jobID], nil
 }
 
-func (f *fakeFiles) Open(context.Context, storage.Asset) (io.ReadCloser, error) {
+func (f *fakeFiles) Open(_ context.Context, a storage.Asset) (io.ReadCloser, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if b, ok := f.blobs[a.Key]; ok {
+		return io.NopCloser(bytes.NewReader(b)), nil
+	}
 	return io.NopCloser(strings.NewReader("result")), nil
 }
 
