@@ -3,6 +3,8 @@ package bot
 
 import (
 	"context"
+	"encoding/json"
+	"strconv"
 	"testing"
 
 	"github.com/FreshLabDev/tg"
@@ -54,6 +56,44 @@ func TestAGuestMessageFramyCannotAnswerIsLeftAlone(t *testing.T) {
 	b.handle(context.Background(), tg.Update{UpdateID: 3, GuestMessage: guestMessage("@framytest_bot make it snow")})
 	if len(client.calls) != 0 {
 		t.Fatalf("the bot sent %+v", client.calls)
+	}
+}
+
+// reply is m answering a message decoded from raw, as Telegram sends it.
+func reply(t *testing.T, m *tg.Message, raw string) *tg.Message {
+	t.Helper()
+	var r tg.Message
+	if err := json.Unmarshal([]byte(raw), &r); err != nil {
+		t.Fatal(err)
+	}
+	m.ReplyToMessage = &r
+	return m
+}
+
+// A reply to framy's answer while it has buttons gets a hint, whether
+// Telegram gives the answer as framy's or as sent via framy. One with no
+// buttons is a result to change, and another bot's open message is not
+// framy's to hint at.
+func TestAReplyToAnOpenAnswerGetsAHint(t *testing.T) {
+	kb := `"reply_markup":{"inline_keyboard":[[{"text":"Generate","callback_data":"j:1:go"}]]}`
+	self := strconv.FormatInt(selfID, 10)
+	for _, tc := range []struct {
+		name, raw string
+		open      bool
+	}{
+		{"framy's", `{"message_id":5,"from":{"id":` + self + `,"is_bot":true,"first_name":"framy"},"chat":{"id":-300,"type":"supergroup"},"date":1,` + kb + `}`, true},
+		{"via framy", `{"message_id":5,"from":{"id":7,"first_name":"Ann"},"via_bot":{"id":` + self + `,"is_bot":true,"first_name":"framy"},"chat":{"id":-300,"type":"supergroup"},"date":1,` + kb + `}`, true},
+		{"a result", `{"message_id":5,"from":{"id":` + self + `,"is_bot":true,"first_name":"framy"},"chat":{"id":-300,"type":"supergroup"},"date":1,"photo":[{"file_id":"p","file_unique_id":"u","width":1,"height":1}]}`, false},
+		{"another bot's", `{"message_id":5,"from":{"id":42,"is_bot":true,"first_name":"gif"},"chat":{"id":-300,"type":"supergroup"},"date":1,` + kb + `}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			flow := &fakeFlow{}
+			b, _, _ := newBotWith(WithFlow(flow))
+			b.handle(context.Background(), tg.Update{UpdateID: 1, GuestMessage: reply(t, guestMessage("now at night"), tc.raw)})
+			if got := flow.open == 1; got != tc.open || len(flow.guests) == flow.open {
+				t.Fatalf("hinted %d, ran %q", flow.open, flow.guests)
+			}
+		})
 	}
 }
 

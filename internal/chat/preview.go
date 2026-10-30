@@ -7,6 +7,7 @@ import (
 	"html"
 	"math"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -251,8 +252,9 @@ func button(text, data, style string) tg.InlineKeyboardButton {
 	return tg.InlineKeyboardButton{Text: text, CallbackData: data, Style: style}
 }
 
-// previewKeyboard: Generate and No, and under them what the run can
-// change. An image run has Model and Settings and, from a prompt and at most
+// previewKeyboard: Generate and No, and under them, two to a row, what the
+// run can change. An image run has Model, Settings when there is one to
+// change (a free run has its settings fixed) and, from a prompt and at most
 // one photo, Make a video of them; a video from a prompt has Make an image;
 // an edit of a clip offers the other length of it, when there is one. A
 // video run has no Model or Settings yet.
@@ -261,21 +263,25 @@ func previewKeyboard(lang string, jobID int64, d draft) *tg.InlineKeyboardMarkup
 		button(t(lang, "run.generate"), callback(jobID, actGenerate), "success"),
 		button(t(lang, "run.no"), callback(jobID, actNo), "danger"),
 	}}
+	var more []tg.InlineKeyboardButton
 	switch {
 	case d.clip:
 		if c, ok := d.otherLength(); ok {
-			rows = append(rows, []tg.InlineKeyboardButton{button(c.label(lang, d), callback(jobID, c.action), "")})
+			more = append(more, button(c.label(lang, d), callback(jobID, c.action), ""))
 		}
 	case d.video():
-		rows = append(rows, []tg.InlineKeyboardButton{button(t(lang, "run.as_image"), callback(jobID, actImage), "")})
+		more = append(more, button(t(lang, "run.as_image"), callback(jobID, actImage), ""))
 	default:
-		rows = append(rows, []tg.InlineKeyboardButton{
-			button(t(lang, "run.model"), callback(jobID, actModel), ""),
-			button(t(lang, "run.settings"), callback(jobID, actSettings), ""),
-		})
-		if d.taken <= free.VideoHeyGen.MaxInputs {
-			rows = append(rows, []tg.InlineKeyboardButton{button(t(lang, "run.as_video"), callback(jobID, actVideo), "")})
+		more = append(more, button(t(lang, "run.model"), callback(jobID, actModel), ""))
+		if d.pay != payFree && len(settingsOf(d.offer)) > 0 {
+			more = append(more, button(t(lang, "run.settings"), callback(jobID, actSettings), ""))
 		}
+		if d.taken <= free.VideoHeyGen.MaxInputs {
+			more = append(more, button(t(lang, "run.as_video"), callback(jobID, actVideo), ""))
+		}
+	}
+	for b := range slices.Chunk(more, 2) {
+		rows = append(rows, b)
 	}
 	return &tg.InlineKeyboardMarkup{InlineKeyboard: rows}
 }

@@ -89,7 +89,7 @@ func TestMakeAVideoTurnsAPromptIntoTheFreeVideo(t *testing.T) {
 	if !job.n.Free || job.n.Offer.ID != free.ImageMAI.Offer || !reflect.DeepEqual(job.n.Settings, map[string]any{"n": 1}) {
 		t.Fatalf("job = %+v", job.n)
 	}
-	if got := lastCard(t, h); len(got) != 3 || got[2][0] != callback(id, actVideo) {
+	if got := lastCard(t, h); len(got) != 2 || got[1][1] != callback(id, actVideo) {
 		t.Fatalf("keyboard = %v", got)
 	}
 }

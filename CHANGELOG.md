@@ -476,15 +476,19 @@ was written from, and the skeleton of the service.
   run in `chat_run` (migration 014), so a restart picks it up where it was.
   `/edit` is in the group menu for video and answers that video in chats is
   not open yet. Again and Animate come later.
-- Model and Settings under Generate and No. In a group the requester gets
-  the list in an ephemeral panel over the preview, so the chat sees only the
-  card change; in a DM, or on a preview only they see, the list is on the
-  preview. Model lists the free image models, then the featured ones that
-  take the run's photos, each on the provider the person has a key for, and
-  marks with 🔑 those that need one. Settings change the shape, the
-  resolution, the quality, the size and up to 4 results of a run on the
-  person's key; a free run's are fixed. A pick revises the draft and redraws
-  the card from the run's files. When framy is an admin of the group, or the
+- Model and Settings under Generate and No, two to a row with Make a video;
+  a free run has no Settings, since its settings are fixed. In a group the
+  requester gets the list in an ephemeral panel over the preview, so the
+  chat sees only the card change; in a DM, or on a preview only they see,
+  the list is on the preview. Model lists the image models that take the
+  run's photos one to a row, each with what it would cost: the free ones
+  first, then the site's suggestions, then the rest. A family's variants
+  share one row that opens them, and the models that need a key the person
+  has not connected fold into one last row, so the list stays short. Vector
+  models are left to the site, since Telegram shows an SVG as a file.
+  Settings change the shape, the resolution, the quality, the size and up to
+  4 results of a run on the person's key. A pick revises the draft and
+  redraws the card from the run's files. When framy is an admin of the group, or the
   command was ephemeral, the preview itself goes to the requester alone, and
   Generate posts the loop for the chat. Migration 015 keeps where the
   preview and the panel are.
@@ -595,18 +599,21 @@ was written from, and the skeleton of the service.
   on tg `dev` (fe692f2) for `savePreparedInlineMessage`.
 - Guest mode: `@framyin_bot …` works in a chat framy is not in, in reply to
   a photo or not. The run is the one a group gets, in a single message: the
-  preview with Generate, No, Model, Settings and Make a video, then the
-  loop with the time and Stop, then the result or the error card, each an
-  edit of the answer. Telegram takes no upload there, so the cards, the loop
-  and the result go by links Telegram fetches from framy, signed as Send to
-  Telegram's are; without an https `SITE_URL` a guest message gets no
-  answer. A video result over 20 MB stays in the history, and the answer
-  says so. No, Stop and an expired preview leave the answer saying
-  "Cancelled.", since an inline message cannot be deleted. Only the person
-  is recorded, with their own language, not the chat. Migration 022 adds
-  the `guest` surface and the run's `inline_message_id`. framy builds on tg
-  `dev` (bd169f3) for `answerGuestQuery`. Guest Mode has to be turned on in
-  BotFather, and the live test (T9) is still to run.
+  preview's text and buttons with the card above them as a link preview,
+  then the loop with the time and Stop, then the result or the error card,
+  each an edit of the answer. Telegram takes no upload there, so the cards,
+  the loop and the result go by links Telegram fetches from framy, signed
+  as Send to Telegram's are; without an https `SITE_URL` a guest message
+  gets no answer. A video result over 20 MB stays in the history, and the
+  answer says so. An inline message cannot be deleted, so No and an expired
+  preview shrink the answer to one line, "Cancelled.", and Stop leaves the
+  card the run started from, "Stopped.". A reply to framy's answer while it
+  still has buttons gets a line to use them instead of a second run. Only
+  the person is recorded, with their own language, not the chat. Migration
+  022 adds the `guest` surface and the run's `inline_message_id`. framy
+  builds on tg `dev` (5e0a6c2) for `answerGuestQuery` and the text preview.
+  Guest Mode has to be turned on in BotFather, and the live test (T9) is
+  still to run.
 - CI on every push and weekly: modules, gofmt, build, vet, race tests,
   database tests on PostgreSQL 17, govulncheck, the image build, the photo
   and storage tests inside the image, on the ffmpeg it ships, and the local

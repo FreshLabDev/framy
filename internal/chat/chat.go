@@ -65,6 +65,7 @@ type Telegram interface {
 	AnswerGuestQuery(ctx context.Context, guestQueryID string, result tg.InlineQueryResult) (tg.SentGuestMessage, error)
 	EditInlineMessageMedia(ctx context.Context, inlineMessageID string, media tg.InputMedia, markup *tg.InlineKeyboardMarkup) error
 	EditInlineMessageCaption(ctx context.Context, inlineMessageID, caption string, opts tg.EditCaptionOptions) error
+	EditInlineMessageTextWithPreview(ctx context.Context, inlineMessageID, text string, preview *tg.LinkPreviewOptions, markup *tg.InlineKeyboardMarkup) error
 	EditInlineMessageReplyMarkup(ctx context.Context, inlineMessageID string, markup *tg.InlineKeyboardMarkup) error
 }
 
@@ -306,6 +307,10 @@ const (
 	actBack        = "b"
 	actPickModel   = "M"
 	actPickSetting = "S"
+	// actFamily lists a family's variants, by famHash; actLocked the
+	// families that need a key the person has not connected.
+	actFamily = "F"
+	actLocked = "L"
 	// actVideo turns a run of a prompt and at most one photo into a video
 	// from them, the photo its start frame; actImage turns it back.
 	actVideo = "v"

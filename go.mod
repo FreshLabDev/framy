@@ -5,7 +5,7 @@ module github.com/FreshLabDev/framy
 go 1.27.3
 
 require (
-	github.com/FreshLabDev/tg v0.2.0-alpha.3.0.20261030193744-bd169f30ce2c
+	github.com/FreshLabDev/tg v0.2.0-alpha.3.0.20261030203951-5e0a6c2b3efb
 	github.com/chromedp/cdproto v0.157.8
 	github.com/chromedp/chromedp v0.21.0
 	github.com/coreos/go-oidc/v3 v3.21.0

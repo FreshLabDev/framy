@@ -18,6 +18,7 @@ type fakeFlow struct {
 	callbacks []string
 	inline    []string
 	guests    []string
+	open      int
 }
 
 type flowCommand struct{ command, prompt string }
@@ -54,6 +55,12 @@ func (f *fakeFlow) Guest(_ context.Context, _ *tg.Message, prompt string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.guests = append(f.guests, prompt)
+}
+
+func (f *fakeFlow) GuestOpen(context.Context, *tg.Message) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.open++
 }
 
 // framy streams no drafts: a Stop on one, which framy does not ask

@@ -36,14 +36,34 @@ import (
 // card changes; a preview only they see, or one in the bot's DM, shows the
 // list itself. A pick revises the draft and draws the card again.
 
-// view is what a run's keyboard shows.
-type view int
+// view is what a run's keyboard shows: the main buttons, the list of
+// models, one family's variants, the models that need a key, or the
+// settings.
+type view struct {
+	screen screen
+	// fam names the family screenFamily lists, as famHash writes it.
+	fam string
+}
+
+type screen int
 
 const (
-	viewMain view = iota
-	viewModel
-	viewSettings
+	screenMain screen = iota
+	screenModels
+	screenFamily
+	screenLocked
+	screenSettings
 )
+
+var (
+	viewMain     = view{}
+	viewModel    = view{screen: screenModels}
+	viewLocked   = view{screen: screenLocked}
+	viewSettings = view{screen: screenSettings}
+)
+
+// viewFamily lists the variants of the family hash names.
+func viewFamily(hash string) view { return view{screen: screenFamily, fam: hash} }
 
 // shownSettings are the settings the panel offers, in its order; the rest
 // stay as the model has them. n is how many results, up to maxResults.
@@ -51,10 +71,8 @@ var shownSettings = []string{"aspect_ratio", "resolution", "quality", "size", "n
 
 const (
 	maxResults = 4
-	// perRow is how many values go in a row, and modelsPerRow how many
-	// models.
-	perRow       = 4
-	modelsPerRow = 2
+	// perRow is how many values of a setting go in a row.
+	perRow = 4
 )
 
 // providerOrder is which offer of a model runs when the person has keys
@@ -302,29 +320,10 @@ func valueLabel(lang string, v any) string {
 // keyboardOf is the keyboard of a view.
 func (f *Flow) keyboardOf(ctx context.Context, run db.ChatRun, s state, v view) (*tg.InlineKeyboardMarkup, error) {
 	back := []tg.InlineKeyboardButton{button(t(run.Lang, "btn.back"), callback(run.JobID, actBack), "")}
-	switch v {
-	case viewModel:
-		list, err := f.choices(ctx, run, s.offer)
-		if err != nil {
-			return nil, err
-		}
-		var rows [][]tg.InlineKeyboardButton
-		for i, c := range list {
-			text := c.model.Name
-			switch {
-			case c.model.ID == s.model.ID:
-				text = "✓ " + text
-			case !c.free && !c.key:
-				text = "🔑 " + text
-			}
-			b := button(text, callback(run.JobID, actPickModel+modelHash(c.model.ID)), "")
-			if i%modelsPerRow == 0 {
-				rows = append(rows, nil)
-			}
-			rows[len(rows)-1] = append(rows[len(rows)-1], b)
-		}
-		return &tg.InlineKeyboardMarkup{InlineKeyboard: append(rows, back)}, nil
-	case viewSettings:
+	switch v.screen {
+	case screenModels, screenFamily, screenLocked:
+		return f.modelKeyboard(ctx, run, s, v)
+	case screenSettings:
 		var rows [][]tg.InlineKeyboardButton
 		for pi, set := range settingsOf(s.offer) {
 			rows = append(rows, []tg.InlineKeyboardButton{{Text: t(run.Lang, "set."+set.name), Disabled: &tg.DisabledButton{}}})

@@ -123,6 +123,9 @@ type Flow interface {
 	// Guest takes a guest message: @framyin_bot in a chat framy is not in,
 	// with the mention taken out of the prompt.
 	Guest(ctx context.Context, m *tg.Message, prompt string)
+	// GuestOpen answers a guest message that replied to framy's answer
+	// while that one still has buttons.
+	GuestOpen(ctx context.Context, m *tg.Message)
 }
 
 // WithFlow answers /img and /edit, and plain direct messages.

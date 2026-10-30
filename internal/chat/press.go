@@ -62,6 +62,10 @@ func (f *Flow) press(ctx context.Context, cq *tg.CallbackQuery) error {
 		return f.view(ctx, cq, run, on, viewSettings)
 	case action == actBack:
 		return f.view(ctx, cq, run, on, viewMain)
+	case strings.HasPrefix(action, actFamily):
+		return f.view(ctx, cq, run, on, viewFamily(strings.TrimPrefix(action, actFamily)))
+	case action == actLocked:
+		return f.view(ctx, cq, run, on, viewLocked)
 	case strings.HasPrefix(action, actPickModel):
 		return f.pickModel(ctx, cq, run, on, strings.TrimPrefix(action, actPickModel))
 	case strings.HasPrefix(action, actPickSetting):
@@ -272,6 +276,7 @@ func (f *Flow) close(ctx context.Context, run db.ChatRun, from string) {
 	if !moved {
 		return
 	}
+	run.Stage = from
 	f.removePreview(ctx, run)
 	f.forget(run.JobID)
 }

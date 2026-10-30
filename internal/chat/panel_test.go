@@ -3,6 +3,7 @@ package chat
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -100,19 +101,29 @@ func labels(kb *tg.InlineKeyboardMarkup) [][]string {
 // pick is the data of a model's button.
 func pick(model string) string { return actPickModel + modelHash(model) }
 
-func TestThePreviewHasModelAndSettings(t *testing.T) {
+// A free run has its settings fixed, so its preview has no Settings: Model
+// and Make a video share a row. A run on the key has Settings beside Model.
+func TestThePreviewHasModelAndSettingsWhenThereAreAny(t *testing.T) {
 	h := newHarness(t)
 	if err := h.command(command("/img a fox"), CommandImage, "a fox"); err != nil {
 		t.Fatal(err)
 	}
 	kb := h.tg.methods("sendPhoto")[0].markup
-	if len(kb.InlineKeyboard) != 3 || kb.InlineKeyboard[1][0].CallbackData != "j:1:m" || kb.InlineKeyboard[1][1].CallbackData != "j:1:s" ||
-		kb.InlineKeyboard[1][0].Text != i18n.T("en", "run.model") {
-		t.Fatalf("keyboard = %v", labels(kb))
+	if got := labels(kb); !reflect.DeepEqual(got, [][]string{
+		{i18n.T("en", "run.generate"), i18n.T("en", "run.no")}, {i18n.T("en", "run.model"), i18n.T("en", "run.as_video")},
+	}) || kb.InlineKeyboard[1][0].CallbackData != "j:1:m" || kb.InlineKeyboard[1][1].CallbackData != "j:1:v" {
+		t.Fatalf("keyboard = %v", got)
 	}
-	// A prompt and at most one photo can become a video of them.
-	if row := kb.InlineKeyboard[2]; len(row) != 1 || row[0].CallbackData != "j:1:v" || row[0].Text != i18n.T("en", "run.as_video") {
-		t.Fatalf("keyboard = %v", labels(kb))
+
+	h = panelHarness(t)
+	if err := h.press(1, 7, actModel); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.pressPanel(1, 7, pick("google/nano-banana-pro")); err != nil {
+		t.Fatal(err)
+	}
+	if got := lastCard(t, h); !reflect.DeepEqual(got, [][]string{{"j:1:go", "j:1:no"}, {"j:1:m", "j:1:s"}, {"j:1:v"}}) {
+		t.Fatalf("keyboard = %v", got)
 	}
 }
 
@@ -136,10 +147,12 @@ func TestModelOpensAPanelOnlyTheRequesterSees(t *testing.T) {
 	if !strings.HasPrefix(p.text, "<blockquote>make it night</blockquote>") {
 		t.Fatalf("caption = %q", p.text)
 	}
-	// Free first, the current one marked; a model the photo does not suit
-	// and the video are left out; OpenAI's needs a key.
+	// One to a row with its price, the free ones first, the current one
+	// marked; a model the photo does not suit and the video are left out;
+	// OpenAI's needs a key, so it folds into the last row.
 	got := labels(p.markup)
-	want := [][]string{{"FLUX 3 Image Klein", "✓ MAI-Image-2.6 Flash"}, {"Nano Banana Pro", "🔑 GPT Image 2.5"}, {i18n.T("en", "btn.back")}}
+	want := [][]string{{"FLUX 3 Image Klein · free"}, {"✓ MAI-Image-2.6 Flash · free"}, {"Nano Banana Pro"},
+		{"🔑 " + i18n.T("en", "panel.more_key", "n", "1")}, {i18n.T("en", "btn.back")}}
 	if len(got) != len(want) {
 		t.Fatalf("list = %v", got)
 	}
@@ -163,7 +176,7 @@ func TestARefusedPanelShowsTheListOnThePreview(t *testing.T) {
 		t.Fatal(err)
 	}
 	edits := h.tg.methods("editMessageReplyMarkup")
-	if len(edits) != 1 || edits[0].messageID != run(t, h).PreviewMessageID || len(edits[0].markup.InlineKeyboard) != 3 {
+	if len(edits) != 1 || edits[0].messageID != run(t, h).PreviewMessageID || len(edits[0].markup.InlineKeyboard) != 5 {
 		t.Fatalf("edits = %+v", edits)
 	}
 	if run(t, h).PanelMessageID != 0 {
@@ -522,7 +535,7 @@ func TestInADirectChatTheListIsOnThePreview(t *testing.T) {
 	}
 	// From words alone Recraft, which takes no photo, is listed too, but
 	// not its vector variant: Telegram shows an SVG as a file.
-	if got := labels(edits[0].markup); len(got) != 4 || got[1][1] != "🔑 GPT Image 2.5" || len(got[2]) != 1 || got[2][0] != "Recraft V4.1" {
+	if got := labels(edits[0].markup); len(got) != 6 || got[3][0] != "Recraft V4.1" || got[4][0] != "🔑 "+i18n.T("en", "panel.more_key", "n", "1") {
 		t.Fatalf("list = %v", got)
 	}
 	h.tg.reset()

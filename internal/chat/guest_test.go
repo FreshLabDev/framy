@@ -78,19 +78,23 @@ func isShareLink(link, ext string) bool {
 	return strings.HasPrefix(link, shareSite+SharePath) && strings.Contains(link, ext+"?v=")
 }
 
-// A guest message is answered once with the preview a group gets: the card
-// Telegram fetches from framy, the prompt and the price, Generate and No.
-// Nothing goes to the chat itself, and the run waits on that answer.
+// A guest message is answered once with the preview a group gets, as text:
+// the prompt and the price, Generate and No, and above them the card
+// Telegram fetches from framy as the link's preview. Nothing goes to the
+// chat itself, and the run waits on that answer.
 func TestAGuestMessageIsAnsweredWithItsPreview(t *testing.T) {
 	h := guestHarness(t)
 	run := h.guestRun(t, "make it snow")
 	if len(h.tg.guestAnswers) != 1 {
 		t.Fatalf("answers = %+v", h.tg.guestAnswers)
 	}
-	p, ok := h.tg.guestAnswers[0].(tg.InlineQueryResultPhoto)
-	if !ok || !isShareLink(p.PhotoURL, ".jpg") || !isShareLink(p.ThumbnailURL, ".jpg") || p.PhotoURL == p.ThumbnailURL ||
-		!strings.Contains(p.Caption, "make it snow") || p.ReplyMarkup == nil || p.ReplyMarkup.InlineKeyboard[0][0].CallbackData != callback(1, actGenerate) {
+	a, ok := h.tg.guestAnswers[0].(tg.InlineQueryResultArticle)
+	text, _ := a.InputMessageContent.(tg.InputTextMessageContent)
+	if !ok || !strings.Contains(text.MessageText, "make it snow") || a.ReplyMarkup == nil || a.ReplyMarkup.InlineKeyboard[0][0].CallbackData != callback(1, actGenerate) {
 		t.Fatalf("answer = %+v", h.tg.guestAnswers[0])
+	}
+	if p := text.LinkPreview; p == nil || !isShareLink(p.URL, ".jpg") || !p.PreferLargeMedia || !p.ShowAboveText {
+		t.Fatalf("preview = %+v", p)
 	}
 	if run.InlineMessageID != "inline-gq-1" || run.Stage != db.StagePreview || run.Lang != "en" {
 		t.Fatalf("run = %+v", run)
@@ -104,11 +108,8 @@ func TestAGuestMessageIsAnsweredWithItsPreview(t *testing.T) {
 	// Telegram fetches the card: framy draws it from the run, with the
 	// photo, and serves it as a JPEG.
 	before := len(h.renderer.previews)
-	jpegSize(t, h.fetch(t, p.PhotoURL))
-	if b := jpegSize(t, h.fetch(t, p.ThumbnailURL)).Bounds(); b.Dx() > shareThumbSide {
-		t.Errorf("thumbnail %v", b)
-	}
-	if len(h.renderer.previews) != before+2 || len(h.renderer.albums[before]) != 1 {
+	jpegSize(t, h.fetch(t, text.LinkPreview.URL))
+	if len(h.renderer.previews) != before+1 || len(h.renderer.albums[before]) != 1 {
 		t.Errorf("cards drawn %d, of %v", len(h.renderer.previews)-before, h.renderer.albums)
 	}
 }
@@ -181,7 +182,7 @@ func TestAGuestRunTakesPressesFromItsAnswerAlone(t *testing.T) {
 }
 
 // An inline message cannot be deleted: No and an expired preview leave the
-// answer saying Cancelled, with no buttons.
+// answer one line, Cancelled, with no card and no buttons.
 func TestAGuestPreviewThatEndsSaysCancelled(t *testing.T) {
 	for name, end := range map[string]func(h *harness, run db.ChatRun){
 		"No": func(h *harness, run db.ChatRun) {
@@ -198,13 +199,52 @@ func TestAGuestPreviewThatEndsSaysCancelled(t *testing.T) {
 		run := h.guestRun(t, "make it snow")
 		h.tg.reset()
 		end(h, run)
-		caps := h.tg.methods("editInlineMessageCaption")
-		if len(caps) != 1 || caps[0].inline != run.InlineMessageID || !strings.Contains(caps[0].text, i18n.T("en", "guest.cancelled")) || caps[0].markup != nil {
-			t.Errorf("%s: captions = %+v", name, caps)
+		texts := h.tg.methods("editInlineMessageText")
+		if len(texts) != 1 || texts[0].inline != run.InlineMessageID || texts[0].text != i18n.T("en", "guest.cancelled") ||
+			texts[0].preview != "" || texts[0].markup != nil || len(h.tg.calls) != len(texts)+len(h.tg.methods("answerCallbackQuery")) {
+			t.Errorf("%s: calls = %+v", name, h.tg.calls)
 		}
 		if h.store.stage(1) != db.StageGone || len(h.chatCalls()) != 0 {
 			t.Errorf("%s: stage %s, chat calls %+v", name, h.store.stage(1), h.chatCalls())
 		}
+	}
+}
+
+// Stop on the loop cannot take the answer back to text: it gets the card
+// the run started from, Stopped, and no buttons.
+func TestAStoppedGuestRunLeavesItsCard(t *testing.T) {
+	h := guestHarness(t)
+	run := h.guestRun(t, "make it snow")
+	if err := h.pressInline(1, 7, actGenerate, run.InlineMessageID); err != nil {
+		t.Fatal(err)
+	}
+	h.tg.reset()
+	if err := h.pressInline(1, 7, actStop, run.InlineMessageID); err != nil {
+		t.Fatal(err)
+	}
+	cards := h.tg.methods("editInlineMessageMedia")
+	if len(cards) != 1 || !isShareLink(strings.TrimPrefix(cards[0].file, "photo "), ".jpg") || cards[0].markup != nil ||
+		!strings.Contains(cards[0].text, "make it snow") || !strings.HasSuffix(cards[0].text, i18n.T("en", "guest.stopped")) {
+		t.Fatalf("cards = %+v", cards)
+	}
+	if h.store.stage(1) != db.StageGone || len(h.chatCalls()) != 0 {
+		t.Errorf("stage %s, chat calls %+v", h.store.stage(1), h.chatCalls())
+	}
+}
+
+// When Telegram takes no loop, the answer gets the card under the same
+// words and Stop; the time then goes in its caption.
+func TestAGuestLoopFallsBackToTheCard(t *testing.T) {
+	h := guestHarness(t)
+	run := h.guestRun(t, "make it snow")
+	h.tg.reset()
+	h.renderer.loopErr = errBoom
+	if err := h.pressInline(1, 7, actGenerate, run.InlineMessageID); err != nil {
+		t.Fatal(err)
+	}
+	cards := h.tg.methods("editInlineMessageMedia")
+	if len(cards) != 1 || !strings.HasPrefix(cards[0].file, "photo ") || !isStop(cards[0].markup, 1) {
+		t.Fatalf("calls = %+v", h.tg.calls)
 	}
 }
 
@@ -226,8 +266,8 @@ func TestAGuestRunPicksItsModelOnTheAnswer(t *testing.T) {
 	if err := h.pressInline(1, 7, pick("black-forest-labs/flux-3-image-klein"), run.InlineMessageID); err != nil {
 		t.Fatal(err)
 	}
-	cards := h.tg.methods("editInlineMessageMedia")
-	if len(cards) != 1 || !isShareLink(strings.TrimPrefix(cards[0].file, "photo "), ".jpg") || cards[0].markup == nil {
+	cards := h.tg.methods("editInlineMessageText")
+	if len(cards) != 1 || !isShareLink(cards[0].preview, ".jpg") || cards[0].markup == nil || len(h.tg.methods("editInlineMessageMedia")) != 0 {
 		t.Fatalf("cards = %+v", cards)
 	}
 }
@@ -346,12 +386,12 @@ func TestAGuestRunTurnsIntoAVideoOnTheAnswer(t *testing.T) {
 	if job := h.store.jobs[1]; !job.n.Free || job.n.Offer.ID != free.VideoHeyGen.Offer {
 		t.Fatalf("job = %+v", job.n)
 	}
-	cards := h.tg.methods("editInlineMessageMedia")
-	if len(cards) != 1 || !isShareLink(strings.TrimPrefix(cards[0].file, "photo "), ".jpg") || len(h.chatCalls()) != 0 {
+	cards := h.tg.methods("editInlineMessageText")
+	if len(cards) != 1 || !isShareLink(cards[0].preview, ".jpg") || len(h.chatCalls()) != 0 {
 		t.Fatalf("cards %+v, chat calls %+v", cards, h.chatCalls())
 	}
 	// The card is drawn when Telegram fetches it, as the run is now.
-	jpegSize(t, h.fetch(t, strings.TrimPrefix(cards[0].file, "photo ")))
+	jpegSize(t, h.fetch(t, cards[0].preview))
 	if p := h.renderer.previews[len(h.renderer.previews)-1]; p.Model != "HeyGen Video" {
 		t.Fatalf("card = %+v", p)
 	}

@@ -26,15 +26,16 @@ import (
 // replaced by that one: the preview, the loop and the result or the error
 // card are edits of it by inline_message_id. Telegram takes no upload in an
 // inline message, so each picture goes by the file_id Telegram has of it or
-// by a link of framy's it fetches (share.go), and nothing can be deleted:
-// what a group would delete says Cancelled instead.
+// by a link of framy's it fetches (share.go), and nothing can be deleted.
+// The preview is text with the card as its link preview: text can become a
+// picture and back to one line, a picture never becomes text. So No leaves
+// one line, and Stop, on the loop, leaves the card it started from.
 
 // The parts a link of a guest run serves, beside a result's.
 const (
-	shareCard      byte = 'r' // the preview card as the run is now
-	shareCardThumb byte = 's' // the same, small, for the answer's thumbnail
-	shareLoop      byte = 'l' // the generating loop
-	shareFailure   byte = 'e' // the error card of a failed run
+	shareCard    byte = 'r' // the preview card as the run is now
+	shareLoop    byte = 'l' // the generating loop
+	shareFailure byte = 'e' // the error card of a failed run
 )
 
 // guestCardSide is the long side of the card as a link serves it, the size
@@ -103,10 +104,12 @@ func (f *Flow) guest(ctx context.Context, m *tg.Message, prompt string) error {
 	// The run is recorded before the answer: Telegram may fetch the card
 	// while it is being answered.
 	card := previewCard(lang, d)
-	result := tg.InlineQueryResultPhoto{
-		ID: "g" + strconv.FormatInt(d.id, 10), PhotoURL: f.guestURL(run, shareCard), ThumbnailURL: f.guestURL(run, shareCardThumb),
-		PhotoWidth: anim.Width, PhotoHeight: anim.Height,
-		Caption: previewCaption(lang, prompt, d, labelDrawn(card)), ReplyMarkup: previewKeyboard(lang, d.id, d),
+	result := tg.InlineQueryResultArticle{
+		ID: "g" + strconv.FormatInt(d.id, 10), Title: "framy",
+		InputMessageContent: tg.InputTextMessageContent{
+			MessageText: previewCaption(lang, prompt, d, labelDrawn(card)), LinkPreview: f.guestPreview(run),
+		},
+		ReplyMarkup: previewKeyboard(lang, d.id, d),
 	}
 	sent, err := f.cfg.Telegram.AnswerGuestQuery(ctx, m.GuestQueryID, result)
 	if err != nil {
@@ -142,6 +145,20 @@ func (f *Flow) guestText(ctx context.Context, m *tg.Message, text string) error 
 	return err
 }
 
+// GuestOpen answers a guest message that replied to framy's answer while
+// that one still has buttons: the buttons are how it goes on, and a second
+// run off the same words would only crowd the chat.
+func (f *Flow) GuestOpen(ctx context.Context, m *tg.Message) {
+	if m == nil || m.From == nil || m.GuestQueryID == "" {
+		return
+	}
+	f.wg.Go(func() {
+		if err := f.guestText(ctx, m, t(f.langOf(ctx, m), "guest.open")); err != nil && ctx.Err() == nil {
+			f.log.Warn("guest hint not sent", "error", err)
+		}
+	})
+}
+
 // guestFail tells a guest message it could not be worked; the error goes on
 // to the log.
 func (f *Flow) guestFail(ctx context.Context, m *tg.Message, lang string, err error) error {
@@ -172,13 +189,19 @@ func (f *Flow) guestPicture(pic anim.Media, link string) tg.InputFile {
 	return tg.InputFileString{Data: link}
 }
 
-// guestCard puts the run's card on the answer with kb, as it is now.
-func (f *Flow) guestCard(ctx context.Context, run db.ChatRun, caption string, kb *tg.InlineKeyboardMarkup) error {
-	item := tg.InputMediaPhoto{Media: tg.InputFileString{Data: f.guestURL(run, shareCard)}, Caption: caption}
-	return f.cfg.Telegram.EditInlineMessageMedia(ctx, run.InlineMessageID, item, kb)
+// guestPreview shows the run's card, as it is now, above the answer's text.
+func (f *Flow) guestPreview(run db.ChatRun) *tg.LinkPreviewOptions {
+	return &tg.LinkPreviewOptions{URL: f.guestURL(run, shareCard), PreferLargeMedia: true, ShowAboveText: true}
 }
 
-// guestLoop turns the answer into the generating loop, with Stop.
+// guestCard puts the preview's text on the answer with kb, and the card as
+// it is now above it.
+func (f *Flow) guestCard(ctx context.Context, run db.ChatRun, caption string, kb *tg.InlineKeyboardMarkup) error {
+	return f.cfg.Telegram.EditInlineMessageTextWithPreview(ctx, run.InlineMessageID, caption, f.guestPreview(run), kb)
+}
+
+// guestLoop turns the answer into the generating loop, with Stop; failing
+// that, into the card, which still says the run is on.
 func (f *Flow) guestLoop(ctx context.Context, run db.ChatRun) {
 	kb := generatingKeyboard(run.Lang, run.JobID)
 	caption := generatingCaption(run.Lang, run.Prompt, run.Model, 0)
@@ -188,25 +211,51 @@ func (f *Flow) guestLoop(ctx context.Context, run db.ChatRun) {
 			Width: loop.Width, Height: loop.Height, Duration: seconds(loop.Duration)}
 		err = f.cfg.Telegram.EditInlineMessageMedia(ctx, run.InlineMessageID, item, kb)
 	}
-	if err != nil {
-		f.log.Warn("generating loop not shown", "job", run.JobID, "error", err)
+	if err == nil {
+		return
+	}
+	f.log.Warn("generating loop not shown", "job", run.JobID, "error", err)
+	if err := f.guestStill(ctx, run, caption, kb); err != nil {
+		f.log.Warn("card not shown for the loop", "job", run.JobID, "error", err)
 		f.guestCaption(ctx, run, caption, kb)
 	}
 }
 
-// guestCaption changes only the answer's caption and buttons.
+// guestStill puts the run's card on the answer as a picture.
+func (f *Flow) guestStill(ctx context.Context, run db.ChatRun, caption string, kb *tg.InlineKeyboardMarkup) error {
+	item := tg.InputMediaPhoto{Media: tg.InputFileString{Data: f.guestURL(run, shareCard)}, Caption: caption}
+	return f.cfg.Telegram.EditInlineMessageMedia(ctx, run.InlineMessageID, item, kb)
+}
+
+// guestCaption changes only the answer's words and buttons: the caption of
+// the picture it is, or its text while it is still one.
 func (f *Flow) guestCaption(ctx context.Context, run db.ChatRun, caption string, kb *tg.InlineKeyboardMarkup) {
 	err := f.cfg.Telegram.EditInlineMessageCaption(ctx, run.InlineMessageID, caption, tg.EditCaptionOptions{Markup: kb})
-	if err != nil && !tg.IsMessageNotModified(err) {
-		f.log.Warn("guest caption not changed", "job", run.JobID, "error", err)
+	if err == nil || tg.IsMessageNotModified(err) {
+		return
+	}
+	if terr := f.cfg.Telegram.EditInlineMessageTextWithPreview(ctx, run.InlineMessageID, caption, nil, kb); terr != nil && !tg.IsMessageNotModified(terr) {
+		f.log.Warn("guest caption not changed", "job", run.JobID, "error", err, "as_text", terr)
 	}
 }
 
-// guestEnd is the end of a guest run that leaves nothing: No, Stop or a
-// preview that expired. An inline message cannot be deleted, so it says so
-// and loses its buttons.
+// guestEnd is the end of a guest run that leaves nothing: No or an expired
+// preview, or Stop on the loop. An inline message cannot be deleted: the
+// preview, still text, shrinks to one line; the loop gives way to the card
+// it started from.
 func (f *Flow) guestEnd(ctx context.Context, run db.ChatRun) {
-	f.guestCaption(ctx, run, lines(promptQuote(run.Prompt), t(run.Lang, "guest.cancelled")), nil)
+	if run.Stage == db.StagePreview {
+		err := f.cfg.Telegram.EditInlineMessageTextWithPreview(ctx, run.InlineMessageID, t(run.Lang, "guest.cancelled"), nil, nil)
+		if err != nil && !tg.IsMessageNotModified(err) {
+			f.log.Warn("guest preview not closed", "job", run.JobID, "error", err)
+		}
+		return
+	}
+	caption := lines(promptQuote(run.Prompt), t(run.Lang, "guest.stopped"))
+	if err := f.guestStill(ctx, run, caption, nil); err != nil {
+		f.log.Warn("card not shown for the stopped loop", "job", run.JobID, "error", err)
+		f.guestCaption(ctx, run, caption, nil)
+	}
 }
 
 // guestDeliver puts the result on the answer: a picture as a JPEG framy
@@ -269,7 +318,7 @@ func (f *Flow) guestFailed(ctx context.Context, run db.ChatRun, key string) {
 
 // guestPart tells whether a link's part is one of a guest run's.
 func guestPart(part byte) bool {
-	return part == shareCard || part == shareCardThumb || part == shareLoop || part == shareFailure
+	return part == shareCard || part == shareLoop || part == shareFailure
 }
 
 // serveGuest serves a part of guest run jobID of userID's: the loop, which
@@ -308,11 +357,7 @@ func (f *Flow) serveGuest(w http.ResponseWriter, r *http.Request, userID, jobID 
 	}
 	var out []byte
 	if err == nil {
-		side := guestCardSide
-		if part == shareCardThumb {
-			side = shareThumbSide
-		}
-		out, err = jpegOfFile(pic.Path, side)
+		out, err = jpegOfFile(pic.Path, guestCardSide)
 	}
 	if err != nil {
 		if ctx.Err() == nil {

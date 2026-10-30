@@ -50,6 +50,8 @@ type call struct {
 	replyEphemeral int64
 	// inline is the inline message an edit changed: a guest run's answer.
 	inline string
+	// preview is the link a text's preview shows.
+	preview string
 }
 
 type fakeTelegram struct {
@@ -329,6 +331,17 @@ func (f *fakeTelegram) EditInlineMessageMedia(_ context.Context, id string, item
 
 func (f *fakeTelegram) EditInlineMessageCaption(_ context.Context, id, caption string, o tg.EditCaptionOptions) error {
 	_, err := f.record(call{method: "editInlineMessageCaption", inline: id, text: caption, markup: o.Markup})
+	return err
+}
+
+// EditInlineMessageTextWithPreview keeps the link a preview shows in
+// preview.
+func (f *fakeTelegram) EditInlineMessageTextWithPreview(_ context.Context, id, text string, p *tg.LinkPreviewOptions, markup *tg.InlineKeyboardMarkup) error {
+	c := call{method: "editInlineMessageText", inline: id, text: text, markup: markup}
+	if p != nil {
+		c.preview = p.URL
+	}
+	_, err := f.record(c)
 	return err
 }
 
@@ -1005,6 +1018,8 @@ type fakeRenderer struct {
 	// pictures: the cards are PNGs that decode, small, for a test that
 	// serves them.
 	pictures bool
+	// loopErr fails the generating loop.
+	loopErr error
 }
 
 func (r *fakeRenderer) file(name string) string {
@@ -1034,6 +1049,9 @@ func (r *fakeRenderer) Preview(_ context.Context, dir string, p anim.Preview, pa
 }
 
 func (r *fakeRenderer) Generating(context.Context) (anim.Media, error) {
+	if r.loopErr != nil {
+		return anim.Media{}, r.loopErr
+	}
 	return anim.Media{Path: r.file("loop.mp4"), ContentType: "video/mp4", Width: 1280, Height: 720, Duration: 7200 * time.Millisecond, Key: "loop-1"}, nil
 }
 
