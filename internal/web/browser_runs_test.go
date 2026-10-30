@@ -37,6 +37,10 @@ const fakeMessage = "upstream said: blocked by filter 7"
 const fakeFaces = `refused: openrouter 400: HTTP 400: {"error":{"code":"InputVideoSensitiveContentDetected.PrivacyInformation",` +
 	`"message":"The request failed because the input video 'content[1]' may contain real person. Request id: 0217abc","param":"content[1]","type":"BadRequest"}}`
 
+// fakeFacesWords is the same refusal as the server says it now: class
+// faces, with only the provider's words.
+const fakeFacesWords = "The request failed because the input image 'content[0]' may contain real person."
+
 // fakeWrapped is any other refusal stored the same way.
 const fakeWrapped = `refused: openrouter 400: HTTP 400: {"error":{"code":"InvalidParameter","message":"The duration is too long. Request id: 0217abd"}}`
 
@@ -182,6 +186,8 @@ func (f *fakeRuns) create(w http.ResponseWriter, r *http.Request) {
 	case p == "faces", p == "wrapped":
 		msg := map[string]string{"faces": fakeFaces, "wrapped": fakeWrapped}[p]
 		steps = append(steps, at("running", nil), at("failed", map[string]any{"error": map[string]any{"class": "refused", "message": msg}}))
+	case p == "faces:photo":
+		steps = append(steps, at("running", nil), at("failed", map[string]any{"error": map[string]any{"class": "faces", "message": fakeFacesWords}}))
 	case p == "retry":
 		steps = append(steps, at("queued", map[string]any{"error": map[string]any{"class": "rate_limited", "message": fakeMessage},
 			"retry_at": time.Now().Add(30 * time.Second).UTC()}))
@@ -365,6 +371,12 @@ func TestBrowserRuns(t *testing.T) {
 		!strings.HasPrefix(acts, "[Another model") || s["said"] != "" || strings.Contains(s["text"].(string), "{") || s["picker"] != true ||
 		!strings.HasSuffix(s["line"].(string), " · $0") {
 		t.Errorf("faces: %v", s)
+	}
+	// Class faces, with the provider's words only, names the file from them.
+	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+`return await press("faces:photo", (s) => s.failed);`)
+	if acts := fmt.Sprint(s["acts"]); s["label"] != "A person in the photo" || s["said"] != "" || !strings.HasPrefix(acts, "[Another model") ||
+		!strings.HasSuffix(s["line"].(string), " · $0") {
+		t.Errorf("faces class: %v", s)
 	}
 	// Any other refusal in the provider's JSON shows only its message.
 	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+`return await press("wrapped", (s) => s.failed);`)

@@ -30,9 +30,17 @@ export function ownWords(s) {
   }
   return m.replace(/\s*Request id:\s*\S+\s*$/i, "").trim();
 }
-// A model that takes no real people refuses a file with one by this code
-// (BytePlus for Seedance): "video" or "image", which file it was.
+// A model that takes no real people refuses a file with one: "video" or
+// "image", which file it was. The server says it as class faces with the
+// provider's words ("the input video … may contain real person"); a job from
+// before that is a refusal with the provider's code in its message.
 const facesIn = (s) => (/Input(Video|Image)SensitiveContentDetected\.PrivacyInformation/i.exec(s || "")?.[1] || "").toLowerCase();
+function faceOf(j, cls) {
+  const s = j.error?.message || "";
+  if (cls !== "faces") return (cls === "refused" || cls === "moderation") && facesIn(s);
+  const w = /\binput (video|image)\b/i.exec(s)?.[1];
+  return w ? w.toLowerCase() : (j.inputs || []).some((f) => String(f.content_type).startsWith("video/")) ? "video" : "image";
+}
 
 // failure says why job j failed: label (on the frame), said (the provider's
 // own reason, on the frame under it), text (only where the label does not say
@@ -48,7 +56,7 @@ export function failure(j) {
   const said = msg ? t("fail.said", { provider: P, text: msg }) : "";
   const again = ["retry", "edit"];
   if (j.status === "cancelled") return { cls: "cancelled", label: t("stage.cancelled"), text: "", ...none, acts: again };
-  const face = (cls === "refused" || cls === "moderation") && facesIn(j.error?.message), m = C.byId[j.model];
+  const face = faceOf(j, cls), m = C.byId[j.model];
   if (face) return { cls: "faces", label: t(face === "video" ? "fail.faces_clip_l" : "fail.faces_photo_l"), text: t("fail.faces", { model: m ? vname(m) : P }),
     ...(cls === "moderation" && free ? { note: t("fail.free_spent") } : none), acts: ["model", "edit"] };
   switch (cls) {
