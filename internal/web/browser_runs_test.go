@@ -318,18 +318,19 @@ func TestBrowserRuns(t *testing.T) {
 		said, zero        bool
 	}
 	for cls, w := range map[string]want{
-		"moderation":   {"Refused by the rules", "", "Edit the prompt", true, true},
-		"money":        {"No money on the key", "", "Top up OpenRouter", false, true},
-		"key":          {"The key does not work", "no longer accepts the key", "Edit the prompt", false, true},
-		"refused":      {"Not accepted", "did not accept the request", "Edit the prompt", true, true},
-		"rate_limited": {"No answer", "Try again in a few minutes", "Try again", false, true},
-		"unavailable":  {"No answer", "Try again in a few minutes", "Try again", false, true},
-		"timeout":      {"Over an hour", "may have charged up to $0.040", "Try again", false, false},
-		"provider":     {"Provider failure", "may have charged up to $0.040", "Try again", true, false},
-		"interrupted":  {"Run interrupted", "was not sent again", "Try again", false, false},
-		"storage":      {"Not saved", "The provider charged for it", "Try again", false, false},
-		"no_adapter":   {"Did not work", "cannot run OpenRouter models", "Edit the prompt", false, true},
-		"internal":     {"Did not work", "It did not work. Try again.", "Try again", false, false},
+		"moderation":      {"Refused by the rules", "", "Edit the prompt", true, true},
+		"money":           {"No money on the key", "", "Top up OpenRouter", false, true},
+		"key":             {"The key does not work", "no longer accepts the key", "Edit the prompt", false, true},
+		"refused":         {"Not accepted", "did not accept the request", "Edit the prompt", true, true},
+		"rate_limited":    {"No answer", "Try again in a few minutes", "Try again", false, true},
+		"unavailable":     {"No answer", "Try again in a few minutes", "Try again", false, true},
+		"timeout":         {"Over an hour", "may have charged up to $0.040", "Try again", false, false},
+		"provider":        {"Provider failure", "may have charged up to $0.040", "Try again", true, false},
+		"interrupted":     {"Run interrupted", "was not sent again", "Try again", false, false},
+		"storage":         {"Not saved", "The provider charged for it", "Try again", false, false},
+		"no_adapter":      {"Did not work", "cannot run OpenRouter models", "Edit the prompt", false, true},
+		"invalid_request": {"Not sent", "does not take one of these settings", "Edit the prompt", false, true},
+		"internal":        {"Did not work", "It did not work. Try again.", "Try again", false, false},
 	} {
 		s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`return await press("fail:`+cls+`", (s) => s.failed);`)
 		text, _ := s["text"].(string)
@@ -398,9 +399,10 @@ func TestBrowserRuns(t *testing.T) {
 
 	// Refusals before any job: what happened and what helps.
 	for code, w := range map[string][2]string{
-		"price_changed": {"The price went up", "Create for ≈ $0.500"},
-		"free_closed":   {"Free runs paused", "On my OpenRouter key"},
-		"wrong_inputs":  {"The files do not fit", "Edit the prompt"},
+		"price_changed":   {"The price went up", "Create for ≈ $0.500"},
+		"free_closed":     {"Free runs paused", "On my OpenRouter key"},
+		"wrong_inputs":    {"The files do not fit", "Edit the prompt"},
+		"unknown_setting": {"Not sent", "Edit the prompt"},
 	} {
 		s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`return await press("refuse:`+code+`", (s) => s.failed);`)
 		acts, _ := s["acts"].([]any)

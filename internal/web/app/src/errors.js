@@ -66,6 +66,8 @@ export function failure(j) {
     case "interrupted": return { cls, label: t("fail.interrupted_l"), text: t("fail.interrupted"), note: may, acts: again };
     case "storage": return { cls, label: t("fail.storage_l"), text: t(vid ? "fail.storage_video" : "fail.storage"), note: t(free ? "fail.free_back" : "fail.charged"), acts: again };
     case "no_adapter": return { cls, label: t("stage.failed"), text: t("fail.no_adapter", { provider: P }), ...none, acts: ["edit"] };
+    // framy did not send it: a setting the offer lacks, so nothing reached the provider.
+    case "invalid_request": return { cls, label: t("fail.invalid_l"), text: t("fail.invalid"), ...none, acts: ["edit"] };
     case "draft_expired": return { cls, label: t("stage.expired"), text: t("fail.draft_expired"), ...none, acts: again };
     default: return { cls: cls || "unknown", label: t(j.status === "expired" ? "stage.expired" : "stage.failed"), text: t("fail.unknown"), note: "", acts: again };
   }
@@ -99,6 +101,7 @@ export function refusal(err, ctx = {}) {
       return R(t("ref.files_l"), t("ref.wrong_inputs"));
     }
     case "unknown_offer": return R(t("ref.model_l"), t("err.unknown_offer"));
+    case "unknown_setting": return R(t("fail.invalid_l"), t("fail.invalid"));
     case "cannot_continue": return R(t("ref.cont_l"), t("ref.cannot_continue"), ctx.lastFrame ? ["lastframe"] : []);
     case "video_too_long": return R(t("ref.too_long_l"), t("ref.too_long", { len: clock(b.seconds) }), ["cut"], { seconds: b.seconds });
     case "not_a_video": return R(t("ref.not_clip_l"), t("ref.not_a_video"));

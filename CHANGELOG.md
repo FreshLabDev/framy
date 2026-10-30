@@ -291,7 +291,10 @@ was written from, and the skeleton of the service.
   A model that takes no real people (Seedance) or no children (Veo, Gemini
   Omni) says so in the picker's card and under the files before the run,
   and when the provider refuses a file for a person in it, the stage says
-  "A person in the clip" or "in the photo" and offers another model. A job that
+  "A person in the clip" or "in the photo" and offers another model. A run
+  framy did not send (`invalid_request`) and a setting the server refused
+  before any job (`unknown_setting`) say "Not sent" and to reload the page.
+  A job that
   waits for a retry counts down to `retry_at`, and one still in the queue can
   be cancelled; one already running says it cannot be stopped. A press the
   server refused before any job (a higher price, the free allowance used up
