@@ -9,6 +9,7 @@ import { S, M, payOf, settings, sourceRatio } from "./state.js";
 import { isFinal } from "./api.js";
 import { failure, waiting, left, BILLING } from "./errors.js";
 import { priceText } from "./price.js";
+import { halftone } from "./halftone.js";
 import { again, editPrompt, cancel, byKey, keyFor, takePrice, drop, pickPart, copyPrompt, continueFrom, fromLastFrame, canShare, share } from "./run.js";
 
 // The shape of a run: its ratio, or the photo's for "auto", else square.
@@ -76,34 +77,40 @@ const live = (text, cls = "") => { const el = h("small", { class: ("tk " + cls).
 function view(run) {
   const m = C.byId[run.model], j = run.job, kind = run.kind;
   const name = m ? vname(m) : "";
-  const spin = (label, sub) => ({ status: h("div", { class: "c run" }, h("span", { class: "spin", "aria-hidden": "true" }), h("b", {}, label), sub) });
+  // ht is the figure of the halftone in the frame (halftone.js).
+  const spin = (label, sub, ht) => ({ status: h("div", { class: "c run" }, h("b", {}, label), sub), ht });
   const stop = h("button", { type: "button", onclick: () => cancel(run) }, ic("stop"), t("act.cancel"));
   if (run.phase === "prep") {
     const s = run.step;
-    return { ...spin(t("stage.starting"), s ? live(s.text) : h("small", {}, name)), acts: run.sending ? [] : [stop] };
+    return { ...spin(t("stage.starting"), s ? live(s.text) : h("small", {}, name), s?.fig ? { fig: s.fig, until: s.until, prog: s.prog } : { fig: "start" }), acts: run.sending ? [] : [stop] };
   }
   if (run.phase === "refused") {
     const w = run.why;
-    return { fail: true, status: failEl(w.label), why: [w.text], acts: refusalActs(run, w.acts) };
+    return { fail: true, status: failEl(w.label), why: [w.text], acts: refusalActs(run, w.acts), ht: { fig: w.acts.includes("cut") ? "cut" : REFFIG[w.code] || "bang", still: true } };
   }
   if (run.phase === "cancelled") {
-    return { fail: true, status: failEl(t("stage.cancelled")), why: [t(run.pay === "free" ? "fail.free_back" : "fail.nothing")], acts: againActs(run) };
+    return { fail: true, status: failEl(t("stage.cancelled")), why: [t(run.pay === "free" ? "fail.free_back" : "fail.nothing")], acts: againActs(run), ht: { fig: "line", still: true } };
   }
   const st = j.status;
   if (st === "queued") {
     const w = waiting(j);
-    if (w) return { ...spin(t("stage.retry"), live(() => w.line(left(w.at)))), acts: [stop] };
-    return { ...spin(t("stage.queued"), h("small", {}, name)), acts: [stop] };
+    if (w) return { ...spin(t("stage.retry"), live(() => w.line(left(w.at))), { fig: "wait", until: w.at }), acts: [stop] };
+    return { ...spin(t("stage.queued"), h("small", {}, name), { fig: "queue" }), acts: [stop] };
   }
   if (st === "running") {
-    return { ...spin(t("stage.running"), h("small", {}, name)), acts: [h("span", { class: "busy" }, ic("info"), t(kind === "video" ? "cancel.running_video" : "cancel.running"))] };
+    return { ...spin(t("stage.running"), h("small", {}, name), { fig: "loop" }), acts: [h("span", { class: "busy" }, ic("info"), t(kind === "video" ? "cancel.running_video" : "cancel.running"))] };
   }
   const res = j.results?.[0];
   if (st === "done" && res) return { done: true, res, acts: doneActs(run, j, res) };
   const f = failure(j);
-  return { fail: true, status: failEl(f.label), why: [f.text, f.note], msg: f.msg, provider: f.provider, acts: failActs(run, f) };
+  return { fail: true, status: failEl(f.label), why: [f.text, f.note], msg: f.msg, provider: f.provider, acts: failActs(run, f), ht: { fig: FAILFIG[f.cls] || "cross", still: true } };
 }
-const failEl = (label) => h("div", { class: "c fail" }, ic("warn"), h("b", {}, label));
+const failEl = (label) => h("div", { class: "c fail" }, h("b", {}, label));
+// The figure of each reason a run gave nothing; the rest show a cross.
+const FAILFIG = { moderation: "ban", refused: "ban", money: "coin", key: "key", timeout: "clock", draft_expired: "clock", rate_limited: "hush", unavailable: "hush", interrupted: "link", cancelled: "line" };
+const REFFIG = { price_changed: "coin", not_free: "coin", free_limit: "clock", free_closed: "clock", no_connection: "key", connection_invalid: "key", sign_in: "key",
+  network: "link", shutting_down: "link", http_429: "hush", busy: "hush", wrong_inputs: "bang", unknown_input: "bang", unknown_offer: "bang", cannot_continue: "bang",
+  not_a_video: "cross", unsupported_type: "cross", unreadable: "cross", frame_too_large: "cross", too_large: "cross", picture_too_large: "cross", storage_unavailable: "cross" };
 
 // The buttons of a run, the first of them the one that helps most.
 // A square one shows only its icon on a phone, so each says its name.
@@ -170,6 +177,9 @@ function renderRun(st, run) {
   const box = h("div", { class: "jbox" + (v.done ? " done" : "") + (v.fail ? " failed" : ""), "data-k": "pv", style: { width: b.w + "px", height: b.h + "px" } },
     v.done ? media : [h("i"), h("i"), h("i"), h("i")], v.status || null);
   box._r = r; box._under = v.fail ? 150 : 70;
+  // The dots: a figure for the state, or the result showing through them as it arrives.
+  if (v.ht) halftone(box, v.ht.fig, { ...v.ht, n: run.n, lost: going && run.net === "lost" });
+  else if (v.done) halftone(box, "reveal", { n: run.n });
   const cost = j?.cost?.label ? j.cost.label : j?.free || (run.pay === "free" && !v.fail) ? t("bar.free") : run.shownLabel && !v.fail ? run.shownLabel : "";
   const line = h("p", { class: "jline", "data-k": "j-line" }, [m ? vname(m) : "", cost].filter(Boolean).join(" · "),
     going && run.net === "poll" ? h("span", { class: "jtag", title: t("net.poll_tip") }, t("net.poll")) : null);

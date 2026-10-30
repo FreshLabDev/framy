@@ -298,6 +298,35 @@ func jsString(s string) string { b, _ := json.Marshal(s); return string(b) }
 // Apple M-series laptop, in ms.
 const cpuRef = 6.5
 
+// slowCPU slows the page's CPU until cpuWork takes four times cpuRef, and
+// returns what a time measured now is multiplied by to count on the laptop.
+func slowCPU(t *testing.T, ctx context.Context) float64 {
+	t.Helper()
+	target := 4 * cpuRef
+	fast := js[float64](t, ctx, cpuWork)
+	rate := max(1, target/fast)
+	err := chromedp.Do(ctx, chromedp.Func(func(ctx context.Context, tg *chromedp.Target) error {
+		_, err := cdp.Call(ctx, tg, emulation.SetCPUThrottlingRate, emulation.SetCPUThrottlingRateParams{Rate: rate})
+		return err
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The same work again, to see the slowdown take hold.
+	slow := js[float64](t, ctx, cpuWork)
+	if rate >= 2 && slow < rate/2*fast {
+		t.Fatalf("the CPU is not slower: %.1f ms, then %.1f ms", fast, slow)
+	}
+	// Slowed to the laptop's speed, a time counts as it is; on a machine
+	// slower than that, it is brought down by how much slower.
+	scale := 1.0
+	if rate == 1 {
+		scale = min(1, target/slow)
+	}
+	t.Logf("work: %.1f ms here, %.1f ms on the laptop; slowed %.1f times to %.1f ms, times count %.2f", fast, cpuRef, rate, slow, scale)
+	return scale
+}
+
 // cpuWork is the kind of work the steps do: it builds rows of text, has the
 // browser style and lay them out, and reads them back. The best of three, in
 // ms, so a cold start does not count. A CI runner is slower at this than at
@@ -352,28 +381,7 @@ func TestBrowserSmooth(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ts := fakeAPI(t)
 			ctx := browser(t, ts.URL, tc.w, tc.h, tc.phone)
-			target := 4 * cpuRef
-			fast := js[float64](t, ctx, cpuWork)
-			rate := max(1, target/fast)
-			err := chromedp.Do(ctx, chromedp.Func(func(ctx context.Context, tg *chromedp.Target) error {
-				_, err := cdp.Call(ctx, tg, emulation.SetCPUThrottlingRate, emulation.SetCPUThrottlingRateParams{Rate: rate})
-				return err
-			}))
-			if err != nil {
-				t.Fatal(err)
-			}
-			// The same work again, to see the slowdown take hold.
-			slow := js[float64](t, ctx, cpuWork)
-			if rate >= 2 && slow < rate/2*fast {
-				t.Fatalf("the CPU is not slower: %.1f ms, then %.1f ms", fast, slow)
-			}
-			// Slowed to the laptop's speed, a time counts as it is; on a machine
-			// slower than that, it is brought down by how much slower.
-			scale := 1.0
-			if rate == 1 {
-				scale = min(1, target/slow)
-			}
-			t.Logf("work: %.1f ms here, %.1f ms on the laptop; slowed %.1f times to %.1f ms, times count %.2f", fast, cpuRef, rate, slow, scale)
+			scale := slowCPU(t, ctx)
 			type task struct {
 				Step string  `json:"step"`
 				MS   float64 `json:"ms"`

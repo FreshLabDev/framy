@@ -96,16 +96,16 @@ function put(url, file, type, progress, sig) {
 
 // Starts taking or cutting a clip and follows the task to its file. framy
 // takes a few clips at a time: a busy answer is waited out with a countdown.
-async function task(body, sig, step, text) {
+async function task(body, sig, step, text, fig) {
   let tk;
   for (;;) {
     try { tk = await api("/api/videos", { method: "POST", body, signal: sig }); break; }
     catch (e) {
       if (e.code !== "busy") throw e;
       const until = Date.now() + Math.max(2, e.retryAfter || 3) * 1000;
-      step({ icon: "clock", text: () => t("step.clip_wait", { left: clockLeft(until) }), tick: true });
+      step({ fig: "wait", until, text: () => t("step.clip_wait", { left: clockLeft(until) }), tick: true });
       await pause(until - Date.now(), sig);
-      step({ icon: "film", text });
+      step({ fig, text });
     }
   }
   for (let n = 0; ; n++) {
@@ -126,7 +126,7 @@ export async function takeClip(f, cut, { signal, step, again = false }) {
   if (cut && f.cuts[key]) return f.cuts[key];
   const part = cut ? { start: cut.start, seconds: cut.seconds } : {};
   const cutText = () => t("step.cutting", { a: fmtNum(cut.start, { maximumFractionDigits: 1 }), b: fmtNum(cut.start + cut.seconds, { maximumFractionDigits: 1 }) });
-  const text = cut ? cutText : () => t("step.clip_prep");
+  const text = cut ? cutText : () => t("step.clip_prep"), fig = cut ? "cut" : "strip";
   let body;
   if (f.upload) body = { file: f.upload, ...part };
   else {
@@ -134,15 +134,15 @@ export async function takeClip(f, cut, { signal, step, again = false }) {
       const up = await api("/api/videos/uploads", { method: "POST", signal });
       if (up.max_bytes && f.bytes > up.max_bytes) throw Object.assign(new ApiError(413, { error: "too_large" }), { maxBytes: up.max_bytes });
       let sent = 0;
-      step({ icon: "film", text: () => t("step.clip_up", { a: MB(sent), b: MB(f.bytes) }), tick: true });
+      step({ fig: "fill", prog: () => sent / f.bytes, text: () => t("step.clip_up", { a: MB(sent), b: MB(f.bytes) }), tick: true });
       await put(up.url, f.file, f.meta.content_type, (n) => { sent = n; }, signal);
       f.token = up.token;
     }
     body = { upload: f.token, ...part };
   }
-  step({ icon: "film", text });
+  step({ fig, text });
   let file;
-  try { file = await task(body, signal, step, text); }
+  try { file = await task(body, signal, step, text, fig); }
   catch (e) {
     // A clip longer than framy takes whole stays under its token for a part;
     // anything else it refused is gone, and a new try uploads it again.

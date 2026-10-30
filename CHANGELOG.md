@@ -285,6 +285,17 @@ was written from, and the skeleton of the service.
   button for the prompt. In the Mini App it also has Share, which opens
   Telegram's chat picker with the result; one Telegram will not take says
   to download it instead.
+- The stage shows every state of a run as a halftone of dots in the frame,
+  as the bot's previews do: the bot's generating loop while the job runs,
+  and a figure of its own for the start, the queue, a wait with what is left
+  of it, photos going up, a clip filling up as it uploads, the film running
+  while framy takes or cuts it, and each reason a run gave nothing (refused
+  by the rules, no money, the key, too long, interrupted, no answer, files
+  that do not fit, cancelled). The dots flow from one figure to the next,
+  dim and stop while the page has lost framy, and stay still with reduced
+  motion. A result shows through the dots as they swell until they touch,
+  then settles in sharp. It is one canvas at 30 frames a second, and no task
+  holds the main thread over 50 ms on the slowed CPU of the browser tests.
 - Clips on the site. A clip is added like a photo, turns the composer to
   video and to a model that takes one, and shows its length; one longer than
   the model takes, or than a free run takes, opens an editor that picks the

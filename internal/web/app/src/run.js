@@ -76,7 +76,7 @@ async function start(base, key = newKey()) {
     const inputs = await prepare(run);
     if (run.stop.signal.aborted) throw new DOMException("stopped", "AbortError");
     // Once the request is out it is not called back: the job may exist already.
-    run.sending = true; setStep(run, { icon: "spark", text: () => t("step.starting") });
+    run.sending = true; setStep(run, { fig: "start", text: () => t("step.starting") });
     const body = { offer: run.offer, prompt: run.prompt, settings: run.settings, inputs, pay: run.pay === "free" ? "free" : "key", surface: S.mini ? "mini_app" : "site" };
     if (run.shown != null) body.shown_usd = run.shown;
     if (run.cont) body.continues = run.cont.job;
@@ -105,7 +105,7 @@ async function start(base, key = newKey()) {
 async function prepare(run) {
   const sig = run.stop.signal, pics = run.files.filter((f) => f.kind === "image" && !f.upload);
   if (pics.length) {
-    setStep(run, { icon: "photos", text: () => t("step.photos", { n: pics.length }) });
+    setStep(run, { fig: "up", text: () => t("step.photos", { n: pics.length }) });
     await upload(pics, sig);
   }
   const ids = [];

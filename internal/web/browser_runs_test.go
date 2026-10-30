@@ -35,7 +35,8 @@ const fakeMessage = "upstream said: blocked by filter 7"
 // fakeRuns is the API of a signed-in person with a working OpenRouter key and
 // no free pictures left, whose jobs follow the prompt: "fail:<class>" fails
 // with that class, "retry" waits for a retry, "running" runs and never ends,
-// "poll" is read without the event stream, "done" makes a picture, and
+// "poll" is read without the event stream, "done" makes a picture ("slow"
+// after two seconds of running), and
 // "refuse:<code>" is refused before any job.
 type fakeRuns struct {
 	mu     sync.Mutex
@@ -175,6 +176,11 @@ func (f *fakeRuns) create(w http.ResponseWriter, r *http.Request) {
 			"retry_at": time.Now().Add(30 * time.Second).UTC()}))
 	case p == "running":
 		steps = append(steps, at("running", nil))
+	case p == "slow":
+		for range 14 {
+			steps = append(steps, at("running", nil))
+		}
+		fallthrough
 	case p == "done", p == "poll", p == "done:big":
 		// Result 8 is one Telegram will not take.
 		url, rid := "http://"+r.Host+"/test/result.png", 7
@@ -273,6 +279,7 @@ const stage = () => {
     why: st.querySelector(".jwhy")?.textContent || "", said: st.querySelector(".jwhy .said")?.textContent || "",
     acts: [...st.querySelectorAll(".jacts > button, .jacts > a, .jacts > .busy")].map((b) => b.textContent.trim()),
     failed: !!st.querySelector(".jbox.failed"), done: !!st.querySelector(".jbox.done img"), line: st.querySelector(".jline")?.textContent || "",
+    dots: !!st.querySelector(".jbox > canvas.ht"),
     text: st.textContent };
 };
 async function press(prompt, until) {
@@ -318,7 +325,7 @@ func TestBrowserRuns(t *testing.T) {
 		if len(acts) > 0 {
 			first, _ = acts[0].(string)
 		}
-		if s["timeout"] == true || s["label"] != w.label || !strings.Contains(s["why"].(string), w.why) || first != w.first {
+		if s["timeout"] == true || s["label"] != w.label || !strings.Contains(s["why"].(string), w.why) || first != w.first || s["dots"] != true {
 			t.Errorf("%s: %v", cls, s)
 		}
 		if shown := strings.Contains(text, fakeMessage); shown != w.said {
@@ -337,7 +344,7 @@ func TestBrowserRuns(t *testing.T) {
 	for (let i = 0; i < 40 && stage().label !== "Cancelled"; i++) await wait(100);
 	return { ...s, before, after, can: !!cancel, end: stage() };`)
 	before, _ := s["before"].(string)
-	if !strings.HasPrefix(before, "OpenRouter asked to wait. Next try in 0:") || s["after"] == before || s["can"] != true {
+	if !strings.HasPrefix(before, "OpenRouter asked to wait. Next try in 0:") || s["after"] == before || s["can"] != true || s["dots"] != true {
 		t.Errorf("retry: %v", s)
 	}
 	if end := s["end"].(map[string]any); end["label"] != "Cancelled" || !strings.Contains(end["why"].(string), "Nothing was charged") {
@@ -346,7 +353,7 @@ func TestBrowserRuns(t *testing.T) {
 
 	// A job already running cannot be stopped, and the stage says so instead of a Cancel.
 	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+`return await press("running", (s) => s.label === "Making it");`)
-	if acts := fmt.Sprint(s["acts"]); !strings.Contains(acts, "being made already") || strings.Contains(acts, "Cancel") {
+	if acts := fmt.Sprint(s["acts"]); !strings.Contains(acts, "being made already") || strings.Contains(acts, "Cancel") || s["dots"] != true {
 		t.Errorf("running: %v", s)
 	}
 
@@ -358,7 +365,7 @@ func TestBrowserRuns(t *testing.T) {
 	} {
 		s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`return await press("refuse:`+code+`", (s) => s.failed);`)
 		acts, _ := s["acts"].([]any)
-		if s["label"] != w[0] || len(acts) == 0 || acts[0] != w[1] || strings.Contains(s["text"].(string), fakeMessage) {
+		if s["label"] != w[0] || len(acts) == 0 || acts[0] != w[1] || strings.Contains(s["text"].(string), fakeMessage) || s["dots"] != true {
 			t.Errorf("refusal %s: %v", code, s)
 		}
 	}
@@ -375,11 +382,16 @@ func TestBrowserRuns(t *testing.T) {
 	// A result: the buttons on it, and Edit puts the prompt back in the composer.
 	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+`
 	const s = await press("done", (s) => s.done);
+	// The picture shows through the dots, and then the dots go.
+	const revealing = stage().dots;
+	for (let i = 0; i < 40 && stage().dots; i++) await wait(100);
+	s.revealing = revealing; s.settled = !stage().dots && stage().done;
 	document.querySelector("#prompt").value = "";
 	[...document.querySelectorAll("#stage .jacts > button")].find((b) => b.textContent.trim() === "Edit the prompt").click();
 	await wait(600);
 	return { ...s, prompt: document.querySelector("#prompt").value, ghost: !!document.querySelector("#stage .ghost") };`)
-	if acts := fmt.Sprint(s["acts"]); s["done"] != true || !strings.HasPrefix(acts, "[Download Again Edit the prompt") || s["prompt"] != "done" || s["ghost"] != true {
+	if acts := fmt.Sprint(s["acts"]); s["done"] != true || !strings.HasPrefix(acts, "[Download Again Edit the prompt") || s["prompt"] != "done" || s["ghost"] != true ||
+		s["revealing"] != true || s["settled"] != true {
 		t.Errorf("result: %v", s)
 	}
 	noErrors(t, ctx)
@@ -501,5 +513,41 @@ func TestBrowserMiniShare(t *testing.T) {
 	acts := js[string](t, site, pageHelpers+runHelpers+`return (await press("done", (s) => s.done)).acts.join(" ");`)
 	if strings.Contains(acts, "Share") {
 		t.Errorf("the site offers Share: %s", acts)
+	}
+}
+
+// TestBrowserRunSmooth checks the halftone on the stage keeps the main thread
+// free on the laptop's slow CPU (see TestBrowserSmooth): two seconds of the
+// generating loop, then the result showing through the dots.
+func TestBrowserRunSmooth(t *testing.T) {
+	for _, size := range [][2]int64{{1440, 900}, {390, 844}} {
+		runs := &fakeRuns{}
+		ts := fakeSite(t, runs.mount)
+		ctx := browser(t, ts.URL, size[0], size[1], size[0] < 960)
+		scale := slowCPU(t, ctx)
+		s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	await wait(2500); // the idle prefetch of the picker's prices
+	window.__long = [];
+	const t0 = performance.now();
+	const s = await press("slow", (s) => s.done);
+	await wait(2500);
+	const long = window.__long.filter(([at]) => at > t0).map(([, ms]) => ms);
+	// A task known to be long, to show the observer works here.
+	window.__long = [];
+	await new Promise((r) => setTimeout(() => { const t = performance.now(); while (performance.now() - t < 120); r(); }));
+	await wait(300);
+	return { ...s, long, works: window.__long.some(([, ms]) => ms >= 100), settled: !stage().dots };`)
+		if s["works"] != true {
+			t.Fatal("the browser reports no long tasks, so the check cannot work")
+		}
+		worst := 0.0
+		for _, v := range s["long"].([]any) {
+			worst = max(worst, v.(float64)*scale)
+		}
+		if s["done"] != true || s["settled"] != true || worst > 50 {
+			t.Errorf("%dx%d: the longest task %.0f ms on the laptop: %v", size[0], size[1], worst, s)
+		}
+		t.Logf("%dx%d: longest task %.0f ms on the laptop", size[0], size[1], worst)
+		noErrors(t, ctx)
 	}
 }
