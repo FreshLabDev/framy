@@ -43,9 +43,12 @@ func panelCatalog() []catalog.Model {
 		{ID: "openai/gpt-image-2.5", Kind: catalog.Image, Name: "GPT Image 2.5", Maker: "OpenAI", Featured: true, Offers: []catalog.Offer{
 			offerOf(catalog.OpenAI, "openai/gpt-image-2.5", refs(16)),
 		}},
+		{ID: "recraft/v4.1", Kind: catalog.Image, Name: "Recraft V4.1", Maker: "Recraft", Featured: true, Offers: []catalog.Offer{
+			offerOf(catalog.OpenRouter, "recraft/v4.1", nil),
+		}, Traits: catalog.Traits{Family: &catalog.Family{ID: "recraft", Format: "raster"}}},
 		{ID: "recraft/v4.1-vector", Kind: catalog.Image, Name: "Recraft V4.1 Vector", Maker: "Recraft", Featured: true, Offers: []catalog.Offer{
 			offerOf(catalog.OpenRouter, "recraft/v4.1-vector", nil),
-		}},
+		}, Traits: catalog.Traits{Family: &catalog.Family{ID: "recraft", Format: "vector"}}},
 		{ID: "heygen/heygen-video-1", Kind: catalog.Video, Name: "HeyGen Video", Featured: true, Offers: []catalog.Offer{
 			offerOf(catalog.OpenRouter, "heygen/heygen-video-1", nil),
 		}},
@@ -517,8 +520,9 @@ func TestInADirectChatTheListIsOnThePreview(t *testing.T) {
 	if len(edits) != 1 || len(h.tg.methods("sendPhoto")) != 0 {
 		t.Fatalf("calls = %+v", h.tg.calls)
 	}
-	// From words alone Recraft, which takes no photo, is listed too.
-	if got := labels(edits[0].markup); len(got) != 4 || got[1][1] != "🔑 GPT Image 2.5" || got[2][0] != "Recraft V4.1 Vector" {
+	// From words alone Recraft, which takes no photo, is listed too, but
+	// not its vector variant: Telegram shows an SVG as a file.
+	if got := labels(edits[0].markup); len(got) != 4 || got[1][1] != "🔑 GPT Image 2.5" || len(got[2]) != 1 || got[2][0] != "Recraft V4.1" {
 		t.Fatalf("list = %v", got)
 	}
 	h.tg.reset()

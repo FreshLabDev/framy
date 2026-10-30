@@ -173,7 +173,8 @@ func (f *Flow) keyProviders(ctx context.Context, user int64) (map[string]bool, e
 
 // choices are the image models the panel lists for a run that takes taken
 // photos: the free ones first, then the featured. A model whose offers
-// cannot take the photos is left out.
+// cannot take the photos is left out, and so is a vector one: Telegram shows
+// an SVG as a file, not a picture, so it is the site's.
 func (f *Flow) choices(ctx context.Context, run db.ChatRun, current catalog.Offer) ([]choice, error) {
 	models, err := f.cfg.Store.Catalog(ctx)
 	if err != nil {
@@ -192,7 +193,7 @@ func (f *Flow) choices(ctx context.Context, run db.ChatRun, current catalog.Offe
 	}
 	var out []choice
 	for _, m := range models {
-		if m.Kind != catalog.Image || (!m.Free && !m.Featured) {
+		if m.Kind != catalog.Image || (!m.Free && !m.Featured) || vector(m) {
 			continue
 		}
 		if c, ok := freeChoice(m, run.Taken, have); ok {
@@ -211,6 +212,11 @@ func (f *Flow) choices(ctx context.Context, run db.ChatRun, current catalog.Offe
 	}
 	slices.SortStableFunc(out, func(a, b choice) int { return cmp.Compare(boolRank(!a.free), boolRank(!b.free)) })
 	return out, nil
+}
+
+// vector tells whether a model draws vector images, as the overlay says.
+func vector(m catalog.Model) bool {
+	return m.Traits.Family != nil && m.Traits.Family.Format == "vector"
 }
 
 func boolRank(b bool) int {
