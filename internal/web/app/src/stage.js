@@ -77,11 +77,26 @@ function renderJob(st, j) {
   box._r = r;
   const cost = j.cost?.label ? j.cost.label : j.free ? t("bar.free") : "";
   const acts = h("div", { class: "jacts", "data-k": "j-acts" },
-    done ? h("a", { class: "link", href: res.url, download: "", target: "_blank", rel: "noopener" }, ic("down"), t("stage.download")) : null,
+    done ? download(j, res) : null,
     isFinal(j.status) ? h("button", { type: "button", class: "link", onclick: () => { S.showJob = false; renderStage(); } }, ic("plus"), t("stage.next")) : null);
   const line = h("p", { class: "jline", "data-k": "j-line" }, [m ? vname(m) : "", cost].filter(Boolean).join(" · "));
   st.replaceChildren(h("div", { class: "preview", "data-k": "pvbox" }, box), line, acts);
   if (status && !failed && motion()) rise([status], { y: 6 });
+}
+
+// Download saves the original. res.download is a link that asks for an
+// attachment, which a browser saves where it is and Telegram's downloadFile
+// takes; res.url only shows the file, and a browser ignores the download
+// attribute on another site's link, so without the first it opens in a tab.
+const EXT = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/avif": "avif", "image/gif": "gif", "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov" };
+function download(j, res) {
+  // The name the server gives the download, for Telegram, which asks for one.
+  const name = `framy-${j.id}-1.${EXT[res.content_type] || (res.content_type || "").split("/")[1] || "bin"}`;
+  const kids = [ic("down"), t("stage.download")], tg = S.tg;
+  if (res.download && tg?.downloadFile && tg.isVersionAtLeast?.("8.0"))
+    return h("button", { type: "button", class: "link", onclick: () => tg.downloadFile({ url: res.download, file_name: name }) }, ...kids);
+  if (res.download) return h("a", { class: "link", href: res.download, download: name }, ...kids);
+  return h("a", { class: "link", href: res.url, download: name, target: "_blank", rel: "noopener" }, ...kids);
 }
 
 // A run's new state on the stage: the frame takes its shape, the result fades in.
@@ -97,7 +112,17 @@ export function showJob(j) {
 }
 
 // A new window size or a taller dock only resizes the frame: the picture and a playing video stay.
+// On a phone the stage takes the room over the dock and keeps the frame in
+// the middle of it; the room under the frame waits for the result's line.
+function room() {
+  const st = $("#stage");
+  if (!st) return;
+  if (!isPhone()) { st.style.minHeight = ""; return; }
+  const top = st.getBoundingClientRect().top + scrollY;
+  st.style.minHeight = Math.max(0, Math.floor(innerHeight - $("#composer").offsetHeight - top - 24)) + "px";
+}
 export function refit() {
+  room();
   const b = $("#stage [data-k=pv]");
   if (!b?._r) return;
   const f = fit(b._r);

@@ -153,9 +153,10 @@ screen, a command or a table, check how the siblings do it.
   of `internal/i18n/translations.json`. Motion is transform and opacity only,
   with the Web Animations API, and `go test -tags=browser ./internal/web/`
   checks the layout at 390 and 1440 px and that no task holds the main thread
-  over 50 ms on a CPU four times slower than an M-series laptop (the test
-  measures the machine and slows a slower one less; `cpuRef` in
-  `browser_test.go`). Fonts and libraries are served by
+  over 50 ms on a CPU four times slower than an M-series laptop: the test
+  measures the machine on DOM work like the steps', slows it to that speed,
+  and brings a machine already slower than that down to the laptop's times
+  (`cpuRef` in `browser_test.go`). Fonts and libraries are served by
   the service itself; only `telegram-web-app.js` comes from outside, and only
   the Mini App loads it.
 

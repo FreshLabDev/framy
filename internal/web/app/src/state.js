@@ -6,7 +6,7 @@ import { t, fmtTime, fmtIn } from "./i18n.js";
 import { known, need } from "./price.js";
 
 export const S = {
-  signed: false, me: null, mini: false, online: navigator.onLine,
+  signed: false, me: null, mini: false, tg: null, online: navigator.onLine,
   kind: "image", model: { image: "", video: "" }, pay: {}, wanted: {}, files: [],
   more: false, allRatios: false,
   sort: "maker", info: null, hover: null, detVar: {}, lastVar: {},

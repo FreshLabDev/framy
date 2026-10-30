@@ -176,11 +176,11 @@ textarea#prompt::placeholder {color: var(--muted);}
 }
 .fixedline {font-size: 15px; color: var(--soft); line-height: 1.5;}
 .ratios {display: flex; flex-wrap: wrap; gap: var(--gap);}
-.rt {width: 60px; height: 64px; display: grid; justify-items: center; align-content: center; gap: 6px; background: var(--deep); font-size: 12px; font-weight: 600; line-height: 1;}
+.rt {width: 60px; height: 64px; display: grid; grid-template-rows: 24px auto; place-items: center; align-content: center; gap: 6px; background: var(--deep); font-size: 12px; font-weight: 600; line-height: 1;}
 .rt small {font-size: 10px; color: var(--muted); font-weight: 500;}
 .rt .shp {border: 2px solid currentColor;}
 .rt .shp.auto {border-style: dashed;}
-.rt.more {color: var(--soft); font-size: 13px;}
+.rt.more {grid-template-rows: none; color: var(--soft); font-size: 13px;}
 input[type="range"] {-webkit-appearance: none; appearance: none; width: 100%; height: 36px; background: transparent;}
 input[type="range"] {--fill: linear-gradient(to right, var(--muted) calc(10px + (100% - 20px) * var(--f, 0)), var(--deep) 0);}
 input[type="range"]::-webkit-slider-runnable-track {height: 4px; background: var(--fill);}
@@ -380,6 +380,7 @@ input.search::placeholder {color: var(--muted);}
 .chipbtn.att {flex: none; width: 46px; padding: 0; justify-content: center;}
 .chipbtn > .lg.o {width: 28px; height: 28px; font-size: 13px;}
 @media (max-width: 959px) {
+  .stage {align-content: center;}
   .composer {position: fixed; z-index: 20; left: 0; right: 0; bottom: 0; grid-template-columns: 84px minmax(0, 1fr); gap: 8px;
     padding: 10px max(16px, env(safe-area-inset-right, 0px)) calc(10px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
     background: var(--field); border-top: 1px solid var(--line);}

@@ -63,6 +63,7 @@ function reveal() {
 // In Telegram: its colours, its main button for Create and its back button for sheets.
 function telegram(tg) {
   if (!tg) return;
+  S.tg = tg;
   $("#app").dataset.surface = "mini";
   try {
     tg.ready(); tg.expand();
