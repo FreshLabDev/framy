@@ -251,7 +251,7 @@ A clip longer than the model takes is not simply refused, and it is not cut sile
 - the mini editor: the clip's timeline with a window of the allowed length that the person moves, and framy cuts that part before the run (`POST /api/videos` with `start` and `seconds`), as a file of its own;
 - a model that takes the whole clip, on the person's own key.
 
-In chat there is no timeline, so the preview offers "First N s", "Pick in framy" (the Mini App opens on the clip's timeline) and the models that take the whole clip. Proposal: a file above a model's size limit but within its length is re-encoded smaller instead, since FLUX Video Edit scales its input to 720p anyway.
+In chat there is no timeline, so the preview offers "First N s", "Pick in framy" (the Mini App opens on the clip's timeline) and the models that take the whole clip. Built so far is the first: the preview takes the first N s and says so before Generate ("This run takes at most 5 s: the first 5 s of 12 are edited."), and No is the way out. Proposal: a file above a model's size limit but within its length is re-encoded smaller instead, since FLUX Video Edit scales its input to 720p anyway.
 
 Nobody reports progress in percent. The wait shows elapsed time and the model's typical time, measured by framy from its own runs.
 
@@ -549,11 +549,19 @@ Two commands **(owner, 27 October)**: `/img` makes or edits images, `/edit` edit
 | `/img text` in reply to a photo or an image document | that image edited **(owner)** |
 | `/img text` in reply to a photo from an album | all photos of the album with one instruction **(owner)** |
 | `/img text` as the caption of one's own photo or album | those photos edited |
-| `/edit text` in reply to a video or a video document, or as the caption of one's own video | that video edited on the person's video editor, `flux-video-edit` by default **(owner)** |
+| `/edit text` in reply to a video, a GIF, a round video or a video document, or as the caption of one's own video | that video edited on the person's video editor, `flux-video-edit` by default **(owner)** |
 | a plain reply to a framy result | the result refined; this reaches the bot even in privacy mode (proposal) |
 | `/img` with no text | a short answer with an example of the command |
 
-Video in chats is not open yet: `/edit`, and `/img` on a video, answer so. Proposal: every image result has "Animate".
+`/edit` runs on `flux-video-edit`, the plan of the free edit (see Free tier):
+- **Who pays.** The free video first, as for images; the meter is read before the download, so a refusal costs none. Past the week's video, the person's OpenRouter key, if one is connected; without one the wait is the answer ("The next one is free in 2 d 2 h").
+- **The length.** The free run takes the first 5 s of a longer clip and a run on the key the model's 15 s, and the preview says what was taken. A clip under the model's 0.7 s is refused. When the queue refuses the free run after the meter said it was left, the same clip runs on the key.
+- **The clip** is read from Telegram and kept through the clip pipeline (see Storage), the cut included.
+- **The preview card** holds the clip's first frame, or the frame a second in when the first is one colour, and its length as a chip ("0:05"). Its buttons are Generate and No: Model and Settings list image models alone so far, and a press of theirs on a video run changes nothing.
+- **The result** goes through the clip pipeline as well, which moves its index to the front and copies the streams when they are fit, and comes as a video (`sendVideo`, `supports_streaming`), in place of the loop within 25 s or as a reply after. One the pipeline cannot read goes as it came, not marked as streaming.
+- `/edit` on a photo, or on nothing, and `/img` on a video point to the other command.
+
+Later: a cover for the video (tg#11), "Pick in framy" and the whole clip on the key in the preview, Model and Settings for the video editors, and "Animate" on every image result (proposal).
 
 ### Albums
 
@@ -574,9 +582,9 @@ An album sent before framy became an admin is not in the cache. The preview alwa
 
 What `internal/chat` does today, and what comes later. The bot handles updates one at a time, so a command (at most 4 at once) and a press each run beside polling. Every run is a row of `framy.chat_run` next to its job, so a restart picks it up where it was.
 
-1. **The command arrives.** framy sends `upload_photo` (`sendChatAction`) and puts no reaction on the command: the preview comes within a second or two and says the same. A replayed update makes no second draft: the job's key is `tg:<chat>:<message>`. An ephemeral command has no message id, and Telegram gives its ephemeral id to another message once it is gone, so its key is `tg:<chat>:e<ephemeral id>:<date>`. framy answers it with a reply only its sender sees, a refusal included, and with a public one when Telegram refuses that.
+1. **The command arrives.** framy sends `upload_photo`, or `upload_video` for `/edit` (`sendChatAction`), and puts no reaction on the command: the preview comes within a second or two and says the same. A replayed update makes no second draft: the job's key is `tg:<chat>:<message>`. An ephemeral command has no message id, and Telegram gives its ephemeral id to another message once it is gone, so its key is `tg:<chat>:e<ephemeral id>:<date>`. framy answers it with a reply only its sender sees, a refusal included, and with a public one when Telegram refuses that.
 2. **The sources are collected:**
-   - the reply, the album from the cache, or the photos the command is the caption of;
+   - the reply, the album from the cache, or the photos the command is the caption of; for `/edit`, the one clip;
    - downloaded through the local Bot API server (`getFile`, then read from disk);
    - normalized and kept in R2 as the person's uploads (see Storage);
    - at most 10 photos. The rest are left out, and the preview says how many.
@@ -587,7 +595,7 @@ What `internal/chat` does today, and what comes later. The bot handles updates o
 4. **The preview is sent as a reply to the command** **(owner)**. In a group it goes to the requester alone, as an ephemeral message, when Telegram lets framy send one: framy is an admin, or the command was ephemeral and the preview comes within its 15 seconds. Otherwise, and when the ephemeral send is refused, the chat sees it.
    - **The card** (`anim.Preview`, owner, 27 October): the viewfinder holds the photos, numbered 1…N, or with none a field of dots in the shape of the result and its ratio. Beside it are the maker, the model's name, the settings as chips ("2K", "×2") and the price for the requester: the meter of the free allowance, or the estimate on their key in dollars and their currency ("≈ $0.034", "≈ 1,42 ₴"). The prompt is not on the card. The card is a still, a PNG or with photos a JPEG, so a new model or setting redraws it in milliseconds where a loop would take a second.
    - **The caption:** the prompt (in an expandable quote when long) and what was not taken ("Photos of the album I see: 3"). Where the faces cannot draw the card's label (Chinese, Japanese and Arabic), the price line comes in the caption as well ("free · 4 of 5 left").
-   - **The buttons today:** **Generate** (`style: success`) and **No** (`style: danger`), and under them **Model** and **Settings**.
+   - **The buttons today:** **Generate** (`style: success`) and **No** (`style: danger`), and under them **Model** and **Settings**. A video run has Generate and No alone.
    - **Later:** **Image / Video**; **Open on the site**, a link to `t.me/framyin_bot/app?startapp=<signed job id>`, because `web_app` buttons work only in DMs.
 5. **No:** `deleteMessage` on the preview and the job is cancelled **(owner)**. The panel goes with it.
 6. **Model or Settings** (`internal/chat/panel.go`):
@@ -601,6 +609,7 @@ What `internal/chat` does today, and what comes later. The bot handles updates o
    - A result ready within 25 s of Generate: `editMessageMedia` turns the loop into it in place **(owner)**.
    - A slower one: a new message as a reply to the command, and the loop is deleted **(owner)**. An edit makes no notification; a reply does.
    - A picture Telegram would not take as a photo (over 10 MB, width plus height over 10000, or sides over 20 : 1) goes as a document.
+   - A video goes as a video, in place or as a reply the same way (see `/edit` above).
    - The caption holds the prompt and the model.
    - The result's `file_id` and `file_unique_id` are kept in `chat_run`.
    - **Later:** the buttons **Again**, **Animate**, **Original** (a full-size `sendDocument` on demand) and **Open on the site**, and `(chat, message_id) → generation` for replies.

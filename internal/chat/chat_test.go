@@ -216,15 +216,12 @@ func TestEmptyCommandsVideosAndRepeats(t *testing.T) {
 		t.Fatalf("empty: %+v", got)
 	}
 	h.tg.reset()
-	if err := h.command(command("/edit rain"), CommandVideo, "rain"); err != nil {
-		t.Fatal(err)
-	}
 	m := command("/img rain")
 	m.ReplyToMessage = &tg.Message{MessageID: 9, Video: &tg.Video{FileID: "v"}}
 	if err := h.command(m, CommandImage, "rain"); err != nil {
 		t.Fatal(err)
 	}
-	if got := h.tg.methods("sendMessage"); len(got) != 2 || got[0].text != i18n.T("en", "run.video_soon") || got[1].text != got[0].text {
+	if got := h.tg.methods("sendMessage"); len(got) != 1 || got[0].text != i18n.T("en", "run.video_edit") {
 		t.Fatalf("video: %+v", got)
 	}
 	h.tg.reset()
@@ -632,6 +629,10 @@ func TestTheWaitIsInHoursAndMinutes(t *testing.T) {
 		{"en", 0, "1 min"},
 		{"en", 59*time.Minute + time.Second, "1 h 0 min"},
 		{"en", 23*time.Hour + 59*time.Minute, "23 h 59 min"},
+		// Past a day, days and hours, rounded up to the hour.
+		{"en", 24*time.Hour + time.Minute, "1 d 1 h"},
+		{"en", 6*24*time.Hour + 23*time.Hour + 30*time.Minute, "7 d 0 h"},
+		{"ru", 50 * time.Hour, "2 д 2 ч"},
 		{"ru", 3*time.Hour + 5*time.Minute, "3 ч 5 мин"},
 		{"uk", 12 * time.Minute, "12 хв"},
 	} {

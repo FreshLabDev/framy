@@ -147,6 +147,43 @@ func (s *Store) CutVideo(ctx context.Context, userID, assetID int64, cut media.C
 	return s.keepVideo(ctx, userID, dir, &cut)
 }
 
+// KeepVideo keeps the clip at path, or the part cut of it, as an upload of
+// the person's: a clip a chat run takes, read from Telegram. The file at
+// path stays where it is.
+func (s *Store) KeepVideo(ctx context.Context, userID int64, path string, cut *media.Cut) (Asset, error) {
+	dir, done, err := s.work.Dir("video")
+	if err != nil {
+		return Asset{}, err
+	}
+	defer done()
+	if err := linkOrCopy(path, filepath.Join(dir, media.In)); err != nil {
+		return Asset{}, err
+	}
+	return s.keepVideo(ctx, userID, dir, cut)
+}
+
+// linkOrCopy puts the file at src at dst: a hard link where both are on one
+// disk, a copy otherwise.
+func linkOrCopy(src, dst string) error {
+	if err := os.Link(src, dst); err == nil {
+		return nil
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(out, in)
+	if cerr := out.Close(); err == nil {
+		err = cerr
+	}
+	return err
+}
+
 // LastFrame keeps the last frame of a clip of the person's as a new upload,
 // through the photo pipeline: the start frame of a run that continues the
 // clip on a model that starts from a frame.

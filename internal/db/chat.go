@@ -23,7 +23,7 @@ const (
 var ErrNoRun = errors.New("no chat run for the job")
 
 // ChatRun is what a chat shows of a job it started: where the messages are
-// and how far the chat has been told. UserID, Prompt, Free, Status,
+// and how far the chat has been told. UserID, Prompt, Free, Kind, Status,
 // ErrorClass, Error, Model and Created come from the job and are only read.
 type ChatRun struct {
 	JobID            int64
@@ -51,6 +51,9 @@ type ChatRun struct {
 	UserID int64
 	Prompt string
 	Free   bool
+	// Kind is what the job makes, "image" or "video", as catalog.Kind spells
+	// it.
+	Kind string
 	// Status and ErrorClass are the job's, as jobs.Status and jobs.Class
 	// spell them; plain strings, since jobs' own tests import db.
 	Status     string
@@ -69,7 +72,7 @@ const chatRunColumns = `
 	r.job_id, r.chat_id, r.thread_id, r.command_message_id, COALESCE(r.preview_message_id, 0),
 	r.preview_ephemeral, r.command_ephemeral, COALESCE(r.panel_message_id, 0), r.lang,
 	r.taken, r.album, r.note, r.stage, r.generate_at, r.stopped,
-	j.user_id, j.prompt, j.free, j.status, COALESCE(j.error_class, ''), COALESCE(j.error, ''), COALESCE(m.name, o.name, j.model_id),
+	j.user_id, j.prompt, j.free, j.kind, j.status, COALESCE(j.error_class, ''), COALESCE(j.error, ''), COALESCE(m.name, o.name, j.model_id),
 	j.offer_id, j.settings, j.created_at`
 
 const chatRunFrom = `
@@ -83,7 +86,7 @@ func scanChatRun(row pgx.Row) (ChatRun, error) {
 	err := row.Scan(&r.JobID, &r.ChatID, &r.ThreadID, &r.CommandMessageID, &r.PreviewMessageID,
 		&r.PreviewEphemeral, &r.CommandEphemeral, &r.PanelMessageID, &r.Lang,
 		&r.Taken, &r.Album, &r.Note, &r.Stage, &at, &r.Stopped,
-		&r.UserID, &r.Prompt, &r.Free, &r.Status, &r.ErrorClass, &r.Error, &r.Model,
+		&r.UserID, &r.Prompt, &r.Free, &r.Kind, &r.Status, &r.ErrorClass, &r.Error, &r.Model,
 		&r.OfferID, &r.Settings, &r.Created)
 	if at != nil {
 		r.GenerateAt = *at

@@ -477,8 +477,18 @@ was written from, and the skeleton of the service.
   job on the same model and provider, on their key, and prices the whole
   clip. A client that sends either setting itself is refused. The free edit
   on FLUX Video Edit now takes a clip of up to 5 s only, checked from the
-  stored length in the queue's transaction. `/edit` in chat still answers
-  that video is not open there.
+  stored length in the queue's transaction.
+- `/edit` in a chat. In reply to a video, a GIF, a round video or a video
+  document, or as the caption of one's own video, it edits the clip on FLUX
+  Video Edit: the week's free video first, then the person's OpenRouter key.
+  The free run takes the first 5 s of a longer clip and a run on the key up
+  to 15 s, and the preview says so before Generate, so nothing is cut
+  unseen. The preview card shows the clip's first frame and its length, with
+  Generate and No. The result is remuxed with its index at the front and
+  comes as a video Telegram streams, in place of the loop within 25 s or as
+  a reply after. The week's limit is said in days and hours, and a refusal
+  downloads nothing. `/img` on a video and `/edit` on a photo point to the
+  other command, and the command menu calls `/edit` "Change a video".
 - CI on every push and weekly: modules, gofmt, build, vet, race tests,
   database tests on PostgreSQL 17, govulncheck, the image build, the photo
   and storage tests inside the image, on the ffmpeg it ships, and the local

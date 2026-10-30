@@ -489,9 +489,12 @@ func openFlow(ctx context.Context, cfg config.Config, client *tg.Client, store *
 		log.Error("the loops cannot be drawn, so /img is off", "error", err)
 		return nil, nil
 	}
+	// The same ffmpeg storage checked for clips: /edit reads the clip it
+	// takes and readies the result for Telegram.
+	clips := &media.Converter{FFmpeg: cfg.FFmpeg, FFprobe: cfg.FFprobe}
 	return chat.New(chat.Config{
 		Telegram: client, Store: store, Queue: queue, Files: files, Allowance: allowance, Keys: people,
-		Renderer: renderer, Work: work, Log: log.With("component", "chat"),
+		Renderer: renderer, Clips: clips, Work: work, Log: log.With("component", "chat"),
 	})
 }
 

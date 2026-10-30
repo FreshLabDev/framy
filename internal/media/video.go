@@ -514,49 +514,84 @@ func seconds(s float64) string { return strconv.FormatFloat(s, 'f', 3, 64) }
 // is flat, as it is when a clip fades out: within the design's 0.2 to 0.5 s.
 const fadeBack = 0.35
 
+// posterAt is how far into a clip the poster is taken when the first frame
+// is flat, as it is when a clip fades in: or halfway, for a shorter clip.
+const posterAt = 1.0
+
 // LastFrame writes the last frame of the clip at dir/In as a PNG next to
 // it, for "Continue" on a model that starts from a frame: or the frame
 // 0.35 s before the end when the last one is a single colour.
 func (c *Converter) LastFrame(ctx context.Context, dir string) (string, error) {
 	in := filepath.Join(dir, In)
-	head, err := readHead(in)
-	if err != nil {
-		return "", err
-	}
-	k, err := c.probeVideo(ctx, head, in)
+	k, err := c.readClip(ctx, in)
 	if err != nil {
 		return "", err
 	}
 	out := filepath.Join(dir, "frame.png")
-	frame := func(seek, limit []string) error {
-		args := append([]string{"-hide_banner", "-nostdin", "-v", "error", "-protocol_whitelist", "file"}, seek...)
-		args = append(args, "-max_pixels", strconv.FormatInt(c.maxPixels(), 10),
-			"-f", k.demuxer, "-i", "file:"+in, "-map", "0:"+strconv.Itoa(k.videoIndex),
-			"-vf", c.videoFilters(ctx, k, "rgb24"), "-map_metadata", "-1")
-		args = append(args, limit...)
-		args = append(args, "-c:v", "png", "-f", "image2", "-update", "1", "-y", "file:"+out)
-		if _, err := c.runFor(ctx, c.videoTimeout(), c.ffmpeg(), args); err != nil {
-			if ctx.Err() != nil {
-				return err
-			}
-			return fmt.Errorf("%w: %v", ErrUnreadableVideo, err)
-		}
-		if st, err := os.Stat(out); err != nil || st.Size() == 0 {
-			return fmt.Errorf("%w: ffmpeg wrote no frame", ErrUnreadableVideo)
-		}
-		return nil
-	}
 	// The last second, each frame written over the one before.
-	if err := frame([]string{"-sseof", "-1"}, nil); err != nil {
+	if err := c.still(ctx, k, in, out, []string{"-sseof", "-1"}, nil); err != nil {
 		return "", err
 	}
 	if flat, err := flatPNG(out); err != nil || !flat || k.seconds <= fadeBack*2 {
 		return out, err
 	}
-	if err := frame([]string{"-ss", seconds(k.seconds - fadeBack)}, []string{"-frames:v", "1"}); err != nil {
+	if err := c.still(ctx, k, in, out, []string{"-ss", seconds(k.seconds - fadeBack)}, []string{"-frames:v", "1"}); err != nil {
 		return "", err
 	}
 	return out, nil
+}
+
+// Poster writes the first frame of the clip at dir/In as a PNG next to it,
+// the picture of the card a chat shows before Generate: or the frame a
+// second in when the first is a single colour.
+func (c *Converter) Poster(ctx context.Context, dir string) (string, error) {
+	in := filepath.Join(dir, In)
+	k, err := c.readClip(ctx, in)
+	if err != nil {
+		return "", err
+	}
+	out := filepath.Join(dir, "poster.png")
+	one := []string{"-frames:v", "1"}
+	if err := c.still(ctx, k, in, out, nil, one); err != nil {
+		return "", err
+	}
+	if flat, err := flatPNG(out); err != nil || !flat {
+		return out, err
+	}
+	if err := c.still(ctx, k, in, out, []string{"-ss", seconds(math.Min(posterAt, k.seconds/2))}, one); err != nil {
+		return "", err
+	}
+	return out, nil
+}
+
+// readClip reads what ffprobe says of the clip at in.
+func (c *Converter) readClip(ctx context.Context, in string) (clip, error) {
+	head, err := readHead(in)
+	if err != nil {
+		return clip{}, err
+	}
+	return c.probeVideo(ctx, head, in)
+}
+
+// still writes a frame of the clip at in as the PNG out, upright and in
+// SDR: seek goes before the input and limit after it.
+func (c *Converter) still(ctx context.Context, k clip, in, out string, seek, limit []string) error {
+	args := append([]string{"-hide_banner", "-nostdin", "-v", "error", "-protocol_whitelist", "file"}, seek...)
+	args = append(args, "-max_pixels", strconv.FormatInt(c.maxPixels(), 10),
+		"-f", k.demuxer, "-i", "file:"+in, "-map", "0:"+strconv.Itoa(k.videoIndex),
+		"-vf", c.videoFilters(ctx, k, "rgb24"), "-map_metadata", "-1")
+	args = append(args, limit...)
+	args = append(args, "-c:v", "png", "-f", "image2", "-update", "1", "-y", "file:"+out)
+	if _, err := c.runFor(ctx, c.videoTimeout(), c.ffmpeg(), args); err != nil {
+		if ctx.Err() != nil {
+			return err
+		}
+		return fmt.Errorf("%w: %v", ErrUnreadableVideo, err)
+	}
+	if st, err := os.Stat(out); err != nil || st.Size() == 0 {
+		return fmt.Errorf("%w: ffmpeg wrote no frame", ErrUnreadableVideo)
+	}
+	return nil
 }
 
 // flatPNG tells whether a picture is one colour, near enough: the frame a

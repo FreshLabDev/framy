@@ -254,3 +254,38 @@ func TestAVideoResultIsReadCutAndItsLastFrameKept(t *testing.T) {
 	}
 	h.workIsEmpty(t)
 }
+
+// A chat keeps the clip it read from Telegram, cut or whole, and the file
+// stays where the chat has it.
+func TestAClipFromAChatIsKept(t *testing.T) {
+	h := newHarness(t, storage.Config{Media: videoConverter(t)})
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "clip")
+	if err := os.WriteFile(path, clip(t, "3"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a, err := h.store.KeepVideo(ctx, alice, path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Kind != "upload" || a.ContentType != "video/mp4" || a.Width != 320 || math.Abs(a.Seconds-3) > 0.1 || !a.Audio {
+		t.Fatalf("%+v", a)
+	}
+	cut, err := h.store.KeepVideo(ctx, alice, path, &media.Cut{Seconds: 1.5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if math.Abs(cut.Seconds-1.5) > 0.1 || cut.ID == a.ID {
+		t.Fatalf("the cut: %+v", cut)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("the chat's file: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("not a clip"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.store.KeepVideo(ctx, alice, path, nil); !errors.Is(err, media.ErrUnsupportedVideo) {
+		t.Errorf("not a clip: %v", err)
+	}
+	h.workIsEmpty(t)
+}

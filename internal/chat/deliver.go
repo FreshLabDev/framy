@@ -3,15 +3,22 @@ package chat
 
 import (
 	"context"
+	"fmt"
 	"html"
+	"io"
+	"math"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/FreshLabDev/tg"
 
+	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/db"
 	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/FreshLabDev/framy/internal/media"
 	"github.com/FreshLabDev/framy/internal/storage"
 )
 
@@ -141,7 +148,7 @@ func (f *Flow) progress(ctx context.Context, run db.ChatRun) {
 	now := f.now()
 	if now.Sub(tk.action) >= actionEvery {
 		tk.action = now
-		if err := f.cfg.Telegram.SendChatAction(ctx, run.ChatID, run.ThreadID, "upload_photo"); err != nil {
+		if err := f.cfg.Telegram.SendChatAction(ctx, run.ChatID, run.ThreadID, chatAction(catalog.Kind(run.Kind) == catalog.Video)); err != nil {
 			f.log.Debug("chat action not sent", "chat", run.ChatID, "error", err)
 		}
 	}
@@ -170,32 +177,15 @@ func (f *Flow) deliver(ctx context.Context, run db.ChatRun) {
 	}
 	a := results[0]
 	caption := resultCaption(run.Prompt, run.Model)
-	asPhoto := photoFits(a)
 	var msg tg.Message
-	sent := false
-	if asPhoto && f.now().Sub(run.GenerateAt) <= inPlaceWithin {
-		msg, err = f.withResult(ctx, a, func(file tg.InputFile) (tg.Message, error) {
-			return f.cfg.Telegram.EditMessageMediaMessage(ctx, run.ChatID, run.PreviewMessageID, tg.InputMediaPhoto{Media: file, Caption: caption}, nil)
-		})
-		if err == nil {
-			sent = true
-		} else {
-			f.log.Warn("result not put in place; replying", "job", run.JobID, "error", err)
-		}
+	if strings.HasPrefix(a.ContentType, "video/") {
+		msg, err = f.sendVideo(ctx, run, a, caption)
+	} else {
+		msg, err = f.sendImage(ctx, run, a, caption)
 	}
-	if !sent {
-		opts := tg.CaptionOptions{ThreadID: run.ThreadID, ReplyTo: run.CommandMessageID, Caption: caption}
-		msg, err = f.withResult(ctx, a, func(file tg.InputFile) (tg.Message, error) {
-			if asPhoto {
-				return f.cfg.Telegram.SendPhoto(ctx, run.ChatID, file, opts)
-			}
-			return f.cfg.Telegram.SendDocument(ctx, run.ChatID, file, tg.DocumentOptions{CaptionOptions: opts})
-		})
-		if err != nil {
-			f.log.Error("result not sent", "job", run.JobID, "error", err)
-			return
-		}
-		f.deleteMessage(ctx, run.ChatID, run.PreviewMessageID)
+	if err != nil {
+		f.log.Error("result not sent", "job", run.JobID, "error", err)
+		return
 	}
 	res := db.ChatResult{MessageID: msg.MessageID, FileID: fileIDOf(msg), FileUniqueID: fileUniqueIDOf(msg)}
 	if _, err := f.cfg.Store.FinishChatRun(ctx, run.JobID, db.StageDone, res); err != nil {
@@ -203,6 +193,117 @@ func (f *Flow) deliver(ctx context.Context, run db.ChatRun) {
 		return
 	}
 	f.forget(run.JobID)
+}
+
+// sendImage puts a picture in the chat: a photo, or a document when
+// Telegram would not take it as one. The loop goes once a reply is sent.
+func (f *Flow) sendImage(ctx context.Context, run db.ChatRun, a storage.Asset, caption string) (tg.Message, error) {
+	asPhoto := photoFits(a)
+	if asPhoto && f.now().Sub(run.GenerateAt) <= inPlaceWithin {
+		msg, err := f.withResult(ctx, a, func(file tg.InputFile) (tg.Message, error) {
+			return f.cfg.Telegram.EditMessageMediaMessage(ctx, run.ChatID, run.PreviewMessageID, tg.InputMediaPhoto{Media: file, Caption: caption}, nil)
+		})
+		if err == nil {
+			return msg, nil
+		}
+		f.log.Warn("result not put in place; replying", "job", run.JobID, "error", err)
+	}
+	opts := tg.CaptionOptions{ThreadID: run.ThreadID, ReplyTo: run.CommandMessageID, Caption: caption}
+	msg, err := f.withResult(ctx, a, func(file tg.InputFile) (tg.Message, error) {
+		if asPhoto {
+			return f.cfg.Telegram.SendPhoto(ctx, run.ChatID, file, opts)
+		}
+		return f.cfg.Telegram.SendDocument(ctx, run.ChatID, file, tg.DocumentOptions{CaptionOptions: opts})
+	})
+	if err != nil {
+		return tg.Message{}, err
+	}
+	f.deleteMessage(ctx, run.ChatID, run.PreviewMessageID)
+	return msg, nil
+}
+
+// sendVideo puts a video in the chat as one Telegram plays while it loads,
+// in place of the loop or as a reply, as sendImage does a picture. The
+// result goes through the clip pipeline first, which moves the index to the
+// front and copies the streams when they are fit; a result the pipeline
+// cannot read goes as it came.
+func (f *Flow) sendVideo(ctx context.Context, run db.ChatRun, a storage.Asset, caption string) (tg.Message, error) {
+	dir, done, err := f.cfg.Work.Dir("result")
+	if err != nil {
+		return tg.Message{}, err
+	}
+	defer done()
+	v, streams, err := f.readyVideo(ctx, a, dir)
+	if err != nil {
+		return tg.Message{}, err
+	}
+	seconds := int(math.Ceil(v.Seconds))
+	if f.now().Sub(run.GenerateAt) <= inPlaceWithin {
+		msg, err := withFileAt(v.Path, func(file tg.InputFile) (tg.Message, error) {
+			return f.cfg.Telegram.EditMessageMediaMessage(ctx, run.ChatID, run.PreviewMessageID, tg.InputMediaVideo{
+				Media: file, Caption: caption, Width: v.Width, Height: v.Height, Duration: seconds, SupportsStreaming: streams,
+			}, nil)
+		})
+		if err == nil {
+			return msg, nil
+		}
+		f.log.Warn("result not put in place; replying", "job", run.JobID, "error", err)
+	}
+	opts := tg.VideoOptions{
+		CaptionOptions: tg.CaptionOptions{ThreadID: run.ThreadID, ReplyTo: run.CommandMessageID, Caption: caption},
+		Width:          v.Width, Height: v.Height, Duration: seconds, SupportsStreaming: streams,
+	}
+	msg, err := withFileAt(v.Path, func(file tg.InputFile) (tg.Message, error) {
+		return f.cfg.Telegram.SendVideo(ctx, run.ChatID, file, opts)
+	})
+	if err != nil {
+		return tg.Message{}, err
+	}
+	f.deleteMessage(ctx, run.ChatID, run.PreviewMessageID)
+	return msg, nil
+}
+
+// readyVideo reads a video result into dir and makes it what Telegram
+// streams: streams tells it did. When the pipeline fails, the file goes as
+// it came, with what framy read of it when it was kept, and is not said to
+// stream, since its index may be at the end.
+func (f *Flow) readyVideo(ctx context.Context, a storage.Asset, dir string) (v media.Video, streams bool, err error) {
+	in := filepath.Join(dir, media.In)
+	body, err := f.cfg.Files.Open(ctx, a)
+	if err != nil {
+		return media.Video{}, false, err
+	}
+	out, err := os.OpenFile(in, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		body.Close()
+		return media.Video{}, false, err
+	}
+	_, err = io.Copy(out, body)
+	body.Close()
+	if cerr := out.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return media.Video{}, false, fmt.Errorf("read the result: %w", err)
+	}
+	if v, err = f.cfg.Clips.NormalizeVideo(ctx, dir, nil); err == nil {
+		return v, true, nil
+	}
+	if ctx.Err() != nil {
+		return media.Video{}, false, err
+	}
+	f.log.Warn("video result sent as it came", "asset", a.ID, "error", err)
+	return media.Video{Path: in, ContentType: a.ContentType, Width: a.Width, Height: a.Height, Seconds: a.Seconds}, false, nil
+}
+
+// withFileAt hands send the file at path as an upload.
+func withFileAt(path string, send func(tg.InputFile) (tg.Message, error)) (tg.Message, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return tg.Message{}, err
+	}
+	defer file.Close()
+	return send(tg.InputFileUpload{Filename: "framy.mp4", Data: file})
 }
 
 // withResult reads the result from the bucket and hands it to send.

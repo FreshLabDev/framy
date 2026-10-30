@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package chat runs /img in a chat (docs/design.md, `/img` and `/edit` in a
-// group): the command becomes a draft job and a preview that replies to it,
+// Package chat runs /img and /edit in a chat (docs/design.md, `/img` and
+// `/edit` in a group): the command becomes a draft job and a preview that
+// replies to it,
 // Generate queues the job and turns the preview into the generating loop, and
 // the loop becomes the result or an error card. One message carries the run
 // from start to end.
@@ -44,6 +45,7 @@ type Telegram interface {
 	SendPhoto(ctx context.Context, chatID int64, photo tg.InputFile, opts tg.CaptionOptions) (tg.Message, error)
 	SendAnimation(ctx context.Context, chatID int64, animation tg.InputFile, opts tg.AnimationOptions) (tg.Message, error)
 	SendDocument(ctx context.Context, chatID int64, document tg.InputFile, opts tg.DocumentOptions) (tg.Message, error)
+	SendVideo(ctx context.Context, chatID int64, video tg.InputFile, opts tg.VideoOptions) (tg.Message, error)
 	EditMessageMediaMessage(ctx context.Context, chatID, messageID int64, media tg.InputMedia, markup *tg.InlineKeyboardMarkup) (tg.Message, error)
 	EditMessageCaption(ctx context.Context, chatID, messageID int64, caption string, opts tg.EditCaptionOptions) (tg.Message, error)
 	EditMessageReplyMarkup(ctx context.Context, chatID, messageID int64, markup *tg.InlineKeyboardMarkup) error
@@ -85,12 +87,22 @@ type Queue interface {
 	Cancel(ctx context.Context, id int64) error
 }
 
-// Files keeps the photos a run takes and reads its results: *storage.Store.
+// Files keeps the photos and the clip a run takes and reads its results:
+// *storage.Store.
 type Files interface {
 	UploadCopy(ctx context.Context, userID int64, r io.Reader, copyTo string) (storage.Asset, error)
+	KeepVideo(ctx context.Context, userID int64, path string, cut *media.Cut) (storage.Asset, error)
 	Results(ctx context.Context, jobID int64) ([]storage.Asset, error)
 	JobInputs(ctx context.Context, jobID int64) ([]storage.Asset, error)
 	Open(ctx context.Context, a storage.Asset) (io.ReadCloser, error)
+}
+
+// Clips reads the videos /edit takes and readies a video result for
+// Telegram: *media.Converter.
+type Clips interface {
+	ProbeVideo(ctx context.Context, path string) (media.Video, error)
+	Poster(ctx context.Context, dir string) (string, error)
+	NormalizeVideo(ctx context.Context, dir string, cut *media.Cut) (media.Video, error)
 }
 
 // Allowance says how much of the free tier a person has left: *free.Allowance.
@@ -125,17 +137,21 @@ type Config struct {
 	Allowance Allowance
 	Keys      Connections
 	Renderer  Renderer
+	Clips     Clips
 	Work      Work
 	Log       *slog.Logger
 	// Commands is how many commands are worked at once: downloads, uploads
 	// and the preview. 0 is 4.
 	Commands int
-	// MaxDownload caps a file read from Telegram. 0 is storage's upload
+	// MaxDownload caps a photo read from Telegram. 0 is storage's upload
 	// limit.
 	MaxDownload int64
+	// MaxVideo caps a clip read from Telegram. 0 is storage's limit on a
+	// clip.
+	MaxVideo int64
 }
 
-// Flow runs /img in chats.
+// Flow runs /img and /edit in chats.
 type Flow struct {
 	cfg    Config
 	log    *slog.Logger
@@ -169,6 +185,8 @@ func New(cfg Config) (*Flow, error) {
 		return nil, errors.New("chat: no Allowance")
 	case cfg.Renderer == nil:
 		return nil, errors.New("chat: no Renderer")
+	case cfg.Clips == nil:
+		return nil, errors.New("chat: no Clips")
 	case cfg.Work == nil:
 		return nil, errors.New("chat: no Work")
 	}
@@ -180,6 +198,9 @@ func New(cfg Config) (*Flow, error) {
 	}
 	if cfg.MaxDownload <= 0 {
 		cfg.MaxDownload = storage.DefaultMaxUpload
+	}
+	if cfg.MaxVideo <= 0 {
+		cfg.MaxVideo = storage.DefaultMaxVideo
 	}
 	return &Flow{cfg: cfg, log: cfg.Log, now: time.Now, slot: make(chan struct{}, cfg.Commands)}, nil
 }
@@ -321,7 +342,10 @@ func errorText(lang string, err error) string {
 	switch {
 	case errors.Is(err, media.ErrUnsupported), errors.Is(err, media.ErrUnreadable):
 		return t(lang, "run.unsupported")
-	case errors.Is(err, media.ErrTooLarge), errors.Is(err, storage.ErrTooBig), errors.Is(err, errTooBig):
+	case errors.Is(err, media.ErrUnsupportedVideo), errors.Is(err, media.ErrUnreadableVideo):
+		return t(lang, "edit.unsupported")
+	case errors.Is(err, media.ErrTooLarge), errors.Is(err, media.ErrVideoTooLarge),
+		errors.Is(err, storage.ErrTooBig), errors.Is(err, errTooBig):
 		return t(lang, "run.too_big")
 	}
 	return t(lang, "run.failed")
@@ -332,20 +356,36 @@ var errTooBig = errors.New("the file is over the download limit")
 
 func t(lang, key string, pairs ...string) string { return i18n.T(i18n.Resolve(lang), key, pairs...) }
 
-// limitText says the free allowance is used up and how long until the next
-// free run.
+// limitText says the free allowance of the run's kind is used up and how
+// long until the next free run.
 func (f *Flow) limitText(lang string, e *free.LimitError) string {
-	return t(lang, "run.limit", "limit", strconv.Itoa(e.Limit), "wait", waitText(lang, e.FreesAt.Sub(f.now())))
+	key := "run.limit"
+	if e.Kind == catalog.Video {
+		key = "edit.limit"
+	}
+	return t(lang, key, "limit", strconv.Itoa(e.Limit), "wait", waitText(lang, e.FreesAt.Sub(f.now())))
 }
 
-// waitText is a wait in hours and minutes, rounded up to the minute, so it
-// never promises a free run before it is there.
+// closedText says the free tier is paused for runs of the kind.
+func closedText(lang string, kind catalog.Kind) string {
+	if kind == catalog.Video {
+		return t(lang, "edit.closed")
+	}
+	return t(lang, "run.closed")
+}
+
+// waitText is a wait in minutes, in hours and minutes, or past a day in days
+// and hours, rounded up, so it never promises a free run before it is there.
 func waitText(lang string, d time.Duration) string {
 	m := max(int((d+time.Minute-1)/time.Minute), 1)
-	if m < 60 {
+	switch {
+	case m < 60:
 		return t(lang, "run.wait_m", "m", strconv.Itoa(m))
+	case m < 24*60:
+		return t(lang, "run.wait_hm", "h", strconv.Itoa(m/60), "m", strconv.Itoa(m%60))
 	}
-	return t(lang, "run.wait_hm", "h", strconv.Itoa(m/60), "m", strconv.Itoa(m%60))
+	h := (m + 59) / 60
+	return t(lang, "run.wait_dh", "d", strconv.Itoa(h/24), "h", strconv.Itoa(h%24))
 }
 
 // reply answers the command with text: an ephemeral command only its

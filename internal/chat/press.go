@@ -8,6 +8,7 @@ import (
 
 	"github.com/FreshLabDev/tg"
 
+	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/db"
 	"github.com/FreshLabDev/framy/internal/free"
 	"github.com/FreshLabDev/framy/internal/jobs"
@@ -48,6 +49,11 @@ func (f *Flow) press(ctx context.Context, cq *tg.CallbackQuery) error {
 	if !ok {
 		return answer("")
 	}
+	if catalog.Kind(run.Kind) == catalog.Video && !mainAction(action) {
+		// A video run has no Model or Settings panel; old or forged data
+		// changes nothing.
+		return answer("")
+	}
 	switch {
 	case action == actGenerate:
 		return f.generate(ctx, cq, run)
@@ -67,6 +73,11 @@ func (f *Flow) press(ctx context.Context, cq *tg.CallbackQuery) error {
 		return f.pickSetting(ctx, cq, run, on, strings.TrimPrefix(action, actPickSetting))
 	}
 	return answer("")
+}
+
+// mainAction: the action is Generate, No or Stop, the buttons every run has.
+func mainAction(action string) bool {
+	return action == actGenerate || action == actNo || action == actStop
 }
 
 // Where a press came from.
@@ -119,7 +130,7 @@ func (f *Flow) generate(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRu
 		// The free tier ran out between the preview and the press.
 		return f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, f.limitText(run.Lang, limit))
 	case errors.As(err, &closed):
-		return f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, t(run.Lang, "run.closed"))
+		return f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, closedText(run.Lang, catalog.Kind(run.Kind)))
 	case err != nil:
 		_ = f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, "")
 		return err

@@ -384,6 +384,42 @@ func TestTheLastFrame(t *testing.T) {
 	}
 }
 
+func TestThePoster(t *testing.T) {
+	c := videoConverter(t)
+	// The test pattern, then blue from 0.5 s: the poster is the first frame.
+	dir := makeClip(t, "-f", "lavfi", "-i", "testsrc2=s=320x180:r=30:d=0.5", "-f", "lavfi", "-i", "color=c=blue:s=320x180:r=30:d=1.5",
+		"-filter_complex", "[0][1]concat=n=2:v=1[v]", "-map", "[v]", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-f", "mp4")
+	poster, err := c.Poster(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	img := readPNG(t, poster)
+	if b := img.Bounds(); b.Dx() != 320 || b.Dy() != 180 {
+		t.Fatalf("%v", b)
+	}
+	if flat(img) {
+		t.Errorf("the poster is %s all over, not the first frame", hex(img.At(160, 90)))
+	}
+	// A clip that fades in from black gives a frame after the fade.
+	dir = makeClip(t, "-f", "lavfi", "-i", "color=c=black:s=320x180:r=30:d=0.3", "-f", "lavfi", "-i", "testsrc2=s=320x180:r=30:d=2",
+		"-filter_complex", "[0][1]concat=n=2:v=1[v]", "-map", "[v]", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-f", "mp4")
+	if poster, err = c.Poster(context.Background(), dir); err != nil {
+		t.Fatal(err)
+	}
+	if flat(readPNG(t, poster)) {
+		t.Error("a fade from black gives the black frame")
+	}
+	// A rotated clip gives an upright poster.
+	src := h264(t, "320x180", "1")
+	dir = makeClip(t, "-display_rotation", "90", "-i", filepath.Join(src, In), "-c", "copy", "-f", "mp4")
+	if poster, err = c.Poster(context.Background(), dir); err != nil {
+		t.Fatal(err)
+	}
+	if b := readPNG(t, poster).Bounds(); b.Dx() != 180 || b.Dy() != 320 {
+		t.Errorf("a rotated clip's poster is %v", b)
+	}
+}
+
 func TestAResultIsProbed(t *testing.T) {
 	c := videoConverter(t)
 	dir := h264(t, "640x360", "1.5")

@@ -37,6 +37,9 @@ type call struct {
 	markup    *tg.InlineKeyboardMarkup
 	file      string // "upload:<name>" or the file_id sent
 	action    string
+	// video is what a video send said of it: "<w>x<h> <s>s", and
+	// " streams" when it streams.
+	video string
 	// ephemeral is what an ephemeral send asked for; nil for one the chat
 	// sees. replyEphemeral is the ephemeral message it answers.
 	ephemeral      *tg.Ephemeral
@@ -121,6 +124,21 @@ func (f *fakeTelegram) SendDocument(_ context.Context, chatID int64, doc tg.Inpu
 	return m, err
 }
 
+func (f *fakeTelegram) SendVideo(_ context.Context, chatID int64, v tg.InputFile, o tg.VideoOptions) (tg.Message, error) {
+	m, err := f.record(call{method: "sendVideo", chatID: chatID, messageID: o.ReplyTo, thread: o.ThreadID, text: o.Caption, file: fileOf(v),
+		video: videoOf(o.Width, o.Height, o.Duration, o.SupportsStreaming)})
+	m.Video = &tg.Video{FileID: "video-file", FileUniqueID: "video-unique"}
+	return m, err
+}
+
+func videoOf(w, h, secs int, streams bool) string {
+	s := strconv.Itoa(w) + "x" + strconv.Itoa(h) + " " + strconv.Itoa(secs) + "s"
+	if streams {
+		s += " streams"
+	}
+	return s
+}
+
 func (f *fakeTelegram) EditMessageMediaMessage(_ context.Context, chatID, messageID int64, item tg.InputMedia, markup *tg.InlineKeyboardMarkup) (tg.Message, error) {
 	c := call{method: "editMessageMedia", chatID: chatID, messageID: messageID, markup: markup}
 	m := tg.Message{MessageID: messageID}
@@ -131,6 +149,10 @@ func (f *fakeTelegram) EditMessageMediaMessage(_ context.Context, chatID, messag
 	case tg.InputMediaPhoto:
 		c.text, c.file = v.Caption, "photo "+fileOf(v.Media)
 		m.Photo = []tg.Photo{{FileID: "result-file", FileUniqueID: "result-unique"}}
+	case tg.InputMediaVideo:
+		c.text, c.file = v.Caption, "video "+fileOf(v.Media)
+		c.video = videoOf(v.Width, v.Height, v.Duration, v.SupportsStreaming)
+		m.Video = &tg.Video{FileID: "video-file", FileUniqueID: "video-unique"}
 	}
 	if _, err := f.record(c); err != nil {
 		return tg.Message{}, err
@@ -348,6 +370,7 @@ func (s *fakeStore) read(jobID int64) (db.ChatRun, error) {
 	out := *r
 	if j := s.jobs[jobID]; j != nil {
 		out.UserID, out.Prompt, out.Free, out.Status, out.ErrorClass = j.n.UserID, j.n.Prompt, j.n.Free, string(j.status), string(j.class)
+		out.Kind = string(j.n.Offer.Kind)
 		m, _, _ := s.offer(j.n.Offer.ID)
 		out.Model, out.OfferID = m.Name, j.n.Offer.ID
 		// As the database gives them back: numbers from JSON.
@@ -524,6 +547,36 @@ type fakeFiles struct {
 	// store has the jobs, whose inputs JobInputs reads.
 	store  *fakeStore
 	assets map[int64]storage.Asset
+	// clips says how long a clip is; cuts are what KeepVideo was asked to
+	// cut, nil for the whole clip; clipBytes is the size of a kept clip.
+	clips     *fakeClips
+	cuts      []*media.Cut
+	clipBytes int64
+}
+
+func (f *fakeFiles) KeepVideo(_ context.Context, userID int64, path string, cut *media.Cut) (storage.Asset, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.fail != nil {
+		return storage.Asset{}, f.fail
+	}
+	if _, err := os.Stat(path); err != nil {
+		return storage.Asset{}, err
+	}
+	f.cuts = append(f.cuts, cut)
+	secs := f.clips.length()
+	if cut != nil {
+		secs = min(secs, cut.Seconds)
+	}
+	f.next++
+	f.uploads++
+	a := storage.Asset{ID: f.next, UserID: userID, Kind: "upload", ContentType: "video/mp4", Width: 1280, Height: 720,
+		Seconds: secs, Bytes: max(f.clipBytes, 1<<20)}
+	if f.assets == nil {
+		f.assets = map[int64]storage.Asset{}
+	}
+	f.assets[a.ID] = a
+	return a, nil
 }
 
 func (f *fakeFiles) JobInputs(_ context.Context, jobID int64) ([]storage.Asset, error) {
@@ -575,10 +628,69 @@ func (f *fakeFiles) Open(context.Context, storage.Asset) (io.ReadCloser, error) 
 	return io.NopCloser(strings.NewReader("result")), nil
 }
 
-type fakeAllowance struct{ left int }
+// fakeAllowance has left free images; videosUsed is the free videos used.
+type fakeAllowance struct{ left, videosUsed int }
 
 func (a fakeAllowance) Usage(context.Context, int64) (free.Usage, error) {
-	return free.Usage{Images: free.Meter{Limit: free.ImagesPerWindow, Used: free.ImagesPerWindow - a.left}}, nil
+	u := free.Usage{
+		Images: free.Meter{Limit: free.ImagesPerWindow, Used: free.ImagesPerWindow - a.left},
+		Videos: free.Meter{Limit: free.VideosPerWindow, Used: a.videosUsed, Window: free.VideoWindow},
+	}
+	if a.videosUsed >= free.VideosPerWindow {
+		u.Videos.FreesAt = clock.Add(50 * time.Hour)
+	}
+	return u, nil
+}
+
+// fakeClips reads every clip as seconds long at 1280×720, and makes a
+// result fit for Telegram by copying it.
+type fakeClips struct {
+	mu         sync.Mutex
+	seconds    float64
+	probeErr   error
+	normErr    error
+	normalized int
+}
+
+func (c *fakeClips) length() float64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.seconds
+}
+
+func (c *fakeClips) ProbeVideo(_ context.Context, path string) (media.Video, error) {
+	if c.probeErr != nil {
+		return media.Video{}, c.probeErr
+	}
+	if _, err := os.Stat(path); err != nil {
+		return media.Video{}, err
+	}
+	return media.Video{Path: path, ContentType: "video/mp4", Width: 1280, Height: 720, Seconds: c.length()}, nil
+}
+
+func (c *fakeClips) Poster(_ context.Context, dir string) (string, error) {
+	if _, err := os.Stat(filepath.Join(dir, media.In)); err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, "poster.png")
+	return path, os.WriteFile(path, []byte("poster"), 0o600)
+}
+
+func (c *fakeClips) NormalizeVideo(_ context.Context, dir string, _ *media.Cut) (media.Video, error) {
+	c.mu.Lock()
+	c.normalized++
+	err := c.normErr
+	c.mu.Unlock()
+	if err != nil {
+		return media.Video{}, err
+	}
+	b, err := os.ReadFile(filepath.Join(dir, media.In))
+	if err != nil {
+		return media.Video{}, err
+	}
+	out := filepath.Join(dir, "out.mp4")
+	return media.Video{Path: out, ContentType: "video/mp4", Width: 1080, Height: 1920, Seconds: 4.2, Copied: true},
+		os.WriteFile(out, b, 0o600)
 }
 
 type fakeKeys struct{ conns []keys.Connection }
@@ -640,19 +752,22 @@ type harness struct {
 	queue    *fakeQueue
 	files    *fakeFiles
 	renderer *fakeRenderer
+	clips    *fakeClips
 	now      time.Time
 }
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
 	store := newStore()
+	clips := &fakeClips{seconds: 4}
 	h := &harness{
 		tg: newTelegram(), store: store, queue: &fakeQueue{store: store},
-		files: &fakeFiles{results: map[int64][]storage.Asset{}, store: store}, renderer: &fakeRenderer{dir: t.TempDir()}, now: clock,
+		files:    &fakeFiles{results: map[int64][]storage.Asset{}, store: store, clips: clips},
+		renderer: &fakeRenderer{dir: t.TempDir()}, clips: clips, now: clock,
 	}
 	f, err := New(Config{
 		Telegram: h.tg, Store: store, Queue: h.queue, Files: h.files, Allowance: fakeAllowance{left: 5},
-		Renderer: h.renderer, Work: media.Work{Root: t.TempDir()},
+		Renderer: h.renderer, Clips: clips, Work: media.Work{Root: t.TempDir()},
 	})
 	if err != nil {
 		t.Fatal(err)

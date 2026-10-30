@@ -72,7 +72,7 @@ func TestAChatRunFollowsItsJob(t *testing.T) {
 		t.Fatalf("run = %+v", got)
 	}
 	// The model's own name, not the offer's with the maker before it.
-	if got.UserID != 4301 || got.Prompt != "a fox" || !got.Free || got.Status != "draft" || got.Model != "Chat image" ||
+	if got.UserID != 4301 || got.Prompt != "a fox" || !got.Free || got.Kind != "image" || got.Status != "draft" || got.Model != "Chat image" ||
 		got.OfferID != "openrouter:test/chat" || got.Settings == nil {
 		t.Fatalf("the job's side = %+v", got)
 	}

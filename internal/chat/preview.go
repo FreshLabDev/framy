@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"html"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -74,6 +75,25 @@ func noteLine(lang, note string, taken, album int) string {
 	return "<i>" + t(lang, note, "n", strconv.Itoa(taken)) + "</i>"
 }
 
+// noteText is the note on what the draft took: of a clip, how many seconds
+// of how many.
+func (d draft) noteText(lang string) string {
+	if d.note == noteClipCut {
+		return "<i>" + t(lang, d.note, "max", wholeSeconds(d.keptSeconds), "n", wholeSeconds(d.clipSeconds)) + "</i>"
+	}
+	return noteLine(lang, d.note, d.taken, d.album)
+}
+
+// wholeSeconds is a length in whole seconds, at least 1.
+func wholeSeconds(s float64) string { return strconv.Itoa(max(int(math.Round(s)), 1)) }
+
+// playTime is a length as a player shows it, "0:05": no letters, so every
+// card face draws it.
+func playTime(s float64) string {
+	n := max(int(math.Round(s)), 1)
+	return fmt.Sprintf("%d:%02d", n/60, n%60)
+}
+
 // priceLine is what the run costs the person: the free tier left, or the
 // price on their own key.
 func priceLine(lang, pay, provider string, usage free.Meter, e price.Estimate, q fx.Quote) string {
@@ -120,7 +140,7 @@ func previewCaption(lang, prompt string, d draft, labelDrawn bool) string {
 	if !labelDrawn {
 		price = priceLine(lang, d.pay, d.offer.Provider, d.usage, d.estimate, d.quote)
 	}
-	return lines(promptQuote(prompt), noteLine(lang, d.note, d.taken, d.album), price)
+	return lines(promptQuote(prompt), d.noteText(lang), price)
 }
 
 // previewCard is what the preview card shows: the model, the settings and
@@ -128,6 +148,9 @@ func previewCaption(lang, prompt string, d draft, labelDrawn bool) string {
 func previewCard(lang string, d draft) anim.Preview {
 	p := anim.Preview{Lang: lang, Maker: d.model.Maker, Model: d.model.Name}
 	p.Aspect, p.Chips = settingChips(d.settings)
+	if d.video {
+		p.Chips = append([]string{playTime(d.keptSeconds)}, p.Chips...)
+	}
 	if d.pay == payFree {
 		p.Free, p.Left, p.Limit = true, d.usage.Left(), d.usage.Limit
 		p.Label = t(lang, "card.free")
@@ -217,6 +240,15 @@ func previewKeyboard(lang string, jobID int64) *tg.InlineKeyboardMarkup {
 	}}}
 }
 
+// videoKeyboard: Generate and No. A video run has no Model or Settings yet:
+// the edit runs on FLUX Video Edit as it is.
+func videoKeyboard(lang string, jobID int64) *tg.InlineKeyboardMarkup {
+	return &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{{
+		button(t(lang, "run.generate"), callback(jobID, actGenerate), "success"),
+		button(t(lang, "run.no"), callback(jobID, actNo), "danger"),
+	}}}
+}
+
 // generatingKeyboard: Stop.
 func generatingKeyboard(lang string, jobID int64) *tg.InlineKeyboardMarkup {
 	return &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{{
@@ -238,6 +270,9 @@ func (f *Flow) sendPreview(ctx context.Context, m *tg.Message, d draft, prompt, 
 	opts := tg.CaptionOptions{
 		ThreadID: threadOf(m), ReplyTo: m.MessageID,
 		Caption: previewCaption(lang, prompt, d, pic.TextDrawn), Markup: previewKeyboard(lang, d.id),
+	}
+	if d.video {
+		opts.Markup = videoKeyboard(lang, d.id)
 	}
 	if m.Chat.Type != "private" {
 		switch {
