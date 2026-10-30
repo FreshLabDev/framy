@@ -158,14 +158,15 @@ type windowJSON struct {
 
 // freePlanJSON is one model of the allowance. Settings are locked to these
 // values; StartFrame says the run's one optional photo is the video's first
-// frame.
+// frame, and MaxSourceSeconds is the longest clip a free edit takes.
 type freePlanJSON struct {
-	Offer      string         `json:"offer"`
-	Kind       string         `json:"kind"`
-	MinInputs  int            `json:"min_inputs"`
-	MaxInputs  int            `json:"max_inputs"`
-	Settings   map[string]any `json:"settings"`
-	StartFrame bool           `json:"start_frame,omitempty"`
+	Offer            string         `json:"offer"`
+	Kind             string         `json:"kind"`
+	MinInputs        int            `json:"min_inputs"`
+	MaxInputs        int            `json:"max_inputs"`
+	Settings         map[string]any `json:"settings"`
+	StartFrame       bool           `json:"start_frame,omitempty"`
+	MaxSourceSeconds float64        `json:"max_source_seconds,omitempty"`
 }
 
 // catalogRoute is GET /api/catalog: every model the picker may show, for
@@ -282,7 +283,7 @@ func freeAllowanceJSON() freeJSON {
 	for _, p := range free.Plans() {
 		out.Plans = append(out.Plans, freePlanJSON{
 			Offer: p.Offer, Kind: string(p.Kind), MinInputs: p.MinInputs, MaxInputs: p.MaxInputs,
-			Settings: p.Settings(), StartFrame: p.StartFrame(),
+			Settings: p.Settings(), StartFrame: p.StartFrame(), MaxSourceSeconds: p.MaxSourceSeconds,
 		})
 	}
 	return out

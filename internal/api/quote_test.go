@@ -183,11 +183,26 @@ func TestTheCatalogIsForAnyone(t *testing.T) {
 	if len(plans) != len(free.Plans()) {
 		t.Fatalf("plans = %v", plans)
 	}
+	edits := 0
 	for _, p := range plans {
 		p := p.(map[string]any)
 		if p["offer"] == heygenOff && (p["start_frame"] != true || p["settings"].(map[string]any)["resolution"] != "768p") {
 			t.Errorf("heygen plan = %v", p)
 		}
+		// The free edit says how long a clip it takes, so the clip editor
+		// can cut one that fits; the other plans take no clip.
+		switch secs, ok := p["max_source_seconds"]; {
+		case p["offer"] == free.VideoEdit.Offer:
+			edits++
+			if secs != 5.0 {
+				t.Errorf("free edit plan = %v", p)
+			}
+		case ok:
+			t.Errorf("a plan without a clip says max_source_seconds: %v", p)
+		}
+	}
+	if edits != 1 {
+		t.Errorf("%d free edit plans", edits)
 	}
 }
 
