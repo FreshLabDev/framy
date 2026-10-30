@@ -27,6 +27,8 @@ func TestAnErrorIsShownWhenItWasWrittenForPeople(t *testing.T) {
 		// A link may open a person's file to whoever holds it.
 		{jobs.Refused, "cannot fetch https://r2.example/u/1/in/a.jpg?X-Amz-Signature=abc&X-Amz-Expires=900 for the run", "cannot fetch <link> for the run"},
 		{jobs.ProviderFailed, "   padded   ", "padded"},
+		// framy's own words on a run it did not send.
+		{jobs.Invalid, "invalid_request: fast is not a setting of openrouter:alibaba/wan-3.0", "invalid_request: fast is not a setting of openrouter:alibaba/wan-3.0"},
 	} {
 		if got := publicMessage(c.class, c.msg); got != c.want {
 			t.Errorf("%s %q: %q, want %q", c.class, c.msg, got, c.want)

@@ -358,8 +358,8 @@ func TestWhatNoOfferTakesIsRefusedBeforeAnything(t *testing.T) {
 			p.cfg.Fetch = storage.Client()
 			p.cfg.Key = func(context.Context, jobs.Job) (string, error) { asked.Add(1); return testKey, nil }
 			_, err := p.Submit(context.Background(), j)
-			if pe := classOf(t, err); pe.Class != jobs.Refused {
-				t.Errorf("class %s (%v), want refused", pe.Class, err)
+			if pe := classOf(t, err); pe.Class != jobs.Invalid {
+				t.Errorf("class %s (%v), want invalid_request", pe.Class, err)
 			}
 			if u.calls != 0 || fetched.Load() != 0 || asked.Load() != 0 {
 				t.Errorf("%d calls, %d downloads, %d key lookups: a run framy can tell is wrong costs nothing", u.calls, fetched.Load(), asked.Load())
@@ -899,8 +899,8 @@ func TestReferencesThatCannotBeFetched(t *testing.T) {
 		"storage is down":         {status: 503, class: jobs.Unavailable, inputs: 1},
 		"storage is throttling":   {status: 429, class: jobs.Unavailable, inputs: 1},
 		"an empty file":           {status: 200, body: nil, class: jobs.Storage, inputs: 1},
-		"a file over the limit":   {status: 200, body: big, cfg: func(c *Config) { c.MaxInput = 1 << 10 }, class: jobs.Refused, inputs: 1, message: "larger than"},
-		"files over the total":    {status: 200, body: big[:2<<10], cfg: func(c *Config) { c.MaxInput = 4 << 10; c.MaxInputs = 3 << 10 }, class: jobs.Refused, inputs: 2, message: "together"},
+		"a file over the limit":   {status: 200, body: big, cfg: func(c *Config) { c.MaxInput = 1 << 10 }, class: jobs.Invalid, inputs: 1, message: "larger than"},
+		"files over the total":    {status: 200, body: big[:2<<10], cfg: func(c *Config) { c.MaxInput = 4 << 10; c.MaxInputs = 3 << 10 }, class: jobs.Invalid, inputs: 2, message: "together"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			storage := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

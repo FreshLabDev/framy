@@ -133,13 +133,23 @@ func TestEstimates(t *testing.T) {
 		{"seedance 2.0 at 1080p", "openrouter:bytedance/seedance-2.0", Request{Settings: set{"resolution": "1080p", "aspect_ratio": "16:9", "duration": 5}}, 1920 * 1080 * 24 * 5 / 1024 * 7.7e-6, 0, Exact},
 		{"seedance 2.0 at 4K", "openrouter:bytedance/seedance-2.0", Request{Settings: set{"resolution": "4K", "aspect_ratio": "16:9", "duration": 5}}, 3840 * 2160 * 24 * 5 / 1024 * 4e-6, 0, Exact},
 		{"seedance 2.5 square at 480p keeps the area", "openrouter:bytedance/seedance-2.5", Request{Settings: set{"resolution": "480p", "aspect_ratio": "1:1", "duration": 5}}, 640 * 640 * 24 * 5 / 1024 * 1.07e-5, 0, Exact},
-		{"seedance 2.5 editing a video", "openrouter:bytedance/seedance-2.5", Request{Settings: set{"resolution": "720p", "aspect_ratio": "16:9", "duration": 5}, Video: clip}, 1280 * 720 * 24 * 5 / 1024 * 6.4e-6, 0, Exact},
+		// BytePlus bills the source video's seconds too; until OpenRouter is
+		// checked, a clip makes the price a floor whose top counts them.
+		{"seedance 2.5 editing a video", "openrouter:bytedance/seedance-2.5", Request{Settings: set{"resolution": "720p", "aspect_ratio": "16:9", "duration": 5}, Video: clip}, 1280 * 720 * 24 * 5 / 1024 * 6.4e-6, 1280 * 720 * 24 * 10 / 1024 * 6.4e-6, From},
+		// Without sound is Seedance's plain rate, so it costs what with sound
+		// does: with a clip, the rate with a video input.
+		{"seedance mini silent with a clip", "openrouter:bytedance/seedance-2.0-mini", Request{Settings: set{"resolution": "720p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": false}, Video: clip}, 1280 * 720 * 24 * 5 / 1024 * 2.1e-6, 1280 * 720 * 24 * 10 / 1024 * 2.1e-6, From},
+		{"seedance mini with sound and a clip", "openrouter:bytedance/seedance-2.0-mini", Request{Settings: set{"resolution": "720p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": true}, Video: clip}, 1280 * 720 * 24 * 5 / 1024 * 2.1e-6, 1280 * 720 * 24 * 10 / 1024 * 2.1e-6, From},
+		{"seedance mini silent from text", "openrouter:bytedance/seedance-2.0-mini", Request{Settings: set{"resolution": "720p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": false}}, 1280 * 720 * 24 * 5 / 1024 * 3.5e-6, 0, Exact},
+		{"seedance 2.0 silent at 1080p with a clip", "openrouter:bytedance/seedance-2.0", Request{Settings: set{"resolution": "1080p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": false}, Video: clip}, 1920 * 1080 * 24 * 5 / 1024 * 4.7e-6, 1920 * 1080 * 24 * 10 / 1024 * 4.7e-6, From},
 		{"seedance 1.5 without sound", "openrouter:bytedance/seedance-1-5-pro", Request{Settings: set{"resolution": "720p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": false}}, 1280 * 720 * 24 * 5 / 1024 * 1.2e-6, 0, Exact},
 		{"veo fast 720p with sound", "openrouter:google/veo-3.1-fast", Request{Settings: set{"resolution": "720p", "duration": 8, "generate_audio": true}}, 0.80, 0, Exact},
 		{"veo fast 1080p without sound", "openrouter:google/veo-3.1-fast", Request{Settings: set{"resolution": "1080p", "duration": 8, "generate_audio": false}}, 0.80, 0, Exact},
 		{"veo fast 4K with sound", "openrouter:google/veo-3.1-fast", Request{Settings: set{"resolution": "4K", "duration": 8, "generate_audio": true}}, 2.40, 0, Exact},
-		// Kling's sound is +50%, whatever the mode and the resolution.
-		{"kling std with sound", "openrouter:kwaivgi/kling-v3.0-std", Request{Settings: set{"resolution": "720p", "duration": 5, "generate_audio": true}}, 0.63, 0, About},
+		// Kling's sound is +50%, whatever the mode and the resolution: the
+		// mode's SKUs are its plain rate.
+		{"kling std with sound", "openrouter:kwaivgi/kling-v3.0-std", Request{Settings: set{"resolution": "720p", "duration": 5, "generate_audio": true}}, 0.63, 0, Exact},
+		{"kling pro with sound from a frame", "openrouter:kwaivgi/kling-v3.0-pro", Request{Settings: set{"resolution": "1080p", "duration": 5, "generate_audio": true}, Frames: 1}, 0.84, 0, Exact},
 		{"kling std without sound", "openrouter:kwaivgi/kling-v3.0-std", Request{Settings: set{"resolution": "720p", "duration": 5, "generate_audio": false}}, 0.42, 0, Exact},
 		{"wan 2.6 from a frame at 1080p", "openrouter:alibaba/wan-2.6", Request{Settings: set{"resolution": "1080p", "duration": 5}, Frames: 1}, 0.75, 0, Exact},
 		{"wan 2.6 from text at 720p", "openrouter:alibaba/wan-2.6", Request{Settings: set{"resolution": "720p", "duration": 10}}, 0.80, 0, Exact},
@@ -174,6 +184,20 @@ func TestEstimates(t *testing.T) {
 				t.Errorf("estimate = $%.6f up to $%.6f, %s; want $%.6f up to $%.6f, %s\nlines %+v\nunknown %v", e.USD, e.MaxUSD, e.Kind, tc.usd, want, tc.kind, e.Lines, e.Unknown)
 			}
 		})
+	}
+}
+
+// Seedance with a clip is a floor until OpenRouter's bill of the clip's
+// seconds is checked, and says why; from words alone it stays exact.
+func TestSeedanceWithAClipSaysWhyItIsAFloor(t *testing.T) {
+	m, of := offer(t, "openrouter:bytedance/seedance-2.0-mini")
+	settings := set{"resolution": "720p", "aspect_ratio": "16:9", "duration": 5}
+	e := Of(m, of, Request{Settings: settings, Video: &Video{Seconds: 15, Width: 1280, Height: 720}})
+	if e.Kind != From || !strings.Contains(e.Note, "source video") {
+		t.Errorf("with a clip: %s, note %q", e.Kind, e.Note)
+	}
+	if e := Of(m, of, Request{Settings: settings}); e.Kind != Exact || e.Note != "" {
+		t.Errorf("from words: %s, note %q", e.Kind, e.Note)
 	}
 }
 

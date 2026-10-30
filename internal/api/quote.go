@@ -87,9 +87,10 @@ type quoteItemJSON struct {
 	Settings map[string]any `json:"settings,omitempty"`
 	// Refusal is why POST /api/jobs would refuse the run now, in the shape
 	// of its error answer with the status it would have: {"status": 429,
-	// "error": "free_limit", "frees_at": …}. Absent when it would go. Files
-	// the offer does not take (wrong_inputs) are said to anyone; the rest
-	// needs a payer and a person signed in.
+	// "error": "free_limit", "frees_at": …}. Absent when it would go. A
+	// setting the offer does not have (unknown_setting) and files it does not
+	// take (wrong_inputs) are said to anyone; the rest needs a payer and a
+	// person signed in.
 	Refusal map[string]any `json:"refusal,omitempty"`
 }
 
@@ -222,7 +223,10 @@ func (a *API) quoteRoute(w http.ResponseWriter, r *http.Request) {
 		item.Estimate.RateDate = out.RateDate
 		item.Settings = withoutContinuation(settings)
 
-		wrong := checkInputs(m, offer, count)
+		wrong := checkSettings(m, offer, it.Settings)
+		if wrong == nil {
+			wrong = checkInputs(m, offer, count)
+		}
 		if wrong == nil {
 			wrong = checkLengths(inputs)
 		}

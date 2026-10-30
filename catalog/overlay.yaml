@@ -503,7 +503,10 @@ models:
     # previous_interaction_id of the Interactions API.
     continue: true
     # The model picks the length; Google counts 5,792 tokens a second of
-    # 720p, about $0.10. Other resolutions have no published count.
+    # 720p, about $0.10. Other resolutions have no count from Google.
+    # Gateways list 1,931 (360p), 8,688 (1080p) and 17,376 (4K), a third,
+    # 1.5 and 3 times 720p; they stay out until a paid run confirms them
+    # (docs/research/makers.md, Checks that only a paid run settles).
     picks_length: {min: 3, max: 10}
     price:
       tokens: {output_video: {720p: 5792}}

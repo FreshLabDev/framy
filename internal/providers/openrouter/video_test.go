@@ -164,7 +164,7 @@ func TestAVideoRunThatCannotBeRightIsRefusedBeforeItIsSent(t *testing.T) {
 			f := newFakeOR(t)
 			_, err := fakeProvider(f, testCallbacks()).Submit(context.Background(), j)
 			pe := classOf(t, err)
-			if pe.Class != jobs.Refused || !strings.Contains(pe.Error(), tc.want) {
+			if pe.Class != jobs.Invalid || !strings.Contains(pe.Error(), tc.want) {
 				t.Errorf("class %s, error %q; want a refusal mentioning %q", pe.Class, pe.Error(), tc.want)
 			}
 			if n, _, _ := f.counts(); n != 0 {

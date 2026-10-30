@@ -236,8 +236,12 @@ func (c *calc) skus(m map[string]string) {
 }
 
 // pickSKU takes, of the SKUs that are for the request, the most specific
-// one. Two that are specific in different ways, such as "with sound" and
-// "image to video at 720p", give the dearer, and the estimate becomes "about".
+// one. A SKU at the rate of a broader one it narrows says nothing of its own
+// qualifier, and gives way to one that does: Seedance's "without audio" is
+// its plain rate, so with a clip attached "with video input" decides, and
+// Kling's "text to video at 720p" is its plain rate, so "with audio" does.
+// Two left that are specific in different ways give the dearer, and the
+// estimate becomes "about".
 func (c *calc) pickSKU(rows []sku) (chosen sku, hiRate float64, ok bool) {
 	var fits, maybe []sku
 	for _, s := range rows {
@@ -251,6 +255,14 @@ func (c *calc) pickSKU(rows []sku) (chosen sku, hiRate float64, ok bool) {
 	most := slices.DeleteFunc(slices.Clone(fits), func(s sku) bool {
 		return slices.ContainsFunc(fits, func(t sku) bool { return narrower(s.quals(), t.quals()) })
 	})
+	if len(most) > 1 {
+		telling := slices.DeleteFunc(slices.Clone(most), func(s sku) bool {
+			return slices.ContainsFunc(fits, func(t sku) bool { return narrower(t.quals(), s.quals()) && t.rate == s.rate })
+		})
+		if len(telling) > 0 {
+			most = telling
+		}
+	}
 	if len(most) > 0 {
 		chosen = slices.MaxFunc(most, func(a, b sku) int { return cmpFloat(a.rate, b.rate) })
 		if slices.ContainsFunc(most, func(s sku) bool { return s.rate != chosen.rate }) {
@@ -299,7 +311,15 @@ func (c *calc) skuQuantity(s sku) (lo, hi float64, ok bool) {
 		}
 		w, h := c.videoSize()
 		per := float64(w*h) * 24 / 1024
-		return per * sLo, per * sHi, true
+		lo, hi = per*sLo, per*sHi
+		if v := c.req.Video; v != nil {
+			// BytePlus bills a source video's seconds beside the output's;
+			// whether OpenRouter does is not checked yet, so the price is a
+			// floor and its top counts them.
+			hi += per * v.Seconds
+			c.floor = "the seconds of the source video may be billed as well"
+		}
+		return lo, hi, true
 	case perMegapixelSecond:
 		v := c.req.Video
 		if v == nil {

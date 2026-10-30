@@ -260,6 +260,10 @@ const (
 	Moderation Class = "moderation"
 	// Refused: the provider refused the request itself, such as a setting.
 	Refused Class = "refused"
+	// Invalid: framy did not send the request, as the adapter could tell it
+	// would fail, such as a setting the offer lacks. Its message is framy's,
+	// and nothing reached the provider.
+	Invalid Class = "invalid_request"
 	// Key: the key is wrong, revoked or not allowed the model.
 	Key Class = "key"
 	// Timeout: no answer in time; the run may have been paid.

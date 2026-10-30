@@ -411,8 +411,8 @@ func TestWhatFramyCanTellIsWrongIsRefusedBeforeTheCall(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			p, u := serve(t, reply(200, images(10, 0, 100, png)))
 			_, err := p.Submit(context.Background(), j)
-			if pe := classOf(t, err); pe.Class != jobs.Refused {
-				t.Errorf("class %s (%v), want refused", pe.Class, err)
+			if pe := classOf(t, err); pe.Class != jobs.Invalid {
+				t.Errorf("class %s (%v), want invalid_request", pe.Class, err)
 			}
 			if u.calls != 0 {
 				t.Errorf("%d calls: a run framy can tell is wrong costs nothing", u.calls)

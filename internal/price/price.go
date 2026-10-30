@@ -147,6 +147,8 @@ type calc struct {
 	kind    Kind
 	unknown []string
 	lines   []Line
+	// floor says why the likely total is only the least the run costs.
+	floor string
 }
 
 func route(m catalog.Model, of catalog.Offer, r catalog.Route, req Request) Estimate {
@@ -159,6 +161,9 @@ func route(m catalog.Model, of catalog.Offer, r catalog.Route, req Request) Esti
 	e := Estimate{Offer: of.ID, Route: r.Provider, USD: c.lo, MaxUSD: math.Max(c.hi, c.lo), Kind: c.kind, Unknown: c.unknown, Lines: c.lines}
 	if c.hints.From != "" && e.Kind != Unknown {
 		e.Kind, e.Note = From, c.hints.From
+	}
+	if c.floor != "" && e.Kind != Unknown {
+		e.Kind, e.Note = From, c.floor
 	}
 	if len(e.Unknown) > 0 && e.Kind == Exact {
 		e.Kind = About

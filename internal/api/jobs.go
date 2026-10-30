@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -120,6 +122,10 @@ func (a *API) create(w http.ResponseWriter, r *http.Request) {
 	settings := req.Settings
 	if settings == nil {
 		settings = map[string]any{}
+	}
+	if aerr := checkSettings(m, offer, settings); aerr != nil {
+		aerr.write(w)
+		return
 	}
 	isFree := req.Pay == payFree
 	if isFree {
@@ -492,6 +498,38 @@ func checkInputs(m catalog.Model, offer catalog.Offer, c catalog.Count) *apiErro
 		return newError(http.StatusUnprocessableEntity, codeWrongInputs, err.Error()).with("inputs", in)
 	}
 	return nil
+}
+
+// checkSettings refuses a run that sets something the offer has no setting
+// for, before a job exists: the adapter would refuse it anyway, after the
+// job was made. A setting is one of the offer's parameters, or one of a
+// route's on OpenRouter's Images API, where each upstream lists its own; a
+// video also takes frame_images, which the adapter reads itself. A setting
+// left empty is no setting, as for the adapters.
+func checkSettings(m catalog.Model, offer catalog.Offer, settings map[string]any) *apiError {
+	for _, name := range slices.Sorted(maps.Keys(settings)) {
+		if settings[name] == nil || knownSetting(m, offer, name) {
+			continue
+		}
+		return newError(http.StatusUnprocessableEntity, codeUnknownSetting,
+			fmt.Sprintf("%s is not a setting of %s", name, offer.ID)).with("setting", name)
+	}
+	return nil
+}
+
+func knownSetting(m catalog.Model, offer catalog.Offer, name string) bool {
+	if _, ok := offer.Params[name]; ok {
+		return true
+	}
+	if m.Kind == catalog.Video && name == framesSetting {
+		return true
+	}
+	for _, r := range offer.Routes {
+		if _, ok := r.Params[name]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // decode reads and checks the body of a create request.

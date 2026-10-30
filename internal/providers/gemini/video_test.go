@@ -265,13 +265,13 @@ func TestFramesAreNamedInThePrompt(t *testing.T) {
 	} {
 		if c.frames == nil {
 			j := jobOf(t, nano21, map[string]any{"frame_images": []any{"first_frame"}}, first)
-			if _, err := p.Submit(context.Background(), j); classOf(t, err).Class != jobs.Refused {
+			if _, err := p.Submit(context.Background(), j); classOf(t, err).Class != jobs.Invalid {
 				t.Errorf("%s: %v", name, err)
 			}
 			continue
 		}
-		if _, err := p.Submit(context.Background(), omniJob(t, map[string]any{"frame_images": c.frames}, c.inputs...)); classOf(t, err).Class != jobs.Refused {
-			t.Errorf("%s: %v, want refused", name, err)
+		if _, err := p.Submit(context.Background(), omniJob(t, map[string]any{"frame_images": c.frames}, c.inputs...)); classOf(t, err).Class != jobs.Invalid {
+			t.Errorf("%s: %v, want invalid_request", name, err)
 		}
 	}
 	if g.posts != posts {
@@ -315,12 +315,12 @@ func TestContinuingSendsThePreviousInteraction(t *testing.T) {
 	}
 	for _, bad := range []any{"../files/x", "", 42, "v1 with spaces"} {
 		j := omniJob(t, map[string]any{"previous_interaction_id": bad})
-		if _, err := p.Submit(context.Background(), j); classOf(t, err).Class != jobs.Refused {
+		if _, err := p.Submit(context.Background(), j); classOf(t, err).Class != jobs.Invalid {
 			t.Errorf("%v: %v", bad, err)
 		}
 	}
 	// An image does not continue: it is never stored.
-	if _, err := p.Submit(context.Background(), jobOf(t, nano21, map[string]any{"previous_interaction_id": "v1_x"})); classOf(t, err).Class != jobs.Refused {
+	if _, err := p.Submit(context.Background(), jobOf(t, nano21, map[string]any{"previous_interaction_id": "v1_x"})); classOf(t, err).Class != jobs.Invalid {
 		t.Errorf("an image continued: %v", err)
 	}
 }
@@ -528,7 +528,7 @@ func TestImageSearchGoesBesideWebSearch(t *testing.T) {
 	// Image Search is 2.1's and 3.1 Flash's only.
 	for _, model := range []string{pro3, lite31} {
 		p, u := serve(t, reply(200, answerOK()))
-		if _, err := p.Submit(context.Background(), jobOf(t, model, map[string]any{"image_search": true})); classOf(t, err).Class != jobs.Refused || u.calls != 0 {
+		if _, err := p.Submit(context.Background(), jobOf(t, model, map[string]any{"image_search": true})); classOf(t, err).Class != jobs.Invalid || u.calls != 0 {
 			t.Errorf("%s with image_search: %v", model, err)
 		}
 	}
@@ -619,7 +619,7 @@ func TestAVideoBesideTheImagePrompt(t *testing.T) {
 		omniJob(t, nil, jobs.Input{ContentType: "audio/mpeg", URL: "data:audio/mpeg;base64,AAAA"}),
 	} {
 		p, u := serve(t, reply(200, answerOK()))
-		if _, err := p.Submit(context.Background(), c); classOf(t, err).Class != jobs.Refused || u.calls != 0 {
+		if _, err := p.Submit(context.Background(), c); classOf(t, err).Class != jobs.Invalid || u.calls != 0 {
 			t.Errorf("%s with %s: %v", c.Offer.ID, c.Inputs[0].ContentType, err)
 		}
 	}

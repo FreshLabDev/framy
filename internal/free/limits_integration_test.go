@@ -121,6 +121,7 @@ func TestOnlyRunsThatTookSomethingTakeASlot(t *testing.T) {
 		{"failed for want of money", "failed", "money", false},
 		{"failed by a timeout", "failed", "timeout", false},
 		{"failed on a setting the provider refused", "failed", "refused", false},
+		{"not sent, as the adapter could tell it would fail", "failed", "invalid_request", false},
 		{"failed on framy's key", "failed", "key", false},
 		{"failed in storage", "failed", "storage", false},
 		{"failed inside framy", "failed", "internal", false},

@@ -81,7 +81,12 @@ was written from, and the skeleton of the service.
   example. The overlay's `price` hints fill in what the rates leave out, and
   every sync logs the price lines the estimate cannot read. MAI counts an
   input image by its size, about 1,100 tokens a megapixel as measured, so an
-  edit's estimate includes its photos.
+  edit's estimate includes its photos. Of two video SKUs that fit a run
+  equally, one whose rate a broader SKU already has is left out, so Seedance
+  with a clip and no sound is no longer dearer than with sound, and Kling
+  with sound is exact. Seedance with a clip shows "from" the output's price:
+  BytePlus bills the clip's seconds too, OpenRouter's bill is not checked
+  yet, and the top of the estimate counts them.
 - OpenRouter's discounts come off the price. The sync reads them from
   `/api/v1/models/{id}/endpoints`, the only place that carries them, and the
   estimate takes them off the total and keeps the listed price beside it, so
@@ -105,7 +110,8 @@ was written from, and the skeleton of the service.
   its settings, its pass-through settings under the routes' own options and
   its reference images, and goes only to the routes that take them, the
   cheapest first. What no route takes is refused before the call, so it costs
-  nothing. `usage.cost` becomes the job's actual cost. A moderated prompt ends
+  nothing. Such a run, in every adapter, fails as `invalid_request` with
+  framy's own words, so the site does not show them as the provider's. `usage.cost` becomes the job's actual cost. A moderated prompt ends
   as `moderation` with its reasons, apart from money, key, refused, timeout
   and provider failures, and an error inside a 200 is read too. OpenAI's own
   filter, which OpenRouter passes on as a bare 400, is told apart by its
@@ -405,7 +411,9 @@ was written from, and the skeleton of the service.
   Seedream 5.0 capped at the 10 BytePlus takes. A quote or a job with more,
   or with frames and references together, which OpenRouter would drop, is
   refused with 422 `wrong_inputs` and the offer's `inputs`. A photo sent to
-  a video model that takes no references goes as its start frame.
+  a video model that takes no references goes as its start frame. A setting
+  the offer does not have, such as `fast` on Wan 3.0, is refused with 422
+  `unknown_setting` and its name, before a job exists.
 - A model its maker deprecated says so: `deprecated`, `shuts_down` and
   `successor` in the catalog, from `deprecated` in the overlay. Its family
   opens on the successor and counts it outdated, and it is hidden 14 days

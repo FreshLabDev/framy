@@ -279,6 +279,8 @@ func same(a, b any) bool {
 	return errA == nil && errB == nil && string(ja) == string(jb)
 }
 
+// refused is a run the adapter does not send, since it would fail: framy's
+// own words, before anything reaches the provider.
 func refused(format string, args ...any) *jobs.Error {
-	return &jobs.Error{Class: jobs.Refused, Err: fmt.Errorf(format, args...)}
+	return &jobs.Error{Class: jobs.Invalid, Err: fmt.Errorf(format, args...)}
 }

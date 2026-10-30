@@ -142,6 +142,7 @@ func TestTrackSubmit(t *testing.T) {
 		{"a rate limit", &adapter{id: "c1", err: &jobs.Error{Class: jobs.RateLimited}}, []note{{id: "c1", class: jobs.RateLimited}}},
 		{"a moderation block says nothing of the key", &adapter{id: "c1", err: &jobs.Error{Class: jobs.Moderation}}, nil},
 		{"a refused setting says nothing of the key", &adapter{id: "c1", err: &jobs.Error{Class: jobs.Refused}}, nil},
+		{"a run framy did not send says nothing of the key", &adapter{id: "c1", err: &jobs.Error{Class: jobs.Invalid}}, nil},
 		{"a run still going", &adapter{id: "c1", sub: jobs.Submission{Outcome: &jobs.Outcome{Running: true}}}, nil},
 		{"no key was taken", &adapter{err: keyErr}, nil},
 		{"no key was taken, a result", &adapter{sub: jobs.Submission{Outcome: okResult()}}, nil},

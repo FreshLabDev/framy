@@ -90,6 +90,26 @@ func TestAQuoteSaysWhichFilesTheOfferTakes(t *testing.T) {
 	}
 }
 
+// A setting the offer has no parameter for is said by the quote to anyone,
+// with its name, and the run is still priced.
+func TestAQuoteSaysWhichSettingTheOfferLacks(t *testing.T) {
+	r := quoteRig(t)
+	_, m := quoteOf(t, r, 0, `{"items":[
+		{"offer":"`+heygenOff+`","settings":{"fast":false}},
+		{"offer":"`+heygenOff+`","settings":{"resolution":"480p","fast":null}}
+	]}`)
+	got := items(t, m)
+	if r, _ := got[0]["refusal"].(map[string]any); r["error"] != "unknown_setting" || r["setting"] != "fast" || r["status"] != 422.0 {
+		t.Errorf("fast on heygen: %v", got[0])
+	}
+	if got[0]["estimate"] == nil {
+		t.Errorf("no estimate: %v", got[0])
+	}
+	if r := got[1]["refusal"]; r != nil {
+		t.Errorf("known settings: %v", r)
+	}
+}
+
 func quoteOf(t *testing.T, r *rig, user int64, body string, hdr ...string) (int, map[string]any) {
 	t.Helper()
 	resp := r.do(user, http.MethodPost, "/api/quote", strings.NewReader(body), append([]string{"Content-Type", "application/json"}, hdr...)...)

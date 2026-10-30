@@ -251,5 +251,7 @@ The audit priced each; none was run.
 | Does HY Image use more than 5 references, and what does 1.5K cost? | three runs | $0.08 |
 | Does Omni run through framy's adapter from words and from a start frame, and is a refusal read right? (`TestLiveOmni`, issue #33) | two 720p videos and a refused prompt | $0.60 to $2.02 |
 | Does Omni keep to `response_format.duration`? | one 3 s video at 720p | about $0.30 |
+| How many tokens a second does Omni bill at 360p and 1080p? Gateways list 1,931 and 8,688 (17,376 at 4K); Google publishes only 720p | one video at each, the model picks 3 to 10 s | $0.56 to $1.86 |
+| Does OpenRouter bill a Seedance source video's seconds beside the output's, as BytePlus does? framy shows "from" the output's price until then | Seedance 2.0 Mini, a 2 s clip, 4 s of 480p out, compared with `usage.cost` | about $0.12 |
 | Does Image Search bring Search Suggestions, and in what shape? (`TestLiveProbes`) | one image on Nano Banana 2.1 at 1K | about $0.034 |
 | Do the Nano Banana models take `media_resolution`, and does the input token count drop? | two runs with one reference, `low` and `high` | about $0.07 |

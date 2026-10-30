@@ -161,10 +161,15 @@ func TestAFreeRunGetsTheAllowancesSettings(t *testing.T) {
 		t.Errorf("%+v", n)
 	}
 	// What the person set stays, for the allowance to judge.
+	withN := image(mai, catalog.OpenRouter)
+	one, four := 1.0, 4.0
+	withN.Offers[0].Params["n"] = catalog.Param{Type: catalog.Range, Min: &one, Max: &four}
+	r.store.offers[mai] = withN
 	r.post(alice, "/api/jobs", "k2", body(mai, "free", `"settings":{"n":4,"quality":null}`))
 	if n := r.queue.last(); n.Settings["n"] != float64(4) {
 		t.Errorf("a setting of the person's is overwritten: %v", n.Settings)
 	}
+	r.store.offers[mai] = image(mai, catalog.OpenRouter)
 	// An offer the allowance does not run is not free, said before the queue.
 	before := r.queue.calls()
 	resp = r.post(alice, "/api/jobs", "k3", body(testOffer, "free"))
@@ -543,6 +548,47 @@ func TestTheFilesOfARunAreChecked(t *testing.T) {
 	}
 	if r.queue.calls() != calls {
 		t.Errorf("a refused run reached the queue")
+	}
+}
+
+// A setting the offer has no parameter for is refused with its name before
+// the queue, on a key and on the allowance alike: fast on Wan 3.0 once made
+// a job that only the adapter refused.
+func TestASettingTheOfferLacksIsRefused(t *testing.T) {
+	r := jobRig(t)
+	r.store.offers[heygenOff] = heygen()
+	const routes = "openrouter:test/routes"
+	byRoute := image(routes, catalog.OpenRouter)
+	byRoute.Offers[0].Routes[0].Params = map[string]catalog.Param{"quality": {Type: catalog.Enum, Values: []any{"low", "high"}}}
+	r.store.offers[routes] = byRoute
+
+	calls := r.queue.calls()
+	for name, tc := range map[string]struct{ offer, pay, settings, setting string }{
+		"fast on a video":            {heygenOff, "key", `{"fast":false}`, "fast"},
+		"one the allowance lacks":    {heygenOff, "free", `{"quality":"high"}`, "quality"},
+		"frames on an image":         {testOffer, "key", `{"frame_images":["first_frame"]}`, "frame_images"},
+		"a known and an unknown one": {heygenOff, "key", `{"duration":5,"size":"1280x720"}`, "size"},
+	} {
+		resp := r.post(alice, "/api/jobs", nextKey(), body(tc.offer, tc.pay, `"settings":`+tc.settings))
+		m := jsonOf(t, resp)
+		if resp.StatusCode != http.StatusUnprocessableEntity || m["error"] != "unknown_setting" || m["setting"] != tc.setting ||
+			!strings.Contains(fmt.Sprint(m["message"]), tc.setting+" is not a setting of "+tc.offer) {
+			t.Errorf("%s: %d %v", name, resp.StatusCode, m)
+		}
+	}
+	if r.queue.calls() != calls {
+		t.Errorf("a refused run reached the queue")
+	}
+
+	for name, tc := range map[string]struct{ offer, extra string }{
+		"one left empty":     {heygenOff, `"settings":{"fast":null}`},
+		"frames on a video":  {heygenOff, `"settings":{"frame_images":["first_frame"]},"inputs":[50]`},
+		"a route's own":      {routes, `"settings":{"quality":"high"}`},
+		"one of the offer's": {heygenOff, `"settings":{"resolution":"480p"}`},
+	} {
+		if resp := r.post(alice, "/api/jobs", nextKey(), body(tc.offer, "key", tc.extra)); resp.StatusCode != http.StatusAccepted {
+			t.Errorf("%s: %d %v", name, resp.StatusCode, jsonOf(t, resp))
+		}
 	}
 }
 

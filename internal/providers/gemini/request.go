@@ -410,6 +410,8 @@ func (p plan) body(files []file) ([]byte, error) {
 	return raw, nil
 }
 
+// refused is a run the adapter does not send, since it would fail: framy's
+// own words, before anything reaches the provider.
 func refused(format string, args ...any) *jobs.Error {
-	return &jobs.Error{Class: jobs.Refused, Err: fmt.Errorf(format, args...)}
+	return &jobs.Error{Class: jobs.Invalid, Err: fmt.Errorf(format, args...)}
 }
