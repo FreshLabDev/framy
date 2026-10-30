@@ -692,7 +692,7 @@ In groups one run makes one result. Proposal: more than one only on the site and
 - **How it is sent.** By its `file_id`, so nothing is uploaded, with the caption it had: the prompt and the model. The title is the start of the prompt on one line, the description the model. No buttons: a press on an inline message carries no message and comes from a chat framy may not be in, so the bot only answers it.
 - **The button** above the results is "Open framy", a `web_app` to `SITE_URL`, or the bot's chat with `/start inline` when `SITE_URL` is not https. With nothing found it says "No results. Open framy".
 - **Cache.** The answer is personal and Telegram keeps it 5 s, so a result just made shows up on the next query.
-- **Needs** inline mode turned on in BotFather (`/setinline`) for each bot.
+- **BotFather.** Inline mode is on (`/setinline`) for @framyin_bot and @framytest_bot since 30 October 2026, with the placeholder "Search your images and videos".
 - **Not yet:** `chosen_inline_result` and editing a sent inline message.
 
 ## Mini App
@@ -813,7 +813,7 @@ Temporary domain `framy.ws04.cc`. Mobile first; on a wide screen the composer an
 - **Bot:** register `@framyin_bot` (`framybot` and `framy_bot` are taken).
 - **BotFather:**
   - the `/img` and `/edit` commands, also through `setMyCommands` for `all_group_chats`;
-  - inline mode (`/setinline`); feedback (`/setinlinefeedback`) once framy reads `chosen_inline_result`;
+  - inline mode (`/setinline`), on for both bots; feedback (`/setinlinefeedback`) matters once framy reads `chosen_inline_result`;
   - Main Mini App;
   - the Login Widget client with the site's URLs, which gives the client id and secret;
   - later, guest mode.
