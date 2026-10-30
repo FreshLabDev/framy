@@ -11,6 +11,7 @@ import { act, render, renderBar } from "./composer.js";
 import { renderStage, runChanged } from "./stage.js";
 import { upload } from "./files.js";
 import { takeClip, openCut } from "./clips.js";
+import { openPicker } from "./picker.js";
 import { refusal, failure, providerOf } from "./errors.js";
 import { toast, ask } from "./ui.js";
 
@@ -191,6 +192,11 @@ export function editPrompt(run = S.run) {
   const p = $("#prompt");
   p.focus({ preventScroll: true });
   p.setSelectionRange(p.value.length, p.value.length);
+}
+// The same run on another model: the run back in the composer, the picker open.
+export function otherModel(run = S.run) {
+  act(() => { restore(run); S.showJob = false; render(); });
+  openPicker();
 }
 export function again(run = S.run) {
   if (S.busy) return;

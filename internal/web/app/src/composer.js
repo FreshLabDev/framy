@@ -165,6 +165,8 @@ function renderFiles(m, pay) {
   }
   const note = why.length ? why.join(" ") : S.files.length ? (cutting ? "" : t("files.kept")) : cont ? "" : t("files.hint");
   if (note) box.append(h("p", { class: "fhint" + (why.length ? "" : " quiet"), "data-k": "f-hint" }, note));
+  const faces = m.traits?.faces;
+  if (faces && R.some((r) => r.go)) box.append(h("p", { class: "fhint quiet", "data-k": "f-faces" }, t(faces === "adults" ? "files.faces_adults" : "files.faces_no", { model: vname(m) })));
   const none = !S.files.length && !cont;
   box.classList.toggle("nofiles", none);
   $("#pwrap").classList.toggle("tools", none);

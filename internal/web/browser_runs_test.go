@@ -32,12 +32,20 @@ import (
 // never be on the stage for the others.
 const fakeMessage = "upstream said: blocked by filter 7"
 
+// fakeFaces is how BytePlus refuses a Seedance clip with a person in it, as
+// the adapter stores it: framy's prefixes around the provider's JSON.
+const fakeFaces = `refused: openrouter 400: HTTP 400: {"error":{"code":"InputVideoSensitiveContentDetected.PrivacyInformation",` +
+	`"message":"The request failed because the input video 'content[1]' may contain real person. Request id: 0217abc","param":"content[1]","type":"BadRequest"}}`
+
+// fakeWrapped is any other refusal stored the same way.
+const fakeWrapped = `refused: openrouter 400: HTTP 400: {"error":{"code":"InvalidParameter","message":"The duration is too long. Request id: 0217abd"}}`
+
 // fakeRuns is the API of a signed-in person with a working OpenRouter key and
 // no free pictures left, whose jobs follow the prompt: "fail:<class>" fails
 // with that class, "retry" waits for a retry, "running" runs and never ends,
 // "poll" is read without the event stream, "done" makes a picture ("slow"
-// after two seconds of running), and
-// "refuse:<code>" is refused before any job.
+// after two seconds of running), "faces" and "wrapped" are refused by the
+// provider in its own JSON, and "refuse:<code>" is refused before any job.
 type fakeRuns struct {
 	mu     sync.Mutex
 	next   int64
@@ -171,6 +179,9 @@ func (f *fakeRuns) create(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(p, "fail:"):
 		cls := strings.TrimPrefix(p, "fail:")
 		steps = append(steps, at("running", nil), at("failed", map[string]any{"error": map[string]any{"class": cls, "message": fakeMessage}}))
+	case p == "faces", p == "wrapped":
+		msg := map[string]string{"faces": fakeFaces, "wrapped": fakeWrapped}[p]
+		steps = append(steps, at("running", nil), at("failed", map[string]any{"error": map[string]any{"class": "refused", "message": msg}}))
 	case p == "retry":
 		steps = append(steps, at("queued", map[string]any{"error": map[string]any{"class": "rate_limited", "message": fakeMessage},
 			"retry_at": time.Now().Add(30 * time.Second).UTC()}))
@@ -338,8 +349,30 @@ func TestBrowserRuns(t *testing.T) {
 		}
 	}
 
-	// A job that waits to go again counts the time down, and Cancel stops it.
+	// A refusal for a real person in a file says so in framy's words, with no
+	// JSON, and offers another model; Another model opens the picker.
 	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const s = await press("faces", (s) => s.failed);
+	const other = [...document.querySelectorAll("#stage .jacts > button")].find((b) => b.textContent.trim() === "Another model");
+	other?.click();
+	await wait(500);
+	s.picker = !document.querySelector("#picker").hidden;
+	document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+	await wait(500);
+	return s;`)
+	if acts := fmt.Sprint(s["acts"]); s["label"] != "A person in the clip" || !strings.Contains(s["why"].(string), "does not take photos or clips with real people") ||
+		!strings.HasPrefix(acts, "[Another model") || s["said"] != "" || strings.Contains(s["text"].(string), "{") || s["picker"] != true ||
+		!strings.HasSuffix(s["line"].(string), " · $0") {
+		t.Errorf("faces: %v", s)
+	}
+	// Any other refusal in the provider's JSON shows only its message.
+	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+`return await press("wrapped", (s) => s.failed);`)
+	if said := s["said"].(string); !strings.HasSuffix(said, "said: “The duration is too long.”") || strings.ContainsAny(said, "{}") {
+		t.Errorf("wrapped refusal: %q", said)
+	}
+
+	// A job that waits to go again counts the time down, and Cancel stops it.
+	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+`
 	const s = await press("retry", (s) => s.label === "Waiting to try again");
 	const before = s.sub;
 	let after = before;
@@ -573,6 +606,7 @@ func TestBrowserVideoSettings(t *testing.T) {
 	const sent = [], fetch0 = window.fetch;
 	window.fetch = (u, o) => { if (String(u).endsWith("/api/jobs") && o?.method === "POST") sent.push(JSON.parse(o.body)); return fetch0(u, o); };
 	const rows = () => [...document.querySelectorAll("#how [data-k^='h-f-']")].filter(vis).map((r) => r.querySelector(".lt").textContent);
+	const dets = {};
 	async function pick(fam, label) {
 	  document.querySelector("#how .mhead").click();
 	  await wait(700);
@@ -580,6 +614,7 @@ func TestBrowserVideoSettings(t *testing.T) {
 	  q.value = fam;
 	  q.dispatchEvent(new Event("input", { bubbles: true }));
 	  await wait(800);
+	  dets[fam] = document.querySelector("#pkd .dl")?.textContent || "";
 	  // A variant is a pill in its family's row; a family with one current variant is the row itself.
 	  const row = document.querySelector("#pkrows .frow");
 	  ([...row.querySelectorAll(".pill:not(.old)")].find((b) => b.textContent.trim() === label) || row.querySelector(".fhit")).click();
@@ -599,7 +634,12 @@ func TestBrowserVideoSettings(t *testing.T) {
 	fast(false);
 	await wait(400);
 	await press("done", () => sent.length > 2);
-	return { seedance, wan, sent };`)
+	return { seedance, wan, sent, dets };`)
+	// Seedance refuses real people in files, and its card says so before the run.
+	if dets, _ := s["dets"].(map[string]any); !strings.Contains(fmt.Sprint(dets["Seedance"]), "People in filesNot taken") ||
+		strings.Contains(fmt.Sprint(dets["Wan"]), "People in files") {
+		t.Errorf("people in files: %v", dets)
+	}
 	count := func(rows []any, label string) (n int) {
 		for _, r := range rows {
 			if r == label {

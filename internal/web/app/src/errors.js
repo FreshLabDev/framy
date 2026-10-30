@@ -4,7 +4,7 @@
 // buttons fit. The English message of a job is shown only where it is the
 // provider's own reason.
 import { t, fmtTime, fmtIn, fmtSecs, fmtNum } from "./i18n.js";
-import { PNAME } from "./catalog.js";
+import { C, PNAME, vname } from "./catalog.js";
 import { priceText } from "./price.js";
 
 // The provider may have charged for these: the request reached it.
@@ -20,6 +20,20 @@ export const BILLING = {
 
 export const providerOf = (j) => (j.free ? "openrouter" : String(j.offer || "").split(":")[0]);
 
+// The provider's words without framy's wrapping: "refused: openrouter 400:
+// HTTP 400: {json}" reads as the message inside the JSON, without its request id.
+export function ownWords(s) {
+  let m = String(s || "").replace(/<link>/g, "").trim()
+    .replace(/^(?:refused|moderation|provider):\s*/i, "").replace(/^(?:openrouter|openai|gemini)\s+\d{3}:\s*/i, "").replace(/^HTTP \d{3}:\s*/i, "");
+  if (m.startsWith("{")) {
+    try { const e = JSON.parse(m), x = e.error || e; m = String(x.message || x.code || m); } catch { /* not JSON after all */ }
+  }
+  return m.replace(/\s*Request id:\s*\S+\s*$/i, "").trim();
+}
+// A model that takes no real people refuses a file with one by this code
+// (BytePlus for Seedance): "video" or "image", which file it was.
+const facesIn = (s) => (/Input(Video|Image)SensitiveContentDetected\.PrivacyInformation/i.exec(s || "")?.[1] || "").toLowerCase();
+
 // failure says why job j failed: label (on the frame), said (the provider's
 // own reason, on the frame under it), text (only where the label does not say
 // it all), note (the money), zero (a run on a key that cost nothing: its price
@@ -30,10 +44,13 @@ export function failure(j) {
   // The most the run could have cost: the label of the estimate, which for "up to" is its top.
   const up = j.estimate && j.estimate.kind !== "unknown" ? j.estimate.label : "";
   const may = free ? back : up ? t("fail.may_charge", { p: up, provider: P }) : t("fail.may_charge_some", { provider: P });
-  const msg = OWNWORDS.has(cls) && j.error?.message ? j.error.message.replace(/<link>/g, "").trim() : "";
+  const msg = OWNWORDS.has(cls) && j.error?.message ? ownWords(j.error.message) : "";
   const said = msg ? t("fail.said", { provider: P, text: msg }) : "";
   const again = ["retry", "edit"];
   if (j.status === "cancelled") return { cls: "cancelled", label: t("stage.cancelled"), text: "", ...none, acts: again };
+  const face = (cls === "refused" || cls === "moderation") && facesIn(j.error?.message), m = C.byId[j.model];
+  if (face) return { cls: "faces", label: t(face === "video" ? "fail.faces_clip_l" : "fail.faces_photo_l"), text: t("fail.faces", { model: m ? vname(m) : P }),
+    ...(cls === "moderation" && free ? { note: t("fail.free_spent") } : none), acts: ["model", "edit"] };
   switch (cls) {
     case "moderation": return { cls, label: t("fail.moderation_l"), text: "", ...(free ? { note: t("fail.free_spent") } : none), said, acts: ["edit"] };
     case "money": return free

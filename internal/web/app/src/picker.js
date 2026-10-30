@@ -180,6 +180,7 @@ function detail(f) {
     if (refs) rows.push(["photos", t("det.refs"), t("det.up_to", { n: refs })]);
     if (needsVideo(m)) rows.push(["film", t("det.clip"), t("det.clip_need")]);
   }
+  if (m.traits?.faces) rows.push(["warn", t("det.people"), t(m.traits.faces === "adults" ? "det.people_adults" : "det.people_no")]);
   const r = resRangeOf(m.offers); if (r) rows.push(["res", t("det.resolution"), r[0] === r[1] ? r[0] : `${r[0]} – ${r[1]}`]);
   const ar = union(m, "aspect_ratio"), sz = union(m, "size");
   if (ar.length || sz.length) rows.push(["ratio", t("det.ratios"), ar.length ? (ar.includes("auto") ? t("det.ratios_auto", { n: ar.filter((x) => x !== "auto").length }) : String(ar.length)) : String(sz.length)]);
