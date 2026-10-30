@@ -499,22 +499,28 @@ was written from, and the skeleton of the service.
   run in `chat_run` (migration 014), so a restart picks it up where it was.
   `/edit` is in the group menu for video and answers that video in chats is
   not open yet. Again and Animate come later.
-- Model and Settings under Generate and No, two to a row with Make a video;
-  a free run has no Settings, since its settings are fixed. In a group the
-  requester gets the list in an ephemeral panel over the preview, so the
-  chat sees only the card change; in a DM, or on a preview only they see,
-  the list is on the preview. Model lists the image models that take the
-  run's photos one to a row, each with what it would cost: the free ones
-  first, then the site's suggestions, then the rest. A family's variants
-  share one row that opens them, and the models that need a key the person
-  has not connected fold into one last row, so the list stays short. Vector
-  models are left to the site, since Telegram shows an SVG as a file.
-  Settings change the shape, the resolution, the quality, the size and up to
-  4 results of a run on the person's key. A pick revises the draft and
-  redraws the card from the run's files. When framy is an admin of the group, or the
-  command was ephemeral, the preview itself goes to the requester alone, and
-  Generate posts the loop for the chat. Migration 015 keeps where the
-  preview and the panel are.
+- The chat preview is a rich message: the card on top, the prompt quoted
+  under it, then Model and Settings as sections that open in place, and
+  Generate and No below. Model lists every model of the run's kind the way
+  the site's picker does: makers A to Z, each under its name, a maker's
+  families in the catalog's order and a family's variants strongest first,
+  one button a model with what it would cost the run. No suggestions. A
+  model the run cannot take stays in its place, disabled, with the reason:
+  it needs a photo, takes none or fewer, needs a clip, or needs a key the
+  person has not connected. Vector models are left to the site, since
+  Telegram shows an SVG as a file. Settings, on the person's key, are the
+  composer's first ones with the model's values: the shape, the resolution,
+  the quality and the background, up to 4 results, a video's length and
+  sound, and the size where a model has neither shape nor resolution. A
+  video from a photo now picks its model and settings the same way, with the
+  photo as its first frame where the model takes frames, and a model on the
+  key starts from the site's defaults. A pick revises the draft and redraws
+  the message; after a setting the settings stay open. Generate says what a
+  run on the key costs. A preview already sent as a photo keeps its Model
+  and Settings buttons until it expires, and so does a guest run. When framy
+  is an admin of the group, or the command was ephemeral, the preview goes
+  to the requester alone, and Generate posts the loop for the chat.
+  Migration 015 keeps where the preview and the panel are.
 - An upload that no job took within an hour is deleted, object and row,
   checked at start and every hour. The site will upload on Generate and the
   chat uploads right before its draft, so such a file is left from a

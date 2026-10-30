@@ -49,6 +49,9 @@ func (f *Flow) press(ctx context.Context, cq *tg.CallbackQuery) error {
 	if !ok || !allowed(run, action) {
 		return answer("")
 	}
+	if on == onPreview && cq.Message != nil && fileIDOf(*cq.Message) != "" {
+		on = onPhoto
+	}
 	switch {
 	case action == actGenerate:
 		return f.generate(ctx, cq, run)
@@ -83,10 +86,11 @@ func (f *Flow) press(ctx context.Context, cq *tg.CallbackQuery) error {
 }
 
 // allowed tells whether a run of its kind has the button, since old or
-// forged data must change nothing. Generate, No and Stop every run has. A
-// video run has no Model or Settings panel; only a video goes back to an
-// image or takes another length of its clip, and only an image becomes a
-// video or is animated.
+// forged data must change nothing. Generate, No and Stop every run has, and
+// a model or a setting is picked on a video as on an image. The keyboard's
+// panels are an image's; only a video goes back to an image or takes
+// another length of its clip, and only an image becomes a video or is
+// animated.
 func allowed(run db.ChatRun, action string) bool {
 	video := catalog.Kind(run.Kind) == catalog.Video
 	switch action {
@@ -94,6 +98,9 @@ func allowed(run db.ChatRun, action string) bool {
 		return true
 	case actImage, actKeyClip, actFreeClip:
 		return video
+	}
+	if strings.HasPrefix(action, actPickModel) || strings.HasPrefix(action, actPickSetting) {
+		return true
 	}
 	return !video
 }
@@ -109,6 +116,10 @@ const (
 	onPanel
 	// onResult: the message the result went out in.
 	onResult
+	// onPhoto: a preview sent as a photo with its keyboard, as previews
+	// were before they were rich messages. Its draft lives out its ten
+	// minutes with the keyboard's panels.
+	onPhoto
 )
 
 // pressedOn tells which of the run's messages a press came from, if any:

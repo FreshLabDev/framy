@@ -214,6 +214,36 @@ func (f *fakeTelegram) EditEphemeralMessageMedia(_ context.Context, chatID, rece
 	return err
 }
 
+// A rich message keeps its HTML in text and its media in file, each as
+// "<id> photo <file>".
+func (f *fakeTelegram) SendRich(_ context.Context, chatID int64, html string, o tg.RichOptions) (tg.Message, error) {
+	return f.record(call{method: "sendRichMessage", chatID: chatID, messageID: o.ReplyTo, thread: o.ThreadID, text: html, markup: o.Markup,
+		file: richFiles(o.Media), ephemeral: o.Ephemeral, replyEphemeral: o.ReplyToEphemeral})
+}
+
+func (f *fakeTelegram) EditMessageRich(_ context.Context, chatID, messageID int64, html string, media []tg.RichMedia, markup *tg.InlineKeyboardMarkup, _ ...tg.RichOption) error {
+	_, err := f.record(call{method: "editMessageRich", chatID: chatID, messageID: messageID, text: html, markup: markup, file: richFiles(media)})
+	return err
+}
+
+func (f *fakeTelegram) EditEphemeralMessageRich(_ context.Context, chatID, receiver, id int64, html string, media []tg.RichMedia, markup *tg.InlineKeyboardMarkup, _ ...tg.RichOption) error {
+	_, err := f.record(call{method: "editEphemeralMessageRich", chatID: chatID, messageID: id, text: html, markup: markup,
+		file: richFiles(media), action: strconv.FormatInt(receiver, 10)})
+	return err
+}
+
+func richFiles(media []tg.RichMedia) string {
+	var out []string
+	for _, m := range media {
+		if p, ok := m.Media.(tg.InputMediaPhoto); ok {
+			out = append(out, m.ID+" photo "+fileOf(p.Media))
+			continue
+		}
+		out = append(out, m.ID+" ?")
+	}
+	return strings.Join(out, ",")
+}
+
 func (f *fakeTelegram) EditEphemeralMessageReplyMarkup(_ context.Context, chatID, receiver, id int64, markup *tg.InlineKeyboardMarkup) error {
 	_, err := f.record(call{method: "editEphemeralMessageReplyMarkup", chatID: chatID, messageID: id, markup: markup, action: strconv.FormatInt(receiver, 10)})
 	return err
@@ -366,6 +396,21 @@ func (f *fakeTelegram) AnswerCallbackQueryAlert(_ context.Context, _ string, tex
 	defer f.mu.Unlock()
 	f.answers = append(f.answers, "alert:"+text)
 	return nil
+}
+
+// cards are the sends and the edits of a preview's card, in order: rich,
+// or as a photo, and the loop that takes its place.
+func (f *fakeTelegram) cards() []call {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []call
+	for _, c := range f.calls {
+		switch c.method {
+		case "sendRichMessage", "editMessageRich", "editEphemeralMessageRich", "sendPhoto", "editMessageMedia":
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // methods are the calls of a method, in order.
@@ -1118,14 +1163,23 @@ func (h *harness) command(m *tg.Message, command, prompt string) error {
 	return h.flow.command(context.Background(), m, command, prompt)
 }
 
-// press presses a button of the run's preview, wherever it is.
+// press presses a button of the run's rich preview, wherever it is.
 func (h *harness) press(jobID int64, from int64, action string) error {
+	return h.pressPreview(jobID, from, action, nil)
+}
+
+// pressPhoto presses a button of a preview sent as a photo, as previews
+// were before they were rich messages.
+func (h *harness) pressPhoto(jobID int64, from int64, action string) error {
+	return h.pressPreview(jobID, from, action, []tg.Photo{{FileID: "small"}, {FileID: "preview-file"}})
+}
+
+func (h *harness) pressPreview(jobID int64, from int64, action string, photo []tg.Photo) error {
 	run, err := h.store.ChatRun(context.Background(), jobID)
 	if err != nil {
 		return err
 	}
-	msg := tg.Message{MessageID: run.PreviewMessageID, Chat: tg.Chat{ID: run.ChatID, Type: "supergroup"}, Date: 1,
-		Photo: []tg.Photo{{FileID: "small"}, {FileID: "preview-file"}}}
+	msg := tg.Message{MessageID: run.PreviewMessageID, Chat: tg.Chat{ID: run.ChatID, Type: "supergroup"}, Date: 1, Photo: photo}
 	if run.PreviewEphemeral {
 		msg.MessageID, msg.EphemeralMessageID = 0, run.PreviewMessageID
 	}

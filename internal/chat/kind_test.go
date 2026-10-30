@@ -33,7 +33,7 @@ func withGrok(h *harness)   { videoModel(h, free.VideoGrok, "Grok Imagine Video 
 // as last edited.
 func lastCard(t *testing.T, h *harness) [][]string {
 	t.Helper()
-	calls := append(h.tg.methods("sendPhoto"), h.tg.methods("editMessageMedia")...)
+	calls := h.tg.cards()
 	if len(calls) == 0 {
 		t.Fatal("no card")
 	}
@@ -64,15 +64,15 @@ func TestMakeAVideoTurnsAPromptIntoTheFreeVideo(t *testing.T) {
 	if r := run(t, h); r.Kind != string(catalog.Video) || r.Taken != 0 {
 		t.Fatalf("run = %+v", r)
 	}
-	edits := h.tg.methods("editMessageMedia")
-	if len(edits) != 1 || edits[0].messageID != h.store.runs[id].PreviewMessageID {
+	edits := h.tg.methods("editMessageRich")
+	if len(edits) != 1 || edits[0].messageID != h.store.runs[id].PreviewMessageID || edits[0].file != "card photo upload:framy.png" {
 		t.Fatalf("edits = %+v", edits)
 	}
 	p := h.renderer.previews[len(h.renderer.previews)-1]
 	if p.Model != "HeyGen Video" || !p.Free || p.Left != 1 || p.Limit != 1 || !reflect.DeepEqual(p.Chips, []string{"0:05", "768p"}) {
 		t.Fatalf("card = %+v", p)
 	}
-	// A video has no Model or Settings yet; it goes back to an image.
+	// The keyboard turns it back into an image; the model is in the message.
 	want2 := [][]string{{callback(id, actGenerate), callback(id, actNo)}, {callback(id, actImage)}}
 	if got := lastCard(t, h); !reflect.DeepEqual(got, want2) {
 		t.Fatalf("keyboard = %v", got)
@@ -89,7 +89,7 @@ func TestMakeAVideoTurnsAPromptIntoTheFreeVideo(t *testing.T) {
 	if !job.n.Free || job.n.Offer.ID != free.ImageMAI.Offer || !reflect.DeepEqual(job.n.Settings, map[string]any{"n": 1}) {
 		t.Fatalf("job = %+v", job.n)
 	}
-	if got := lastCard(t, h); len(got) != 2 || got[1][1] != callback(id, actVideo) {
+	if got := lastCard(t, h); len(got) != 2 || got[1][0] != callback(id, actVideo) {
 		t.Fatalf("keyboard = %v", got)
 	}
 }
@@ -132,7 +132,7 @@ func TestAnAlbumDoesNotBecomeAVideo(t *testing.T) {
 	if err := h.command(m, CommandImage, "a collage"); err != nil {
 		t.Fatal(err)
 	}
-	if got := lastCard(t, h); len(got) != 2 || h.store.runs[1].Taken != 2 {
+	if got := lastCard(t, h); len(got) != 1 || h.store.runs[1].Taken != 2 {
 		t.Fatalf("keyboard = %v, run %+v", got, h.store.runs[1])
 	}
 	h.tg.reset()

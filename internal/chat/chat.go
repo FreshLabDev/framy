@@ -54,6 +54,9 @@ type Telegram interface {
 	DeleteMessage(ctx context.Context, chatID, messageID int64) error
 	EditEphemeralMessageMedia(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, media tg.InputMedia, markup *tg.InlineKeyboardMarkup) error
 	EditEphemeralMessageReplyMarkup(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, markup *tg.InlineKeyboardMarkup) error
+	SendRich(ctx context.Context, chatID int64, html string, opts tg.RichOptions) (tg.Message, error)
+	EditMessageRich(ctx context.Context, chatID, messageID int64, html string, media []tg.RichMedia, markup *tg.InlineKeyboardMarkup, opts ...tg.RichOption) error
+	EditEphemeralMessageRich(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, html string, media []tg.RichMedia, markup *tg.InlineKeyboardMarkup, opts ...tg.RichOption) error
 	DeleteEphemeralMessage(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64) error
 	SendChatAction(ctx context.Context, chatID int64, threadID int, action string) error
 	GetFile(ctx context.Context, fileID string) (tg.File, error)

@@ -35,7 +35,7 @@ func longClip(t *testing.T, secs float64, setup func(*harness)) *harness {
 // preview: as sent, or as last edited.
 func cardButtons(t *testing.T, h *harness) (text, data string) {
 	t.Helper()
-	calls := append(h.tg.methods("sendPhoto"), h.tg.methods("editMessageMedia")...)
+	calls := h.tg.cards()
 	if len(calls) == 0 {
 		t.Fatal("no card")
 	}
@@ -92,7 +92,7 @@ func TestAFreeEditOfALongClipOffersAllOfItOnTheKey(t *testing.T) {
 		t.Errorf("note = %q", run.Note)
 	}
 	// The card is drawn again on the key, with the free 5 s offered back.
-	edits := h.tg.methods("editMessageMedia")
+	edits := h.tg.methods("editMessageRich")
 	if len(edits) != 1 || edits[0].messageID != h.store.runs[1].PreviewMessageID {
 		t.Fatalf("edits = %+v", edits)
 	}
@@ -236,7 +236,7 @@ func TestAFreeLengthTheQueueRefusesLeavesTheRunOnTheKey(t *testing.T) {
 	if job := h.store.jobs[1]; job.n.Free || job.n.Inputs[0] != 2 {
 		t.Fatalf("job = %+v", job.n)
 	}
-	if len(h.tg.methods("editMessageMedia")) != 0 || h.store.runs[1].Note != "" {
+	if len(h.tg.methods("editMessageRich")) != 0 || h.store.runs[1].Note != "" {
 		t.Fatalf("calls %+v, note %q", h.tg.calls, h.store.runs[1].Note)
 	}
 }

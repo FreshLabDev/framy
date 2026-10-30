@@ -65,8 +65,9 @@ var (
 // viewFamily lists the variants of the family hash names.
 func viewFamily(hash string) view { return view{screen: screenFamily, fam: hash} }
 
-// shownSettings are the settings the panel offers, in its order; the rest
-// stay as the model has them. n is how many results, up to maxResults.
+// shownSettings are the settings the keyboard's panel offers, in its
+// order; the rest stay as the model has them. n is how many results, up to
+// maxResults. A rich preview offers settingsOf's.
 var shownSettings = []string{"aspect_ratio", "resolution", "quality", "size", "n"}
 
 const (
@@ -117,7 +118,9 @@ func (f *Flow) stateOf(ctx context.Context, run db.ChatRun) (state, error) {
 	for _, a := range inputs {
 		if strings.HasPrefix(a.ContentType, "video/") {
 			s.clip, s.keptSeconds = true, a.Seconds
+			continue
 		}
+		s.images = append(s.images, price.Image{Width: a.Width, Height: a.Height})
 	}
 	if s.clip {
 		s.source = clip{fileID: run.ClipFileID, size: run.ClipBytes}
@@ -189,10 +192,9 @@ func (f *Flow) keyProviders(ctx context.Context, user int64) (map[string]bool, e
 	return have, nil
 }
 
-// choices are the image models the panel lists for a run that takes taken
-// photos: the free ones first, then the featured. A model whose offers
-// cannot take the photos is left out, and so is a vector one: Telegram shows
-// an SVG as a file, not a picture, so it is the site's.
+// choices are the image models the keyboard's panel lists for a run that
+// takes taken photos: the free ones first, then the featured, of those the
+// site lists. A model whose offers cannot take the photos is left out.
 func (f *Flow) choices(ctx context.Context, run db.ChatRun, current catalog.Offer) ([]choice, error) {
 	models, err := f.cfg.Store.Catalog(ctx)
 	if err != nil {
@@ -209,9 +211,13 @@ func (f *Flow) choices(ctx context.Context, run db.ChatRun, current catalog.Offe
 		}
 		return len(order)
 	}
+	byID := map[string]bool{}
+	for _, m := range models {
+		byID[m.ID] = true
+	}
 	var out []choice
 	for _, m := range models {
-		if m.Kind != catalog.Image || (!m.Free && !m.Featured) || vector(m) {
+		if !listed(m, catalog.Image, byID) || (!m.Free && !m.Featured) {
 			continue
 		}
 		if c, ok := freeChoice(m, run.Taken, have); ok {
@@ -270,14 +276,16 @@ func takesPhotos(o catalog.Offer, n int) bool {
 	return p.Max == nil || float64(n) <= *p.Max
 }
 
-// setting is one setting the panel offers, with its values.
+// setting is one setting a preview offers, with its values.
 type setting struct {
 	name   string
 	values []any
 }
 
-// settingsOf are the settings of an offer the panel offers.
-func settingsOf(o catalog.Offer) []setting {
+// panelSettings are the settings of an offer the keyboard's panel offers,
+// numbered as its buttons carry them: a guest run's, and a preview sent as
+// a photo before previews were rich messages.
+func panelSettings(o catalog.Offer) []setting {
 	var out []setting
 	for _, name := range shownSettings {
 		p, ok := o.Params[name]
@@ -289,32 +297,16 @@ func settingsOf(o catalog.Offer) []setting {
 		case catalog.Enum:
 			values = p.Values
 		case catalog.Range:
-			if name != "n" || p.Max == nil {
+			if name != "n" {
 				continue
 			}
-			lo := 1
-			if p.Min != nil && *p.Min > 1 {
-				lo = int(*p.Min)
-			}
-			for v := lo; v <= min(int(*p.Max), maxResults); v++ {
-				values = append(values, v)
-			}
+			values = results(p)
 		}
 		if len(values) > 1 {
 			out = append(out, setting{name: name, values: values})
 		}
 	}
 	return out
-}
-
-// valueLabel is a setting's value on its button.
-func valueLabel(lang string, v any) string {
-	s := fmt.Sprint(v)
-	switch s {
-	case "auto", "low", "medium", "high":
-		return t(lang, "set."+s)
-	}
-	return s
 }
 
 // keyboardOf is the keyboard of a view.
@@ -325,10 +317,10 @@ func (f *Flow) keyboardOf(ctx context.Context, run db.ChatRun, s state, v view) 
 		return f.modelKeyboard(ctx, run, s, v)
 	case screenSettings:
 		var rows [][]tg.InlineKeyboardButton
-		for pi, set := range settingsOf(s.offer) {
+		for pi, set := range panelSettings(s.offer) {
 			rows = append(rows, []tg.InlineKeyboardButton{{Text: t(run.Lang, "set."+set.name), Disabled: &tg.DisabledButton{}}})
 			for vi, v := range set.values {
-				text := valueLabel(run.Lang, v)
+				text := valueLabel(run.Lang, set.name, v)
 				if cur, ok := s.settings[set.name]; ok && sameSetting(cur, v) {
 					text = "✓ " + text
 				}
@@ -368,7 +360,7 @@ func (f *Flow) view(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun, o
 		_ = answer("")
 		return err
 	}
-	if on == onPreview && !run.PreviewEphemeral && !guest(run) && isGroup(run.ChatID) && v != viewMain {
+	if on == onPhoto && !run.PreviewEphemeral && isGroup(run.ChatID) && v != viewMain {
 		if f.openPanel(ctx, cq, run, s, kb) {
 			return answer("")
 		}
@@ -433,43 +425,39 @@ func (f *Flow) setKeyboard(ctx context.Context, run db.ChatRun, on place, kb *tg
 	}
 }
 
-// pickModel moves the draft to another model and draws its card.
+// pickModel moves the draft to another model and draws its card. The
+// model is looked up in the rich preview's list, which holds every model a
+// keyboard's list does; an edit of a clip keeps its model.
 func (f *Flow) pickModel(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun, on place, hash string) error {
 	answer := func(text string) error { return f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, text) }
-	if run.Stage != db.StagePreview {
+	if run.Stage != db.StagePreview || run.ClipFileID != "" {
 		return answer("")
 	}
-	_, current, err := f.cfg.Store.Offer(ctx, run.OfferID)
+	s, err := f.stateOf(ctx, run)
 	if err != nil {
 		_ = answer("")
 		return err
 	}
-	list, err := f.choices(ctx, run, current)
+	l, err := f.listing(ctx, run.UserID, run.Lang, run.Prompt, s.draft)
 	if err != nil {
 		_ = answer("")
 		return err
 	}
-	i := slices.IndexFunc(list, func(c choice) bool { return modelHash(c.model.ID) == hash })
-	if i < 0 {
+	p, ok := l.find(hash)
+	if !ok {
 		// The catalog changed since the list was drawn.
 		return answer("")
 	}
-	c := list[i]
-	if c.model.ID == current.ModelID {
+	switch {
+	case p.model.ID == s.model.ID:
 		_ = answer("")
 		return f.redrawAfter(ctx, run, on, viewMain)
-	}
-	if !c.free && !c.key {
+	case p.locked:
 		return f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, t(run.Lang, "panel.key_needed"))
+	case p.why != "":
+		return f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, p.why)
 	}
-	var settings map[string]any
-	if c.free {
-		plan, _ := free.PlanOf(c.offer.ID)
-		settings = plan.SettingsFor(run.Taken)
-	} else {
-		settings = carried(wholeNumbers(run.Settings), c.offer)
-	}
-	return f.revise(ctx, cq, run, on, c.model, c.offer, settings, c.free, viewMain)
+	return f.revise(ctx, cq, run, on, p.model, p.offer, p.settings, p.free, viewMain)
 }
 
 // carried are the settings that go to another model: those it takes.
@@ -483,19 +471,20 @@ func carried(settings map[string]any, o catalog.Offer) map[string]any {
 	return out
 }
 
-// pickSetting changes one setting of a run on the person's key.
+// pickSetting changes one setting of a run on the person's key. A rich
+// preview names the setting, "aspect_ratio.2"; a keyboard's panel numbers
+// it as panelSettings lists them, "0.2".
 func (f *Flow) pickSetting(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun, on place, pick string) error {
 	answer := func(text string) error { return f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, text) }
-	if run.Stage != db.StagePreview {
+	if run.Stage != db.StagePreview || run.ClipFileID != "" {
 		return answer("")
 	}
 	if run.Free {
 		return f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, t(run.Lang, "panel.free_fixed"))
 	}
 	ps, vs, ok := strings.Cut(pick, ".")
-	pi, err1 := strconv.Atoi(ps)
-	vi, err2 := strconv.Atoi(vs)
-	if !ok || err1 != nil || err2 != nil {
+	vi, err := strconv.Atoi(vs)
+	if !ok || err != nil {
 		return answer("")
 	}
 	model, offer, err := f.cfg.Store.Offer(ctx, run.OfferID)
@@ -504,6 +493,10 @@ func (f *Flow) pickSetting(ctx context.Context, cq *tg.CallbackQuery, run db.Cha
 		return err
 	}
 	sets := settingsOf(offer)
+	pi := slices.IndexFunc(sets, func(s setting) bool { return s.name == ps })
+	if n, err := strconv.Atoi(ps); err == nil {
+		sets, pi = panelSettings(offer), n
+	}
 	if pi < 0 || pi >= len(sets) || vi < 0 || vi >= len(sets[pi].values) {
 		return answer("")
 	}
@@ -632,9 +625,13 @@ func (f *Flow) cardPictures(ctx context.Context, dir string, s state) ([]string,
 }
 
 // drawCard draws the card of s with the pictures at paths and puts it on
-// the preview and on the panel. The chat's preview keeps its main keyboard
-// while the requester has a panel; the message pressed gets the view's.
+// the preview: a rich one (drawRich), or one sent as a photo and its panel.
+// The chat's photo preview keeps its main keyboard while the requester has
+// a panel; the message pressed gets the view's.
 func (f *Flow) drawCard(ctx context.Context, run db.ChatRun, on place, v view, s state, dir string, paths []string) error {
+	if on != onPhoto && on != onPanel {
+		return f.drawRich(ctx, run, v, s, dir, paths)
+	}
 	kb, err := f.keyboardOf(ctx, run, s, v)
 	if err != nil {
 		return err

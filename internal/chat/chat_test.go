@@ -30,13 +30,13 @@ func TestATextCommandShowsAPreviewOfTheFreeRun(t *testing.T) {
 		job.n.Prompt != "a fox" || job.n.DedupeKey != "tg:-100:10" || len(job.n.Inputs) != 0 {
 		t.Fatalf("job = %+v", job)
 	}
-	sent := h.tg.methods("sendPhoto")
+	sent := h.tg.methods("sendRichMessage")
 	if len(sent) != 1 {
 		t.Fatalf("previews = %+v", h.tg.calls)
 	}
 	p := sent[0]
-	// The card, as a reply to the command; the caption is the prompt alone.
-	if p.chatID != -100 || p.messageID != 10 || p.file != "upload:framy.png" || p.text != "<blockquote>a fox</blockquote>" {
+	// The card, as a reply to the command, and the prompt under it.
+	if p.chatID != -100 || p.messageID != 10 || p.file != "card photo upload:framy.png" || p.text != `<img src="tg://photo?id=card"/><blockquote>a fox</blockquote>` {
 		t.Fatalf("preview = %+v", p)
 	}
 	card := h.renderer.previews[0]
@@ -55,14 +55,14 @@ func TestATextCommandShowsAPreviewOfTheFreeRun(t *testing.T) {
 }
 
 // A card the faces cannot label, as in Japanese, leaves the price to the
-// caption.
+// text under it.
 func TestACardWithoutItsLabelPutsThePriceInTheCaption(t *testing.T) {
 	h := newHarness(t)
 	h.store.chatLang[-100] = "ja"
 	if err := h.command(command("/img a fox"), CommandImage, "a fox"); err != nil {
 		t.Fatal(err)
 	}
-	p := h.tg.methods("sendPhoto")[0]
+	p := h.tg.methods("sendRichMessage")[0]
 	if !strings.Contains(p.text, i18n.T("ja", "run.free", "left", "5", "limit", "5")) {
 		t.Fatalf("caption = %q", p.text)
 	}
@@ -83,7 +83,7 @@ func TestAReplyToAPhotoTakesThePhoto(t *testing.T) {
 	if len(h.renderer.albums) != 1 || len(h.renderer.albums[0]) != 1 {
 		t.Fatalf("card drawn from %v", h.renderer.albums)
 	}
-	sent := h.tg.methods("sendPhoto")
+	sent := h.tg.methods("sendRichMessage")
 	if len(sent) != 1 || sent[0].messageID != 10 {
 		t.Fatalf("preview = %+v", sent)
 	}
@@ -135,7 +135,7 @@ func TestWithoutAdminRightsThePreviewSaysWhatItSaw(t *testing.T) {
 	if err := h.command(m, CommandImage, "one style"); err != nil {
 		t.Fatal(err)
 	}
-	sent := h.tg.methods("sendPhoto")
+	sent := h.tg.methods("sendRichMessage")
 	if len(sent) != 1 || !strings.Contains(sent[0].text, i18n.T("en", noteAlbumOne)) {
 		t.Fatalf("preview = %+v", sent)
 	}
@@ -156,7 +156,7 @@ func TestMoreThanTenPhotosAreCut(t *testing.T) {
 	if n := len(h.store.jobs[1].n.Inputs); n != free.ImageKlein.MaxInputs {
 		t.Fatalf("%d inputs", n)
 	}
-	sent := h.tg.methods("sendPhoto")
+	sent := h.tg.methods("sendRichMessage")
 	if !strings.Contains(sent[0].text, i18n.T("en", noteCut, "max", "10", "left", "2")) {
 		t.Fatalf("caption = %q", sent[0].text)
 	}
@@ -168,7 +168,7 @@ func TestPastTheFreeTierWithoutAKeyTheReasonIsTheAnswer(t *testing.T) {
 	if err := h.command(command("/img a fox"), CommandImage, "a fox"); err != nil {
 		t.Fatal(err)
 	}
-	if len(h.store.jobs) != 0 || len(h.tg.methods("sendPhoto")) != 0 {
+	if len(h.store.jobs) != 0 || len(h.tg.methods("sendRichMessage")) != 0 {
 		t.Fatal("a preview went out")
 	}
 	got := h.tg.methods("sendMessage")
@@ -188,7 +188,7 @@ func TestPastTheFreeTierTheKeyRunsIt(t *testing.T) {
 	if job == nil || job.n.Free {
 		t.Fatalf("job = %+v", job)
 	}
-	sent := h.tg.methods("sendPhoto")
+	sent := h.tg.methods("sendRichMessage")
 	card := h.renderer.previews[0]
 	if len(sent) != 1 || card.Free || card.Label != i18n.T("en", "card.key", "provider", "OpenRouter") || card.Price == "" {
 		t.Fatalf("preview = %+v, card = %+v", sent, card)
@@ -232,7 +232,7 @@ func TestEmptyCommandsVideosAndRepeats(t *testing.T) {
 	if err := h.command(command("/img a fox"), CommandImage, "a fox"); err != nil {
 		t.Fatal(err)
 	}
-	if n := len(h.tg.methods("sendPhoto")); n != 1 || len(h.store.jobs) != 1 {
+	if n := len(h.tg.methods("sendRichMessage")); n != 1 || len(h.store.jobs) != 1 {
 		t.Fatalf("%d previews, %d jobs", n, len(h.store.jobs))
 	}
 }
@@ -254,7 +254,7 @@ func TestAPhotoFramyCannotReadIsSaidSo(t *testing.T) {
 
 func TestAFailedPreviewCancelsTheDraft(t *testing.T) {
 	h := newHarness(t)
-	h.tg.fail["sendPhoto"] = errBoom
+	h.tg.fail["sendRichMessage"] = errBoom
 	if err := h.command(command("/img a fox"), CommandImage, "a fox"); err == nil {
 		t.Fatal("no error")
 	}
@@ -272,7 +272,7 @@ func TestTheGroupsLanguageWritesThePreview(t *testing.T) {
 	if err := h.command(command("/img лис"), CommandImage, "лис"); err != nil {
 		t.Fatal(err)
 	}
-	p := h.tg.methods("sendPhoto")[0]
+	p := h.tg.methods("sendRichMessage")[0]
 	if p.markup.InlineKeyboard[0][0].Text != i18n.T("uk", "run.generate") {
 		t.Fatalf("buttons = %+v", p.markup.InlineKeyboard)
 	}

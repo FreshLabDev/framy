@@ -170,9 +170,11 @@ type draft struct {
 	usage    free.Meter
 	settings map[string]any
 	paths    []string
-	taken    int
-	album    int
-	note     string
+	// images are the sizes of the photos the run takes, which price it.
+	images []price.Image
+	taken  int
+	album  int
+	note   string
 	// clip: the run edits a clip, source as Telegram has it. keptSeconds is
 	// the clip as kept, and clipSeconds the whole of it.
 	clip        bool
@@ -305,7 +307,7 @@ func (f *Flow) draft(ctx context.Context, m *tg.Message, src found, prompt, key,
 		return d, "", err
 	}
 	settings := plan.SettingsFor(len(inputs))
-	d.model, d.offer, d.paths, d.taken, d.settings = model, offer, paths, len(inputs), settings
+	d.model, d.offer, d.paths, d.taken, d.settings, d.images = model, offer, paths, len(inputs), settings, sizes
 	d.estimate = price.Of(model, offer, priceRequest(prompt, settings, sizes, nil))
 	if d.quote, err = f.quote(ctx, user, lang); err != nil {
 		return d, "", err
@@ -344,7 +346,7 @@ func (f *Flow) draftMotion(ctx context.Context, m *tg.Message, src found, prompt
 		return draft{}, "", err
 	}
 	settings := plan.SettingsFor(len(inputs))
-	d := draft{model: model, offer: offer, pay: payFree, paths: paths, taken: len(inputs), settings: settings}
+	d := draft{model: model, offer: offer, pay: payFree, paths: paths, taken: len(inputs), settings: settings, images: sizes}
 	d.estimate = price.Of(model, offer, priceRequest(prompt, settings, sizes, nil))
 	if d.quote, err = f.quote(ctx, user, lang); err != nil {
 		return draft{}, "", err

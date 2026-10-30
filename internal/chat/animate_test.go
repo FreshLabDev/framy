@@ -73,7 +73,7 @@ func TestAnimateMakesAVideoOfTheImage(t *testing.T) {
 		job.n.Estimate == nil || job.n.Estimate.USD <= 0 {
 		t.Fatalf("job = %+v", job)
 	}
-	sent := h.tg.methods("sendPhoto")
+	sent := h.tg.methods("sendRichMessage")
 	if len(sent) != 1 || sent[0].messageID != result || sent[0].ephemeral == nil ||
 		*sent[0].ephemeral != (tg.Ephemeral{ReceiverUserID: 7, CallbackQueryID: "cq-1"}) {
 		t.Fatalf("preview = %+v", sent)
@@ -121,8 +121,8 @@ func TestADoubleTapOnAnimateMakesOneDraft(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if len(h.store.jobs) != 2 || len(h.tg.methods("sendPhoto")) != 1 {
-		t.Fatalf("jobs %d, previews %d", len(h.store.jobs), len(h.tg.methods("sendPhoto")))
+	if len(h.store.jobs) != 2 || len(h.tg.methods("sendRichMessage")) != 1 {
+		t.Fatalf("jobs %d, previews %d", len(h.store.jobs), len(h.tg.methods("sendRichMessage")))
 	}
 	// The same press again, as Telegram may send it twice, makes nothing.
 	h.now = h.now.Add(10 * time.Second)
@@ -187,7 +187,7 @@ func TestAnimateInADirectChat(t *testing.T) {
 	if err := h.animate(1, 7, dm, "cq-1"); err != nil {
 		t.Fatal(err)
 	}
-	sent := h.tg.methods("sendPhoto")
+	sent := h.tg.methods("sendRichMessage")
 	if len(sent) != 1 || sent[0].messageID != result || sent[0].ephemeral != nil || sent[0].chatID != 7 {
 		t.Fatalf("preview = %+v", sent)
 	}
@@ -240,7 +240,7 @@ func TestAVideoResultIsNotAnimated(t *testing.T) {
 // A failure after the draft was made cancels it.
 func TestAnAnimateThatFailsCancelsItsDraft(t *testing.T) {
 	h, id, _ := animateHarness(t)
-	h.tg.fail["sendPhoto"] = errBoom
+	h.tg.fail["sendRichMessage"] = errBoom
 	if err := h.animate(id, 7, group, "cq-1"); err == nil {
 		t.Fatal("no error")
 	}

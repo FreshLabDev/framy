@@ -84,11 +84,11 @@ func TestEditOnAVideoShowsAPreviewOfTheFreeEdit(t *testing.T) {
 	if paths := h.renderer.albums[0]; len(paths) != 1 || filepath.Base(paths[0]) != "poster.png" {
 		t.Errorf("the card's picture: %v", paths)
 	}
-	sent := h.tg.methods("sendPhoto")
-	if len(sent) != 1 || sent[0].messageID != 10 || sent[0].text != "<blockquote>make it night</blockquote>" {
+	sent := h.tg.methods("sendRichMessage")
+	if len(sent) != 1 || sent[0].messageID != 10 || sent[0].text != `<img src="tg://photo?id=card"/><blockquote>make it night</blockquote>` {
 		t.Fatalf("preview = %+v", sent)
 	}
-	// Generate and No: a video run has no Model or Settings yet.
+	// Generate and No: an edit of a clip keeps its model and settings.
 	kb := sent[0].markup.InlineKeyboard
 	if len(kb) != 1 || len(kb[0]) != 2 || kb[0][0].CallbackData != callback(1, actGenerate) || kb[0][1].CallbackData != callback(1, actNo) {
 		t.Errorf("buttons = %+v", kb)
@@ -135,7 +135,7 @@ func TestALongClipIsCutToTheFreeFiveSeconds(t *testing.T) {
 		t.Fatalf("job = %+v", job)
 	}
 	note := "<i>" + i18n.T("en", noteClipCut, "max", "5", "n", "12") + "</i>"
-	if sent := h.tg.methods("sendPhoto"); len(sent) != 1 || !strings.Contains(sent[0].text, note) {
+	if sent := h.tg.methods("sendRichMessage"); len(sent) != 1 || !strings.Contains(sent[0].text, note) {
 		t.Fatalf("preview = %+v, want %q", sent, note)
 	}
 	if p := h.renderer.previews[0]; len(p.Chips) != 1 || p.Chips[0] != "0:05" {
@@ -166,7 +166,7 @@ func TestPastTheFreeVideoTheKeyTakesUpToFifteenSeconds(t *testing.T) {
 		t.Errorf("card = %+v", p)
 	}
 	note := i18n.T("en", noteClipCut, "max", "15", "n", "20")
-	if sent := h.tg.methods("sendPhoto"); len(sent) != 1 || !strings.Contains(sent[0].text, note) {
+	if sent := h.tg.methods("sendRichMessage"); len(sent) != 1 || !strings.Contains(sent[0].text, note) {
 		t.Fatalf("preview = %+v", sent)
 	}
 }

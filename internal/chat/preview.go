@@ -252,8 +252,9 @@ func button(text, data, style string) tg.InlineKeyboardButton {
 	return tg.InlineKeyboardButton{Text: text, CallbackData: data, Style: style}
 }
 
-// previewKeyboard: Generate and No, and under them, two to a row, what the
-// run can change. An image run has Model, Settings when there is one to
+// previewKeyboard is a guest run's keyboard, whose preview is an inline
+// message and so not rich (richKeyboard is the others'): Generate and No,
+// and under them, two to a row, what the run can change. An image run has Model, Settings when there is one to
 // change (a free run has its settings fixed) and, from a prompt and at most
 // one photo, Make a video of them; a video from a prompt has Make an image;
 // an edit of a clip offers the other length of it, when there is one. A
@@ -273,7 +274,7 @@ func previewKeyboard(lang string, jobID int64, d draft) *tg.InlineKeyboardMarkup
 		more = append(more, button(t(lang, "run.as_image"), callback(jobID, actImage), ""))
 	default:
 		more = append(more, button(t(lang, "run.model"), callback(jobID, actModel), ""))
-		if d.pay != payFree && len(settingsOf(d.offer)) > 0 {
+		if d.pay != payFree && len(panelSettings(d.offer)) > 0 {
 			more = append(more, button(t(lang, "run.settings"), callback(jobID, actSettings), ""))
 		}
 		if d.taken <= free.VideoHeyGen.MaxInputs {
@@ -293,22 +294,20 @@ func generatingKeyboard(lang string, jobID int64) *tg.InlineKeyboardMarkup {
 	}}}
 }
 
-// sendPreview draws the preview card in dir and sends it as a reply to m:
-// the command, or the result a press of press asked for a video of. In a
-// group it goes to the requester alone when Telegram lets framy: framy is
-// an admin, or the command was ephemeral or the press was, and the answer
-// comes within 15 seconds. Otherwise, or when the ephemeral send is
-// refused, the chat sees it. ephemeral tells which, and the id is of that
-// kind.
+// sendPreview draws the preview card in dir and sends the rich preview as
+// a reply to m: the command, or the result a press of press asked for a
+// video of. In a group it goes to the requester alone when Telegram lets
+// framy: framy is an admin, or the command was ephemeral or the press was,
+// and the answer comes within 15 seconds. Otherwise, or when the ephemeral
+// send is refused, the chat sees it, and its folded lists open for anyone
+// while only the requester's presses act. ephemeral tells which, and the id
+// is of that kind.
 func (f *Flow) sendPreview(ctx context.Context, m *tg.Message, d draft, prompt, lang, dir, press string) (id int64, ephemeral bool, err error) {
-	pic, err := f.cfg.Renderer.Preview(ctx, dir, previewCard(lang, d), d.paths)
+	body, pic, kb, err := f.richState(ctx, m.From.ID, lang, prompt, d.id, d, dir, d.paths, false)
 	if err != nil {
-		return 0, false, fmt.Errorf("draw the preview: %w", err)
+		return 0, false, err
 	}
-	opts := tg.CaptionOptions{
-		ThreadID: threadOf(m), ReplyTo: m.MessageID,
-		Caption: previewCaption(lang, prompt, d, pic.TextDrawn), Markup: previewKeyboard(lang, d.id, d),
-	}
+	opts := tg.RichOptions{ThreadID: threadOf(m), ReplyTo: m.MessageID, Markup: kb}
 	if m.Chat.Type != "private" {
 		switch {
 		case press != "":
@@ -321,7 +320,7 @@ func (f *Flow) sendPreview(ctx context.Context, m *tg.Message, d draft, prompt, 
 		}
 	}
 	if opts.Ephemeral != nil {
-		sent, err := f.sendPicture(ctx, m.Chat.ID, pic, opts)
+		sent, err := f.sendRich(ctx, m.Chat.ID, body, pic, opts)
 		if err == nil && sent.EphemeralMessageID != 0 {
 			return sent.EphemeralMessageID, true, nil
 		}
@@ -334,7 +333,7 @@ func (f *Flow) sendPreview(ctx context.Context, m *tg.Message, d draft, prompt, 
 		f.log.Warn("ephemeral preview refused; the chat sees it", "chat", m.Chat.ID, "error", err)
 		opts.Ephemeral, opts.ReplyToEphemeral = nil, 0
 	}
-	sent, err := f.sendPicture(ctx, m.Chat.ID, pic, opts)
+	sent, err := f.sendRich(ctx, m.Chat.ID, body, pic, opts)
 	if err != nil {
 		return 0, false, fmt.Errorf("send the preview: %w", err)
 	}

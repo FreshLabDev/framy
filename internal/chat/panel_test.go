@@ -101,38 +101,58 @@ func labels(kb *tg.InlineKeyboardMarkup) [][]string {
 // pick is the data of a model's button.
 func pick(model string) string { return actPickModel + modelHash(model) }
 
-// A free run has its settings fixed, so its preview has no Settings: Model
-// and Make a video share a row. A run on the key has Settings beside Model.
+// A free run has its settings fixed, so its preview has the model and no
+// settings; a run on the key has both. The keyboard keeps Generate, No and
+// Make a video.
 func TestThePreviewHasModelAndSettingsWhenThereAreAny(t *testing.T) {
-	h := newHarness(t)
-	if err := h.command(command("/img a fox"), CommandImage, "a fox"); err != nil {
+	onFree := newHarness(t)
+	onFree.store.models = panelCatalog()
+	if err := onFree.command(command("/img a fox"), CommandImage, "a fox"); err != nil {
 		t.Fatal(err)
 	}
-	kb := h.tg.methods("sendPhoto")[0].markup
-	if got := labels(kb); !reflect.DeepEqual(got, [][]string{
-		{i18n.T("en", "run.generate"), i18n.T("en", "run.no")}, {i18n.T("en", "run.model"), i18n.T("en", "run.as_video")},
-	}) || kb.InlineKeyboard[1][0].CallbackData != "j:1:m" || kb.InlineKeyboard[1][1].CallbackData != "j:1:v" {
+	p := onFree.tg.methods("sendRichMessage")[0]
+	if got := labels(p.markup); !reflect.DeepEqual(got, [][]string{
+		{i18n.T("en", "run.generate"), i18n.T("en", "run.no")}, {i18n.T("en", "run.as_video")},
+	}) || p.markup.InlineKeyboard[1][0].CallbackData != "j:1:v" {
 		t.Fatalf("keyboard = %v", got)
+	}
+	if !strings.Contains(p.text, "<details><summary>Model: <b>MAI-Image-2.6 Flash</b></summary>") || strings.Contains(p.text, "Settings") {
+		t.Fatalf("preview = %s", p.text)
 	}
 
-	h = panelHarness(t)
-	if err := h.press(1, 7, actModel); err != nil {
+	h := panelHarness(t)
+	if err := h.press(1, 7, pick("google/nano-banana-pro")); err != nil {
 		t.Fatal(err)
 	}
-	if err := h.pressPanel(1, 7, pick("google/nano-banana-pro")); err != nil {
-		t.Fatal(err)
+	edits := h.tg.methods("editMessageRich")
+	if len(edits) != 1 || edits[0].messageID != run(t, h).PreviewMessageID || edits[0].file != "card photo upload:framy.png" {
+		t.Fatalf("calls = %+v", h.tg.calls)
 	}
-	if got := lastCard(t, h); !reflect.DeepEqual(got, [][]string{{"j:1:go", "j:1:no"}, {"j:1:m", "j:1:s"}, {"j:1:v"}}) {
+	e := edits[0]
+	if got := lastCard(t, h); !reflect.DeepEqual(got, [][]string{{"j:1:go", "j:1:no"}, {"j:1:v"}}) {
 		t.Fatalf("keyboard = %v", got)
 	}
+	// The catalog here has no prices: Generate says nothing of one.
+	if gen := e.markup.InlineKeyboard[0][0].Text; gen != i18n.T("en", "run.generate") {
+		t.Fatalf("generate = %q", gen)
+	}
+	// After a model, both lists are folded.
+	if !strings.Contains(e.text, "<details><summary>Model: <b>Nano Banana Pro</b></summary>") ||
+		!strings.Contains(e.text, "<details><summary>Settings: <b>Auto · 1K · ×1</b></summary>") {
+		t.Fatalf("preview = %s", e.text)
+	}
 }
+
+// The keyboard's panels below are those of a preview sent as a photo, as
+// previews were before they were rich messages: such a preview keeps them
+// until its draft expires, and a guest run has them still.
 
 // In a group the list goes to the requester alone, over the preview the
 // chat keeps seeing.
 func TestModelOpensAPanelOnlyTheRequesterSees(t *testing.T) {
 	h := panelHarness(t)
 	before := run(t, h)
-	if err := h.press(1, 7, actModel); err != nil {
+	if err := h.pressPhoto(1, 7, actModel); err != nil {
 		t.Fatal(err)
 	}
 	sent := h.tg.methods("sendPhoto")
@@ -172,7 +192,7 @@ func TestModelOpensAPanelOnlyTheRequesterSees(t *testing.T) {
 func TestARefusedPanelShowsTheListOnThePreview(t *testing.T) {
 	h := panelHarness(t)
 	h.tg.fail["ephemeral"] = errBoom
-	if err := h.press(1, 7, actModel); err != nil {
+	if err := h.pressPhoto(1, 7, actModel); err != nil {
 		t.Fatal(err)
 	}
 	edits := h.tg.methods("editMessageReplyMarkup")
@@ -186,7 +206,7 @@ func TestARefusedPanelShowsTheListOnThePreview(t *testing.T) {
 
 func TestPickingAModelRevisesTheDraftAndRedrawsTheCard(t *testing.T) {
 	h := panelHarness(t)
-	if err := h.press(1, 7, actModel); err != nil {
+	if err := h.pressPhoto(1, 7, actModel); err != nil {
 		t.Fatal(err)
 	}
 	panel := run(t, h).PanelMessageID
@@ -198,8 +218,11 @@ func TestPickingAModelRevisesTheDraftAndRedrawsTheCard(t *testing.T) {
 	if len(h.queue.revised) != 1 {
 		t.Fatalf("revised = %+v", h.queue.revised)
 	}
+	// framy's defaults for the shape of the photo, as the site gives them,
+	// with the one result the free run had.
 	n := h.queue.revised[0]
-	if n.Offer.ID != "openrouter:google/nano-banana-pro" || n.Free || n.Estimate == nil || len(n.Settings) != 1 || n.Settings["n"] != 1 {
+	want := map[string]any{"aspect_ratio": "auto", "resolution": "1K", "n": 1}
+	if n.Offer.ID != "openrouter:google/nano-banana-pro" || n.Free || n.Estimate == nil || !reflect.DeepEqual(n.Settings, want) {
 		t.Fatalf("revision = %+v", n)
 	}
 	card := h.renderer.previews[len(h.renderer.previews)-1]
@@ -230,7 +253,7 @@ func TestPickingAModelRevisesTheDraftAndRedrawsTheCard(t *testing.T) {
 
 func TestAModelWithoutAKeyAsksForOne(t *testing.T) {
 	h := panelHarness(t)
-	if err := h.press(1, 7, actModel); err != nil {
+	if err := h.pressPhoto(1, 7, actModel); err != nil {
 		t.Fatal(err)
 	}
 	h.tg.reset()
@@ -247,7 +270,7 @@ func TestAModelWithoutAKeyAsksForOne(t *testing.T) {
 
 func TestTheSettingsOfAFreeRunAreFixed(t *testing.T) {
 	h := panelHarness(t)
-	if err := h.press(1, 7, actSettings); err != nil {
+	if err := h.pressPhoto(1, 7, actSettings); err != nil {
 		t.Fatal(err)
 	}
 	if got := h.tg.answers; len(got) != 1 || got[0] != "alert:"+i18n.T("en", "panel.free_fixed") {
@@ -260,7 +283,7 @@ func TestTheSettingsOfAFreeRunAreFixed(t *testing.T) {
 
 func TestASettingChangesTheRunOnTheKey(t *testing.T) {
 	h := panelHarness(t)
-	if err := h.press(1, 7, actModel); err != nil {
+	if err := h.pressPhoto(1, 7, actModel); err != nil {
 		t.Fatal(err)
 	}
 	if err := h.pressPanel(1, 7, pick("google/nano-banana-pro")); err != nil {
@@ -278,9 +301,9 @@ func TestASettingChangesTheRunOnTheKey(t *testing.T) {
 	got := labels(kb)
 	// A label row, then the values; the boolean seed is not offered.
 	if got[0][0] != i18n.T("en", "set.aspect_ratio") || kb.InlineKeyboard[0][0].Disabled == nil || kb.InlineKeyboard[0][0].CallbackData != "" ||
-		strings.Join(got[1], "|") != i18n.T("en", "set.auto")+"|1:1|16:9|9:16" || strings.Join(got[2], "|") != "4:3" ||
-		got[3][0] != i18n.T("en", "set.resolution") || strings.Join(got[4], "|") != "1K|2K|4K" ||
-		got[5][0] != i18n.T("en", "set.n") || strings.Join(got[6], "|") != "✓ 1|2|3|4" || len(got) != 8 {
+		strings.Join(got[1], "|") != "✓ "+i18n.T("en", "web.val.auto")+"|1:1|16:9|9:16" || strings.Join(got[2], "|") != "4:3" ||
+		got[3][0] != i18n.T("en", "set.resolution") || strings.Join(got[4], "|") != "✓ 1K|2K|4K" ||
+		got[5][0] != i18n.T("en", "set.n") || strings.Join(got[6], "|") != "✓ ×1|×2|×3|×4" || len(got) != 8 {
 		t.Fatalf("settings = %v", got)
 	}
 	if kb.InlineKeyboard[1][2].CallbackData != "j:1:S0.2" {
@@ -316,7 +339,7 @@ func TestASettingChangesTheRunOnTheKey(t *testing.T) {
 // A free model past the tier runs on the person's key when they have one.
 func TestAFreeModelPastTheTierGoesOnTheKey(t *testing.T) {
 	h := panelHarness(t)
-	if err := h.press(1, 7, actModel); err != nil {
+	if err := h.pressPhoto(1, 7, actModel); err != nil {
 		t.Fatal(err)
 	}
 	h.queue.refuse = &free.LimitError{Limit: 5}
@@ -331,7 +354,7 @@ func TestAFreeModelPastTheTierGoesOnTheKey(t *testing.T) {
 
 func TestAPanelGoesWithNo(t *testing.T) {
 	h := panelHarness(t)
-	if err := h.press(1, 7, actModel); err != nil {
+	if err := h.pressPhoto(1, 7, actModel); err != nil {
 		t.Fatal(err)
 	}
 	r := run(t, h)
@@ -349,7 +372,7 @@ func TestAPanelGoesWithNo(t *testing.T) {
 
 func TestGenerateOnThePanelTurnsThePreviewIntoTheLoop(t *testing.T) {
 	h := panelHarness(t)
-	if err := h.press(1, 7, actModel); err != nil {
+	if err := h.pressPhoto(1, 7, actModel); err != nil {
 		t.Fatal(err)
 	}
 	r := run(t, h)
@@ -388,7 +411,7 @@ func TestAnAdminSendsThePreviewToTheRequesterAlone(t *testing.T) {
 	if err := h.command(photoReply("/img make it night"), CommandImage, "make it night"); err != nil {
 		t.Fatal(err)
 	}
-	p := h.tg.methods("sendPhoto")[0]
+	p := h.tg.methods("sendRichMessage")[0]
 	if p.ephemeral == nil || p.ephemeral.ReceiverUserID != 7 || p.ephemeral.CallbackQueryID != "" || p.messageID != 10 {
 		t.Fatalf("preview = %+v", p)
 	}
@@ -396,22 +419,14 @@ func TestAnAdminSendsThePreviewToTheRequesterAlone(t *testing.T) {
 	if !r.PreviewEphemeral || r.PreviewMessageID == 0 || r.CommandEphemeral {
 		t.Fatalf("run = %+v", r)
 	}
-	// Model changes the preview itself: it is the requester's already.
-	h.tg.reset()
-	if err := h.press(1, 7, actModel); err != nil {
-		t.Fatal(err)
-	}
-	edits := h.tg.methods("editEphemeralMessageReplyMarkup")
-	if len(edits) != 1 || edits[0].messageID != r.PreviewMessageID || len(h.tg.methods("sendPhoto")) != 0 {
-		t.Fatalf("calls = %+v", h.tg.calls)
-	}
+	// A model changes the preview itself: it is the requester's already.
 	h.tg.reset()
 	if err := h.press(1, 7, pick("black-forest-labs/flux-3-image-klein")); err != nil {
 		t.Fatal(err)
 	}
-	// No message in the chat to take a file_id from: the card is uploaded.
-	eph := h.tg.methods("editEphemeralMessageMedia")
-	if len(eph) != 1 || eph[0].messageID != r.PreviewMessageID || eph[0].file != "photo upload:framy.png" || len(h.tg.methods("editMessageMedia")) != 0 {
+	eph := h.tg.methods("editEphemeralMessageRich")
+	if len(eph) != 1 || eph[0].messageID != r.PreviewMessageID || eph[0].action != "7" || eph[0].file != "card photo upload:framy.png" ||
+		len(h.tg.methods("editMessageRich")) != 0 {
 		t.Fatalf("calls = %+v", h.tg.calls)
 	}
 	// Generate: the chat sees the loop, as a reply to the command.
@@ -439,7 +454,7 @@ func TestARefusedEphemeralPreviewGoesToTheChat(t *testing.T) {
 	if err := h.command(command("/img a fox"), CommandImage, "a fox"); err != nil {
 		t.Fatal(err)
 	}
-	sent := h.tg.methods("sendPhoto")
+	sent := h.tg.methods("sendRichMessage")
 	if len(sent) != 1 || sent[0].ephemeral != nil || sent[0].messageID != 10 {
 		t.Fatalf("preview = %+v", sent)
 	}
@@ -458,7 +473,7 @@ func TestAStopDuringTheEphemeralPreviewSendsNothingToTheChat(t *testing.T) {
 	h.tg.beforeEphemeral = cancel
 	h.tg.fail["ephemeral"] = context.Canceled
 	_ = h.flow.command(ctx, command("/img a fox"), CommandImage, "a fox")
-	if sent := h.tg.methods("sendPhoto"); len(sent) != 0 {
+	if sent := h.tg.methods("sendRichMessage"); len(sent) != 0 {
 		t.Fatalf("the chat got the preview: %+v", sent)
 	}
 }
@@ -475,7 +490,7 @@ func TestAnEphemeralCommandGetsAnEphemeralPreview(t *testing.T) {
 	if job := h.store.jobs[1]; job.n.DedupeKey != "tg:-100:e5:1700000000" {
 		t.Fatalf("key = %q", job.n.DedupeKey)
 	}
-	p := h.tg.methods("sendPhoto")[0]
+	p := h.tg.methods("sendRichMessage")[0]
 	if p.ephemeral == nil || p.ephemeral.ReceiverUserID != 7 || p.replyEphemeral != 5 || p.messageID != 0 {
 		t.Fatalf("preview = %+v", p)
 	}
@@ -526,7 +541,7 @@ func TestInADirectChatTheListIsOnThePreview(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.tg.reset()
-	if err := h.press(1, 7, actModel); err != nil {
+	if err := h.pressPhoto(1, 7, actModel); err != nil {
 		t.Fatal(err)
 	}
 	edits := h.tg.methods("editMessageReplyMarkup")
@@ -539,7 +554,7 @@ func TestInADirectChatTheListIsOnThePreview(t *testing.T) {
 		t.Fatalf("list = %v", got)
 	}
 	h.tg.reset()
-	if err := h.press(1, 7, actBack); err != nil {
+	if err := h.pressPhoto(1, 7, actBack); err != nil {
 		t.Fatal(err)
 	}
 	if edits := h.tg.methods("editMessageReplyMarkup"); len(edits) != 1 || edits[0].markup.InlineKeyboard[0][0].CallbackData != "j:1:go" {
@@ -550,11 +565,11 @@ func TestInADirectChatTheListIsOnThePreview(t *testing.T) {
 // After Generate the panel's buttons do nothing.
 func TestThePanelIsForAPreviewOnly(t *testing.T) {
 	h := panelHarness(t)
-	if err := h.press(1, 7, actGenerate); err != nil {
+	if err := h.pressPhoto(1, 7, actGenerate); err != nil {
 		t.Fatal(err)
 	}
 	h.tg.reset()
-	if err := h.press(1, 7, actModel); err != nil {
+	if err := h.pressPhoto(1, 7, actModel); err != nil {
 		t.Fatal(err)
 	}
 	if len(h.tg.calls) != 0 || h.store.jobs[1].status != jobs.Queued {

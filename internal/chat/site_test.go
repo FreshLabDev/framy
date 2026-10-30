@@ -98,7 +98,7 @@ func TestAnimateOnASiteResult(t *testing.T) {
 		job.n.Prompt != "a fox" {
 		t.Fatalf("job = %+v", job)
 	}
-	if sent := h.tg.methods("sendPhoto"); len(sent) != 1 || sent[0].chatID != 7 || sent[0].messageID != result || sent[0].ephemeral != nil {
+	if sent := h.tg.methods("sendRichMessage"); len(sent) != 1 || sent[0].chatID != 7 || sent[0].messageID != result || sent[0].ephemeral != nil {
 		t.Fatalf("preview = %+v", sent)
 	}
 }

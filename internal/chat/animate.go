@@ -61,7 +61,7 @@ func (f *Flow) animate(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun
 		IsTopicMessage: run.ThreadID != 0, MessageThreadID: run.ThreadID,
 	}
 	settings := plan.SettingsFor(1)
-	d := draft{model: model, offer: offer, pay: payFree, settings: settings, taken: 1}
+	d := draft{model: model, offer: offer, pay: payFree, settings: settings, taken: 1, images: []price.Image{{Width: frame.Width, Height: frame.Height}}}
 	d.estimate = price.Of(model, offer, requestOf(run.Prompt, settings, []storage.Asset{frame}))
 	if d.quote, err = f.quote(ctx, run.UserID, run.Lang); err != nil {
 		_ = answer("")

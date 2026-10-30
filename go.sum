@@ -1,5 +1,5 @@
-github.com/FreshLabDev/tg v0.2.0-alpha.3.0.20261030203951-5e0a6c2b3efb h1:yYmYixQwFKEi6X6bEVJ6ndBQbMpN/THJ6c/1p+IkuZc=
-github.com/FreshLabDev/tg v0.2.0-alpha.3.0.20261030203951-5e0a6c2b3efb/go.mod h1:wsFn10qoSGmL5G1kkEQCxKG3N2BEqnry0yU1CrNwvrI=
+github.com/FreshLabDev/tg v0.2.0-alpha.3.0.20261030215521-0e76c2bd333c h1:Pm0z2xgkNSxWlNgnFUxJH9ZYAZhe3DjCdKe3hXKrscA=
+github.com/FreshLabDev/tg v0.2.0-alpha.3.0.20261030215521-0e76c2bd333c/go.mod h1:wsFn10qoSGmL5G1kkEQCxKG3N2BEqnry0yU1CrNwvrI=
 github.com/chromedp/cdproto v0.157.8 h1:Tkq0AjsUlC3Z4sJfHBzV/uAAxnTF/AZyuSTjfV/1gvk=
 github.com/chromedp/cdproto v0.157.8/go.mod h1:h68JaIuFr9o3yiayxEYhBdvaxgYO3shDrPSYhNlyfu0=
 github.com/chromedp/chromedp v0.21.0 h1:nVHgS2LHyhZJ1l3BWRbG2eFIFYiJMnvkJbELbd8WBoQ=

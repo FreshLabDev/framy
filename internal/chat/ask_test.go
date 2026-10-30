@@ -82,7 +82,7 @@ func TestWordsInADirectChatAreAskedAbout(t *testing.T) {
 	if job == nil || !job.n.Free || job.n.Offer.ID != free.ImageMAI.Offer || job.n.Prompt != "a fox in the snow" || job.n.DedupeKey != "tg:7:10" {
 		t.Fatalf("job = %+v", job)
 	}
-	if p := h.tg.methods("sendPhoto"); len(p) != 1 || p[0].messageID != 10 || p[0].ephemeral != nil {
+	if p := h.tg.methods("sendRichMessage"); len(p) != 1 || p[0].messageID != 10 || p[0].ephemeral != nil {
 		t.Fatalf("preview = %+v", p)
 	}
 	if len(h.tg.answers) != 1 || h.tg.answers[0] != "" {
@@ -259,7 +259,7 @@ func TestAnAlbumOfADirectChatIsAnsweredOnce(t *testing.T) {
 		if len(h.store.jobs) != 1 || len(job.n.Inputs) != 3 || job.n.Prompt != "one style" || job.n.DedupeKey != "tg:7:21" {
 			t.Fatalf("jobs %d, job %+v", len(h.store.jobs), job)
 		}
-		if p := h.tg.methods("sendPhoto"); len(p) != 1 || p[0].messageID != 21 {
+		if p := h.tg.methods("sendRichMessage"); len(p) != 1 || p[0].messageID != 21 {
 			t.Fatalf("preview = %+v", p)
 		}
 		// An item that comes late starts nothing.
