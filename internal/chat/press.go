@@ -32,7 +32,7 @@ func (f *Flow) press(ctx context.Context, cq *tg.CallbackQuery) error {
 		return err
 	}
 	if _, ok := pressedOn(cq, run, action); !ok {
-		f.log.Debug("press on another message", "job", jobID, "message", cq.Message.MessageID, "ephemeral", cq.Message.EphemeralMessageID)
+		f.log.Debug("press on another message", "job", jobID)
 		return answer("")
 	}
 	if cq.From.ID != run.UserID {
@@ -112,7 +112,12 @@ const (
 // is on the result; the rest are on the preview or the panel. Ephemeral
 // messages are numbered apart from the chat's.
 func pressedOn(cq *tg.CallbackQuery, run db.ChatRun, action string) (place, bool) {
-	if cq.Message.Chat.ID != run.ChatID {
+	if cq.Message == nil {
+		// A guest run's answer is an inline message; it has no result
+		// message of its own to animate.
+		return onPreview, guest(run) && cq.InlineMessageID == run.InlineMessageID && action != actAnimate
+	}
+	if guest(run) || cq.Message.Chat.ID != run.ChatID {
 		return 0, false
 	}
 	if action == actAnimate {
@@ -170,6 +175,10 @@ func (f *Flow) generate(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRu
 func (f *Flow) showLoop(ctx context.Context, run db.ChatRun) {
 	tk := f.ticker(run.JobID)
 	tk.action, tk.caption = f.now(), f.now()
+	if guest(run) {
+		f.guestLoop(ctx, run)
+		return
+	}
 	f.dropPanel(ctx, run)
 	loop, err := f.cfg.Renderer.Generating(ctx)
 	if run.PreviewEphemeral {

@@ -692,6 +692,28 @@ In groups one run makes one result. Proposal: more than one only on the site and
 - **BotFather.** Inline mode is on (`/setinline`) for @framyin_bot and @framytest_bot since 30 October 2026, with the placeholder "Search your images and videos".
 - **Not yet:** `chosen_inline_result` and editing a sent inline message.
 
+## Guest mode
+
+`@framyin_bot …` in a chat framy is not a member of (Bot API 10.0). Telegram sends the bot that message as `guest_message`, with the message it replied to, and the bot answers it once with `answerGuestQuery`. The answer is an inline message, which only its `inline_message_id` reaches. Built (`internal/chat/guest.go`, `internal/bot/guest.go`), not tried live yet (T9):
+
+- **The run is a group's run with one message.** The preview, the loop and the result or the error card are edits of the answer by `inline_message_id`, in that order. The requester presses as in a group, and anyone else gets the same alert. A run is a guest one when its `chat_run` has an `inline_message_id` (migration 022), and its job's surface is `guest`.
+- **What is read.** The text of the message without framy's mention, in any case; other bots' mentions stay, since up to three guest bots can be summoned at once. The sources are those of `/img`: the photo replied to, or the message's own. framy is not in the chat, so of an album only the photo replied to is taken. A video gets a line that framy changes videos in a direct chat. No text gets a line on what to write.
+- **The language** is the person's, not the chat's: framy does not know the chat, and its id may name another chat framy is in. For the same reason only the person is recorded in `core`, with no chat.
+- **No uploads.** Telegram takes no upload in an inline message, so every picture goes by a `file_id` Telegram has of it or by a signed link Telegram fetches from framy (`SharePath`, as in Send to Telegram):
+  - the preview card, drawn from the run's files in R2 when Telegram fetches it, as a JPEG of 1280 px, with a thumbnail of 320;
+  - the generating loop by the `file_id` a chat run got for it, else by a link to the MP4;
+  - the result by a link: a picture as a JPEG framy makes, an MP4 up to 20 MB as it is kept;
+  - the error card by its `file_id`, else by a link.
+
+  Each link carries a counter (`?v=`), so Telegram never shows a card it fetched before a pick. Without an https `SITE_URL` there is nothing to fetch from, and a guest message gets no answer.
+- **The answer** is the preview card as a photo, with the caption and the buttons a group's preview has: Generate, No, Model, Settings and Make a video. The run is recorded before the answer, since Telegram may fetch the card while it answers. A refusal (no free run left, a refused model) is a text answer instead, and so is a failure before the draft.
+- **Model and Settings** change the answer's buttons (`editMessageReplyMarkup` by `inline_message_id`), and a pick puts the card drawn again on it.
+- **While it runs** the caption shows the elapsed time every 10 s. There is no chat action: framy is not in the chat.
+- **Done.** The answer becomes the result, with the prompt and the model and no buttons. One result per run, as in a group. A picture or a video Telegram cannot be given (a WebM, an MP4 over 20 MB), or one it refused, stays in the person's history, and the caption says so.
+- **Nothing can be deleted** in an inline message. No, Stop and an expired preview leave the answer saying "Cancelled." with no buttons.
+- **BotFather.** Guest Mode is turned on in BotFather's Mini App; not done yet for either bot.
+- **Open until T9 is run:** whether presses on a guest answer come as callback queries; how many edits Telegram allows on one; whether `getFile` takes a `file_id` from a guest message's reply; whether Telegram's fetcher gets through Cloudflare to the links, and whether it fetches the card while answering.
+
 ## Mini App
 
 The same frontend as the site, opened from:
@@ -817,8 +839,8 @@ Temporary domain `framy.ws04.cc`. Mobile first; on a wide screen the composer an
   - inline mode (`/setinline`), on for both bots since 30 October 2026, and inline feedback (`/setinlinefeedback`), enabled for both on 26 October; it does nothing until framy asks for `chosen_inline_result`;
   - Main Mini App;
   - the Login Widget client with the site's URLs, which gives the client id and secret;
-  - later, guest mode.
-- **`allowed_updates`:** `message`, `edited_message`, `callback_query`, `my_chat_member`, `inline_query`; later `chosen_inline_result` and `guest_message`.
+  - Guest Mode, in BotFather's Mini App: framy handles it, not turned on yet.
+- **`allowed_updates`:** `message`, `edited_message`, `callback_query`, `my_chat_member`, `inline_query`, `guest_message`; later `chosen_inline_result`.
 - **Server:** our `telegram-bot-api` in `--local` mode. framy and the server share a volume, so a result is sent by a path on that volume (`InputFileLocal`) instead of an upload. Uploads up to 2,000 MB and downloads of any size.
 
 ## Changes to tg
@@ -829,7 +851,7 @@ Every change below is an issue in FreshLabDev/tg, [#2](https://github.com/FreshL
 
 ### Stage 1
 
-Released in tg v0.2.0-alpha.1 on 27 October 2026. v0.2.0-alpha.2 added the ephemeral media, and v0.2.0-alpha.3 (30 October 2026) the send options of Stage 2 and the inline, callback and draft changes of Stage 3. framy is on tg's `dev` at fe692f2, after alpha.3, for prepared inline messages.
+Released in tg v0.2.0-alpha.1 on 27 October 2026. v0.2.0-alpha.2 added the ephemeral media, and v0.2.0-alpha.3 (30 October 2026) the send options of Stage 2 and the inline, callback and draft changes of Stage 3. framy is on tg's `dev` at bd169f3, after alpha.3, for prepared inline messages and guest mode.
 
 | Change | Why |
 |:--|:--|
@@ -856,7 +878,7 @@ Released in tg v0.2.0-alpha.1 on 27 October 2026. v0.2.0-alpha.2 added the ephem
   - `InlineAnswer.Button` (`InlineQueryResultsButton` with `web_app`);
   - `EditInlineMessageText`, `EditInlineMessageMedia`, `EditInlineMessageCaption` and `EditInlineMessageReplyMarkup` by `inline_message_id`.
 - `CallbackQuery.Message` becomes a pointer, and `inline_message_id` is added (tg#13, released in v0.2.0-alpha.3). A callback from an inline or guest message has no message. This is a breaking change: a minor bump before v1.0.0, and every consumer updates.
-- `AnswerGuestQuery` and the `guest_message` update.
+- `AnswerGuestQuery` and the `guest_message` update: done in tg#14 on `dev` (bd169f3), with `Message.guest_query_id`, `guest_bot_caller_user`, `guest_bot_caller_chat` and `User.supports_guest_queries`. Not released yet.
 - Ephemeral media and `EditEphemeralMessageMedia`, `EditEphemeralMessageCaption` and `EditEphemeralMessageReplyMarkup`: done in v0.2.0-alpha.2, for the Model and Settings panel.
 - `SendMessageDraft`, `SendRichDraftHTML` and `SendRichDraftMarkdown` with `can_stop` and `keep_on_stop`, and the `stopped_message_generation` update (tg#16, released in v0.2.0-alpha.3).
 - `BotCommandScope` with a chat id and a user id.
@@ -979,7 +1001,7 @@ Live tests on a test bot and the real tunnel (details in [research/telegram.md](
 1. **Albums:** an admin with no rights receives every photo of an album (T2).
 2. **`editMessageMedia` in a group:** photo → animation → photo, and → video (T6).
 3. **Ephemeral command** in reply to a photo: does `reply_to_message` come (T5).
-4. **Guest mode:** a reply to a photo, edits of the answer, callback buttons (T9).
+4. **Guest mode:** a reply to a photo, edits of the answer, callback buttons (T9). The flow is built; the open points are listed under Guest mode.
 5. **`CF-IPCountry`** behind our tunnel.
 6. **OpenRouter OAuth** end to end, from the Mini App too.
 7. **Prices:** estimate against `usage.cost` on 10 runs per pricing kind.

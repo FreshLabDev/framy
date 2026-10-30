@@ -55,6 +55,10 @@ type ChatRun struct {
 	Stopped    bool
 	// ResultMessageID is the message the result went out in; zero before.
 	ResultMessageID int64
+	// InlineMessageID is the answer to a guest message (Guest mode): every
+	// message of the run is that one, changed by this id. ChatID is then the
+	// chat framy was summoned into, which nothing is sent to.
+	InlineMessageID string
 
 	UserID int64
 	Prompt string
@@ -80,7 +84,7 @@ const chatRunColumns = `
 	r.job_id, r.chat_id, r.thread_id, r.command_message_id, COALESCE(r.preview_message_id, 0),
 	r.preview_ephemeral, r.command_ephemeral, COALESCE(r.panel_message_id, 0), r.lang,
 	r.taken, r.album, r.note, r.clip_file_id, r.clip_bytes, r.clip_seconds, r.stage, r.generate_at, r.stopped,
-	COALESCE(r.result_message_id, 0), j.user_id, j.prompt, j.free, j.kind, j.status, COALESCE(j.error_class, ''), COALESCE(j.error, ''), COALESCE(m.name, o.name, j.model_id),
+	COALESCE(r.result_message_id, 0), COALESCE(r.inline_message_id, ''), j.user_id, j.prompt, j.free, j.kind, j.status, COALESCE(j.error_class, ''), COALESCE(j.error, ''), COALESCE(m.name, o.name, j.model_id),
 	j.offer_id, j.settings, j.created_at`
 
 const chatRunFrom = `
@@ -94,7 +98,7 @@ func scanChatRun(row pgx.Row) (ChatRun, error) {
 	err := row.Scan(&r.JobID, &r.ChatID, &r.ThreadID, &r.CommandMessageID, &r.PreviewMessageID,
 		&r.PreviewEphemeral, &r.CommandEphemeral, &r.PanelMessageID, &r.Lang,
 		&r.Taken, &r.Album, &r.Note, &r.ClipFileID, &r.ClipBytes, &r.ClipSeconds, &r.Stage, &at, &r.Stopped,
-		&r.ResultMessageID, &r.UserID, &r.Prompt, &r.Free, &r.Kind, &r.Status, &r.ErrorClass, &r.Error, &r.Model,
+		&r.ResultMessageID, &r.InlineMessageID, &r.UserID, &r.Prompt, &r.Free, &r.Kind, &r.Status, &r.ErrorClass, &r.Error, &r.Model,
 		&r.OfferID, &r.Settings, &r.Created)
 	if at != nil {
 		r.GenerateAt = *at
@@ -172,6 +176,17 @@ func (s *Store) SetChatRunPreview(ctx context.Context, jobID, messageID int64, e
 		WHERE job_id = $1`, jobID, messageID, ephemeral)
 	if err != nil {
 		return fmt.Errorf("set the preview of job %d: %w", jobID, err)
+	}
+	return nil
+}
+
+// SetChatRunInline records the inline message a guest run's answer became.
+func (s *Store) SetChatRunInline(ctx context.Context, jobID int64, inlineMessageID string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE chat_run SET inline_message_id = NULLIF($2, ''), updated_at = now()
+		WHERE job_id = $1`, jobID, inlineMessageID)
+	if err != nil {
+		return fmt.Errorf("set the inline message of job %d: %w", jobID, err)
 	}
 	return nil
 }

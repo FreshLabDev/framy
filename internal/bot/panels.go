@@ -183,9 +183,13 @@ func addressable(m tg.Message) bool {
 }
 
 func (b *Bot) onCallback(ctx context.Context, cq *tg.CallbackQuery) error {
-	// framy puts no button of its own on an inline message, so a press there
-	// is none of its panels or runs.
+	// The only buttons framy puts on an inline message are a guest run's:
+	// a press there is none of its panels.
 	if cq.Message == nil {
+		if b.flow != nil && cq.InlineMessageID != "" && b.flow.Owns(cq.Data) {
+			b.flow.Callback(ctx, cq)
+			return nil
+		}
 		return b.tg.AnswerCallbackQuery(ctx, cq.ID, "")
 	}
 	if b.flow != nil && b.flow.Owns(cq.Data) {

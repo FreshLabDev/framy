@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/FreshLabDev/tg"
@@ -61,6 +62,10 @@ type Telegram interface {
 	AnswerCallbackQueryAlert(ctx context.Context, callbackID, text string) error
 	AnswerInlineQuery(ctx context.Context, inlineQueryID string, answer tg.InlineAnswer) error
 	SavePreparedInlineMessage(ctx context.Context, userID int64, result tg.InlineQueryResult, chats tg.PreparedChats) (tg.PreparedInlineMessage, error)
+	AnswerGuestQuery(ctx context.Context, guestQueryID string, result tg.InlineQueryResult) (tg.SentGuestMessage, error)
+	EditInlineMessageMedia(ctx context.Context, inlineMessageID string, media tg.InputMedia, markup *tg.InlineKeyboardMarkup) error
+	EditInlineMessageCaption(ctx context.Context, inlineMessageID, caption string, opts tg.EditCaptionOptions) error
+	EditInlineMessageReplyMarkup(ctx context.Context, inlineMessageID string, markup *tg.InlineKeyboardMarkup) error
 }
 
 // Store is framy's database: *db.Store.
@@ -78,6 +83,7 @@ type Store interface {
 	MoveChatRun(ctx context.Context, jobID int64, from, to string) (bool, error)
 	SetChatRunPreview(ctx context.Context, jobID, messageID int64, ephemeral bool) error
 	SetChatRunPanel(ctx context.Context, jobID, panelID int64) error
+	SetChatRunInline(ctx context.Context, jobID int64, inlineMessageID string) error
 	SetChatRunNote(ctx context.Context, jobID int64, note string) error
 	ResultRun(ctx context.Context, chatID, messageID int64) (int64, bool, error)
 	StopChatRun(ctx context.Context, jobID int64) (bool, error)
@@ -194,6 +200,8 @@ type Flow struct {
 	// pictures made for them at once.
 	shareKey   [32]byte
 	shareSlots chan struct{}
+	// shareSeq makes each link of a guest run new (guestURL).
+	shareSeq atomic.Int64
 
 	wg sync.WaitGroup
 }
@@ -342,8 +350,9 @@ func (f *Flow) Callback(ctx context.Context, cq *tg.CallbackQuery) {
 	if cq == nil {
 		return
 	}
-	// A run's buttons are on messages in a chat, never on an inline one.
-	if cq.Message == nil {
+	// An inline message has a run's buttons only as a guest run's answer,
+	// and never the question of a DM.
+	if cq.Message == nil && (cq.InlineMessageID == "" || strings.HasPrefix(cq.Data, askPrefix)) {
 		f.wg.Go(func() { _ = f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, "") })
 		return
 	}
@@ -353,7 +362,7 @@ func (f *Flow) Callback(ctx context.Context, cq *tg.CallbackQuery) {
 			press = f.answerAsk
 		}
 		if err := press(ctx, cq); err != nil && ctx.Err() == nil {
-			f.log.Error("chat press failed", "chat", cq.Message.Chat.ID, "data", cq.Data, "error", err)
+			f.log.Error("chat press failed", "data", cq.Data, "error", err)
 		}
 	})
 }
@@ -397,6 +406,16 @@ func (f *Flow) chatLang(ctx context.Context, chat tg.Chat, u tg.User) string {
 		}
 	}
 	return f.personLang(ctx, u)
+}
+
+// langOf is what a run of m is written in: the chat's, or the person's for
+// a guest message, since framy keeps nothing of a chat it is not in, and
+// its id may name another chat framy knows.
+func (f *Flow) langOf(ctx context.Context, m *tg.Message) string {
+	if m.GuestQueryID != "" {
+		return f.personLang(ctx, *m.From)
+	}
+	return f.chatLang(ctx, m.Chat, *m.From)
 }
 
 // threadOf is the forum topic a message is in; 0 for none. A reply chain in

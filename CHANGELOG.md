@@ -582,6 +582,20 @@ was written from, and the skeleton of the service.
   passes an MP4 on as it is. The links are signed and last an hour. A video
   over 20 MB or a WebM cannot go and gets `not_shareable`. framy now builds
   on tg `dev` (fe692f2) for `savePreparedInlineMessage`.
+- Guest mode: `@framyin_bot …` works in a chat framy is not in, in reply to
+  a photo or not. The run is the one a group gets, in a single message: the
+  preview with Generate, No, Model, Settings and Make a video, then the
+  loop with the time and Stop, then the result or the error card, each an
+  edit of the answer. Telegram takes no upload there, so the cards, the loop
+  and the result go by links Telegram fetches from framy, signed as Send to
+  Telegram's are; without an https `SITE_URL` a guest message gets no
+  answer. A video result over 20 MB stays in the history, and the answer
+  says so. No, Stop and an expired preview leave the answer saying
+  "Cancelled.", since an inline message cannot be deleted. Only the person
+  is recorded, with their own language, not the chat. Migration 022 adds
+  the `guest` surface and the run's `inline_message_id`. framy builds on tg
+  `dev` (bd169f3) for `answerGuestQuery`. Guest Mode has to be turned on in
+  BotFather, and the live test (T9) is still to run.
 - CI on every push and weekly: modules, gofmt, build, vet, race tests,
   database tests on PostgreSQL 17, govulncheck, the image build, the photo
   and storage tests inside the image, on the ffmpeg it ships, and the local

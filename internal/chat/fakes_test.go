@@ -48,6 +48,8 @@ type call struct {
 	// sees. replyEphemeral is the ephemeral message it answers.
 	ephemeral      *tg.Ephemeral
 	replyEphemeral int64
+	// inline is the inline message an edit changed: a guest run's answer.
+	inline string
 }
 
 type fakeTelegram struct {
@@ -61,6 +63,8 @@ type fakeTelegram struct {
 	inlineAnswers []tg.InlineAnswer
 	// prepared are the results saved for shareMessage, in order.
 	prepared []tg.InlineQueryResult
+	// guestAnswers are the answers to guest messages, in order.
+	guestAnswers []tg.InlineQueryResult
 	// beforeEphemeral runs as an ephemeral send starts, as a stop would
 	// come in the middle of one.
 	beforeEphemeral func()
@@ -294,6 +298,43 @@ func (f *fakeTelegram) SavePreparedInlineMessage(_ context.Context, userID int64
 	}
 	f.prepared = append(f.prepared, result)
 	return tg.PreparedInlineMessage{ID: fmt.Sprintf("prep-%d", len(f.prepared)), ExpirationDate: clock.Add(24 * time.Hour).Unix()}, nil
+}
+
+// AnswerGuestQuery keeps the answer whole in guestAnswers; the inline
+// message it becomes is "inline-<query>".
+func (f *fakeTelegram) AnswerGuestQuery(_ context.Context, id string, result tg.InlineQueryResult) (tg.SentGuestMessage, error) {
+	if _, err := f.record(call{method: "answerGuestQuery", text: id}); err != nil {
+		return tg.SentGuestMessage{}, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.guestAnswers = append(f.guestAnswers, result)
+	return tg.SentGuestMessage{InlineMessageID: "inline-" + id}, nil
+}
+
+func (f *fakeTelegram) EditInlineMessageMedia(_ context.Context, id string, item tg.InputMedia, markup *tg.InlineKeyboardMarkup) error {
+	c := call{method: "editInlineMessageMedia", inline: id, markup: markup}
+	switch v := item.(type) {
+	case tg.InputMediaAnimation:
+		c.text, c.file = v.Caption, "animation "+fileOf(v.Media)
+	case tg.InputMediaPhoto:
+		c.text, c.file = v.Caption, "photo "+fileOf(v.Media)
+	case tg.InputMediaVideo:
+		c.text, c.file = v.Caption, "video "+fileOf(v.Media)
+		c.video = videoOf(v.Width, v.Height, v.Duration, v.SupportsStreaming)
+	}
+	_, err := f.record(c)
+	return err
+}
+
+func (f *fakeTelegram) EditInlineMessageCaption(_ context.Context, id, caption string, o tg.EditCaptionOptions) error {
+	_, err := f.record(call{method: "editInlineMessageCaption", inline: id, text: caption, markup: o.Markup})
+	return err
+}
+
+func (f *fakeTelegram) EditInlineMessageReplyMarkup(_ context.Context, id string, markup *tg.InlineKeyboardMarkup) error {
+	_, err := f.record(call{method: "editInlineMessageReplyMarkup", inline: id, markup: markup})
+	return err
 }
 
 // AnswerInlineQuery keeps the answer whole in inlineAnswers.
@@ -586,6 +627,15 @@ func (s *fakeStore) SetChatRunPreview(_ context.Context, jobID, messageID int64,
 	defer s.mu.Unlock()
 	if r, ok := s.runs[jobID]; ok {
 		r.PreviewMessageID, r.PreviewEphemeral, r.PanelMessageID = messageID, ephemeral, 0
+	}
+	return nil
+}
+
+func (s *fakeStore) SetChatRunInline(_ context.Context, jobID int64, inlineMessageID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if r, ok := s.runs[jobID]; ok {
+		r.InlineMessageID = inlineMessageID
 	}
 	return nil
 }
@@ -952,19 +1002,32 @@ type fakeRenderer struct {
 	previews []anim.Preview
 	albums   [][]string // the photos of each preview
 	cards    []string
+	// pictures: the cards are PNGs that decode, small, for a test that
+	// serves them.
+	pictures bool
 }
 
 func (r *fakeRenderer) file(name string) string {
 	path := filepath.Join(r.dir, name)
-	_ = os.WriteFile(path, []byte(name), 0o600)
+	_ = os.WriteFile(path, r.bytesOf(name), 0o600)
 	return path
+}
+
+// bytesOf is a picture's content: its name, or a small PNG with pictures.
+func (r *fakeRenderer) bytesOf(name string) []byte {
+	if !r.pictures || strings.HasSuffix(name, ".mp4") {
+		return []byte(name)
+	}
+	var buf bytes.Buffer
+	_ = png.Encode(&buf, image.NewNRGBA(image.Rect(0, 0, 64, 36)))
+	return buf.Bytes()
 }
 
 func (r *fakeRenderer) Preview(_ context.Context, dir string, p anim.Preview, paths []string) (anim.Media, error) {
 	r.previews = append(r.previews, p)
 	r.albums = append(r.albums, paths)
 	path := filepath.Join(dir, "preview.png")
-	if err := os.WriteFile(path, []byte("preview"), 0o600); err != nil {
+	if err := os.WriteFile(path, r.bytesOf("preview"), 0o600); err != nil {
 		return anim.Media{}, err
 	}
 	return anim.Media{Path: path, ContentType: "image/png", Width: 1280, Height: 720, TextDrawn: p.Label != "" && p.Lang != "ja"}, nil

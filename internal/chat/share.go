@@ -170,7 +170,7 @@ func (f *Flow) shareURL(userID, assetID int64, part byte) string {
 	b = binary.BigEndian.AppendUint64(b, uint64(f.now().Add(shareTTL).Unix()))
 	b = append(b, f.shareMAC(b)...)
 	ext := ".jpg"
-	if part == shareVideo {
+	if part == shareVideo || part == shareLoop {
 		ext = ".mp4"
 	}
 	return strings.TrimRight(f.cfg.AppURL, "/") + SharePath + base64.RawURLEncoding.EncodeToString(b) + ext
@@ -220,6 +220,10 @@ func (f *Flow) ServeShare(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if guestPart(part) {
+		f.serveGuest(w, r, userID, assetID, part)
+		return
+	}
 	ctx := r.Context()
 	src, err := f.cfg.Store.ShareSource(ctx, userID, assetID)
 	if errors.Is(err, db.ErrNoResult) {
@@ -241,18 +245,10 @@ func (f *Flow) ServeShare(w http.ResponseWriter, r *http.Request) {
 		f.serveSharedVideo(w, r, asset)
 		return
 	}
-	wait := time.NewTimer(shareWait)
-	select {
-	case f.shareSlots <- struct{}{}:
-		wait.Stop()
-		defer func() { <-f.shareSlots }()
-	case <-ctx.Done():
-		wait.Stop()
-		return
-	case <-wait.C:
-		http.Error(w, "busy", http.StatusServiceUnavailable)
+	if !f.takeShareSlot(w, r) {
 		return
 	}
+	defer func() { <-f.shareSlots }()
 	var out []byte
 	switch part {
 	case sharePhoto:
@@ -275,6 +271,23 @@ func (f *Flow) ServeShare(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/jpeg")
 	w.Header().Set("Content-Length", strconv.Itoa(len(out)))
 	_, _ = w.Write(out)
+}
+
+// takeShareSlot waits for a turn to make a picture, at most shareWait, and
+// answers the request itself when it gets none. The caller gives the slot
+// back.
+func (f *Flow) takeShareSlot(w http.ResponseWriter, r *http.Request) bool {
+	wait := time.NewTimer(shareWait)
+	defer wait.Stop()
+	select {
+	case f.shareSlots <- struct{}{}:
+		return true
+	case <-r.Context().Done():
+		return false
+	case <-wait.C:
+		http.Error(w, "busy", http.StatusServiceUnavailable)
+		return false
+	}
 }
 
 // serveSharedVideo passes the video on from the bucket as it is.

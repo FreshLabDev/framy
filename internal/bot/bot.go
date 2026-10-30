@@ -120,6 +120,9 @@ type Flow interface {
 	// Inline answers @framyin_bot typed in any chat with the person's past
 	// results.
 	Inline(ctx context.Context, q *tg.InlineQuery)
+	// Guest takes a guest message: @framyin_bot in a chat framy is not in,
+	// with the mention taken out of the prompt.
+	Guest(ctx context.Context, m *tg.Message, prompt string)
 }
 
 // WithFlow answers /img and /edit, and plain direct messages.
@@ -308,6 +311,10 @@ func (b *Bot) handle(ctx context.Context, u tg.Update) {
 	case u.InlineQuery != nil:
 		// Typed in someone else's chat, which the query does not name.
 		user = &u.InlineQuery.From
+	case u.GuestMessage != nil:
+		// framy is not in that chat, and its id may name another chat framy
+		// knows, so only the person is recorded.
+		user = u.GuestMessage.From
 	}
 	if user == nil || user.ID == 0 {
 		return
@@ -326,6 +333,8 @@ func (b *Bot) handle(ctx context.Context, u tg.Update) {
 		if b.flow != nil {
 			b.flow.Inline(ctx, u.InlineQuery)
 		}
+	case u.GuestMessage != nil:
+		b.onGuest(ctx, u.GuestMessage)
 	}
 	if err != nil {
 		metrics.UpdatesFailed.Inc()

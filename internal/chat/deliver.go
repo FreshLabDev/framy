@@ -153,6 +153,14 @@ func (f *Flow) progress(ctx context.Context, run db.ChatRun) {
 	tk.mu.Lock()
 	defer tk.mu.Unlock()
 	now := f.now()
+	if guest(run) {
+		// framy is not in the chat to show an action there.
+		if now.Sub(tk.caption) >= captionEvery && !run.GenerateAt.IsZero() {
+			tk.caption = now
+			f.guestCaption(ctx, run, generatingCaption(run.Lang, run.Prompt, run.Model, now.Sub(run.GenerateAt)), generatingKeyboard(run.Lang, run.JobID))
+		}
+		return
+	}
 	if now.Sub(tk.action) >= actionEvery {
 		tk.action = now
 		if err := f.cfg.Telegram.SendChatAction(ctx, run.ChatID, run.ThreadID, chatAction(catalog.Kind(run.Kind) == catalog.Video)); err != nil {
@@ -183,6 +191,10 @@ func (f *Flow) deliver(ctx context.Context, run db.ChatRun) {
 		return
 	}
 	a := results[0]
+	if guest(run) {
+		f.guestDeliver(ctx, run, a)
+		return
+	}
 	caption := resultCaption(run.Prompt, run.Model)
 	var msg tg.Message
 	if strings.HasPrefix(a.ContentType, "video/") {
@@ -465,6 +477,10 @@ func reason(run db.ChatRun) string {
 // text, so the card is a picture; where its faces lack the letters, the
 // line goes in the caption.
 func (f *Flow) failed(ctx context.Context, run db.ChatRun, key string) {
+	if guest(run) {
+		f.guestFailed(ctx, run, key)
+		return
+	}
 	text := t(run.Lang, key)
 	card, err := f.cfg.Renderer.ErrorCard(ctx, text, run.Lang)
 	if err == nil {

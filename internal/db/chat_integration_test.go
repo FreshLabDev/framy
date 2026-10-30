@@ -229,3 +229,40 @@ func TestAClipRunKeepsItsClip(t *testing.T) {
 		t.Fatal("a clip of negative length was taken")
 	}
 }
+
+// A guest run has no message of its own in the chat, only the inline
+// message of the answer, and its job says it came from a guest message.
+func TestAGuestRunKeepsItsInlineMessage(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+	job := chatJob(t, store, 4305, "tg:g:gq-1")
+	if _, err := store.pool.Exec(ctx, `UPDATE job SET surface = 'guest', message_id = NULL WHERE id = $1`, job); err != nil {
+		t.Fatalf("a guest job: %v", err)
+	}
+	if err := store.AddChatRun(ctx, ChatRun{JobID: job, ChatID: -100, Lang: "en", Taken: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := store.ChatRun(ctx, job); err != nil || got.InlineMessageID != "" || got.PreviewMessageID != 0 {
+		t.Fatalf("before the answer: %+v, %v", got, err)
+	}
+	if err := store.SetChatRunInline(ctx, job, "AgAAAEq3"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := store.ChatRun(ctx, job); got.InlineMessageID != "AgAAAEq3" {
+		t.Fatalf("inline message = %q", got.InlineMessageID)
+	}
+	// No message of the chat names it.
+	if _, found, err := store.ResultRun(ctx, -100, 0); err != nil || found {
+		t.Fatalf("found by a message: %v %v", found, err)
+	}
+	if err := store.SetChatRunInline(ctx, job, ""); err != nil {
+		t.Fatal(err)
+	}
+	var null bool
+	if err := store.pool.QueryRow(ctx, `SELECT inline_message_id IS NULL FROM chat_run WHERE job_id = $1`, job).Scan(&null); err != nil || !null {
+		t.Fatalf("cleared to %v, %v", null, err)
+	}
+	if _, err := store.pool.Exec(ctx, `UPDATE job SET surface = 'inline' WHERE id = $1`, job); err == nil {
+		t.Fatal("a surface framy has not was taken")
+	}
+}

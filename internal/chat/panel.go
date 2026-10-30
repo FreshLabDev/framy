@@ -363,7 +363,7 @@ func (f *Flow) view(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun, o
 		_ = answer("")
 		return err
 	}
-	if on == onPreview && !run.PreviewEphemeral && isGroup(run.ChatID) && v != viewMain {
+	if on == onPreview && !run.PreviewEphemeral && !guest(run) && isGroup(run.ChatID) && v != viewMain {
 		if f.openPanel(ctx, cq, run, s, kb) {
 			return answer("")
 		}
@@ -414,6 +414,8 @@ func labelDrawn(p anim.Preview) bool { return p.Label != "" && anim.Covers(p.Lab
 func (f *Flow) setKeyboard(ctx context.Context, run db.ChatRun, on place, kb *tg.InlineKeyboardMarkup) {
 	var err error
 	switch {
+	case guest(run):
+		err = f.cfg.Telegram.EditInlineMessageReplyMarkup(ctx, run.InlineMessageID, kb)
 	case on == onPanel:
 		err = f.cfg.Telegram.EditEphemeralMessageReplyMarkup(ctx, run.ChatID, run.UserID, run.PanelMessageID, kb)
 	case run.PreviewEphemeral:
@@ -577,6 +579,18 @@ func (f *Flow) redraw(ctx context.Context, run db.ChatRun, on place, v view) err
 	s, err := f.stateOf(ctx, run)
 	if err != nil {
 		return err
+	}
+	if guest(run) {
+		// Telegram fetches the card framy draws from the run now.
+		kb, err := f.keyboardOf(ctx, run, s, v)
+		if err != nil {
+			return err
+		}
+		err = f.guestCard(ctx, run, previewCaption(run.Lang, run.Prompt, s.draft, labelDrawn(previewCard(run.Lang, s.draft))), kb)
+		if err != nil && !tg.IsMessageNotModified(err) {
+			return fmt.Errorf("guest card not redrawn: %w", err)
+		}
+		return nil
 	}
 	dir, done, err := f.cfg.Work.Dir("chat")
 	if err != nil {

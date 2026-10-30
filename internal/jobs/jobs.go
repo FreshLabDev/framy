@@ -60,6 +60,8 @@ const (
 	MiniApp Surface = "mini_app"
 	Group   Surface = "group"
 	DM      Surface = "dm"
+	// Guest is a chat framy is not in, from a guest message.
+	Guest Surface = "guest"
 )
 
 // New is a job about to be created.

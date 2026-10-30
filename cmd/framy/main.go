@@ -92,7 +92,7 @@ func run(log *slog.Logger) error {
 		// my_chat_member tells core which groups framy is in; Telegram leaves
 		// it out of the default set, so it has to be asked for. So does
 		// edited_message, which can swap the file of an album's item.
-		tg.WithAllowedUpdates("message", "edited_message", "callback_query", "my_chat_member", "inline_query"),
+		tg.WithAllowedUpdates("message", "edited_message", "callback_query", "my_chat_member", "inline_query", "guest_message"),
 		tg.WithLogger(log),
 		tg.WithObserver(func(e tg.Event) {
 			switch {

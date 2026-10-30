@@ -17,6 +17,7 @@ type fakeFlow struct {
 	plain     []string
 	callbacks []string
 	inline    []string
+	guests    []string
 }
 
 type flowCommand struct{ command, prompt string }
@@ -47,6 +48,12 @@ func (f *fakeFlow) Inline(_ context.Context, q *tg.InlineQuery) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.inline = append(f.inline, q.Query)
+}
+
+func (f *fakeFlow) Guest(_ context.Context, _ *tg.Message, prompt string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.guests = append(f.guests, prompt)
 }
 
 // framy streams no drafts: a Stop on one, which framy does not ask
@@ -81,19 +88,35 @@ func TestAnInlineQueryGoesToTheFlow(t *testing.T) {
 	}
 }
 
-// A press on a button of an inline message has no message: it is answered,
-// touches its sender only, and reaches neither a panel nor the flow.
-func TestAPressOnAnInlineMessageIsOnlyAnswered(t *testing.T) {
+// A press on a button of an inline message has no message. One of a run,
+// which a guest run's answer is, goes to the flow; any other is answered.
+// Either way only its sender is touched, and no panel is reached.
+func TestAPressOnAnInlineMessageGoesToTheFlowOnlyIfARunsIs(t *testing.T) {
 	flow := &fakeFlow{}
 	b, store, client := newBotWith(WithFlow(flow))
 	b.handle(context.Background(), tg.Update{UpdateID: 1, Callback: &tg.CallbackQuery{
 		ID: "cq", From: tg.User{ID: 7}, InlineMessageID: "im", Data: "j:5:g",
 	}})
-	if len(flow.callbacks) != 0 || len(client.answers) != 1 || client.answers[0] != "cq" {
+	if len(flow.callbacks) != 1 || flow.callbacks[0] != "j:5:g" || len(client.answers) != 0 {
 		t.Fatalf("flow got %v, the bot answered %+v", flow.callbacks, client.answers)
 	}
-	if want := (touch{7, 0}); len(store.touches) != 1 || store.touches[0] != want {
+	b.handle(context.Background(), tg.Update{UpdateID: 2, Callback: &tg.CallbackQuery{
+		ID: "cq2", From: tg.User{ID: 7}, InlineMessageID: "im", Data: "h:7:new",
+	}})
+	if len(flow.callbacks) != 1 || len(client.answers) != 1 || client.answers[0] != "cq2" || len(client.calls) != 0 {
+		t.Fatalf("flow got %v, the bot answered %+v, sent %+v", flow.callbacks, client.answers, client.calls)
+	}
+	if want := (touch{7, 0}); len(store.touches) != 2 || store.touches[0] != want || store.touches[1] != want {
 		t.Fatalf("touches = %+v", store.touches)
+	}
+
+	// Without a flow every one is answered.
+	b, _, client = newBot()
+	b.handle(context.Background(), tg.Update{UpdateID: 3, Callback: &tg.CallbackQuery{
+		ID: "cq", From: tg.User{ID: 7}, InlineMessageID: "im", Data: "j:5:g",
+	}})
+	if len(client.answers) != 1 {
+		t.Fatalf("answers = %+v", client.answers)
 	}
 }
 

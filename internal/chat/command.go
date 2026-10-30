@@ -190,7 +190,7 @@ type draft struct {
 func (d draft) video() bool { return d.offer.Kind == catalog.Video }
 
 func (f *Flow) command(ctx context.Context, m *tg.Message, command, prompt string) error {
-	lang := f.chatLang(ctx, m.Chat, *m.From)
+	lang := f.langOf(ctx, m)
 	edit, motion := command == CommandVideo, command == commandMotion
 	if prompt == "" {
 		if edit {
@@ -280,7 +280,7 @@ func (f *Flow) fail(ctx context.Context, m *tg.Message, lang string, err error) 
 // the free tier is used up and the person has no key. A zero id with no
 // refusal is a job the same command made already.
 func (f *Flow) draft(ctx context.Context, m *tg.Message, src found, prompt, key, dir string) (draft, string, error) {
-	lang := f.chatLang(ctx, m.Chat, *m.From)
+	lang := f.langOf(ctx, m)
 	user := m.From.ID
 	var d draft
 	photos := src.photos
@@ -329,7 +329,7 @@ func (f *Flow) draft(ctx context.Context, m *tg.Message, src found, prompt, key,
 // video while the week's is left, on the person's key past it. A video
 // takes one start frame, so of more photos the first goes.
 func (f *Flow) draftMotion(ctx context.Context, m *tg.Message, src found, prompt, key, dir string) (draft, string, error) {
-	lang := f.chatLang(ctx, m.Chat, *m.From)
+	lang := f.langOf(ctx, m)
 	user := m.From.ID
 	plan, model, offer, err := f.videoPlan(ctx)
 	if err != nil {
@@ -430,7 +430,10 @@ func frameCount(settings map[string]any) int {
 // newJob is the draft job of a command, as d has it: free when d.pay is.
 func newJob(m *tg.Message, key, prompt string, inputs []int64, d *draft) jobs.New {
 	surface := jobs.Group
-	if m.Chat.Type == "private" {
+	switch {
+	case m.GuestQueryID != "":
+		surface = jobs.Guest
+	case m.Chat.Type == "private":
 		surface = jobs.DM
 	}
 	n := jobs.New{
@@ -487,7 +490,7 @@ const clipSlack = 0.05
 // it, the person's key takes as much as the model does. A refusal is the
 // text to answer with instead.
 func (f *Flow) draftVideo(ctx context.Context, m *tg.Message, c clip, prompt, key, dir string) (draft, string, error) {
-	lang := f.chatLang(ctx, m.Chat, *m.From)
+	lang := f.langOf(ctx, m)
 	user := m.From.ID
 	plan := free.VideoEdit
 	model, offer, err := f.cfg.Store.Offer(ctx, plan.Offer)
@@ -718,6 +721,10 @@ func (f *Flow) cancel(ctx context.Context, jobID int64) {
 // removePreview deletes the message that shows a run before Generate, in
 // the chat or the requester's own, and the run's panel.
 func (f *Flow) removePreview(ctx context.Context, run db.ChatRun) {
+	if guest(run) {
+		f.guestEnd(ctx, run)
+		return
+	}
 	f.dropPanel(ctx, run)
 	if run.PreviewEphemeral {
 		f.deleteEphemeral(ctx, run.ChatID, run.UserID, run.PreviewMessageID)
