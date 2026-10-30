@@ -257,8 +257,13 @@ was written from, and the skeleton of the service.
   makes an image or a video from a prompt and photos: the kind, the model
   with its variants, the way to pay (the free allowance or a key), the
   settings the model has, and the price of exactly that run, which follows
-  every choice. The model picker shows recommendations, the families by
-  maker or by price with the cheapest way to run each, and a detail card.
+  every choice. A model's `size` is a choice only where it is the one way to
+  set the shape and the resolution, as on GPT Image; a video model that lists
+  it beside its own ratio and resolution shows one row of each and runs
+  without it. Fast mode is the site's own switch: on, the run goes to the
+  model's fast mode (Wan 3.0 Prime for Wan 3.0). The model picker shows
+  recommendations, the families by maker or by price with the cheapest way
+  to run each, and a detail card.
   Create starts the run and the stage follows it live over the event stream
   (polling every 5 seconds when too many streams are open) until the result
   shows. On a phone the composer is a dock at the bottom and the settings

@@ -7829,6 +7829,24 @@
     "ja": "写真と同じ",
     "ar": "مثل الصورة"
   },
+  "web.set.as_clip": {
+    "en": "as the clip",
+    "ru": "как у ролика",
+    "uk": "як у кліпу",
+    "es": "como el clip",
+    "fr": "comme le clip",
+    "de": "wie der Clip",
+    "it": "come il clip",
+    "pl": "jak klip",
+    "cs": "jako klip",
+    "tr": "klip gibi",
+    "sv": "som klippet",
+    "be": "як у кліпа",
+    "ca": "com el clip",
+    "zh": "与片段相同",
+    "ja": "クリップと同じ",
+    "ar": "مثل المقطع"
+  },
   "web.set.aspect_ratio": {
     "en": "Ratio",
     "ru": "Пропорции",
@@ -8044,6 +8062,24 @@
     "zh": "最接近照片",
     "ja": "写真に最も近い",
     "ar": "الأقرب إلى الصورة"
+  },
+  "web.set.near_clip": {
+    "en": "nearest to the clip",
+    "ru": "ближе к ролику",
+    "uk": "найближче до кліпу",
+    "es": "lo más cercano al clip",
+    "fr": "au plus proche du clip",
+    "de": "am nächsten am Clip",
+    "it": "il più vicino al clip",
+    "pl": "najbliżej klipu",
+    "cs": "nejblíže klipu",
+    "tr": "klibe en yakın",
+    "sv": "närmast klippet",
+    "be": "бліжэй да кліпа",
+    "ca": "el més proper al clip",
+    "zh": "最接近片段",
+    "ja": "クリップに最も近い",
+    "ar": "الأقرب إلى المقطع"
   },
   "web.set.only_at": {
     "en": "{v} only with {list}",

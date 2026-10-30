@@ -385,8 +385,10 @@ function stepSlider(name, vals, v, store, sub, gapOf = () => null) {
 }
 function fieldBits(name, v, src) {
   if (!src) return [];
-  if (name === "aspect_ratio" && v === "auto") return [h("span", { class: "right" }, t("set.as_photo"))];
-  if ((name === "aspect_ratio" || name === "size") && S.wanted[name] === undefined) return [h("span", { class: "right" }, t("set.near_photo"))];
+  // The shape follows the first photo, else the clip.
+  const of = images().length ? "photo" : "clip";
+  if (name === "aspect_ratio" && v === "auto") return [h("span", { class: "right" }, t("set.as_" + of))];
+  if ((name === "aspect_ratio" || name === "size") && S.wanted[name] === undefined) return [h("span", { class: "right" }, t("set.near_" + of))];
   return [];
 }
 /* GPT Image's one "size" is both the shape and the resolution; here they are two rows like everywhere else. */

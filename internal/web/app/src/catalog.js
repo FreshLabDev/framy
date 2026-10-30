@@ -97,8 +97,12 @@ export const SECONDARY = new Set(["background", "thinking_level", "google_search
 export const SEARCH = ["google_search", "image_search"];
 export const SICON = { aspect_ratio: "ratio", size: "ratio", resolution: "res", quality: "bars", thinking_level: "bars", background: "checker", duration: "clock",
   generate_audio: "audio", fast: "bolt", google_search: "search", image_search: "image", upscale_factor: "res", creativity: "spark" };
-// The fields of an offer in the form's order; a boolean "size" is a switch of the provider's, not a choice.
-export const fieldsOf = (o) => SHOWN.filter((n) => o.params[n] && !(n === "size" && o.params[n].type !== "enum"));
+// The fields of an offer in the form's order. "size" is a choice only where
+// it is the one way to set the shape and the resolution, as on GPT Image: a
+// video model lists it beside its own aspect_ratio and resolution, and a
+// boolean "size" is a switch of the provider's.
+const sizeOnly = (o) => o.params.size.type === "enum" && !o.params.aspect_ratio && !o.params.resolution;
+export const fieldsOf = (o) => SHOWN.filter((n) => o.params[n] && (n !== "size" || sizeOnly(o)));
 
 export const gcd = (a, b) => (b ? gcd(b, a % b) : a);
 export const ratioOfSize = (s) => { const [w, hh] = String(s).split("x").map(Number); const g = gcd(w, hh) || 1; return `${w / g}:${hh / g}`; };

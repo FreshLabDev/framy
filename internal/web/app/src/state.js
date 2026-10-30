@@ -71,6 +71,14 @@ export const usable = (m, pay) => !S.signed || (pay === "free" ? freeLeft(m.kind
 
 export function sourceRatio() { const i = images()[0] || clip(); return i && i.w && i.h ? i.w / i.h : null; }
 export const settings = (m, pay, wanted = S.wanted) => settingsOf(m, pay, wanted, sourceRatio());
+// The Fast switch is the site's own, never a setting the server sees: on, the
+// run goes to the model's fast mode (Wan 3.0 Prime for Wan 3.0) with the
+// settings that fit it.
+export function fastOf(m, pay, set) {
+  if (!("fast" in set)) return { m, set };
+  const { fast, ...rest } = set, f = fast ? C.byId[m.fast] : null;
+  return f ? { m: f, set: settings(f, pay, { ...S.wanted, ...rest }) } : { m, set: rest };
+}
 
 /* Clips. */
 export const inputsOf = (m, pay) => offerOf(m, pay)?.inputs || {};
@@ -128,8 +136,8 @@ export const contFits = (m, pay) => !!S.cont && m.kind === "video" && m.id === S
 // What the composer quotes for the run: the run as POST /api/jobs would get it.
 // A file framy keeps goes by its id; one still in the browser, or a clip to be
 // cut, by what the browser read of it.
-export function runItem(m = M(), pay = payOf(m), set = settings(m, pay)) {
-  const files = [], inputs = [];
+export function runItem(m0 = M(), pay = payOf(m0), set0 = settings(m0, pay)) {
+  const { m, set } = fastOf(m0, pay, set0), files = [], inputs = [];
   for (const f of going(m, pay)) {
     const cut = f === clip() && S.cut;
     if (f.upload && !cut) inputs.push(f.upload);

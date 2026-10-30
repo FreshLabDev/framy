@@ -560,3 +560,78 @@ func TestBrowserRunSmooth(t *testing.T) {
 		noErrors(t, ctx)
 	}
 }
+
+// TestBrowserVideoSettings checks the form of a video model that lists a size
+// beside its own aspect_ratio and resolution: one row of each, and no size in
+// the run. And the Fast switch, which the server never sees: on, the run goes
+// to the fast mode of the model.
+func TestBrowserVideoSettings(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const sent = [], fetch0 = window.fetch;
+	window.fetch = (u, o) => { if (String(u).endsWith("/api/jobs") && o?.method === "POST") sent.push(JSON.parse(o.body)); return fetch0(u, o); };
+	const rows = () => [...document.querySelectorAll("#how [data-k^='h-f-']")].filter(vis).map((r) => r.querySelector(".lt").textContent);
+	async function pick(fam, label) {
+	  document.querySelector("#how .mhead").click();
+	  await wait(700);
+	  const q = document.querySelector("#pksearch");
+	  q.value = fam;
+	  q.dispatchEvent(new Event("input", { bubbles: true }));
+	  await wait(800);
+	  // A variant is a pill in its family's row; a family with one current variant is the row itself.
+	  const row = document.querySelector("#pkrows .frow");
+	  ([...row.querySelectorAll(".pill:not(.old)")].find((b) => b.textContent.trim() === label) || row.querySelector(".fhit")).click();
+	  await wait(900);
+	}
+	const fast = (on) => { const b = document.querySelector("#how [data-k='h-f-fast'] button"); if (b.textContent.startsWith("On") !== on) b.click(); };
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(700);
+	await pick("Seedance", "2.0 Mini");
+	const seedance = rows();
+	await press("done", () => sent.length > 0);
+	await pick("Wan", "3.0");
+	const wan = rows();
+	fast(true);
+	await wait(400);
+	await press("done", () => sent.length > 1);
+	fast(false);
+	await wait(400);
+	await press("done", () => sent.length > 2);
+	return { seedance, wan, sent };`)
+	count := func(rows []any, label string) (n int) {
+		for _, r := range rows {
+			if r == label {
+				n++
+			}
+		}
+		return n
+	}
+	seedance, _ := s["seedance"].([]any)
+	if count(seedance, "Ratio") != 1 || count(seedance, "Resolution") != 1 {
+		t.Errorf("Seedance 2.0 Mini: rows %v, want one Ratio and one Resolution", seedance)
+	}
+	sent, _ := s["sent"].([]any)
+	if len(sent) != 3 {
+		t.Fatalf("runs sent: %v", sent)
+	}
+	body := func(i int) (string, map[string]any) {
+		b := sent[i].(map[string]any)
+		set, _ := b["settings"].(map[string]any)
+		return b["offer"].(string), set
+	}
+	if offer, set := body(0); offer != "openrouter:bytedance/seedance-2.0-mini" || set["size"] != nil || set["aspect_ratio"] == nil || set["resolution"] == nil {
+		t.Errorf("Seedance run: %s %v", offer, set)
+	}
+	if wan, _ := s["wan"].([]any); count(wan, "Fast mode") != 1 {
+		t.Errorf("Wan 3.0: rows %v, want a Fast switch", wan)
+	}
+	if offer, set := body(1); offer != "openrouter:alibaba/wan-3.0-prime" || set["fast"] != nil {
+		t.Errorf("Wan 3.0 with Fast on: %s %v", offer, set)
+	}
+	if offer, set := body(2); offer != "openrouter:alibaba/wan-3.0" || set["fast"] != nil {
+		t.Errorf("Wan 3.0 with Fast off: %s %v", offer, set)
+	}
+	noErrors(t, ctx)
+}

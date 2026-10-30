@@ -4,7 +4,7 @@
 import { $ } from "./dom.js";
 import { t } from "./i18n.js";
 import { api, watchJob, isFinal } from "./api.js";
-import { S, M, payOf, settings, going, clip, contFits, keyOk, runItem } from "./state.js";
+import { S, M, payOf, settings, fastOf, going, clip, contFits, keyOk, runItem } from "./state.js";
 import { C, offerOf, PNAME, framesOf, photoLimit } from "./catalog.js";
 import { known, priceText, clearPrices } from "./price.js";
 import { act, render, renderBar } from "./composer.js";
@@ -51,7 +51,7 @@ const newKey = () => "site-" + crypto.randomUUID();
 const shownOf = (e) => (e && e.kind !== "unknown" ? (e.kind === "up_to" ? e.max_usd : e.usd) : null);
 
 function fromComposer() {
-  const m = M(), pay = payOf(m), set = settings(m, pay), e = known(runItem(m, pay, set))?.estimate;
+  const m0 = M(), pay = payOf(m0), { m, set } = fastOf(m0, pay, settings(m0, pay)), e = known(runItem(m, pay, set))?.estimate;
   const files = going(m, pay), c = clip();
   return { kind: m.kind, model: m.id, pay, offer: offerOf(m, pay).id, prompt: $("#prompt").value.trim(), settings: set, files,
     clip: files.includes(c) ? c : null, cut: files.includes(c) && S.cut ? { ...S.cut } : null, cont: contFits(m, pay) ? S.cont : null,
@@ -208,8 +208,8 @@ export function byKey(run = S.run) {
   const p = keyFor(run), m = C.byId[run.model];
   if (!p || !m) return;
   act(() => { restore(run, p); render(); });
-  const set = settings(m, p), e = known(runItem(m, p, set))?.estimate;
-  start(copyOf(run, { pay: p, offer: offerOf(m, p).id, settings: set, shown: shownOf(e), shownLabel: e ? priceText(e) : "", priceLabel: e?.label || "" }));
+  const r = fastOf(m, p, settings(m, p)), e = known(runItem(r.m, p, r.set))?.estimate;
+  start(copyOf(run, { model: r.m.id, pay: p, offer: offerOf(r.m, p).id, settings: r.set, shown: shownOf(e), shownLabel: e ? priceText(e) : "", priceLabel: e?.label || "" }));
 }
 export function drop() { S.showJob = false; renderStage(); renderBar(); }
 // The clip was longer than framy takes whole: its part is picked in the editor.
