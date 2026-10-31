@@ -11,8 +11,22 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
-Nothing is released yet. The repository holds the design, the research it
-was written from, and the skeleton of the service.
+## v0.1.0-alpha.1 - 2026-10-31
+
+The first alpha of framy: images and videos from AI models on the site
+https://framy.ws04.cc, in the Telegram Mini App and in chats with
+`@framyin_bot`. A few images a day and a video a week are free; everything
+else runs on the person's own OpenAI, Gemini or OpenRouter key. Everything
+below is written and tested, and most of it has not met real traffic yet.
+
+### Known Limitations
+
+- The `framy` schema has no backups yet: the daily encrypted dump into the
+  `framy-backups` bucket is not set up (#28). R2 keeps its own copy of the
+  files.
+- `/img` in reply to a photo sent before framy joined the group gets no
+  photo: the Bot API gives a bot no message it did not see.
+- Transparency in HEIF and AVIF photos is lost when they are normalized.
 
 ### Added
 

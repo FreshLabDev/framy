@@ -138,7 +138,7 @@ ever be true of either.
 
 ## framy today
 
-framy has no release yet. The first line:
+The first release is `v0.1.0-alpha.1` (31 October 2026). The line:
 
 ```text
 v0.1.0-alpha.N  the service, the site, the free images and /img
