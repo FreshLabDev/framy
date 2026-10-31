@@ -11,6 +11,19 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+## v0.1.0-alpha.3 - 2026-10-31
+
+Several results from one press, end to end: the site and the Mini App make
+frames, each with its own model and settings, the library keeps a press as
+one card, and the DM gets it as one album. The site carries framy's mark. No
+migrations: production and the test bot take the same image in any order.
+
+### Known Limitations
+
+- The `framy` schema still has no backups (#28).
+- Switching the library between All, Images and Videos makes the page jump
+  (#51).
+
 ### Added
 
 - A press of several frames comes to the DM as one album, in the order of
