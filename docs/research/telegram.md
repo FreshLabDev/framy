@@ -442,6 +442,7 @@
 - T3. `forwardMessage` элемента альбома в служебный чат: есть ли `media_group_id` в ответе, совпадает ли `forward_origin.date` у соседей, как ведёт себя лимит.
 - T4. Патч `getMessages`: разрешает ли Telegram bot-аккаунту получать сообщения, которые он не видел (privacy ON).
 - T5. Ephemeral-команда в ответ на обычное фото: есть ли `reply_to_message`; окно 15 секунд; ephemeral-медиа и `editEphemeralMessageMedia`.
+  31.10 перенесён в бэклог (#48): `/img` не ephemeral, а превью только автору даёт админство бота.
 - T6. Переходы `editMessageMedia` в группе: photo -> animation -> video и photo, rich -> animation; MP4 по локальному пути; поведение при размере больше 10 МБ для photo.
   Частично 31.10: photo -> animation -> photo в группе прошёл 28.10 (два `/img`, результат в сообщении превью). -> video в группе ещё не было.
 - T7. Вид rich-сообщения (collage, кнопки) в старых клиентах и в группах.
