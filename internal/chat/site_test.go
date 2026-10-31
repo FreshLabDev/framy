@@ -123,6 +123,31 @@ func TestASiteVideoArrivesWithItsCover(t *testing.T) {
 	}
 }
 
+// A run Continue joined to its clip arrives as the whole clip, and the run
+// remembers that its message is the joined clip, so Send to Telegram does not
+// take it for the run's own video.
+func TestASiteContinuationArrivesJoined(t *testing.T) {
+	h := newHarness(t)
+	siteResult(t, h, "video", storage.Asset{ID: 60, UserID: 7, Kind: "result", Key: "u/7/out/40-1.mp4", ContentType: "video/mp4",
+		Width: 1280, Height: 720, Seconds: 5, Bytes: 2 << 20})
+	h.files.joined = map[int64]storage.Asset{siteJob: {ID: 61, UserID: 7, Kind: "joined", JobID: siteJob, Key: "u/7/out/40-joined.mp4",
+		ContentType: "video/mp4", Width: 1280, Height: 720, Seconds: 9.96, Bytes: 4 << 20}}
+	h.flow.sendSite(context.Background())
+
+	if sent := h.tg.methods("sendVideo"); len(sent) != 1 || sent[0].chatID != 7 {
+		t.Fatalf("sent = %+v", sent)
+	}
+	if !reflect.DeepEqual(h.files.opened, []string{"u/7/out/40-joined.mp4"}) {
+		t.Fatalf("read %q, want the joined clip only", h.files.opened)
+	}
+	if res := h.store.results[siteJob]; res.FileID != "video-file" || res.AssetID != 61 {
+		t.Fatalf("result = %+v", res)
+	}
+	if h.store.delivery(siteJob) != db.DeliverySent {
+		t.Fatalf("delivery %q", h.store.delivery(siteJob))
+	}
+}
+
 // Several pictures go as one album, the caption on the first; one that is
 // no photo makes them all documents.
 func TestASiteResultOfSeveralPicturesIsAnAlbum(t *testing.T) {

@@ -671,7 +671,10 @@ was written from, and the skeleton of the service.
   of it, up to 180 s, and `segments` says where each part begins, for the
   player to mark (migration 027). A join that fails leaves the run's video as it is.
   The frame remembers its clip (migration 026). Omni's own continuation is
-  not joined, since its video may already hold the earlier one.
+  not joined, since its video may already hold the earlier one. A joined run
+  made on the site goes to the DM as the joined clip, not as the new part
+  alone; the chat run keeps which file its message is (migration 028), so
+  Send to Telegram does not send the new part as the joined clip.
 - `/edit` in a chat. In reply to a video, a GIF, a round video or a video
   document, or as the caption of one's own video, it edits the clip on FLUX
   Video Edit: the week's free video first, then the person's OpenRouter key.

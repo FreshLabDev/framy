@@ -72,6 +72,9 @@ func TestAContinuationIsJoinedToItsClip(t *testing.T) {
 	if _, ok := joinedOf(t, h, first); ok {
 		t.Fatal("a run from no frame is joined")
 	}
+	if _, ok, err := h.store.Joined(ctx, first); err != nil || ok {
+		t.Fatalf("Joined of a run from no frame: %v %v", ok, err)
+	}
 	frame, err := h.store.LastFrame(ctx, alice, results[0].ID)
 	if err != nil {
 		t.Fatal(err)
@@ -110,6 +113,11 @@ func TestAContinuationIsJoinedToItsClip(t *testing.T) {
 	}
 	if len(j.segments) != 2 || j.segments[0] != 0 || math.Abs(j.segments[1]-3) > 0.05 {
 		t.Errorf("the parts begin at %v, want 0 and 3", j.segments)
+	}
+	// The DM gets the joined clip: Joined reads it as the chat sends it.
+	if a, ok, err := h.store.Joined(ctx, next); err != nil || !ok || a.Key != j.key || a.Kind != "joined" || a.JobID != next ||
+		a.UserID != alice || a.ContentType != "video/mp4" || math.Abs(a.Seconds-j.seconds) > 0.001 {
+		t.Fatalf("Joined = %+v %v %v", a, ok, err)
 	}
 	// Kept again, as after a crash: the same row.
 	if err := h.store.Keep(ctx, run, []jobs.Result{{ContentType: "video/mp4", Data: clip(t, "2.5")}}); err != nil {

@@ -115,6 +115,7 @@ type Files interface {
 	UploadCopy(ctx context.Context, userID int64, r io.Reader, copyTo string) (storage.Asset, error)
 	KeepVideo(ctx context.Context, userID int64, path string, cut *media.Cut) (storage.Asset, error)
 	Results(ctx context.Context, jobID int64) ([]storage.Asset, error)
+	Joined(ctx context.Context, jobID int64) (storage.Asset, bool, error)
 	JobInputs(ctx context.Context, jobID int64) ([]storage.Asset, error)
 	Open(ctx context.Context, a storage.Asset) (io.ReadCloser, error)
 }

@@ -868,6 +868,26 @@ func (s *Store) Results(ctx context.Context, jobID int64) ([]Asset, error) {
 	return out, rows.Err()
 }
 
+// Joined is the clip job id went on from with its video after it, when
+// Continue joined them (docs/design.md, Actions on a result); false for
+// any other job.
+func (s *Store) Joined(ctx context.Context, jobID int64) (Asset, bool, error) {
+	a := Asset{Kind: "joined", JobID: jobID}
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, user_id, object_key, content_type, bytes, COALESCE(width, 0), COALESCE(height, 0),
+		  COALESCE(seconds, 0), COALESCE(fps, 0), COALESCE(audio, false), sha256, created_at
+		FROM asset WHERE job_id=$1 AND kind='joined' ORDER BY id DESC LIMIT 1`, jobID).Scan(
+		&a.ID, &a.UserID, &a.Key, &a.ContentType, &a.Bytes, &a.Width, &a.Height,
+		&a.Seconds, &a.FPS, &a.Audio, &a.SHA256, &a.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Asset{}, false, nil
+	}
+	if err != nil {
+		return Asset{}, false, err
+	}
+	return a, true, nil
+}
+
 // JobInputs are the files job id takes, in order, as kept: the chat draws
 // the preview card from them again when Model or Settings changes the run.
 // A file deleted since is left out.

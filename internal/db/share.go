@@ -27,8 +27,9 @@ type ShareSource struct {
 	// Model is the model's name, as ChatRun has it.
 	Model string
 	// FileID and FileType are the file the result went out as in a chat:
-	// only for the job's first result, since a chat run keeps the first
-	// message of an album.
+	// only for the asset that message carries, the job's first result, since
+	// a chat run keeps the first message of an album, or the joined clip a
+	// site result went to the DM as.
 	FileID   string
 	FileType string
 }
@@ -41,7 +42,7 @@ func (s *Store) ShareSource(ctx context.Context, userID, assetID int64) (ShareSo
 	err := s.pool.QueryRow(ctx, `
 		SELECT a.id, j.id, a.object_key, a.content_type, a.bytes, COALESCE(a.width, 0), COALESCE(a.height, 0),
 		       COALESCE(a.seconds, 0), j.prompt, COALESCE(m.name, o.name, j.model_id),
-		       a.id = (SELECT min(f.id) FROM asset f WHERE f.job_id = j.id AND f.kind = 'result'),
+		       COALESCE(a.id = COALESCE(r.result_asset_id, (SELECT min(f.id) FROM asset f WHERE f.job_id = j.id AND f.kind = 'result')), false),
 		       COALESCE(r.result_file_id, ''), COALESCE(r.result_file_type, '')
 		FROM asset a
 		JOIN job j ON j.id = a.job_id

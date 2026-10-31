@@ -53,6 +53,17 @@ func TestAShareSourceIsTheResultWithItsFileInTelegram(t *testing.T) {
 	if src, err := store.ShareSource(ctx, 4601, joined); err != nil || src.AssetID != joined || src.FileID != "" || src.ContentType != "video/mp4" {
 		t.Fatalf("joined = %+v, %v", src, err)
 	}
+	// A site result that went to the DM as its joined clip: the message's
+	// file is the joined clip's, and the first result has none.
+	if _, err := store.pool.Exec(ctx, `UPDATE chat_run SET result_asset_id = $2 WHERE job_id = $1`, job, joined); err != nil {
+		t.Fatal(err)
+	}
+	if src, err := store.ShareSource(ctx, 4601, joined); err != nil || src.FileID == "" {
+		t.Fatalf("joined, sent = %+v, %v", src, err)
+	}
+	if src, err := store.ShareSource(ctx, 4601, first); err != nil || src.FileID != "" || src.FileType != "" {
+		t.Fatalf("first, the joined clip sent = %+v, %v", src, err)
+	}
 }
 
 func TestOnlyTheOwnersDoneResultIsShared(t *testing.T) {

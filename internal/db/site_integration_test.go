@@ -72,8 +72,20 @@ func TestASiteResultIsSentOnce(t *testing.T) {
 	if ok, err := store.ClaimSiteResult(ctx, job); err != nil || !ok {
 		t.Fatalf("claim again: %v %v", ok, err)
 	}
-	if err := store.SentSiteResult(ctx, ChatRun{JobID: job, ChatID: 4401, Lang: "uk"}, ChatResult{MessageID: 77, FileID: "f", FileUniqueID: "u"}); err != nil {
+	// The result went as the clip Continue joined it to.
+	var joined int64
+	if err := store.pool.QueryRow(ctx, `
+		INSERT INTO asset (user_id, kind, job_id, object_key, content_type, bytes, sha256)
+		VALUES (4401, 'joined', $1, $2, 'video/mp4', 4096, 'x') RETURNING id`, job, "site/joined/"+strconv.FormatInt(job, 10)).Scan(&joined); err != nil {
 		t.Fatal(err)
+	}
+	if err := store.SentSiteResult(ctx, ChatRun{JobID: job, ChatID: 4401, Lang: "uk"},
+		ChatResult{MessageID: 77, FileID: "f", FileUniqueID: "u", FileType: FileVideo, AssetID: joined}); err != nil {
+		t.Fatal(err)
+	}
+	var sentAsset int64
+	if err := store.pool.QueryRow(ctx, `SELECT result_asset_id FROM chat_run WHERE job_id = $1`, job).Scan(&sentAsset); err != nil || sentAsset != joined {
+		t.Fatalf("result asset %d, want %d: %v", sentAsset, joined, err)
 	}
 	var state string
 	var message int64

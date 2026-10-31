@@ -105,6 +105,17 @@ func (f *Flow) sendSiteResult(ctx context.Context, r db.SiteResult) {
 		end(db.DeliveryFailed)
 		return
 	}
+	// A run Continue joined to its clip goes as the whole clip, as the site
+	// shows it; the run's own video stays on the site.
+	joined, ok, err := f.cfg.Files.Joined(ctx, r.JobID)
+	if err != nil {
+		release("site results unread", err)
+		return
+	}
+	var assetID int64
+	if ok {
+		assets, assetID = []storage.Asset{joined}, joined.ID
+	}
 	video := strings.HasPrefix(assets[0].ContentType, "video/")
 	action := "upload_photo"
 	if video {
@@ -146,6 +157,7 @@ func (f *Flow) sendSiteResult(ctx context.Context, r db.SiteResult) {
 	}
 	run := db.ChatRun{JobID: r.JobID, ChatID: r.UserID, Lang: lang}
 	res := resultOf(msg)
+	res.AssetID = assetID
 	if err := f.cfg.Store.SentSiteResult(context.WithoutCancel(ctx), run, res); err != nil {
 		f.log.Error("site result not recorded as sent", "job", r.JobID, "error", err)
 	}

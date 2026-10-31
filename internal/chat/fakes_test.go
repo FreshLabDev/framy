@@ -872,6 +872,10 @@ type fakeFiles struct {
 	uploads int
 	fail    error
 	results map[int64][]storage.Asset
+	// joined maps a job to the clip Continue joined it to; opened are the
+	// keys Open read, in order.
+	joined map[int64]storage.Asset
+	opened []string
 	// blobs are what Open reads of an object, by its key; any other reads
 	// "result".
 	blobs map[string][]byte
@@ -955,9 +959,17 @@ func (f *fakeFiles) Results(_ context.Context, jobID int64) ([]storage.Asset, er
 	return f.results[jobID], nil
 }
 
+func (f *fakeFiles) Joined(_ context.Context, jobID int64) (storage.Asset, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	a, ok := f.joined[jobID]
+	return a, ok, nil
+}
+
 func (f *fakeFiles) Open(_ context.Context, a storage.Asset) (io.ReadCloser, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.opened = append(f.opened, a.Key)
 	if b, ok := f.blobs[a.Key]; ok {
 		return io.NopCloser(bytes.NewReader(b)), nil
 	}

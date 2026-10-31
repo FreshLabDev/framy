@@ -256,6 +256,9 @@ type ChatResult struct {
 	// FileType is FilePhoto, FileVideo, FileAnimation or FileDocument;
 	// empty for a message with no file.
 	FileType string
+	// AssetID is the asset the file is, when it is not the job's first
+	// result: a site result's joined clip. Only SentSiteResult keeps it.
+	AssetID int64
 }
 
 // FinishChatRun ends a generating run as done, with the message of its
