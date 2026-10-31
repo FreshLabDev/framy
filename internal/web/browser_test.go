@@ -77,8 +77,10 @@ func fakeQuote(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Items []struct {
 			Offer    string         `json:"offer"`
+			Pay      string         `json:"pay"`
 			Settings map[string]any `json:"settings"`
 		} `json:"items"`
+		Batch bool `json:"batch"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -97,10 +99,15 @@ func fakeQuote(w http.ResponseWriter, r *http.Request) {
 		Settings map[string]any `json:"settings"`
 	}
 	out := struct {
-		Currency string `json:"currency"`
-		Items    []item `json:"items"`
+		Currency string    `json:"currency"`
+		Items    []item    `json:"items"`
+		Jobs     [][]int   `json:"jobs,omitempty"`
+		Total    *estimate `json:"total,omitempty"`
 	}{Currency: "USD"}
-	for _, it := range in.Items {
+	// For a batch, the items with the same offer, payer and settings go as
+	// one job, as the server sends them, and the total is of the paid ones.
+	group, sum := map[string]int{}, 0.0
+	for i, it := range in.Items {
 		h := fnv.New32a()
 		b, _ := json.Marshal(it.Settings)
 		_, _ = h.Write([]byte(it.Offer))
@@ -108,6 +115,20 @@ func fakeQuote(w http.ResponseWriter, r *http.Request) {
 		usd := 0.01 + float64(h.Sum32()%400)/1000
 		out.Items = append(out.Items, item{Offer: it.Offer, Settings: it.Settings,
 			Estimate: estimate{Kind: "about", USD: usd, MaxUSD: usd, Currency: "USD", Label: fmt.Sprintf("$%.3f", usd)}})
+		if !in.Batch {
+			continue
+		}
+		key := it.Offer + "\x00" + it.Pay + "\x00" + string(b)
+		if g, ok := group[key]; ok {
+			out.Jobs[g] = append(out.Jobs[g], i)
+		} else {
+			group[key] = len(out.Jobs)
+			out.Jobs = append(out.Jobs, []int{i})
+		}
+		if it.Pay != "free" {
+			sum += usd
+			out.Total = &estimate{Kind: "about", USD: sum, MaxUSD: sum, Currency: "USD", Label: fmt.Sprintf("$%.3f", sum)}
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)

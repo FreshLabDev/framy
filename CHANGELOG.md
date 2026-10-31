@@ -17,6 +17,18 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
   its frames, once its last job ended. The caption gives the prompt once and
   numbers the frames by model, so three models on one prompt read as a
   comparison. Videos keep their covers in the album.
+- Frames on the site and in the Mini App. Frame, over the stage on a
+  computer and over the strip of frames on a phone, adds a result with its
+  own model or settings, up to 6 pictures or 4 videos. All sets what every
+  frame shares; a frame picked sets only itself and marks what is its own.
+  On a phone a swipe in the settings goes to the next frame and the strip
+  rolls with it. Create sends the frames as one press, at the price framy
+  sums for the paid ones. The results stand in place of their frames, with
+  their number and, when the models differ, the model, each with its own
+  actions; a frame that failed leaves and the others go on.
+- The library shows a press as one card with its pictures together. Its
+  viewer goes between the frames, and Again and Edit the prompt bring every
+  frame back, a job of several results as that many frames.
 
 ## v0.1.0-alpha.2 - 2026-10-31
 

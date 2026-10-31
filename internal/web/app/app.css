@@ -671,6 +671,10 @@ main.library {display: grid; gap: 18px; padding: 6px 0 calc(48px + env(safe-area
 .li .badge {position: absolute; right: 0; top: 0; padding: 3px 6px; display: flex; gap: 4px; align-items: center; background: var(--deep); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;}
 .li .badge.n {right: auto; left: 0;}
 .li .badge .ic {width: 10px; height: 10px;}
+.li .cover.mosaic {grid-template: minmax(0, 1fr) / minmax(0, 1fr) minmax(0, 1fr); gap: 2px; place-items: stretch;}
+.li .cover.m3, .li .cover.m4 {grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);}
+.li .cover.mosaic > img {position: static; min-height: 0;}
+.li .cover.m3 > img:first-child {grid-row: span 2;}
 .li .p {font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
 .li .m {display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 13px; color: var(--muted);}
 .li .m > span {white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
@@ -747,4 +751,72 @@ html.full-on {overflow: hidden;}
 .dots > i.on {width: 20px; background: var(--ink);}
 @media (max-width: 899px) {
   #viewer .x {padding: 0 12px;}
+}
+
+/* Frames: several results of one press, each with its own model and settings. */
+.how .frames {min-width: 0;}
+.frames {display: flex; gap: var(--gap);}
+.frames > .seg {flex: 1; min-width: 0;}
+.fseg > button {position: relative; flex-direction: row; gap: 8px; padding-inline: 6px;}
+.fseg > button.all {flex: 0 0 auto; padding-inline: 16px;}
+.fseg .shp, .scopetip .shp {flex: none; border: 2px solid currentColor;}
+.fseg .dot {position: absolute; right: 5px; top: 5px; width: 6px; height: 6px; background: currentColor;}
+.addfr {flex: none; min-width: var(--row); min-height: var(--row); padding: 0 12px; display: flex; align-items: center; justify-content: center; gap: 12px; background: var(--deep); font-weight: 600;}
+.addfr:disabled {opacity: .35;}
+.addfr.wide {width: 100%; justify-content: flex-start; padding: 10px 14px; min-height: 60px; text-align: left;}
+.addfr.wide > span {display: grid; gap: 1px;}
+.addfr.wide small {font-size: 13px; font-weight: 400; color: var(--muted);}
+.fnote {font-size: 14px; color: var(--muted); line-height: 1.45;}
+.preview > .fnote {justify-self: start;}
+.chipbtn .more {flex: none; font-size: 13px; color: var(--muted);}
+.chipbtn .cnt {font-weight: 700;}
+.shead {display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-height: 36px;}
+.shead .scopetip {margin-right: auto;}
+.scopetip {display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 0 0 10px; background: var(--ink); color: var(--field); font-size: 14px; font-weight: 600; min-width: 0;}
+.scopetip .t {white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+.scopetip button {width: 34px; height: 36px; display: grid; place-items: center; color: var(--field);}
+.scopetip button .ic {width: 12px; height: 12px;}
+.board {position: relative; isolation: isolate;}
+.board > .cell {position: absolute;}
+.ghost.cell {cursor: pointer;}
+.ghost[aria-pressed="true"] {outline: 2px solid var(--ink); outline-offset: -2px;}
+.ghost[aria-pressed="true"] > i {border-color: var(--ink);}
+.ghost[aria-pressed="true"] .c b {color: var(--soft);}
+.ghost .fown {display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; max-width: 100%; margin-top: 4px;}
+.cell.narrow .c small {display: none;}
+.ghost.narrow .fown {flex-direction: column; align-items: center;}
+.ghost.narrow .chip {width: 24px; padding: 0; justify-content: center; gap: 0;}
+.ghost.narrow .chip > span {display: none;}
+.chip {max-width: 100%; height: 24px; padding: 0 7px; display: inline-flex; align-items: center; gap: 5px; overflow: hidden; background: var(--field); font-size: 12px; font-weight: 600; white-space: nowrap;}
+.chip > span {overflow: hidden; text-overflow: ellipsis;}
+.chip .lg.s, .chip .lgi {width: 14px; height: 14px;}
+.chip .lg.s {color: inherit;}
+.chip .ic {width: 12px; height: 12px;}
+.chip.warn, .chip.own {background: var(--ink); color: var(--field);}
+.chip:not(.own):not(.warn) {background: rgba(0, 96, 110, .72); color: var(--soft); font-weight: 500;}
+.ghost .frm {position: absolute; left: 50%; top: 8px; transform: translateX(-50%); width: 32px; height: 32px; display: grid; place-items: center; background: var(--field); opacity: 0; transition: opacity .15s;}
+.ghost .frm .ic {width: 12px; height: 12px;}
+.ghost:hover .frm, .ghost:focus-within .frm {opacity: 1;}
+@media (hover: none) { .ghost .frm {display: none;} .strip .ghost .frm {display: grid;} }
+.strip {position: relative; display: flex; align-items: flex-start; gap: 10px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scrollbar-width: none;
+  margin: 0 -16px; padding: 0 16px; scroll-padding: 0 16px; width: calc(100% + 32px); justify-self: stretch;}
+.strip::-webkit-scrollbar {display: none;}
+.strip > * {flex: none; position: relative; scroll-snap-align: start;}
+.strip > :last-child {scroll-snap-align: end;}
+.strip .ghost .frm {opacity: 1; left: auto; right: 8px; top: 8px; transform: none; width: 44px; height: 44px; background: rgba(0, 54, 61, .92);}
+.strip .ghost .frm .ic {width: 14px; height: 14px;}
+@media (max-width: 959px) { .shead .addf {height: 44px; padding: 0 16px;} }
+.jbox.cell .num {position: absolute; left: 6px; top: 6px; z-index: 1; min-width: 22px; height: 22px; padding: 0 4px; display: grid; place-items: center; background: var(--deep); font-size: 12px; font-weight: 700;}
+.jbox.cell .tm {position: absolute; left: 6px; bottom: 6px; z-index: 1; max-width: calc(100% - 60px);}
+.jbox.cell:not(.done) .tm {display: none;}
+.jbox.cell.done {cursor: zoom-in;}
+.jbox.cell > .tdl {position: absolute; right: 6px; top: 6px; z-index: 1; width: 36px; height: 36px; display: grid; place-items: center; background: var(--deep); color: var(--ink); opacity: 0; transition: opacity .15s;}
+.jbox.cell > .tdl > .t {display: none;}
+.jbox.cell:hover > .tdl, .jbox.cell:focus-within > .tdl {opacity: 1;}
+@media (hover: none) { .jbox.cell > .tdl {opacity: 1;} }
+.jbox.cell.narrow .tm > span {display: none;}
+.jbox.cell > video {display: block; width: 100%; height: 100%; object-fit: contain;}
+.jbox.cell.ht .c {padding: 0 12px 16px;}
+@media (hover: hover) {
+  .addfr:not(:disabled):hover, .ghost.cell:not([aria-pressed="true"]):hover {background-color: var(--line);}
 }

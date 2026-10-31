@@ -7,7 +7,7 @@ import { setTexts, t, lang, warmFormats } from "./i18n.js";
 import { session, setToken } from "./api.js";
 import { loadCatalog } from "./catalog.js";
 import { S, initModels, useDefaults } from "./state.js";
-import { mountComposer, wireComposer, render, renderBar, tuneClosed } from "./composer.js";
+import { mountComposer, wireComposer, wireTuneSwipe, render, renderBar, tuneClosed } from "./composer.js";
 import { mountPicker, prefetchPicker } from "./picker.js";
 import { renderStage } from "./stage.js";
 import { closeSheets, onSheets, toast, sheetOpen } from "./ui.js";
@@ -52,7 +52,7 @@ function mount() {
     h("div", { class: "scrim", id: "scrim", hidden: true, onclick: () => closeSheets() }),
     mountPicker(),
     h("section", { class: "sheet half", id: "tune", hidden: true, "aria-label": t("tune.title"), role: "dialog", "aria-modal": "true" },
-      h("header", {}, h("h3", {}, t("tune.title")), h("button", { type: "button", class: "x", "data-close": "" }, t("pick.done"))),
+      h("header", {}, h("h3", { id: "tuneTitle" }, t("tune.title")), h("button", { type: "button", class: "x", "data-close": "" }, t("pick.done"))),
       h("div", { class: "body", id: "tuneBody" })),
     mountCutter(),
     mountPrefs(),
@@ -62,6 +62,7 @@ function mount() {
   app.addEventListener("click", (e) => { if (e.target.closest("[data-close]")) closeSheets(); });
   $("#tune").addEventListener("closed", tuneClosed);
   wireComposer();
+  wireTuneSwipe();
 }
 
 function reveal() {

@@ -7,9 +7,10 @@ import { t, fmtNum, fmtIn, fmtSecs } from "./i18n.js";
 import { C, PNAME, vname, famLogo, lg, provMark, freePlan, pays, offerOf, facts, factEl, deprecation, fieldsOf, SECONDARY, SEARCH, SICON,
   label, show, ordered, ratioNum, ratioOfSize, sizeK, resScore, needsVideo } from "./catalog.js";
 import { S, M, images, clip, payOf, usable, keyOk, connection, freeLeft, freeLimit, freesAt, freePer, settings, route, runItem, altItem, next, sourceRatio, quoteNow,
-  maxSecs, needsCut, contFits, slotOf, sources, inputsOf, placeFiles, refuses } from "./state.js";
-import { priceEl, priceText, known, need, onPrices, usd } from "./price.js";
-import { renderStage, stageFrom, refit, runOver } from "./stage.js";
+  maxSecs, needsCut, contFits, slotOf, sources, inputsOf, placeFiles, refuses,
+  FR, MAXFR, scopeFr, newFrame, common, wanted, setModelHere, setPayHere, setWantedHere, tidy, ownBits, hasOwn, plan, paidItems, cutLimits, cutNeeded } from "./state.js";
+import { priceEl, priceText, known, need, onPrices, usd, needTotal, knownTotal } from "./price.js";
+import { renderStage, stageFrom, refit, runOver, ratioOf, syncStrip } from "./stage.js";
 import { openPicker } from "./picker.js";
 import { openSheet, closeSheets } from "./ui.js";
 import { addFiles, removeFile, fitModel } from "./files.js";
@@ -96,11 +97,11 @@ export function wireComposer() {
 }
 
 export function render() {
-  const m = M();
-  if (!m) return;
-  const pay = payOf(m);
+  if (!M()) return;
+  tidy();
+  const m = M(), pay = payOf(m);
   // A part picked for a model that takes more than the next one does is picked again.
-  if (S.cut && (!clip() || S.cut.seconds > maxSecs(m, pay) + 0.005)) S.cut = null;
+  if (S.cut && (!clip() || S.cut.seconds > cutLimits().max + 0.005)) S.cut = null;
   $("#kind").replaceChildren(...[["image", t("kind.image")], ["video", t("kind.video")]].map(([k, l]) =>
     opt({ key: "kind", v: k, on: S.kind === k, title: l, pick: () => setKind(k) }, ic(k), h("span", { class: "t" }, l))));
   $("#prompt").placeholder = contFits(m, pay) ? t("prompt.cont") : needsVideo(m) ? t("prompt.clip") : m.kind === "video" ? t("prompt.video") : images().length ? t("prompt.photo") : t("prompt.image");
@@ -111,6 +112,8 @@ export function render() {
   if (!ACTING) renderStage();
   placeSegs($("#composer"));
   placeSegs($("#tune"));
+  const tt = $("#tuneTitle");
+  if (tt) tt.textContent = tuneTitle();
   quoteNow();
 }
 
@@ -121,24 +124,58 @@ function setKind(k) {
   anim($("#how"), [{ opacity: 0, transform: `translateX(${dir * 36}px)` }, { opacity: 1, transform: "none" }], { duration: 420, easing: EASE });
 }
 
-/* Phone: the model and the settings sit in one row over the prompt; the settings open in a sheet. */
-function renderTools(m) {
-  const f = C.famOf[m.id];
+/* Phone: the model and the settings sit in one row over the prompt; the settings open in a sheet.
+   The chip names the common model, and how many others the frames have. */
+function renderTools() {
+  const P = plan(), m = common(), f = C.famOf[m.id], more = new Set(P.map((it) => it.m.id).filter((id) => id !== m.id)).size;
   $("#dtools").replaceChildren(
-    h("button", { type: "button", class: "chipbtn", onclick: openPicker, "aria-haspopup": "dialog" }, lg(famLogo(f), f.maker, "o"), h("span", { class: "nm" }, h("span", {}, vname(m))), ic("chevd")),
-    h("button", { type: "button", class: "chipbtn set", onclick: openTune, "aria-label": t("tune.title") }, ic("sliders"), h("span", {}, t("tune.short"))),
+    h("button", { type: "button", class: "chipbtn", "aria-haspopup": "dialog", onclick: () => { if (S.scope[S.kind] != null) { S.scope[S.kind] = null; render(); } openPicker(); } },
+      lg(famLogo(f), f.maker, "o"), h("span", { class: "nm" }, h("span", {}, vname(m))), more ? h("small", { class: "more" }, "+" + fmtNum(more)) : null, ic("chevd")),
+    h("button", { type: "button", class: "chipbtn set", onclick: () => openTune(null), "aria-label": t("tune.title") }, ic("sliders"), h("span", {}, t("tune.short")),
+      P.length > 1 ? h("b", { class: "cnt" }, "×" + fmtNum(P.length)) : null),
     h("button", { type: "button", class: "chipbtn att", onclick: () => $("#file").click(), "aria-label": t("files.add") }, ic("plus")));
 }
 // On a phone the settings live in a sheet: they are built when it opens, not
-// on every change behind it.
+// on every change behind it. A frame pressed on the stage opens it on that frame.
 let howStale = false;
 const howShown = () => !isPhone() || $("#how").parentElement !== $("#composer");
-export function openTune() {
+const tuneTitle = () => { const fr = scopeFr(); return fr ? t("fr.n", { n: FR().indexOf(fr) + 1 }) : FR().length > 1 ? t("fr.all_title") : t("tune.title"); };
+export function openTune(id = null) {
   const body = $("#tuneBody");
   body.append($("#how"));
+  if (S.scope[S.kind] !== id) { S.scope[S.kind] = id; howStale = true; render(); }
   if (howStale) { const m = M(); renderHow(m, payOf(m)); howStale = false; }
+  $("#tuneTitle").textContent = tuneTitle();
   openSheet("#tune");
+  body.scrollTop = 0;
   placeSegs($("#tune"));
+}
+// In the sheet a swipe to the side goes to the next frame, or back, in the order of the switch: All, 1, 2...
+// What scrolls or slides sideways itself keeps its swipe.
+export function wireTuneSwipe() {
+  const body = $("#tuneBody");
+  let x0 = 0, y0 = 0, t0 = 0, on = false;
+  body.addEventListener("touchstart", (e) => {
+    const tg = e.target, one = e.touches.length === 1;
+    on = one && FR().length > 1 && !tg.closest("input, textarea, .ratios, .steps, .rng, .seg.wrapping") && !sideways(tg, body);
+    if (on) { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = e.timeStamp; }
+  }, { passive: true });
+  body.addEventListener("touchend", (e) => {
+    if (!on) return;
+    on = false;
+    const p = e.changedTouches[0], dx = p.clientX - x0, dy = p.clientY - y0;
+    if (Math.abs(dx) < 56 || Math.abs(dx) < Math.abs(dy) * 1.6 || e.timeStamp - t0 > 700) return;
+    stepScope(dx < 0 ? 1 : -1);
+  }, { passive: true });
+}
+function sideways(el, stop) {
+  for (let a = el; a && a !== stop; a = a.parentElement) if (a.scrollWidth > a.clientWidth + 1 && /auto|scroll/.test(getComputedStyle(a).overflowX)) return true;
+  return false;
+}
+function stepScope(dir) {
+  const ids = [null, ...FR().map((f) => f.id)], i = ids.indexOf(S.scope[S.kind]), to = ids[i + dir];
+  if (to === undefined) { anim($("#how"), [{ transform: "none" }, { transform: `translateX(${-dir * 10}px)` }, { transform: "none" }], { duration: 260 }); return; }
+  setScope(to, dir);
 }
 export function tuneClosed() { const how = $("#how"); if (how.parentElement !== $("#composer")) $("#composer").insertBefore(how, $("#bar")); placeSegs($("#composer")); }
 
@@ -170,7 +207,7 @@ function renderFiles(m, pay) {
   // A model that refuses real people (or children) in its files says so before the run, in the one hint there is.
   const fc = m.traits?.faces, faces = fc && R.some((r) => r.go) ? t(fc === "adults" ? "files.faces_adults" : "files.faces_no") : "";
   if (cutting) {
-    const need = needsCut(m, pay), mx = maxSecs(m, pay);
+    const need = cutNeeded(), mx = cutLimits().max;
     const what = S.cut ? t("files.cut_taken", { a: fmtNum(S.cut.start, { maximumFractionDigits: 1 }), b: fmtNum(S.cut.start + S.cut.seconds, { maximumFractionDigits: 1 }) })
       : need ? t("files.clip_len", { len: fmtSecs(c.secs), n: fmtNum(mx) }) : "";
     box.append(h("p", { class: "fhint cut", "data-k": "f-cut" }, faces ? h("span", { class: "fw" }, faces) : null, what ? h("span", {}, what + " ") : null,
@@ -241,15 +278,83 @@ function fitPrompt() {
   p.style.height = p.scrollHeight + "px";
 }
 
-/* The model card, the payment, the settings. */
+/* The frames (on a phone), the model card, the payment, the settings. */
 function renderHow(m, pay) {
-  const f = C.famOf[m.id];
+  const f = C.famOf[m.id], fr = scopeFr();
   const head = h("button", { type: "button", class: "mhead", "aria-haspopup": "dialog", onclick: openPicker },
     lg(famLogo(f), f.maker),
     h("span", { class: "txt" }, h("span", { class: "mname" }, h("span", {}, vname(m))),
       h("span", { class: "facts" }, facts(m, 4).filter((x) => x[0] !== "ticket").slice(0, 3).map((x) => { const e = factEl(x); e.dataset.k = "fa-" + x[0]; return e; }))),
     ic("chev"));
-  $("#how").replaceChildren(...[h("div", { class: "sec", "data-k": "h-model" }, h("div", { class: "mcard" }, head, variantBlock(m))), paySec(m, pay), settingsBlock(m, pay)].filter(Boolean));
+  // The card speaks for itself; a line over it comes only to say the model is this frame's own.
+  const lab = fr?.own.model ? h("span", { class: "lab" }, ic("spark"), h("span", { class: "lt" }, t("fr.model")), h("span", { class: "labr" }, ownMark(fr, () => { delete fr.own.model; delete fr.own.pay; }))) : null;
+  const lead = isPhone() ? framesSec() : null;
+  $("#how").replaceChildren(...[lead, h("div", { class: "sec", "data-k": "h-model" }, lab, h("div", { class: "mcard" }, head, variantBlock(m))), paySec(m, pay), settingsBlock(m, pay)].filter(Boolean));
+}
+
+/* Frames: one press makes each of them. All changes what they share; a frame changes only itself. */
+// "Only frame 2": the value is this frame's own; the cross gives it the common one back.
+function ownMark(fr, reset) {
+  return h("button", { type: "button", class: "ownmark", title: t("fr.back_all"), onclick: () => act(() => { reset(); render(); }) }, t("fr.only", { n: FR().indexOf(fr) + 1 }), ic("close"));
+}
+export const miniShape = (r, k = 18) => h("span", { class: "shp", style: { width: Math.max(4, r >= 1 ? k : k * r) + "px", height: Math.max(4, r >= 1 ? k / r : k) + "px" } });
+const bitText = (b) => (b.k === "model" ? vname(b.m) : b.k === "pay" ? (b.pay === "free" ? t("pay.free") : PNAME[b.pay] || b.pay) : show(b.k, b.v));
+function framesSec() {
+  const P = plan(), sel = S.scope[S.kind], n = P.length, max = MAXFR[S.kind];
+  const lab = h("span", { class: "lab" }, ic("stack"), h("span", { class: "lt" }, t("fr.label")), h("span", { class: "labr" }, h("span", { class: "right fcount" }, framesCount(P))));
+  if (n < 2) return h("div", { class: "sec", "data-k": "h-frames" }, lab,
+    h("button", { type: "button", class: "addfr wide", onclick: () => addFrame() }, ic("plus"), h("span", {}, t("fr.add_wide"), h("small", {}, t("fr.add_sub")))));
+  const seg = h("div", { class: "seg fseg", role: "radiogroup", "aria-label": t("fr.scope"), "data-seg": "scope", "data-dur": 380 },
+    opt({ key: "scope", v: "all", on: sel == null, cls: "all", pick: () => setScope(null) }, t("fr.all")),
+    P.map((it) => opt({ key: "scope", v: it.fr.id, on: sel === it.fr.id, title: t("fr.n", { n: it.i + 1 }), pick: () => setScope(it.fr.id) },
+      miniShape(ratioOf(it.set, it.m)), String(it.i + 1), hasOwn(it.fr) ? h("span", { class: "dot" }) : null)));
+  const add = h("button", { type: "button", class: "addfr", disabled: n >= max, "aria-label": t("fr.add"), title: n >= max ? t("fr.max", { n: max }) : t("fr.add"), onclick: () => addFrame() }, ic("plus"));
+  return h("div", { class: "sec", "data-k": "h-frames" }, lab, h("div", { class: "frames" }, seg, add), framesNote(P, true));
+}
+// How many models, and once framy has said it, how many requests the press is:
+// the paid frames as framy groups them, and each free one on its own.
+function framesCount(P = plan()) {
+  if (P.length < 2) return "";
+  const models = new Set(P.map((it) => it.m.id)).size, paid = paidItems(P), kt = paid.length ? knownTotal(paid) : { jobs: [] };
+  const jobs = kt ? kt.jobs.length + P.filter((it) => it.pay === "free").length : 0;
+  return [models > 1 ? t("fr.models", { n: fmtNum(models) }) : "", jobs ? t("fr.requests", { n: fmtNum(jobs) }) : ""].filter(Boolean).join(" · ");
+}
+// What the frames have of their own, and the way back to one setup for all.
+// The phone's sheet also says what a frame without its own values does, and removes it.
+export function framesNote(P = plan(), phone = isPhone()) {
+  const fr = scopeFr();
+  if (fr) {
+    const bits = ownBits(fr);
+    if (!bits.length && !phone) return null;
+    return h("p", { class: "fnote", "data-k": "h-fnote" }, (bits.length ? t("fr.own", { what: bits.map(bitText).join(" · ") }) : t("fr.own_none")) + " ",
+      bits.length ? h("button", { type: "button", class: "link-t", onclick: () => act(() => { fr.own = { wanted: {} }; render(); }) }, t("fr.same")) : null,
+      bits.length && phone ? " · " : null,
+      phone ? h("button", { type: "button", class: "link-t", onclick: () => removeFrame(fr) }, t("fr.remove")) : null);
+  }
+  const owned = P.filter((it) => hasOwn(it.fr));
+  if (!owned.length) return null;
+  return h("p", { class: "fnote", "data-k": "h-fnote" }, t("fr.owned", { list: owned.map((it) => it.i + 1).join(", ") }) + " ",
+    h("button", { type: "button", class: "link-t", onclick: () => act(() => { owned.forEach((it) => (it.fr.own = { wanted: {} })); render(); }) }, t("fr.make_same")));
+}
+// Another frame: the form slides to it, its frame on the stage answers, the card's name rolls.
+export function setScope(id, dir = 0) {
+  const name = () => $$("#how .mname, #dtools .chipbtn .nm").find((el) => el.offsetParent);
+  const old = vname(M());
+  act(() => { S.scope[S.kind] = id; render(); });
+  if (vname(M()) !== old) ticker(name(), old, dir || 1);
+  if (dir) anim($("#how"), [{ opacity: 0, transform: `translateX(${dir * 28}px)` }, { opacity: 1, transform: "none" }], { duration: 340, easing: EASE });
+  if (id != null) anim($(`#stage [data-k="pv-${id}"]`), [{ transform: "scale(.96)" }, { transform: "none" }], { duration: 380, easing: SPRING });
+  syncStrip(id);
+}
+// A new frame starts as the one being set up (or as the common setup), and the others make room.
+export function addFrame() {
+  if (FR().length >= MAXFR[S.kind]) return;
+  const fr = newFrame(scopeFr()?.own);
+  act(() => { FR().push(fr); render(); });
+  syncStrip(fr.id);
+}
+export function removeFrame(fr) {
+  act(() => { S.frames[S.kind] = FR().filter((x) => x !== fr); if (S.scope[S.kind] === fr.id) S.scope[S.kind] = null; render(); });
 }
 
 // The price beside a choice: free is the ticket, a key's price is the quote.
@@ -293,7 +398,8 @@ function variantBlock(m) {
   else if (v.note) kids.push(h("p", { class: "mnote info" }, ic("info"), h("span", {}, f.axes ? h("b", {}, v.label + ": ") : null, v.note)));
   return kids.length ? h("div", { class: "mvars" }, kids) : null;
 }
-export function setModel(id) { S.model[S.kind] = id; const f = C.famOf[id]; if (f) S.lastVar[f.idx] = id; }
+// The model of what is being set up: the frame's own, or the common one.
+export const setModel = setModelHere;
 // A variant: the block slides, the name rolls in the direction of the move.
 function pickVar(x) {
   const m0 = M(), f = C.famOf[x.id], old = vname(m0);
@@ -311,13 +417,13 @@ function paySec(m, pay) {
     return priceEl(altItem(m, p, settings(m, p)));
   };
   const name = (p) => (p === "free" ? [ic("ticket"), t("pay.free")] : [provMark(p), PNAME[p] || p]);
-  const lab = h("span", { class: "lab" }, ic("coin"), t("pay.label"));
-  if (ps.length === 1 && usable(m, ps[0])) return null;
+  const fr = scopeFr(), lab = h("span", { class: "lab" }, ic("coin"), t("pay.label"), fr?.own.pay ? h("span", { class: "labr" }, ownMark(fr, () => delete fr.own.pay)) : null);
+  if (ps.length === 1 && usable(m, ps[0]) && !fr?.own.pay) return null;
   if (ps.length === 1) return h("div", { class: "paysec", "data-k": "h-pay" }, h("div", { class: "sec row" }, lab, h("div", { class: "pay1" }, name(ps[0]), h("small", {}, sub(ps[0])))));
   return h("div", { class: "paysec", "data-k": "h-pay" }, h("div", { class: "sec row" }, lab,
     h("div", { class: "seg", role: "radiogroup", "aria-label": t("pay.label"), "data-seg": "pay", "data-dur": 380 }, ps.map((p) =>
       opt({ key: "pay", v: p, on: pay === p, cls: usable(m, p) ? "" : "off", title: p === "free" ? freePer(kind) : connection(p) ? t("pay.your_key", { last4: connection(p).last4 }) : null,
-        pick: () => act(() => { S.pay[m.id] = p; render(); }) }, h("span", { class: "row" }, name(p)), h("small", {}, sub(p)))))));
+        pick: () => act(() => { setPayHere(m, p); render(); }) }, h("span", { class: "row" }, name(p)), h("small", {}, sub(p)))))));
 }
 
 /* Settings: the ones a person decides, each as the control that fits it. */
@@ -333,7 +439,7 @@ function settingsBlock(m, pay) {
     if (open.includes("aspect_ratio") || open.includes("size")) parts.push(t("free.model_picks"));
     const keyed = m.offers.find((x) => keyOk(x.provider)) || m.offers[0];
     box.append(h("p", { class: "fixedline", "data-k": "h-fixed" }, t("free.line", { what: parts.join(", ") || t("free.defaults") }) + " ",
-      open.length && pays(m).length > 1 ? h("button", { type: "button", class: "link-t", onclick: () => act(() => { S.pay[m.id] = keyed.provider; render(); }) }, t("free.tune")) : null));
+      open.length && pays(m).length > 1 ? h("button", { type: "button", class: "link-t", onclick: () => act(() => { setPayHere(m, keyed.provider); render(); }) }, t("free.tune")) : null));
     return box;
   }
   const names = [...fieldsOf(o), ...("fast" in s ? ["fast"] : [])];
@@ -359,7 +465,7 @@ function toggleMore() {
   act(() => { S.more = !was; render(); });
   spin($("#how .morebtn .chev"), was ? 180 : 0, was ? 0 : 180);
 }
-const setWanted = (name, x) => { const m = M(); S.pay[m.id] ??= payOf(m); S.wanted[name] = x; };
+const setWanted = setWantedHere;
 function settingField(m, pay, o, s, name) {
   if (name === "size") return sizeFields(m, pay, o, s);
   const p = o.params[name] || { type: "boolean" }, v = s[name], key = "set-" + name;
@@ -442,13 +548,21 @@ function stepSlider(name, vals, v, store, sub, gapOf = () => null) {
   box.style.setProperty("--n", vals.length);
   return box;
 }
+// What the label says on its right: the value is this frame's own, which frames
+// have their own, how the shape follows the photo.
 function fieldBits(name, v, src) {
-  if (!src) return [];
+  const bits = [], fr = scopeFr(), right = (x) => h("span", { class: "right" }, x);
+  if (fr && name in fr.own.wanted) bits.push(ownMark(fr, () => delete fr.own.wanted[name]));
+  else if (!fr && FR().length > 1) {
+    const by = plan().filter((it) => name in it.fr.own.wanted && it.pay !== "free" && name in it.set).map((it) => it.i + 1);
+    if (by.length) bits.push(right(t("fr.differ", { list: by.join(", ") })));
+  }
+  if (!src) return bits;
   // The shape follows the first photo, else the clip.
   const of = images().length ? "photo" : "clip";
-  if (name === "aspect_ratio" && v === "auto") return [h("span", { class: "right" }, t("set.as_" + of))];
-  if ((name === "aspect_ratio" || name === "size") && S.wanted[name] === undefined) return [h("span", { class: "right" }, t("set.near_" + of))];
-  return [];
+  if (name === "aspect_ratio" && v === "auto") bits.push(right(t("set.as_" + of)));
+  else if ((name === "aspect_ratio" || name === "size") && wanted()[name] === undefined) bits.push(right(t("set.near_" + of)));
+  return bits;
 }
 /* GPT Image's one "size" is both the shape and the resolution; here they are two rows like everywhere else. */
 function sizeFields(m, pay, o, s) {
@@ -489,17 +603,18 @@ function ratioControl(name, p, v, set, src, gapOf = () => null) {
   return box;
 }
 
-/* The bar: the price of the run and the one button. */
+/* The bar: the price of the press, every frame of it, and the one button. */
 let lastVal = null;
 export function renderBar() {
   const m = M();
   if (!m) return;
-  const pay = payOf(m), nx = next($("#prompt").value), kind = m.kind;
-  const item = runItem(m, pay), q = known(item);
-  if (!q) need(item);
-  const free = pay === "free", e = q?.estimate;
+  const nx = next($("#prompt").value), kind = m.kind;
+  // One frame is its run's price; several are the server's sum of them.
+  const P = plan(), paid = paidItems(P), one = P.length < 2, qs = one ? paid.map((it) => known(it) || need(it)) : [];
+  const tot = one ? null : needTotal(paid), free = !paid.length;
+  const ready = one ? qs.every(Boolean) : free || !!tot, e = free || !ready ? null : one ? qs[0].estimate : tot.total;
   const unknown = !free && (!e || e.kind === "unknown");
-  const text = free ? t("bar.free") : !q ? "…" : unknown ? t("price.unknown") : priceText(e);
+  const text = free ? t("bar.free") : !ready ? "…" : unknown ? t("price.unknown") : priceText(e);
   const val = free ? 0 : unknown ? 1e9 : e.usd;
   const el = $("#pnum");
   el.classList.toggle("usd", !free && !unknown);
@@ -510,11 +625,13 @@ export function renderBar() {
   let parts;
   if (nx.why) parts = [nx.why];
   else if (free) parts = [S.signed ? t("bar.free_left", { left: freeLeft(kind), limit: freeLimit(kind) }) : t("bar.free_signed_out", { per: freePer(kind) })];
-  else if (unknown && q) parts = [t("bar.unknown")];
+  else if (unknown && ready) parts = [t("bar.unknown")];
   else if (e && e.discount && e.list_label) parts = [h("s", { class: "was" }, priceText({ ...e, label: e.list_label })), " ", h("b", { class: "off" }, "−" + fmtNum(Math.round(e.discount * 100)) + "%")];
   else parts = [""];
   cap.replaceChildren(...parts);
   if (was !== cap.textContent && !cap.getAnimations().length) anim(cap, [{ opacity: 0 }, { opacity: 1 }], { duration: 240, delay: 120, fill: "backwards" });
+  const fc = $("#how .fcount");
+  if (fc) fc.textContent = framesCount(P);
   const btn = $("#go");
   btn.replaceChildren(nx.icon ? ic(nx.icon) : "", nx.label, nx.on ? h("small", { class: "kbd" }, MAC ? "⌘↵" : "Ctrl ↵") : "");
   btn.disabled = !nx.on;

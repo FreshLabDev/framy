@@ -4,9 +4,9 @@
 import { $ } from "./dom.js";
 import { t } from "./i18n.js";
 import { api, watchJob, isFinal, outsOf } from "./api.js";
-import { S, M, payOf, settings, fastOf, going, clip, contFits, keyOk, runItem } from "./state.js";
+import { S, M, payOf, settings, fastOf, going, clip, contFits, keyOk, runItem, plan, paidItems, newFrame } from "./state.js";
 import { C, offerOf, PNAME, framesOf, photoLimit } from "./catalog.js";
-import { known, priceText, clearPrices } from "./price.js";
+import { known, knownTotal, priceText, clearPrices } from "./price.js";
 import { act, render, renderBar } from "./composer.js";
 import { renderStage, runChanged } from "./stage.js";
 import { upload } from "./files.js";
@@ -68,13 +68,41 @@ function fromComposer() {
     clip: files.includes(c) ? c : null, cut: files.includes(c) && S.cut ? { ...S.cut } : null, cont: contFits(m, pay) ? S.cont : null,
     shown: pay === "free" ? null : shownOf(e), shownLabel: e ? priceText(e) : "", priceLabel: e?.label || "" };
 }
-// A run again as it was: the same model, settings, files and words.
+// A press of several frames (docs/design.md, Frames): each frame with its
+// model, payment, settings and the files it takes; the price is the sum framy
+// gave for the frames that are not free. The press's own model and settings
+// are the first frame's, for what is said of it as a whole.
+function pressOf() {
+  const P = plan(), c = clip();
+  const frames = P.map((it) => {
+    const { m, set } = fastOf(it.m, it.pay, it.set), files = going(m, it.pay);
+    return { model: m.id, pay: it.pay, offer: offerOf(m, it.pay).id, settings: set, files, clip: files.includes(c) ? c : null,
+      cut: files.includes(c) && S.cut ? { ...S.cut } : null, cont: contFits(m, it.pay) ? S.cont : null };
+  });
+  const paid = paidItems(P), e = paid.length ? knownTotal(paid)?.total : null, files = S.files.filter((f) => frames.some((fm) => fm.files.includes(f)));
+  return { multi: true, kind: S.kind, prompt: $("#prompt").value.trim(), frames, files, ...frames[0], clip: files.includes(c) ? c : null,
+    cut: files.includes(c) && S.cut ? { ...S.cut } : null, cont: frames.find((fm) => fm.cont)?.cont || null,
+    shown: paid.length ? shownOf(e) : null, shownLabel: e ? priceText(e) : "", priceLabel: e?.label || "" };
+}
+// A run again as it was: the same model, settings, files and words; a press, every frame of it.
 const copyOf = (r, more = {}) => ({ kind: r.kind, model: r.model, pay: r.pay, offer: r.offer, prompt: r.prompt, settings: r.settings, files: r.files,
-  clip: r.clip, cut: r.cut, cont: r.cont, shown: r.shown, shownLabel: r.shownLabel, priceLabel: r.priceLabel, ...more });
+  clip: r.clip, cut: r.cut, cont: r.cont, shown: r.shown, shownLabel: r.shownLabel, priceLabel: r.priceLabel,
+  ...(r.multi ? { multi: true, frames: r.frames.map((fm) => ({ ...fm })) } : {}), ...more });
+// A frame of a press, a cell on the stage, stands for its press in what is done with it.
+const pressOfRun = (run) => run?.press || run;
 
 export function generate() {
   if (!M() || S.busy) return;
-  start(fromComposer());
+  start(plan().length > 1 ? pressOf() : fromComposer());
+}
+
+/* The jobs of a run: one, or a press's. */
+export const jobsOf = (run) => run?.jobs || (run?.job ? [run.job] : []);
+// One frame of a press as a run of its own: its job, and which of the job's results is its (k).
+export function frameRun(run, i) {
+  const fm = run.frames[i], j = (run.jobs || []).find((x) => x.frames?.includes(i)) || null;
+  return { ...fm, kind: run.kind, prompt: run.prompt, n: run.n, key: run.key, phase: j ? "job" : run.phase === "job" ? "prep" : run.phase, step: run.step, sending: run.sending,
+    job: j, k: j ? Math.max(0, j.frames.indexOf(i)) : 0, why: run.why, net: run.net, t0: run.t0, shownLabel: "", priceLabel: "", press: run };
 }
 
 async function start(base, key = newKey()) {
@@ -88,6 +116,7 @@ async function start(base, key = newKey()) {
     if (run.stop.signal.aborted) throw new DOMException("stopped", "AbortError");
     // Once the request is out it is not called back: the job may exist already.
     run.sending = true; setStep(run, { fig: "start", text: () => t("step.starting") });
+    if (run.multi) { await sendPress(run, inputs); return; }
     const body = { offer: run.offer, prompt: run.prompt, settings: run.settings, inputs, pay: run.pay === "free" ? "free" : "key", surface: S.mini ? "mini_app" : "site" };
     if (run.shown != null) body.shown_usd = run.shown;
     if (run.cont) body.continues = run.cont.job;
@@ -102,8 +131,16 @@ async function start(base, key = newKey()) {
     else {
       run.phase = "refused";
       resend = err.status >= 500 || err.status === 0;
+      // A press refused for one frame says it of that frame.
+      const fi = run.multi ? err.body?.frame : null;
+      if (fi != null && run.frames[fi]) Object.assign(run, { model: run.frames[fi].model, pay: run.frames[fi].pay, offer: run.frames[fi].offer, settings: run.frames[fi].settings });
       run.why = refusal(err, { kind: run.kind, clip: !err.sound && (err.clip || (!err.file && !!run.clip && err.code !== "price_changed")), sound: !!err.sound, name: err.file?.name, maxBytes: err.maxBytes,
         shown: run.shownLabel, pay: run.pay, lastFrame: !!run.cont, clipSecs: run.clipSecs, cut: !!run.cut });
+      if (run.multi) {
+        // What turns one run to a key or to a last frame does not fit a press: its frames come back to the composer instead.
+        run.why.acts = run.why.acts.filter((a) => a !== "bykey" && a !== "lastframe");
+        if (fi != null) run.why.text = t("fr.n", { n: fi + 1 }) + ". " + run.why.text;
+      }
       // The same press again keeps its key when the server may have made the job.
       if (resend) run.retryKey = run.key;
       afterRefusal(run, err);
@@ -111,6 +148,38 @@ async function start(base, key = newKey()) {
   } finally {
     if (S.run === run) { S.busy = false; run.sending = false; renderBar(); runChanged(); }
   }
+}
+
+// The press goes as one request: each frame names its files when they are not
+// the first frame's, and framy says which job makes which frame. All or none.
+async function sendPress(run, ids) {
+  const idOf = new Map(run.files.map((f, i) => [f, ids[i]])), of = (fm) => fm.files.map((f) => idOf.get(f));
+  const first = of(run.frames[0]), same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+  const frames = run.frames.map((fm) => {
+    // framy sets how many a job makes; a frame is one result.
+    const { n: _, ...set } = fm.settings || {}, x = { offer: fm.offer, pay: fm.pay === "free" ? "free" : "key", settings: set }, mine = of(fm);
+    if (!same(mine, first)) x.inputs = mine;
+    if (fm.cont) x.continues = fm.cont.job;
+    return x;
+  });
+  const body = { prompt: run.prompt, inputs: first, surface: S.mini ? "mini_app" : "site", frames };
+  if (run.shown != null) body.shown_usd = run.shown;
+  const r = await api("/api/batches", { method: "POST", body, headers: { "Idempotency-Key": run.key } });
+  run.phase = "job"; run.batch = r.batch; run.jobs = r.jobs || []; run.job = run.jobs[0] || null; run.step = null;
+  run.jobs.forEach(told);
+  followAll(run);
+  if (run.frames.some((fm) => fm.pay === "free")) refreshMe();
+}
+function followAll(run) {
+  const stops = run.jobs.map((j0) => watchJob(j0.id, (j) => {
+    const was = jobsOf(run).every((x) => isFinal(x.status));
+    run.jobs = run.jobs.map((x) => (x.id === j.id ? j : x)); run.job = run.jobs[0];
+    told(j);
+    if (S.run !== run) return;
+    if (!was && run.jobs.every((x) => isFinal(x.status))) ended(run);
+    runChanged();
+  }, () => {}, (net) => { run.net = net; netState(net); if (S.run === run) runChanged(); }));
+  stopWatch = () => stops.forEach((f) => f?.());
 }
 
 // The files of a run go up: photos to framy, a clip or a sound to the bucket and then to framy.
@@ -146,11 +215,12 @@ function follow(run) {
 // What the end of a job changes beyond the stage: the free counts, and a key
 // or the free tier found not to work.
 function ended(run) {
-  const j = run.job;
   refreshMe();
-  if (j.status !== "failed" && j.status !== "expired") return;
-  const f = failure(j);
-  if (f.closeFree) { S.closed[run.kind] = Date.now() + f.closeFree; render(); }
+  for (const j of jobsOf(run)) {
+    if (j.status !== "failed" && j.status !== "expired") continue;
+    const f = failure(j);
+    if (f.closeFree) { S.closed[run.kind] = Date.now() + f.closeFree; render(); }
+  }
 }
 function afterRefusal(run, err) {
   const b = err.body || {};
@@ -173,8 +243,10 @@ export function netState(v) {
 
 /* Stopping a run that has not started. */
 export async function cancel(run = S.run) {
+  run = pressOfRun(run);
   if (!run) return;
   if (run.phase === "prep") { if (!run.sending) run.stop.abort(); return; }
+  if (run.multi) { cancelPress(run); return; }
   if (run.phase !== "job" || run.job.status !== "queued") return;
   try {
     const j = await api(`/api/jobs/${run.job.id}/cancel`, { method: "POST" });
@@ -190,6 +262,18 @@ export async function cancel(run = S.run) {
   }
 }
 
+// A press stops what has not started: every job of it still queued.
+async function cancelPress(run) {
+  const qs = run.jobs.filter((j) => j.status === "queued");
+  const got = await Promise.all(qs.map((j) => api(`/api/jobs/${j.id}/cancel`, { method: "POST" }).catch((e) => { if (e.code !== "job_running") toast(refusal(e).text); return null; })));
+  const was = run.jobs.every((x) => isFinal(x.status));
+  for (const j of got.filter(Boolean)) { run.jobs = run.jobs.map((x) => (x.id === j.id ? j : x)); told(j); }
+  run.job = run.jobs[0];
+  if (S.run !== run) return;
+  if (!was && run.jobs.every((x) => isFinal(x.status))) { stopWatch?.(); ended(run); }
+  runChanged();
+}
+
 /* What can be done with what came of a run. */
 
 // The run, back in the composer as it was pressed: model, payment, settings, files and words.
@@ -197,7 +281,10 @@ export async function cancel(run = S.run) {
 // catalog leaves the composer's.
 function restore(run, pay = run.pay) {
   S.kind = run.kind;
-  if (C.byId[run.model]) {
+  if (run.multi) restoreFrames(run);
+  else S.frames[run.kind] = [newFrame()];
+  S.scope[run.kind] = null;
+  if (C.byId[run.model] && !run.multi) {
     S.model[run.kind] = run.model;
     S.pay[run.model] = pay;
     if (run.pay !== "free") Object.assign(S.wanted, run.settings);
@@ -211,7 +298,18 @@ function restore(run, pay = run.pay) {
   $("#prompt").value = run.prompt;
   try { sessionStorage.setItem("framy.draft", run.prompt); } catch {}
 }
+// The frames of a press back as they were: the first is the common setup, the
+// others keep what they had (the composer drops what equals the common).
+function restoreFrames(run) {
+  const fms = run.frames.filter((fm) => C.byId[fm.model]), first = fms[0];
+  if (!first) { S.frames[run.kind] = [newFrame()]; return; }
+  S.model[run.kind] = first.model;
+  S.pay[first.model] = first.pay;
+  if (first.pay !== "free") Object.assign(S.wanted, first.settings);
+  S.frames[run.kind] = fms.map((fm) => newFrame({ model: fm.model, pay: fm.pay, wanted: fm.pay === "free" ? {} : { ...fm.settings } }));
+}
 export function editPrompt(run = S.run) {
+  run = pressOfRun(run);
   leave(run);
   act(() => { restore(run); S.showJob = false; render(); });
   const p = $("#prompt");
@@ -220,12 +318,14 @@ export function editPrompt(run = S.run) {
 }
 // The same run on another model: the run back in the composer, the picker open.
 export function otherModel(run = S.run) {
+  run = pressOfRun(run);
   leave(run);
   act(() => { restore(run); S.showJob = false; render(); });
   openPicker();
 }
 export function again(run = S.run) {
-  if (S.busy || !C.byId[run.model]) return;
+  run = pressOfRun(run);
+  if (S.busy || !C.byId[run.model] || run.multi && run.frames.some((fm) => !C.byId[fm.model])) return;
   leave(run);
   act(() => { restore(run); render(); });
   start(copyOf(run), run.retryKey || newKey());
@@ -233,9 +333,12 @@ export function again(run = S.run) {
 // The model refused the sound it made: the same run without sound. Its price
 // is the one known for it, else the one shown with sound, which is never lower.
 export function quiet(run = S.run) {
+  run = pressOfRun(run);
   const m = C.byId[run.model];
   if (S.busy || !m) return;
   leave(run);
+  // A press comes back without sound in each frame, and goes on the next press.
+  if (run.multi) { act(() => { restore({ ...run, frames: run.frames.map((fm) => ("generate_audio" in fm.settings ? { ...fm, settings: { ...fm.settings, generate_audio: false } } : fm)) }); S.showJob = false; render(); }); return; }
   const set = { ...run.settings, generate_audio: false };
   act(() => { restore(run); S.wanted.generate_audio = false; render(); });
   const e = run.pay === "free" ? null : known(runItem(m, run.pay, set))?.estimate;
@@ -243,22 +346,26 @@ export function quiet(run = S.run) {
 }
 // The price went up: the person agreed to the new one.
 export function takePrice(run = S.run) {
+  run = pressOfRun(run);
   const e = run.why?.estimate;
   start(copyOf(run, { shown: shownOf(e), shownLabel: priceText(e), priceLabel: e?.label || "" }));
 }
 // A free run that could not go free: the same run on the person's own key.
 export const keyFor = (run) => { const m = C.byId[run.model]; return m?.offers.map((o) => o.provider).find(keyOk) || ""; };
 export function byKey(run = S.run) {
+  run = pressOfRun(run);
   const p = keyFor(run), m = C.byId[run.model];
   if (!p || !m) return;
   leave(run);
+  // A press comes back with its free frames on the person's keys, and goes on the next press.
+  if (run.multi) { act(() => { restore({ ...run, frames: run.frames.map((fm) => (fm.pay === "free" ? { ...fm, pay: keyFor(fm) || fm.pay } : fm)) }); S.showJob = false; render(); }); return; }
   act(() => { restore(run, p); render(); });
   const r = fastOf(m, p, settings(m, p)), e = known(runItem(r.m, p, r.set))?.estimate;
   start(copyOf(run, { model: r.m.id, pay: p, offer: offerOf(r.m, p).id, settings: r.set, shown: shownOf(e), shownLabel: e ? priceText(e) : "", priceLabel: e?.label || "" }));
 }
 export function drop() { S.showJob = false; renderStage(); renderBar(); }
 // The clip was longer than framy takes whole: its part is picked in the editor.
-export function pickPart(run = S.run) { editPrompt(run); setTimeout(openCut, 120); }
+export function pickPart(run = S.run) { editPrompt(pressOfRun(run)); setTimeout(openCut, 120); }
 
 export async function copyPrompt(text) {
   try { await navigator.clipboard.writeText(text); toast(t("act.copied")); }
@@ -352,6 +459,21 @@ export function runOfJob(j) {
   return { kind: j.kind, model: j.model, pay: j.free ? "free" : providerOf(j), offer: j.offer, prompt: j.prompt || "", settings: j.settings || {}, files,
     clip: c, cut: null, cont: null, shown: null, shownLabel: "", priceLabel: j.estimate?.label || "", n: 0, key: "", phase: "job", job: j, why: null, net: "", hist: true };
 }
+// The jobs of one press read back from the library, as the press: a frame for
+// each result, a job of several results giving that many frames alike, and
+// the files shared by the frames that took them. Frames gone with a deleted
+// job close up.
+export function runOfBatch(js) {
+  const idx = [...new Set(js.flatMap((j) => j.frames || [0]))].sort((a, b) => a - b);
+  const jobs = js.map((j) => ({ ...j, frames: (j.frames || [0]).map((f) => idx.indexOf(f)) })), byUp = new Map();
+  const share = (fs) => fs.map((f) => { if (!byUp.has(f.upload)) byUp.set(f.upload, f); return byUp.get(f.upload); });
+  const frames = idx.map((_, i) => {
+    const r = runOfJob(jobs.find((j) => j.frames.includes(i))), { n: _n, ...settings } = r.settings, files = share(r.files);
+    return { model: r.model, pay: r.pay, offer: r.offer, settings, files, clip: files.find((f) => f.kind === "video") || null, cut: null, cont: null };
+  });
+  const first = jobs.find((j) => j.frames.includes(0));
+  return { ...runOfJob(first), ...frames[0], multi: true, frames, files: [...byUp.values()], jobs, job: first, batch: first.batch, priceLabel: "" };
+}
 function fileOfInput(f) {
   const meta = { content_type: f.content_type, bytes: f.bytes, width: f.width, height: f.height }, base = { id: "j" + f.id, server: true, name: "", upload: f.id, w: f.width, h: f.height };
   if (String(f.content_type).startsWith("video/"))
@@ -362,14 +484,15 @@ function fileOfInput(f) {
 }
 // What a run of the library does before it acts in the composer: the page
 // turns to it (library.js says how).
+// The whole screen closes for any run; the rest is for a run of the library.
 let leaveHist = () => {};
 export const onLeave = (fn) => { leaveHist = fn; };
-const leave = (run) => { if (run?.hist) leaveHist(); };
+const leave = (run) => leaveHist(run);
 
 // Deleting a job: DELETE /api/jobs/{id}. A job the stage shows goes from it too.
 export async function removeJob(id) {
   try { await api(`/api/jobs/${id}`, { method: "DELETE" }); }
   catch (e) { if (e.status !== 404) throw e; }
-  if (S.run?.job?.id === id) { stopWatch?.(); stopWatch = null; S.run = null; S.showJob = false; runChanged(); renderBar(); }
+  if (jobsOf(S.run).some((j) => j.id === id)) { stopWatch?.(); stopWatch = null; S.run = null; S.showJob = false; runChanged(); renderBar(); }
 }
 export { isFinal };
