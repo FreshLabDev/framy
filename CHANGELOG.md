@@ -326,9 +326,12 @@ was written from, and the skeleton of the service.
   copy button for the prompt. A run that went on from a last frame shows,
   saves and sends the clip joined to it, everywhere the site shows a result,
   and saves its new part on its own with New part; Continue then takes the
-  last frame of the whole clip. In the Mini App it also has Share, which
-  opens Telegram's chat picker with the result; one Telegram will not take
-  says to download it instead.
+  last frame of the whole clip. A video plays in the site's own player, the
+  same in every browser and in the Mini App: play, a bar to seek on, the
+  time, the sound and the whole screen, and on a joined clip the bar is cut
+  into its parts with the one playing standing taller. In the Mini App it
+  also has Share, which opens Telegram's chat picker with the result; one
+  Telegram will not take says to download it instead.
 - The stage shows every state of a run as a halftone of dots in the frame,
   as the bot's previews do: the bot's generating loop while the job runs,
   and a figure of its own for the start, the queue, a wait with what is left

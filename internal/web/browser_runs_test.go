@@ -210,7 +210,8 @@ func (f *fakeRuns) create(w http.ResponseWriter, r *http.Request) {
 		steps = append(steps, at("running", map[string]any{"kind": "video"}), at("done", map[string]any{"kind": "video",
 			"cost":    map[string]any{"usd": 0.04, "amount": 0.04, "currency": "USD", "label": "$0.040"},
 			"results": []map[string]any{{"id": 9, "content_type": "video/mp4", "url": url, "download": url + "?download=1", "width": 832, "height": 480, "seconds": 5}},
-			"joined":  map[string]any{"id": 10, "content_type": "video/mp4", "url": joined, "download": joined + "?download=1", "width": 832, "height": 480, "seconds": 9.96}}))
+			"joined": map[string]any{"id": 10, "content_type": "video/mp4", "url": joined, "download": joined + "?download=1", "width": 832, "height": 480, "seconds": 9.96,
+				"segments": []float64{0, 5}}}))
 	case p == "slow":
 		for range 14 {
 			steps = append(steps, at("running", nil))
@@ -828,4 +829,39 @@ func TestBrowserJoined(t *testing.T) {
 		t.Errorf("joined: %v", s)
 	}
 	noErrors(t, ctx)
+}
+
+// TestBrowserPlayer checks the site's own player on a joined clip, on a wide
+// screen and a phone: no browser controls, the bar cut into the clip's parts
+// by their length, the part under a press lit with the time there, the sound,
+// and a bar that fits the frame.
+func TestBrowserPlayer(t *testing.T) {
+	for _, size := range [][2]int64{{1440, 900}, {375, 812}} {
+		runs := &fakeRuns{}
+		ts := fakeSite(t, runs.mount)
+		ctx := browser(t, ts.URL, size[0], size[1], size[0] < 960)
+		s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(700);
+	await press("done:joined", () => document.querySelector("#stage .player .pseg"));
+	const pl = document.querySelector("#stage .player"), v = pl.querySelector("video"), tr = pl.querySelector(".ptrack");
+	const segs = [...tr.querySelectorAll(".pseg")], w = segs.map((e) => e.getBoundingClientRect().width);
+	const lit = () => segs.findIndex((e) => e.classList.contains("on"));
+	const r = { controls: v.hasAttribute("controls"), n: segs.length, ratio: w[0] / w[1], lit0: lit(),
+	  fits: pl.querySelector(".pbar").scrollWidth <= pl.clientWidth, over: document.documentElement.scrollWidth - innerWidth };
+	const b = segs[1].getBoundingClientRect(), x = b.left + b.width / 2, y = b.top + b.height / 2;
+	tr.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: x, clientY: y, pointerId: 7, isPrimary: true }));
+	r.lit1 = lit(); r.time = pl.querySelector(".ptime").textContent; r.now = tr.getAttribute("aria-valuenow");
+	tr.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: x, clientY: y, pointerId: 7, isPrimary: true }));
+	pl.querySelector("[aria-label='Sound on']").click();
+	await wait(150);
+	r.muted = v.muted; r.snd = !!pl.querySelector("[aria-label='Sound off']");
+	return r;`)
+		ratio, _ := s["ratio"].(float64)
+		if s["controls"] != false || s["n"] != 2.0 || ratio < 0.9 || ratio > 1.12 || s["lit0"] != 0.0 || s["fits"] != true || s["over"] != 0.0 ||
+			s["lit1"] != 1.0 || s["time"] != "0:07 / 0:09" || s["now"] != "7" || s["muted"] != false || s["snd"] != true {
+			t.Errorf("%dx%d: the player: %v", size[0], size[1], s)
+		}
+		noErrors(t, ctx)
+	}
 }

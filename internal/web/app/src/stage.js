@@ -10,6 +10,7 @@ import { isFinal, outsOf } from "./api.js";
 import { failure, waiting, left, BILLING } from "./errors.js";
 import { priceText } from "./price.js";
 import { halftone } from "./halftone.js";
+import { player } from "./player.js";
 import { openPrefs } from "./prefs.js";
 import { again, quiet, editPrompt, otherModel, cancel, byKey, keyFor, takePrice, drop, pickPart, copyPrompt, continueFrom, fromLastFrame, canShare, share } from "./run.js";
 
@@ -183,10 +184,9 @@ function renderRun(st, run) {
   let media = null;
   if (v.done) {
     const res = v.res;
-    media = res.content_type?.startsWith("video/")
-      ? h("video", { src: res.url, controls: true, playsinline: true, loop: true, muted: true, autoplay: true })
-      : h("img", { src: res.url, alt: run.prompt || "", decoding: "async" });
-    media.addEventListener(media.tagName === "IMG" ? "load" : "loadeddata", () => anim(media, [{ opacity: 0 }, { opacity: 1 }], { duration: 420 }), { once: true });
+    media = res.content_type?.startsWith("video/") ? player(res) : h("img", { src: res.url, alt: run.prompt || "", decoding: "async" });
+    const pic = media.tagName === "IMG" ? media : media.querySelector("video");
+    pic.addEventListener(media === pic ? "load" : "loadeddata", () => anim(pic, [{ opacity: 0 }, { opacity: 1 }], { duration: 420 }), { once: true });
   }
   // While the page cannot reach framy, the frame says so; it hears again by itself.
   const going = run.phase === "job" && !isFinal(j.status);

@@ -97,7 +97,7 @@ func newFakeLibrary() *fakeLibrary {
 		case 6: // 64, made in the direct chat
 			j["surface"] = "dm"
 		case 8: // 62, a video that went on from a clip, joined to it
-			j["joined"] = map[string]any{"id": 3062, "content_type": "video/mp4", "bytes": 9000, "width": 1280, "height": 720, "seconds": 11,
+			j["joined"] = map[string]any{"id": 3062, "content_type": "video/mp4", "bytes": 9000, "width": 1280, "height": 720, "seconds": 11, "segments": []float64{0, 6},
 				"url": "/test/clip.mp4?joined", "download": "/test/clip.mp4?download=joined", "thumb": map[string]any{"url": "/test/result.png?joined", "width": 480, "height": 270}}
 		case 9: // 61, made by guest mode
 			j["surface"] = "guest"
@@ -667,9 +667,17 @@ func TestBrowserViewerJoined(t *testing.T) {
 	const v = document.querySelector("#viewer");
 	r.video = v.querySelector(".vbox video")?.getAttribute("src");
 	r.links = [...v.querySelectorAll(".jacts > a")].map((a) => a.getAttribute("href") + " | " + a.textContent.trim());
+	// The player's bar, in its parts, keeps the arrows: they seek, not go to the next run.
+	const tr = v.querySelector(".vbox .ptrack");
+	r.parts = tr?.querySelectorAll(".pseg").length; r.controls = v.querySelector(".vbox video").hasAttribute("controls"); r.exp = !!v.querySelector(".vexp");
+	tr?.focus();
+	tr?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+	await wait(400);
+	r.path = location.pathname; r.now = tr?.getAttribute("aria-valuenow");
 	return r;`)
 	want := []any{"/test/clip.mp4?download=joined | Download", "/test/clip.mp4?download=1 | New part"}
-	if got["cover"] != "/test/result.png?joined" || got["badge"] != "11 s" || got["video"] != "/test/clip.mp4?joined" || fmt.Sprint(got["links"]) != fmt.Sprint(want) {
+	if got["cover"] != "/test/result.png?joined" || got["badge"] != "11 s" || got["video"] != "/test/clip.mp4?joined" || fmt.Sprint(got["links"]) != fmt.Sprint(want) ||
+		got["parts"] != 2.0 || got["controls"] != false || got["exp"] != false || got["path"] != "/r/62" || got["now"] != "5" {
 		t.Errorf("joined in the library: %v", got)
 	}
 	noErrors(t, ctx)

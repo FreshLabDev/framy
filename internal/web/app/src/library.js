@@ -13,6 +13,7 @@ import { S } from "./state.js";
 import { failure } from "./errors.js";
 import { known, priceEl, priceText, onPrices } from "./price.js";
 import { thumbMedia } from "./clips.js";
+import { player } from "./player.js";
 import { openSheet, closeSheets, toast, ask } from "./ui.js";
 import { view, B, ticking, renderStage, refit } from "./stage.js";
 import { runOfJob, again, removeJob, signIn, shownOf, onLeave, copyPrompt, refreshMe } from "./run.js";
@@ -468,7 +469,7 @@ async function step(d) {
   showIn(shown()[k], d);
 }
 addEventListener("keydown", (e) => {
-  if (!viewerOpen() || !$("#ask").hidden || e.metaKey || e.ctrlKey || e.altKey || e.target.closest?.("input, textarea, select, video")) return;
+  if (!viewerOpen() || !$("#ask").hidden || e.metaKey || e.ctrlKey || e.altKey || e.target.closest?.("input, textarea, select, video, .ptrack")) return;
   const rtl = document.dir === "rtl";
   if (e.key === "ArrowLeft") { e.preventDefault(); step(rtl ? 1 : -1); }
   else if (e.key === "ArrowRight") { e.preventDefault(); step(rtl ? -1 : 1); }
@@ -497,15 +498,15 @@ function ratioOf(j) {
 function mediaOf(j, v) {
   const res = v.res;
   if (v.done && res.url) {
-    const vid = res.content_type?.startsWith("video/");
-    const el = vid ? h("video", { src: res.url, poster: res.thumb?.url || null, controls: true, playsinline: true, loop: true, muted: true, autoplay: true })
-      : h("img", { src: res.url, alt: j.prompt || "", decoding: "async" });
+    // A video has its own player, with its own whole screen.
+    if (res.content_type?.startsWith("video/")) return h("div", { class: "vbox vfit" }, player(res));
+    const el = h("img", { src: res.url, alt: j.prompt || "", decoding: "async" });
     // The thumbnail stands in while the original loads.
-    const ph = !vid && res.thumb?.url ? h("img", { class: "ph", src: res.thumb.url, alt: "" }) : null;
+    const ph = res.thumb?.url ? h("img", { class: "ph", src: res.thumb.url, alt: "" }) : null;
     if (ph) el.addEventListener("load", () => ph.remove(), { once: true });
-    if (!vid) el.addEventListener("click", () => openFull(V.i));
+    el.addEventListener("click", () => openFull(V.i));
     const big = h("button", { type: "button", class: "vexp", "aria-label": t("full.open"), title: t("full.open"), onclick: () => openFull(V.i) }, ic("expand"));
-    return h("div", { class: "vbox vfit" + (vid ? "" : " zoom") }, ph, el, big);
+    return h("div", { class: "vbox vfit zoom" }, ph, el, big);
   }
   const st = v.status || h("div", { class: "c" }, ic(j.kind), h("b", {}, t("lib.gone")));
   return h("div", { class: "jbox vfit" + (v.fail ? " failed" : "") }, h("i"), h("i"), h("i"), h("i"), st);
@@ -614,8 +615,7 @@ function openFull(at = 0) {
   const box = $("#full"), n = rs.length, rtl = dirOf() < 0;
   const cells = rs.map((r) => {
     const vid = r.content_type?.startsWith("video/"), ratio = r.width && r.height ? r.width / r.height : ratioOf(j);
-    const m = vid ? h("video", { src: r.url, poster: r.thumb?.url || null, controls: true, playsinline: true, loop: true, muted: true, preload: "metadata" })
-      : h("img", { src: r.url, alt: j.prompt || "", decoding: "async" });
+    const m = vid ? player(r, { autoplay: false }) : h("img", { src: r.url, alt: j.prompt || "", decoding: "async" });
     return h("div", { class: "fcell" }, h("div", { class: "fimg", style: { "--r": String(ratio) } }, m));
   });
   const strip = h("div", { class: "fstrip" }, cells), cnt = h("span", { class: "cnt", "aria-live": "polite" });
@@ -665,7 +665,7 @@ export function closeFull(quick = false) {
 addEventListener("keydown", (e) => {
   if (!FULL || !$("#ask").hidden) return;
   if (e.key === "Escape") { e.stopPropagation(); e.preventDefault(); closeFull(); }
-  else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && !e.target.closest?.("video")) {
+  else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && !e.target.closest?.("video, .ptrack")) {
     e.stopPropagation(); e.preventDefault();
     const d = e.key === "ArrowLeft" ? -1 : 1;
     fullGo(dirOf() < 0 ? -d : d);
