@@ -819,6 +819,11 @@ was written from, and the skeleton of the service.
   the start of the hour, lives 10 minutes past it, and its answer carries
   `Cache-Control: private, max-age=4200`, so the browser shows a file it has
   seen from its cache instead of fetching it on every page.
+- Metrics of the jobs on the internal listener: what the providers billed
+  by provider, model and payer (`framy_job_cost_usd_total`), the time from
+  the queue to the result (`framy_job_duration_seconds`), the reasons jobs
+  failed (`framy_job_failures_total`), the jobs queued and running
+  (`framy_jobs`) and the event streams open (`framy_sse_streams_open`).
 - CI on every push and weekly: modules, gofmt, build, vet, race tests,
   database tests on PostgreSQL 17, govulncheck, the image build, the photo
   and storage tests inside the image, on the ffmpeg it ships, and the local

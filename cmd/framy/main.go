@@ -300,6 +300,7 @@ func run(log *slog.Logger) error {
 	servers := []*http.Server{site.HTTPServer(cfg.HTTPAddr)}
 	if cfg.MetricsAddr != "" {
 		metricsMux := http.NewServeMux()
+		metrics.JobsWaiting.Set(queue.Waiting)
 		metricsMux.Handle("GET /metrics", metrics.Handler())
 		servers = append(servers, &http.Server{
 			Addr:              cfg.MetricsAddr,

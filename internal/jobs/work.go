@@ -15,6 +15,7 @@ import (
 	"github.com/riverqueue/river/rivertype"
 
 	"github.com/FreshLabDev/framy/internal/catalog"
+	"github.com/FreshLabDev/framy/internal/metrics"
 )
 
 type generateArgs struct {
@@ -307,8 +308,13 @@ func (q *Queue) end(ctx context.Context, id int64, e ending) error {
 			return fmt.Errorf("job %d grounding: %w", id, err)
 		}
 	}
-	var userID int64
-	var estimate, actual *float64
+	var (
+		userID                int64
+		estimate, actual      *float64
+		provider, model, kind string
+		free                  bool
+		took                  *float64
+	)
 	ended := false
 	err := pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx, `
@@ -316,8 +322,10 @@ func (q *Queue) end(ctx context.Context, id int64, e ending) error {
 			       actual_usd=COALESCE($5, actual_usd), results=$6, grounding=COALESCE($7::jsonb, grounding),
 			       retry_at=NULL, finished_at=now(), updated_at=now()
 			WHERE id=$1 AND status IN ('queued', 'running')
-			RETURNING user_id, estimate_usd::float8, actual_usd::float8`,
-			id, e.status, e.class, clip(e.msg), e.cost, e.results, grounding, clip(e.said)).Scan(&userID, &estimate, &actual)
+			RETURNING user_id, estimate_usd::float8, actual_usd::float8, provider, model_id, kind, free,
+			          EXTRACT(EPOCH FROM finished_at - queued_at)::float8`,
+			id, e.status, e.class, clip(e.msg), e.cost, e.results, grounding, clip(e.said)).
+			Scan(&userID, &estimate, &actual, &provider, &model, &kind, &free, &took)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
@@ -330,6 +338,7 @@ func (q *Queue) end(ctx context.Context, id int64, e ending) error {
 	if err != nil || !ended {
 		return err
 	}
+	count(e, provider, model, kind, free, actual, took)
 	attrs := []any{"job", id, "status", e.status}
 	if e.class != "" {
 		attrs = append(attrs, "class", e.class)
@@ -351,6 +360,53 @@ func (q *Queue) end(ctx context.Context, id int64, e ending) error {
 		q.log.Warn("job cost differs from its estimate by more than 20%", attrs...)
 	}
 	return nil
+}
+
+// count puts a job that ended in the metrics: what it cost and who paid,
+// how long it took from the queue when it made something, and why it made
+// nothing otherwise.
+func count(e ending, provider, model, kind string, free bool, actual, took *float64) {
+	if actual != nil && *actual > 0 {
+		payer := "key"
+		if free {
+			payer = "free"
+		}
+		metrics.JobCost.Add(*actual, provider, model, payer)
+	}
+	switch e.status {
+	case Done:
+		if took != nil {
+			metrics.JobDuration.Observe(kind, *took)
+		}
+	case Failed, Expired:
+		reason := string(e.class)
+		if reason == "" {
+			reason = string(e.status)
+		}
+		metrics.JobFailures.Inc(reason)
+	}
+}
+
+// Waiting is how many jobs are queued and how many running, for the
+// metrics.
+func (q *Queue) Waiting(ctx context.Context) (map[string]float64, error) {
+	rows, err := q.pool.Query(ctx, `
+		SELECT status, count(*)::float8 FROM job WHERE status IN ('queued', 'running') GROUP BY status`)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]float64{string(Queued): 0, string(Running): 0}
+	for rows.Next() {
+		var status string
+		var n float64
+		if err := rows.Scan(&status, &n); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		out[status] = n
+	}
+	rows.Close()
+	return out, rows.Err()
 }
 
 // wake makes the person's next waiting job look for a slot now rather than

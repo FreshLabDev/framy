@@ -117,6 +117,8 @@ func (a *API) events(w http.ResponseWriter, r *http.Request) {
 	}
 	defer release()
 	metrics.StreamsOpened.Inc()
+	metrics.StreamsOpen.Add(1)
+	defer metrics.StreamsOpen.Add(-1)
 
 	lang := a.language(ctx, r, user)
 	h := w.Header()

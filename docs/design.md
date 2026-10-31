@@ -952,13 +952,14 @@ Details and sources in [research/build.md](research/build.md).
 - **Uploads** through Cloudflare are at most 100 MB per request. Photos come to the service; videos go by presigned PUT straight into R2 (see "Storage and retention").
 - **Outgoing requests** to URLs from providers go through a dialer that refuses private addresses (SSRF).
 - **Backups:** a daily `pg_dump -Fc -n framy`, encrypted with `age`, into the R2 bucket `framy-backups` with a 30-day lifecycle, and a monthly restore test. Objects in `framy` are not backed up: R2 is their copy off the home server. The KEK is stored apart from the dumps. The files of `telegram-bot-api` need cleaning by age; how much it keeps is not checked.
-- **Metrics** on an internal port:
-  - `framy_job_cost_usd_total{provider,model,byok}`;
-  - `framy_job_duration_seconds`;
-  - `framy_job_failures_total{reason}` with `moderation`, `provider_error`, `timeout`, `quota`;
-  - the queue length and the open streams.
+- **Metrics** on an internal port (`METRICS_ADDR`, `GET /metrics`, `internal/metrics`), beside the process counters:
+  - `framy_job_cost_usd_total{provider,model,payer}`: what the providers billed for the jobs that ended, `payer` being `free` (framy's key) or `key` (the person's);
+  - `framy_job_duration_seconds{kind}`: a histogram of the time from the queue to the result of the jobs done, 5 s to an hour;
+  - `framy_job_failures_total{reason}`: the jobs that ended without a result, by their error class (`moderation`, `provider`, `timeout`, `money` and the rest), the sweep's included;
+  - `framy_jobs{status}`: the jobs queued and running, read from the database when the page is asked for;
+  - `framy_sse_streams_open`: the event streams open now.
 
-  Each job keeps a snapshot of the price it was estimated with. An alert fires on `limit_remaining` of framy's OpenRouter key.
+  The job counters start from zero with the process, as a scraper expects of a counter; the database keeps the whole history. Each job keeps a snapshot of the price it was estimated with. The operator chat hears when a fuse closes the free tier (the day's budget, or `limit_remaining` of framy's OpenRouter key) and each time the `framy` bucket passes another 10 GB.
 - **Deleting an account** removes the rows, the files and the encrypted keys at once.
 
 ## Architecture

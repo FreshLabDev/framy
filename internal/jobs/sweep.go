@@ -6,6 +6,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
+
+	"github.com/FreshLabDev/framy/internal/metrics"
 )
 
 type sweepArgs struct{}
@@ -28,8 +30,12 @@ func (w *sweepWorker) Work(ctx context.Context, _ *river.Job[sweepArgs]) error {
 //   - jobs River gave up on without working them, as it does with a job
 //     whose worker died on its last attempt.
 func (q *Queue) sweep(ctx context.Context) (int64, error) {
-	var n int64
+	var (
+		n      int64
+		failed []string
+	)
 	err := pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
+		failed = failed[:0]
 		tag, err := tx.Exec(ctx, `
 			UPDATE job SET status='cancelled', error_class='draft_expired', finished_at=now(), updated_at=now()
 			WHERE status='draft' AND created_at <= now() - make_interval(secs => $1)`, draftTTL.Seconds())
@@ -44,18 +50,20 @@ func (q *Queue) sweep(ctx context.Context) (int64, error) {
 			FROM river_job r
 			WHERE r.id = j.river_job_id AND j.status IN ('queued', 'running')
 			  AND r.state IN ('completed', 'cancelled', 'discarded')
-			RETURNING j.id, j.user_id`)
+			RETURNING j.id, j.user_id, j.error_class`)
 		if err != nil {
 			return err
 		}
 		people := map[int64]bool{}
 		for rows.Next() {
 			var id, user int64
-			if err := rows.Scan(&id, &user); err != nil {
+			var class string
+			if err := rows.Scan(&id, &user, &class); err != nil {
 				rows.Close()
 				return err
 			}
 			q.log.Warn("job ended by the sweep; River gave up on it", "job", id)
+			failed = append(failed, class)
 			people[user] = true
 			n++
 		}
@@ -70,5 +78,10 @@ func (q *Queue) sweep(ctx context.Context) (int64, error) {
 		}
 		return nil
 	})
+	if err == nil {
+		for _, class := range failed {
+			metrics.JobFailures.Inc(class)
+		}
+	}
 	return n, err
 }

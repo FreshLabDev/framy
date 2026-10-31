@@ -81,8 +81,9 @@ screen, a command or a table, check how the siblings do it.
   are published per language at start, a description only when it changed.
   The direct chat's menu has `/start` only; the other tabs answer when typed.
 - **Version and metrics.** The About card shows the version from the build's
-  ldflags, never a commit or a date. Counters are `framy_*_total` in the
-  Prometheus text format on `METRICS_ADDR`, never on the public listener.
+  ldflags, never a commit or a date. Metrics are in the Prometheus text
+  format on `METRICS_ADDR`, never on the public listener: counters
+  `framy_*_total`, gauges and histograms `framy_*` named for what they hold.
 - **Writing.** No em dash anywhere a person reads; the i18n tests check the
   translations and the strings in Go code.
 
