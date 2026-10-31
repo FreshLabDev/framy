@@ -15,6 +15,7 @@ import (
 	"net/http"
 	neturl "net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -167,6 +168,9 @@ func (f *fakeRuns) create(w http.ResponseWriter, r *http.Request) {
 		case "free_closed":
 			status = http.StatusServiceUnavailable
 			body["until"] = time.Now().Add(15 * time.Minute).UTC()
+		case "free_limit":
+			status = http.StatusTooManyRequests
+			body["frees_at"] = time.Now().Add(50 * time.Hour).UTC()
 		}
 		writeTestJSON(w, status, body)
 		return
@@ -421,10 +425,11 @@ func TestBrowserRuns(t *testing.T) {
 		t.Errorf("cancelled retry: %v", end)
 	}
 
-	// A job already running cannot be stopped, and the stage says so instead of a Cancel.
+	// A job already running cannot be stopped, and the stage says so instead
+	// of a Cancel; under its label is the time since the press, never a percentage.
 	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+`return await press("running", (s) => s.label === "Making it");`)
 	if acts := fmt.Sprint(s["acts"]); !strings.Contains(acts, "being made already") || strings.Contains(acts, "Cancel") || s["dots"] != true ||
-		s["sub"] != "" || !strings.HasPrefix(s["line"].(string), "MAI-Image") {
+		!strings.HasPrefix(fmt.Sprint(s["sub"]), "0:0") || !strings.HasPrefix(s["line"].(string), "MAI-Image") {
 		t.Errorf("running: %v", s)
 	}
 
@@ -440,6 +445,12 @@ func TestBrowserRuns(t *testing.T) {
 		if s["label"] != w[0] || len(acts) == 0 || acts[0] != w[1] || strings.Contains(s["text"].(string), fakeMessage) || s["dots"] != true {
 			t.Errorf("refusal %s: %v", code, s)
 		}
+	}
+	// The free limit names the day and the time the next free run comes, in
+	// the browser's time zone, not how long until it.
+	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+`return await press("refuse:free_limit", (s) => s.failed);`)
+	if !regexp.MustCompile(`^The free pictures are used up\. The next free one: [A-Z][a-z]+ \d{1,2}\D+\d{1,2}:\d\d`).MatchString(fmt.Sprint(s["why"])) {
+		t.Errorf("refusal free_limit: %v", s)
 	}
 
 	// Polling instead of the stream still brings the result, and says it polls.

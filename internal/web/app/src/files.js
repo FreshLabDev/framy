@@ -2,9 +2,9 @@
 // the quote gets what the browser read of them, the upload happens on the
 // press. A clip means video: the composer turns to it and to a model that
 // takes one.
-import { S, M, clips, needsCut } from "./state.js";
+import { S, M, clips, needsCut, inSlot, placeFiles, settleSlots, refuses, misfit } from "./state.js";
 import { C, takesVideo, refVideo } from "./catalog.js";
-import { act, render } from "./composer.js";
+import { act, render, setModel } from "./composer.js";
 import { toast } from "./ui.js";
 import { t } from "./i18n.js";
 import { api } from "./api.js";
@@ -33,8 +33,13 @@ async function measure(file) {
   }
 }
 
-export async function addFiles(list) {
-  const room = MAX_FILES - S.files.length;
+// slot is where in a video the files go ("start", "end" or "ref"), else
+// where they fit (state.js, placeFiles).
+export async function addFiles(list, slot = "") {
+  // A frame is one picture, and it takes the place of the one there.
+  const frame = slot === "start" || slot === "end";
+  if (frame) list = list.filter((f) => f.type.startsWith("image/")).slice(0, 1);
+  const room = MAX_FILES - S.files.length + (frame ? inSlot(slot).length : 0);
   if (list.length > room) toast(t("files.too_many", { n: MAX_FILES }));
   const got = [];
   for (const file of list.slice(0, Math.max(0, room))) {
@@ -55,8 +60,18 @@ export async function addFiles(list) {
   if (!got.length) return;
   const clip0 = got.find((f) => f.kind === "video"), kind0 = S.kind;
   act(() => {
-    if (clip0) toClip();
+    if (slot) {
+      // Slots are a video's: the files go there as they were put.
+      S.kind = "video";
+      if (frame) for (const f of inSlot(slot)) removeFile(f, false);
+      for (const f of got) f.slot = slot;
+    } else if (clip0) {
+      toClip();
+      // A clip goes with references, never with frames.
+      for (const f of S.files) if (f.kind === "image" && f.slot !== "ref") f.slot = "ref";
+    }
     S.files.push(...got);
+    placeFiles(); settleSlots(); fitModel();
     render();
   });
   if (S.kind !== kind0) window.dispatchEvent(new CustomEvent("framy:kind", { detail: S.kind }));
@@ -78,10 +93,26 @@ function toClip() {
   S.cont = null;
 }
 
-export function removeFile(f) {
+// settle false keeps the slots as they are, for a frame about to be replaced.
+export function removeFile(f, settle = true) {
   if (f === clips()[0]) S.cut = null;
   S.files = S.files.filter((x) => x !== f);
   if (f.file && f.url?.startsWith("blob:")) URL.revokeObjectURL(f.url);
+  if (settle) settleSlots();
+}
+
+// The video model follows the slots: one that cannot take what is in them
+// gives way to the nearest that can, its own family first, then framy's
+// suggestions, then the rest.
+export function fitModel() {
+  const m = M();
+  if (!m || S.kind !== "video" || !refuses(m)) return;
+  const f = C.famOf[m.id];
+  const ids = [...(f ? f.cur.map((v) => v.id) : []), ...(clips().length ? C.recommend.video_edit || [] : []), ...(C.recommend.video || []),
+    ...C.FAM.filter((x) => x.kind === "video").flatMap((x) => x.cur.map((v) => v.id))];
+  const ok = ids.map((id) => C.byId[id]).filter((x) => x && C.famOf[x.id] && !refuses(x));
+  const best = ok.find((x) => !misfit(x)) || ok[0];
+  if (best) setModel(best.id);
 }
 
 // The photo as it goes up: as it is, or drawn smaller when a side is too long.

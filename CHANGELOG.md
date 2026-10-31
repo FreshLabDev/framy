@@ -333,6 +333,17 @@ was written from, and the skeleton of the service.
   into its parts with the one playing standing taller. In the Mini App it
   also has Share, which opens Telegram's chat picker with the result; one
   Telegram will not take says to download it instead.
+- A video is made from its slots on the site: Start, End once Start holds a
+  picture, and References for pictures and clips. Frames go alone, first,
+  with `frame_images` naming them, so a picture is never sent as a
+  reference by mistake. The picker and the variants leave out the models
+  that cannot take what is in the slots (a last frame hides the models with
+  no last frame), and a model that cannot take it gives way to the nearest
+  one that can. Gemini Omni says the model picks the length, and the wait
+  shows how long it has gone, never a percentage.
+- When the free pictures or the week's video are used up, the site says the
+  date and the time of the next free one in the browser's time zone, on the
+  refusal and under Generate, instead of how long until it.
 - The stage shows every state of a run as a halftone of dots in the frame,
   as the bot's previews do: the bot's generating loop while the job runs,
   and a figure of its own for the start, the queue, a wait with what is left

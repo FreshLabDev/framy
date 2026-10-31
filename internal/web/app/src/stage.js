@@ -10,7 +10,7 @@ import { isFinal, outsOf } from "./api.js";
 import { failure, waiting, left, BILLING } from "./errors.js";
 import { priceText } from "./price.js";
 import { halftone } from "./halftone.js";
-import { player } from "./player.js";
+import { player, fmtClock } from "./player.js";
 import { openPrefs } from "./prefs.js";
 import { again, quiet, editPrompt, otherModel, cancel, byKey, keyFor, takePrice, drop, pickPart, copyPrompt, continueFrom, fromLastFrame, canShare, share } from "./run.js";
 
@@ -74,6 +74,14 @@ function runRatio(run) {
 
 // A line that counts down: its text is asked again every second.
 const live = (text, cls = "") => { const el = h("small", { class: ("tk " + cls).trim() }, text()); el._text = text; return el; };
+// The wait: how long since the press, or since the job was made, and how long
+// the model usually takes, as framy measured its own runs. Never a percentage:
+// no provider reports one.
+const typicalOf = (j) => C.byId[j.model]?.offers.find((o) => o.id === j.offer)?.typical_seconds || 0;
+function tookEl(run) {
+  const since = run.t0 || Date.parse(run.job.created_at) || Date.now(), u = typicalOf(run.job);
+  return live(() => { const s = fmtClock((Date.now() - since) / 1000); return u > 0 ? t("stage.usually", { t: s, u: fmtClock(u) }) : s; }, "took");
+}
 
 // What the stage says about run: the frame's status, the reason under it and
 // the buttons. The library's viewer shows a run with it too: o.res is which
@@ -99,10 +107,10 @@ export function view(run, o = {}) {
   if (st === "queued") {
     const w = waiting(j);
     if (w) return { ...spin(t("stage.retry"), live(() => w.line(left(w.at))), { fig: "wait", until: w.at }), acts: [stop] };
-    return { ...spin(t("stage.queued"), null, { fig: "queue" }), acts: [stop] };
+    return { ...spin(t("stage.queued"), tookEl(run), { fig: "queue" }), acts: [stop] };
   }
   if (st === "running") {
-    return { ...spin(t("stage.running"), null, { fig: "loop" }), acts: [h("span", { class: "busy" }, ic("info"), t(kind === "video" ? "cancel.running_video" : "cancel.running"))] };
+    return { ...spin(t("stage.running"), tookEl(run), { fig: "loop" }), acts: [h("span", { class: "busy" }, ic("info"), t(kind === "video" ? "cancel.running_video" : "cancel.running"))] };
   }
   const res = outsOf(j)[o.res || 0];
   if (st === "done" && res) return { done: true, res, acts: doneActs(run, j, res, o) };

@@ -79,7 +79,7 @@ export function generate() {
 
 async function start(base, key = newKey()) {
   stopWatch?.(); stopWatch = null;
-  const run = { ...base, n: ++seq, key, phase: "prep", step: null, job: null, why: null, net: "", stop: new AbortController() };
+  const run = { ...base, n: ++seq, key, phase: "prep", step: null, job: null, why: null, net: "", stop: new AbortController(), t0: Date.now() };
   S.run = run; S.showJob = true; S.busy = true;
   renderBar(); runChanged();
   let resend = false;
@@ -203,7 +203,9 @@ function restore(run, pay = run.pay) {
     if (run.pay !== "free") Object.assign(S.wanted, run.settings);
   }
   const keep = new Set(run.files);
-  S.files = run.hist ? [...run.files] : [...run.files, ...S.files.filter((f) => !keep.has(f) && f.kind !== "video")];
+  // A video's files are in their slots already, and the photos beside them would not be.
+  S.files = run.hist || run.kind === "video" ? [...run.files] : [...run.files, ...S.files.filter((f) => !keep.has(f) && f.kind !== "video")];
+  delete S.wanted.frame_images;
   S.cut = run.cut ? { ...run.cut } : null;
   S.cont = run.cont;
   $("#prompt").value = run.prompt;
@@ -328,7 +330,7 @@ export async function fromLastFrame(src = S.cont) {
     S.kind = "video";
     if (id) S.model.video = id;
     S.cont = null; S.cut = null;
-    S.files = [{ id: "lf" + shot.id, kind: "image", server: true, name: "", upload: shot.id, w: shot.width, h: shot.height,
+    S.files = [{ id: "lf" + shot.id, kind: "image", slot: "start", server: true, name: "", upload: shot.id, w: shot.width, h: shot.height,
       frameOf: { url: src.url, at: Math.max(0, (src.secs || 0) - 0.05) },
       meta: { content_type: shot.content_type, bytes: shot.bytes, width: shot.width, height: shot.height } }];
     S.showJob = false;
@@ -341,6 +343,12 @@ export async function fromLastFrame(src = S.cont) {
    the actions above take. Its files are the ones framy keeps, by id. */
 export function runOfJob(j) {
   const files = (j.inputs || []).filter((f) => f.url).map(fileOfInput), c = files.find((f) => f.kind === "video") || null;
+  // A video's first pictures were its frames, as many as frame_images named;
+  // the rest were references.
+  if (j.kind === "video") {
+    const fr = Array.isArray(j.settings?.frame_images) ? j.settings.frame_images : [];
+    files.filter((f) => f.kind === "image").forEach((f, i) => { f.slot = fr[i] === "first_frame" ? "start" : fr[i] === "last_frame" ? "end" : "ref"; });
+  }
   return { kind: j.kind, model: j.model, pay: j.free ? "free" : providerOf(j), offer: j.offer, prompt: j.prompt || "", settings: j.settings || {}, files,
     clip: c, cut: null, cont: null, shown: null, shownLabel: "", priceLabel: j.estimate?.label || "", n: 0, key: "", phase: "job", job: j, why: null, net: "", hist: true };
 }

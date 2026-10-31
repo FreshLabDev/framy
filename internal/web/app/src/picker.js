@@ -5,7 +5,7 @@ import { $, $$, h, ic, isWide } from "./dom.js";
 import { anim, rise, morph, opt, placeSegs, placeSeg, fly, ticker, EASE, OUT, SPRING } from "./motion.js";
 import { t, fmtNum, byName } from "./i18n.js";
 import { C, PNAME, vname, famText, famLogo, lg, provMark, freePlan, facts, refsOf, framesOf, needsImage, needsVideo, resRangeOf, durRangeOf, union, hasAudio, deprecation, fieldsOf, label } from "./catalog.js";
-import { S, M, images, payOf, keyOk, settings, altItem, misfit, famMisfit, freePer } from "./state.js";
+import { S, M, images, payOf, keyOk, settings, altItem, misfit, famMisfit, freePer, refuses } from "./state.js";
 import { minEl, lowest, need } from "./price.js";
 import { openSheet, closeSheets } from "./ui.js";
 import { act, render, setModel } from "./composer.js";
@@ -18,6 +18,11 @@ let FOR = null;
 const K = () => FOR?.kind || S.kind;
 const fit = (m) => (FOR ? "" : misfit(m));
 const famFit = (f) => (FOR ? "" : famMisfit(f));
+// The variants offered: a video model that cannot take what is in the slots is
+// left out, not dimmed (docs/design.md, Video).
+const ok = (v) => FOR || !refuses(v.m);
+const shown = (f) => f.cur.filter(ok);
+const oldShown = (f) => f.old.filter(ok);
 const ROWS = (o = {}) => ({ dur: o.dur || 440, ease: EASE,
   enter: (el, i) => anim(el, [{ opacity: 0, transform: "translateY(10px)" }, { opacity: 1, transform: "none" }], { duration: 360, delay: 80 + Math.min(i, 12) * (o.step ?? 30), fill: "backwards" }),
   leave: (g) => anim(g, [{ opacity: 1, transform: "none" }, { opacity: 0, transform: "scale(.97)" }], { duration: 180, easing: OUT, fill: "forwards" }) });
@@ -82,18 +87,18 @@ const hoverFam = (f, wide, vid) => (e) => {
 let found = [];
 function clearSearch() { listUpdate(() => { query = ""; $("#pksearch").value = ""; renderPicker(); }, { dur: 300, step: 15 }); $("#pksearch").focus(); }
 const focusId = () => (FOR ? FOR.cur : S.model[S.kind]);
-const lowUsd = (f) => (f.cur.some((v) => freePlan(v.m)) ? 0 : Math.min(...f.cur.map((v) => { const e = lowest(bestItems(v.m)); return !e || e.kind === "unknown" ? Infinity : e.usd; })));
+const lowUsd = (f) => (shown(f).some((v) => freePlan(v.m)) ? 0 : Math.min(...shown(f).map((v) => { const e = lowest(bestItems(v.m)); return !e || e.kind === "unknown" ? Infinity : e.usd; })));
 
 function renderPicker(o = {}) {
   const box = $("#pkrows"), wide = isWide(), ql = query.trim().toLowerCase();
-  const fams = C.FAM.filter((f) => f.kind === K() && (!ql || famText(f).includes(ql)));
+  const fams = C.FAM.filter((f) => f.kind === K() && (!ql || famText(f).includes(ql)) && shown(f).length);
   found = [];
   const rows = [], ghead = (k, icon, title, cnt) => h("div", { class: "ghead", "data-k": "g-" + k }, icon, title, cnt ? h("span", { class: "cnt" }, cnt) : null);
-  const count = (fs) => fmtNum(fs.reduce((a, f) => a + f.cur.length, 0));
+  const count = (fs) => fmtNum(fs.reduce((a, f) => a + shown(f).length, 0));
   if (!ql) {
     const many = !FOR && S.kind === "image" && images().length > 5;
     const recKey = many ? "many_photos" : K();
-    const rec = (C.recommend[recKey] || []).map((id) => C.byId[id]).filter((m) => m && C.famOf[m.id]);
+    const rec = (C.recommend[recKey] || []).map((id) => C.byId[id]).filter((m) => m && C.famOf[m.id] && (FOR || !refuses(m)));
     if (rec.length) rows.push(ghead("rec", ic("spark"), many ? t("pick.rec_photos", { n: images().length }) : t("pick.rec")),
       h("div", { class: "recs", "data-k": "recs" }, rec.map((m) => recCard(m, wide))));
   }
@@ -119,7 +124,7 @@ function renderPicker(o = {}) {
 
 const perWord = (f) => t(f.kind === "image" ? "pick.per_image" : "pick.per_video");
 function famPrice(f) {
-  const free = f.cur.some((v) => freePlan(v.m)), items = f.cur.flatMap((v) => bestItems(v.m));
+  const free = shown(f).some((v) => freePlan(v.m)), items = shown(f).flatMap((v) => bestItems(v.m));
   if (free) return h("span", { class: "fprice" }, h("b", {}, t("pay.free")), h("small", {}, minEl(items, { text: (e) => (e.kind === "unknown" ? "" : t("pick.or", { p: priceTextShort(e) })) })));
   return h("span", { class: "fprice" }, h("b", {}, minEl(items)), h("small", {}, minEl(items, { wait: "", text: (e) => (e.kind === "unknown" ? t("pick.no_price") : (e.discount ? "−" + Math.round(e.discount * 100) + "% · " : "") + perWord(f)) })));
 }
@@ -132,12 +137,12 @@ function recCard(m, wide) {
 }
 // A family is one row: the whole row picks it, the variants are pills inside it.
 function famRow(f, wide) {
-  const cur = focusId(), mine = C.famOf[cur] === f, why = famFit(f);
-  const pick = C.varOf[mine ? cur : S.lastVar[f.idx]] || f.def;
-  const sub = why ? [ic("warn"), why] : facts(f.cur.map((v) => v.m), 3).filter((x) => x[0] !== "ticket").map((x) => x[1]).join(" · ");
-  const olds = S.sort === "price" || query.trim() ? f.old : [];
-  const vars = f.cur.length > 1 || olds.length ? h("div", { class: "fvars" },
-    f.cur.length > 1 ? f.cur.map((v) => h("button", { type: "button", class: "pill", "aria-pressed": String(v.id === cur), onclick: () => choose(v, $(`#pkrows [data-k="fam-${f.idx}"]`)), onpointermove: hoverFam(f, wide, v.id) }, v.label)) : null,
+  const cur = focusId(), mine = C.famOf[cur] === f, why = famFit(f), vs = shown(f);
+  const want = C.varOf[mine ? cur : S.lastVar[f.idx]] || f.def, pick = vs.includes(want) || (f.old.includes(want) && ok(want)) ? want : vs[0];
+  const sub = why ? [ic("warn"), why] : facts(vs.map((v) => v.m), 3).filter((x) => x[0] !== "ticket").map((x) => x[1]).join(" · ");
+  const olds = S.sort === "price" || query.trim() ? oldShown(f) : [];
+  const vars = vs.length > 1 || olds.length ? h("div", { class: "fvars" },
+    vs.length > 1 ? vs.map((v) => h("button", { type: "button", class: "pill", "aria-pressed": String(v.id === cur), onclick: () => choose(v, $(`#pkrows [data-k="fam-${f.idx}"]`)), onpointermove: hoverFam(f, wide, v.id) }, v.label)) : null,
     olds.map((v) => h("button", { type: "button", class: "pill old", "aria-pressed": String(v.id === cur), title: t("pick.outdated", { v: v.by.label }), onclick: () => choose(v, $(`#pkrows [data-k="fam-${f.idx}"]`)) }, v.label))) : null;
   return h("div", { class: "frow" + (why ? " dim" : ""), "aria-current": String(mine), "data-k": "fam-" + f.idx, onpointermove: hoverFam(f, wide) },
     h("button", { type: "button", class: "fhit", "aria-label": t("pick.choose_name", { name: f.title }), onclick: (e) => choose(pick, e.currentTarget.parentNode) }),
@@ -174,16 +179,17 @@ function choose(v, from) {
 
 function vlist(f, sel, pickIt) {
   const key = "dl-" + f.idx;
-  return h("div", { class: "vlist", role: "radiogroup", "aria-label": t("var.label"), "data-seg": key, "data-dur": 380 }, f.cur.map((v) =>
+  return h("div", { class: "vlist", role: "radiogroup", "aria-label": t("var.label"), "data-seg": key, "data-dur": 380 }, shown(f).map((v) =>
     opt({ key, v: v.id, on: v.id === sel.id, cls: "vl", pick: () => pickIt(v) }, h("b", {}, v.label),
       h("span", { class: "p" }, freePlan(v.m) ? t("pay.free") : minEl(bestItems(v.m))), v.note ? h("span", { class: "n" }, v.note) : null)));
 }
 function detail(f) {
   const want = S.detVar[f.idx], cur = focusId();
-  const sel = (want && C.famOf[want] === f && C.varOf[want]) || (C.famOf[cur] === f && C.varOf[cur]) || f.def, m = sel.m;
+  const vs = shown(f), sel0 = (want && C.famOf[want] === f && C.varOf[want]) || (C.famOf[cur] === f && C.varOf[cur]) || f.def;
+  const sel = ok(sel0) || !vs.length ? sel0 : vs[0], m = sel.m;
   const pickIt = (v) => { S.detVar[f.idx] = v.id; if (S.info == null) S.hover = f.idx; renderDetail(); rise($("#pkd .dl")?.children || [], { y: 4, step: 18, dur: 260 }); };
   const rows = [], plan = freePlan(m), dep = deprecation(m);
-  if (f.cur.length < 2) rows.push(["coin", t("det.price_now"), plan && payOf(m) === "free" ? t("pay.free") : minEl(bestItems(m))]);
+  if (vs.length < 2) rows.push(["coin", t("det.price_now"), plan && payOf(m) === "free" ? t("pay.free") : minEl(bestItems(m))]);
   if (plan) rows.push(["ticket", t("det.free"), freePer(m.kind)]);
   if (m.kind === "image") { const refs = refsOf(m); rows.push(["photos", t("det.photos_in"), needsImage(m) ? t("det.photos_need", { n: refs }) : refs ? t("det.up_to", { n: refs }) : t("det.none")]); }
   else {
@@ -207,10 +213,10 @@ function detail(f) {
   const sets = [...new Set(m.offers.flatMap(fieldsOf))];
   if (sets.length) rows.push(["sliders", t("det.settings"), sets.map(label).join(", ")]);
   const isCur = cur === m.id, why = fit(m), many = f.vars.length > 1;
-  const sub = [f.maker, f.cur.length > 1 ? t("pick.versions", { n: f.cur.length }) : ""].filter(Boolean).join(" · ");
+  const sub = [f.maker, vs.length > 1 ? t("pick.versions", { n: vs.length }) : ""].filter(Boolean).join(" · ");
   return h("div", { class: "det" },
     h("div", { class: "dhead" }, lg(famLogo(f), f.maker, "l"), h("div", {}, h("h4", {}, f.title), h("div", { class: "mk" }, sub))),
-    f.cur.length > 1 ? vlist(f, sel, pickIt) : null,
+    vs.length > 1 ? vlist(f, sel, pickIt) : null,
     dep ? h("p", { class: "dwarn" }, ic("clock"), h("span", {}, dep.text + "."))
       : sel.by ? h("p", { class: "dwarn" }, ic("clock"), h("span", {}, t("var.outdated", { v: sel.by.label }) + " ", h("button", { type: "button", class: "link-t", onclick: () => pickIt(sel.by) }, t("pick.see", { v: sel.by.label })))) : null,
     m.description ? h("p", { class: "ddesc" }, m.description) : null,

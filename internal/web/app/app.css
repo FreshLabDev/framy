@@ -92,6 +92,9 @@ textarea#prompt::placeholder {color: var(--muted);}
 .fgroup > .gl {align-self: flex-start; font-size: 12px; line-height: 14px; color: var(--muted); white-space: nowrap;}
 .fgroup > .gt {display: flex; flex-wrap: wrap; gap: 6px; align-items: center;}
 .fgroup.out .gl {color: var(--soft);}
+/* A video's slots: Start, End, References. A slot under a dragged file is outlined. */
+.fgroup.slot.over > .gt {outline: 2px solid var(--ink); outline-offset: 2px;}
+.sec .picks {font-size: 14px; color: var(--soft);}
 .fhint {flex: 1 1 180px; min-width: 0; padding-left: 8px; font-size: 14px; color: var(--muted); line-height: 1.35;}
 .fhint b {color: var(--ink); font-weight: 600;}
 .how {position: relative; display: grid; align-content: start; gap: 22px; padding-top: 14px;}
@@ -393,6 +396,7 @@ input.search::placeholder {color: var(--muted);}
   .composer .files {flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;}
   .composer .files.nofiles {display: none;}
   .composer .thumb, .composer .addfile {flex: none; width: 52px; height: 52px;}
+  .composer .fgroup {flex: none;}
   .composer .fgroup > .gt {flex-wrap: nowrap;}
   .composer .fhint, .composer .fhint.cut {flex: 1 0 200px; padding-left: 4px; font-size: 13px;}
   .composer .bar {padding-top: 0;}
@@ -440,6 +444,7 @@ input.search::placeholder {color: var(--muted);}
 .jbox .c b {color: var(--soft);}
 .jbox.ht .c b {font-size: clamp(18px, 2.4vw, 28px);}
 .jbox .c small.lost {color: var(--soft);}
+.jbox .c small.took {font-variant-numeric: tabular-nums;}
 .jbox .c small.said {max-width: 52ch; line-height: 1.35; color: var(--soft); cursor: pointer; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere;}
 .jbox .c small.said.open {-webkit-line-clamp: 8;}
 .jfoot {display: grid; gap: 12px; min-width: 0;}

@@ -7,12 +7,12 @@ import { t, fmtNum, fmtIn, fmtSecs } from "./i18n.js";
 import { C, PNAME, vname, famLogo, lg, provMark, freePlan, pays, offerOf, facts, factEl, deprecation, fieldsOf, SECONDARY, SEARCH, SICON,
   label, show, ordered, ratioNum, ratioOfSize, sizeK, resScore, needsVideo } from "./catalog.js";
 import { S, M, images, clip, payOf, usable, keyOk, connection, freeLeft, freeLimit, freesAt, freePer, settings, route, runItem, altItem, next, sourceRatio, quoteNow,
-  maxSecs, needsCut, contFits } from "./state.js";
+  maxSecs, needsCut, contFits, slotOf, sources, inputsOf, placeFiles, refuses } from "./state.js";
 import { priceEl, priceText, known, need, onPrices, usd } from "./price.js";
 import { renderStage, stageFrom, refit, runOver } from "./stage.js";
 import { openPicker } from "./picker.js";
 import { openSheet, closeSheets } from "./ui.js";
-import { addFiles, removeFile } from "./files.js";
+import { addFiles, removeFile, fitModel } from "./files.js";
 import { generate, signIn } from "./run.js";
 import { openCut, thumbMedia, frameEl, looksLikeClip } from "./clips.js";
 import { openPrefs } from "./prefs.js";
@@ -23,6 +23,9 @@ const FORM = { rel: true, dur: 380, after: 90,
 const FILES = { dur: 360,
   enter: (el) => anim(el, [{ transform: "scale(.4) rotate(-6deg)", opacity: 0 }, { transform: "none", opacity: 1 }], { duration: 480, easing: SPRING }),
   leave: (g) => anim(g, [{ transform: "none", opacity: 1 }, { transform: "scale(.4)", opacity: 0 }], { duration: 220, easing: OUT, fill: "forwards" }) };
+
+const PICS = "image/png,image/jpeg,image/webp,image/gif,image/avif,image/heic";
+const CLIPS = "video/mp4,video/quicktime,video/webm,video/x-matroska,.mkv,.mov,.m4v";
 
 let ACTING = 0;
 // Every change of the composer: the form's blocks glide, new ones rise, gone ones fade; the frame on the stage refits.
@@ -45,7 +48,8 @@ export function mountComposer() {
       h("textarea", { id: "prompt", rows: 3, maxlength: 4000 }),
       h("div", { class: "ptools", id: "ptools" })),
     h("div", { class: "files", id: "files" }),
-    h("input", { type: "file", id: "file", multiple: true, accept: "image/png,image/jpeg,image/webp,image/gif,image/avif,image/heic,video/mp4,video/quicktime,video/webm,video/x-matroska,.mkv,.mov,.m4v", hidden: true }),
+    h("input", { type: "file", id: "file", multiple: true, accept: PICS + "," + CLIPS, hidden: true }),
+    h("input", { type: "file", id: "slotfile", hidden: true }),
     h("div", { class: "how", id: "how" }),
     h("div", { class: "bar", id: "bar" },
       h("div", { class: "price", "aria-live": "polite" }, h("b", { class: "pnum", id: "pnum" }), h("span", { id: "pcap" })),
@@ -63,6 +67,7 @@ export function wireComposer() {
     if (!b.disabled) b.click(); else anim(b, [{ transform: "none" }, { transform: "translateX(-4px)" }, { transform: "translateX(4px)" }, { transform: "none" }], { duration: 240 });
   });
   $("#file").addEventListener("change", (e) => { addFiles([...e.target.files]); e.target.value = ""; });
+  $("#slotfile").addEventListener("change", (e) => { addFiles([...e.target.files], into); e.target.value = ""; });
   // Photos come in by drop or paste too.
   const comp = $("#composer");
   comp.dataset.drop = t("files.drop");
@@ -73,7 +78,8 @@ export function wireComposer() {
   document.addEventListener("drop", (e) => {
     depth = 0; comp.classList.remove("drag");
     const fs = [...(e.dataTransfer?.files || [])];
-    if (fs.length) { e.preventDefault(); addFiles(fs); }
+    // A slot the files were dropped on says what they are.
+    if (fs.length) { e.preventDefault(); addFiles(fs, e.slot || ""); }
   });
   document.addEventListener("paste", (e) => {
     const fs = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith("image/") || looksLikeClip(f));
@@ -110,7 +116,7 @@ export function render() {
 // Image and video: the form slides over in the direction of the switch.
 function setKind(k) {
   const dir = k === "video" ? 1 : -1;
-  act(() => { S.kind = k; render(); });
+  act(() => { S.kind = k; placeFiles(); fitModel(); render(); });
   anim($("#how"), [{ opacity: 0, transform: `translateX(${dir * 36}px)` }, { opacity: 1, transform: "none" }], { duration: 420, easing: EASE });
 }
 
@@ -143,17 +149,20 @@ function renderFiles(m, pay) {
     thumbMedia(f),
     f.kind === "video" ? h("span", { class: "tag" }, ic("film"), r.go && r.tag ? r.tag : f.secs ? fmtSecs(f.secs) : "") : f.frameOf ? h("span", { class: "tag" }, ic("next")) : null,
     h("button", { type: "button", class: "rm", "aria-label": t("files.remove"), onclick: () => act(() => { removeFile(f); render(); }) }, ic("close")));
-  const go = [], off = [];
-  S.files.forEach((f, i) => (R[i].go ? go : off).push(thumb(f, R[i])));
-  const cont = contEl(m, pay);
+  const cont = contEl(m, pay), slots = slotted(m, pay);
   if (cont) box.append(cont);
-  const max = R.filter((r) => r.go).length;
-  if (!off.length) box.append(...go);
+  if (slots) box.append(...slotGroups(R, thumb));
   else {
-    if (go.length) box.append(h("div", { class: "fgroup", "data-k": "g-go" }, h("span", { class: "gl" }, t("files.going", { n: max })), h("div", { class: "gt" }, go)));
-    box.append(h("div", { class: "fgroup out", "data-k": "g-off" }, h("span", { class: "gl" }, t("files.off")), h("div", { class: "gt" }, off)));
+    const go = [], off = [];
+    S.files.forEach((f, i) => (R[i].go ? go : off).push(thumb(f, R[i])));
+    const max = R.filter((r) => r.go).length;
+    if (!off.length) box.append(...go);
+    else {
+      if (go.length) box.append(h("div", { class: "fgroup", "data-k": "g-go" }, h("span", { class: "gl" }, t("files.going", { n: max })), h("div", { class: "gt" }, go)));
+      box.append(h("div", { class: "fgroup out", "data-k": "g-off" }, h("span", { class: "gl" }, t("files.off")), h("div", { class: "gt" }, off)));
+    }
+    box.append(h("button", { type: "button", class: "addfile", "data-k": "f-add", onclick: () => $("#file").click() }, ic("plus"), t("files.add")));
   }
-  box.append(h("button", { type: "button", class: "addfile", "data-k": "f-add", onclick: () => $("#file").click() }, ic("plus"), t("files.add")));
   const why = [...new Set(R.filter((r) => !r.go).map((r) => r.why))];
   // The first clip's part: the one picked, or a button to pick it.
   const ci = c ? S.files.indexOf(c) : -1, cutting = ci >= 0 && R[ci].go && c.secs > 0;
@@ -166,13 +175,50 @@ function renderFiles(m, pay) {
     box.append(h("p", { class: "fhint cut", "data-k": "f-cut" }, faces ? h("span", { class: "fw" }, faces) : null, what ? h("span", {}, what + " ") : null,
       h("button", { type: "button", class: "link-t", onclick: openCut }, t(S.cut ? "act.change_part" : "act.pick_part"))));
   }
-  const note = why.length ? [...why, cutting ? "" : faces].filter(Boolean).join(" ") : S.files.length ? (cutting ? "" : faces || t("files.kept")) : cont ? "" : t("files.hint");
+  const note = why.length ? [...why, cutting ? "" : faces].filter(Boolean).join(" ") : S.files.length ? (cutting ? "" : faces || t("files.kept")) : cont || slots ? "" : t("files.hint");
   if (note) box.append(h("p", { class: "fhint" + (why.length ? "" : " quiet"), "data-k": "f-hint" }, note));
-  const none = !S.files.length && !cont;
+  const none = !S.files.length && !cont && !slots;
   box.classList.toggle("nofiles", none);
   $("#pwrap").classList.toggle("tools", none);
   $("#ptools").replaceChildren(...(none ? [h("button", { type: "button", class: "pattach", onclick: () => $("#file").click() }, ic("plus"), t("files.add")), h("span", {}, t("files.or_drop"))] : []));
   fitPrompt();
+}
+// A video is made from what is in its slots: Start, then End, or References.
+// A clip the model edits, and an editor with nothing yet, keep the plain row.
+function slotted(m, pay) {
+  if (S.kind !== "video" || m.kind !== "video") return false;
+  if (sources().length && inputsOf(m, pay).videos?.role === "source") return false;
+  return !(needsVideo(m) && !S.files.length);
+}
+const SLOT = { start: "slot.start", end: "slot.end", ref: "slot.refs" };
+// Frames go alone: Start and End while a frame is there, References while a
+// reference is, and Start beside References while both are empty.
+function slotGroups(R, thumb) {
+  const at = (s) => S.files.map((f, i) => [f, R[i]]).filter(([f]) => (s === "ref" ? f.kind === "video" || slotOf(f) === "ref" : f.kind === "image" && slotOf(f) === s));
+  const st = at("start"), en = at("end"), rf = at("ref"), frames = st.length + en.length > 0;
+  const shown = [];
+  if (st.length || !rf.length) shown.push(["start", st]);
+  if (frames) shown.push(["end", en]);
+  if (rf.length || !frames) shown.push(["ref", rf]);
+  return shown.map(([s, list]) => {
+    const kids = list.map(([f, r]) => thumb(f, r));
+    if (s === "ref" || !list.length) kids.push(h("button", { type: "button", class: "addfile slotadd", "data-k": "s-add-" + s, "aria-label": t(SLOT[s] + "_add"), title: t(SLOT[s] + "_add"), onclick: () => pickInto(s) }, ic("plus")));
+    const g = h("div", { class: "fgroup slot" + (list.length && list.every(([, r]) => !r.go) ? " out" : ""), "data-k": "g-" + s,
+      ondragover: (e) => { if ([...(e.dataTransfer?.types || [])].includes("Files")) { e.preventDefault(); g.classList.add("over"); } },
+      ondragleave: (e) => { if (!g.contains(e.relatedTarget)) g.classList.remove("over"); },
+      ondrop: (e) => { g.classList.remove("over"); e.slot = s; } },
+      h("span", { class: "gl" }, t(SLOT[s])), h("div", { class: "gt" }, kids));
+    return g;
+  });
+}
+// A press on an empty slot picks its files: one picture for a frame, pictures and clips for References.
+let into = "";
+function pickInto(s) {
+  const el = $("#slotfile");
+  into = s;
+  el.accept = s === "ref" ? PICS + "," + CLIPS : PICS;
+  el.multiple = s === "ref";
+  el.click();
 }
 // The video a run goes on from: its last frame as a still, and why it does
 // not go when the model or the payment is another.
@@ -234,10 +280,12 @@ function axesControl(f, cur, onPick, id, priceOf) {
 function variantBlock(m) {
   const f = C.famOf[m.id], v = C.varOf[m.id];
   if (f.vars.length < 2) return null;
+  // A variant that cannot take what is attached is not offered, as in the picker.
+  const cur = f.cur.filter((x) => x.id === m.id || !refuses(x.m));
   const kids = [];
-  if (f.cur.length > 1) kids.push(f.axes ? axesControl(f, v, pickVar, "ax", priceNow)
-    : h("div", { class: "seg" + (f.cur.length > 3 ? " wrapping" : ""), role: "radiogroup", "aria-label": t("var.label"), "data-seg": "var", "data-dur": 420 },
-      f.cur.map((x) => opt({ key: "var", v: x.id, on: x.id === m.id, title: x.note ? `${x.label}: ${x.note}` : x.label, pick: () => pickVar(x) }, x.label, h("small", {}, priceNow(x.m))))));
+  if (cur.length > 1) kids.push(f.axes ? axesControl(f, v, pickVar, "ax", priceNow)
+    : h("div", { class: "seg" + (cur.length > 3 ? " wrapping" : ""), role: "radiogroup", "aria-label": t("var.label"), "data-seg": "var", "data-dur": 420 },
+      cur.map((x) => opt({ key: "var", v: x.id, on: x.id === m.id, title: x.note ? `${x.label}: ${x.note}` : x.label, pick: () => pickVar(x) }, x.label, h("small", {}, priceNow(x.m))))));
   const dep = deprecation(m);
   if (dep) kids.push(h("p", { class: "mnote" }, ic("clock"), h("span", {}, dep.to ? [dep.when + ". ", h("button", { type: "button", onclick: () => pickVar(C.varOf[dep.to.id] || { id: dep.to.id }) }, t("var.take", { name: dep.toName }))] : dep.text + ".")));
   else if (v.by) kids.push(h("p", { class: "mnote" }, ic("clock"), h("span", {}, t("var.outdated", { v: v.by.label }) + " ", h("button", { type: "button", onclick: () => pickVar(v.by) }, t("var.take", { name: v.by.label })))));
@@ -289,7 +337,14 @@ function settingsBlock(m, pay) {
   }
   const names = [...fieldsOf(o), ...("fast" in s ? ["fast"] : [])];
   const prim = names.filter((x) => !SECONDARY.has(x)), sec = names.filter((x) => SECONDARY.has(x));
-  for (const name of prim) box.append(...[].concat(settingField(m, pay, o, s, name)));
+  // A model that picks the length itself (Omni) says so where the length would be.
+  let picks = m.kind === "video" && !o.params.duration ? m.traits?.picks_length : null;
+  const picksRow = (p) => fieldSec("duration", label("duration"), "clock", [], h("span", { class: "picks" }, t("set.picks_length", { a: fmtNum(p.min), b: fmtNum(p.max) })));
+  for (const name of prim) {
+    if (picks && name === "generate_audio") { box.append(picksRow(picks)); picks = null; }
+    box.append(...[].concat(settingField(m, pay, o, s, name)));
+  }
+  if (picks) box.append(picksRow(picks));
   if (sec.length && !isPhone()) for (const name of sec) box.append(...[].concat(settingField(m, pay, o, s, name)));
   else if (sec.length) {
     box.append(h("button", { type: "button", class: "morebtn", "data-k": "h-more", "aria-expanded": String(S.more), onclick: toggleMore },

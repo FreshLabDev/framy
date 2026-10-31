@@ -81,6 +81,7 @@ export const needsImage = (m) => m.offers.every((o) => (o.inputs?.images?.min ||
 const maxOf = (m, f) => Math.max(0, ...m.offers.map(f));
 export const refsOf = (m) => maxOf(m, (o) => o.inputs?.images?.refs || 0);
 export const framesOf = (m) => maxOf(m, (o) => o.inputs?.images?.frames || 0);
+export const refClipsOf = (m) => maxOf(m, (o) => (o.inputs?.videos?.role === "reference" ? o.inputs.videos.max : 0));
 export const hasAudio = (m) => m.offers.some((o) => o.params.generate_audio);
 const keepsLength = (m) => !!m.traits?.source_video?.keeps_length;
 // How many photos go into one run of this model and payment, and as what.

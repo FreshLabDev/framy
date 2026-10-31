@@ -1,8 +1,8 @@
 // What the composer holds and the rules that follow from it: which model and
 // payment, the settings a run goes with, which files go, and what the one
 // button does now.
-import { C, freePlan, pays, offerOf, settings as settingsOf, photoLimit, needsImage, needsVideo, takesVideo, takesAudio, PNAME } from "./catalog.js";
-import { t, fmtTime, fmtIn, fmtNum, fmtSecs } from "./i18n.js";
+import { C, freePlan, pays, offerOf, settings as settingsOf, photoLimit, needsImage, needsVideo, takesVideo, takesAudio, framesOf, refsOf, refClipsOf, PNAME } from "./catalog.js";
+import { t, fmtTime, fmtAt, fmtNum, fmtSecs } from "./i18n.js";
 import { known, need } from "./price.js";
 
 export const S = {
@@ -25,6 +25,43 @@ export const M = () => C.byId[S.model[S.kind]];
 export const images = () => S.files.filter((f) => f.kind === "image");
 export const clips = () => S.files.filter((f) => f.kind === "video");
 export const clip = () => clips()[0];
+
+/* The slots of a video (docs/design.md, Video): a picture is its start
+   frame, its end frame or a reference, and a clip is a reference when it was
+   put there, else whatever the model takes a clip as: the video it edits or a
+   reference. The mode follows from what is in them; frames go alone. A
+   picture of the image tab has no slot. */
+export const slotOf = (f) => (f.kind === "image" ? f.slot || "ref" : f.slot === "ref" ? "ref" : "source");
+export const sources = () => S.files.filter((f) => f.kind === "video" && f.slot !== "ref");
+export const inSlot = (s) => S.files.filter((f) => S.kind === "video" && slotOf(f) === s);
+export const framed = () => inSlot("start").length + inSlot("end").length > 0;
+const SLOTS = { start: 0, end: 1 };
+// Pictures put in the video without a slot: one or two are its frames, more
+// are references, and so are all of them once references are there. When
+// they do not fit in the free frames, the frames become references too.
+export function placeFiles() {
+  if (S.kind !== "video") return;
+  const loose = S.files.filter((f) => f.kind === "image" && !f.slot);
+  if (!loose.length) return;
+  const refs = S.files.some((f) => f.slot === "ref") || clips().length > 0, free = ["start", "end"].filter((s) => !inSlot(s).length);
+  if (!refs && loose.length <= free.length) { loose.forEach((f, i) => { f.slot = free[i]; }); return; }
+  for (const f of S.files) if (f.kind === "image") f.slot = "ref";
+}
+// An end frame with no start frame becomes the start.
+export function settleSlots() {
+  if (!inSlot("start").length) for (const f of inSlot("end").slice(0, 1)) f.slot = "start";
+}
+// A video model that cannot take what is in the slots is not offered.
+export function refuses(m) {
+  if (m.kind !== "video" || S.kind !== "video") return false;
+  const st = inSlot("start").length, en = inSlot("end").length, ri = S.files.filter((f) => f.kind === "image" && slotOf(f) === "ref").length;
+  const rc = S.files.filter((f) => f.kind === "video" && f.slot === "ref").length;
+  if (en && framesOf(m) < 2) return true;
+  if (st && framesOf(m) < 1) return true;
+  if (ri > refsOf(m)) return true;
+  if (rc > refClipsOf(m)) return true;
+  return sources().length > 0 && !takesVideo(m);
+}
 
 // framy's own choice for a kind: the first recommended model the picker shows.
 export function autoModel(k) {
@@ -68,6 +105,8 @@ export const fitsFree = (m) => {
   if (!p) return false;
   const edit = needsVideo(m), n = edit ? clips().length : images().length;
   if (edit ? images().length : clips().length) return false;
+  // A free video from a picture takes it as the start frame only.
+  if (p.start_frame && S.kind === "video" && images().some((f) => slotOf(f) !== "start")) return false;
   return n <= freeTakes(p) && n >= (p.min_inputs || 0) && !(S.cont && S.cont.model === m.id);
 };
 // The payment of a model: the one chosen, else free while it lasts, else a working key, else what the model has.
@@ -83,7 +122,7 @@ export function payOf(m) {
 export const usable = (m, pay) => !S.signed || (pay === "free" ? freeLeft(m.kind) > 0 : keyOk(pay));
 
 export function sourceRatio() { const i = images()[0] || clip(); return i && i.w && i.h ? i.w / i.h : null; }
-export const settings = (m, pay, wanted = S.wanted) => settingsOf(m, pay, wanted, sourceRatio());
+export const settings = (m, pay, wanted = S.wanted) => withFrames(m, pay, settingsOf(m, pay, wanted, sourceRatio()));
 // The Fast switch is the site's own, never a setting the server sees: on, the
 // run goes to the model's fast mode (Wan 3.0 Prime for Wan 3.0) with the
 // settings that fit it.
@@ -119,9 +158,28 @@ export function needsCut(m = M(), pay = payOf(m)) {
 // Which attached files go into the run, and why the others stay out.
 export function route(m, pay) {
   const max = photoLimit(m, pay), plan = pay === "free" ? freePlan(m) : null, i = inputsOf(m, pay), vi = i.videos, cap = i.files || Infinity;
+  // In a video the pictures go by their slots, and frames go alone.
+  const vid = m.kind === "video" && S.kind === "video";
+  const nf = plan ? (plan.start_frame ? 1 : 0) : i.images?.frames || 0, frames = vid && nf > 0 && framed();
+  const nr = plan ? (plan.start_frame ? 0 : Math.min(i.images?.refs || 0, plan.max_inputs ?? Infinity)) : i.images?.refs || 0;
+  const keyRefs = !!offerOf(m, "openrouter")?.inputs?.images?.refs;
   let n = 0, nv = 0, all = 0, secs = 0;
   return S.files.map((f) => {
+    if (vid && f.kind === "image") {
+      const s = slotOf(f);
+      if (s === "ref" && frames) return { why: t("why.frames_alone") };
+      if (all >= cap) return { why: t("why.max_files", { n: cap }) };
+      if (s === "start" && !nf) return { why: plan ? t("why.free_no_photos") : t("why.no_frames") };
+      if (s === "end" && nf < 2) return { why: t("why.no_end") };
+      if (s === "ref" && !nr) return { why: plan && keyRefs ? t(plan.start_frame ? "why.free_start" : "why.free_no_photos") : t("why.no_refs") };
+      if (s === "ref" && n >= nr) return { why: t("why.max_photos", { n: nr }), more: true };
+      if (s === "ref") n++;
+      all++;
+      return { go: true };
+    }
     if (f.kind === "video") {
+      if (frames) return { why: t("why.frames_alone") };
+      if (vid && f.slot === "ref" && vi?.role !== "reference") return { why: t("why.no_ref_clips") };
       if (!vi) return { why: t("why.no_clips") };
       if (plan && !needsVideo(m)) return { why: t("why.free_no_clips") };
       if (nv >= vi.max) return { why: vi.max > 1 ? t("why.max_clips", { n: vi.max }) : t("why.one_clip"), more: true };
@@ -141,7 +199,17 @@ export function route(m, pay) {
     return { go: true };
   });
 }
-export const going = (m, pay) => { const r = route(m, pay); return S.files.filter((f, i) => r[i]?.go); };
+// The files of a run in the order they go: the frames first, as frame_images names them.
+const rank = (f) => (S.kind === "video" && f.kind === "image" ? SLOTS[f.slot] ?? 2 : 2);
+export const going = (m, pay) => { const r = route(m, pay); return S.files.filter((f, i) => r[i]?.go).sort((a, b) => rank(a) - rank(b)); };
+// Which of a video's first pictures are frames: frame_images, sent as the
+// slots say. A free run's plan sets it on the server.
+function withFrames(m, pay, set) {
+  if (pay === "free" || m.kind !== "video" || S.kind !== "video" || !offerOf(m, pay)?.params?.frame_images) return set;
+  const r = route(m, pay), on = (s) => S.files.some((f, i) => r[i]?.go && f.kind === "image" && slotOf(f) === s);
+  const list = on("start") ? (on("end") ? ["first_frame", "last_frame"] : ["first_frame"]) : [];
+  return list.length ? { ...set, frame_images: list } : set;
+}
 
 // A continuation fits the model that made the video, through the same provider, on a key.
 export const contFits = (m, pay) => !!S.cont && m.kind === "video" && m.id === S.cont.model && pay === S.cont.pay;
@@ -186,7 +254,7 @@ export function next(prompt) {
   if (S.busy) return { label: t("go.starting"), on: false };
   if (pay === "free") {
     if (S.closed[m.kind] > Date.now()) return { label: t("go.free_closed", { time: fmtTime(S.closed[m.kind]) }), on: false };
-    if (freeLeft(m.kind) <= 0) return { label: t("go.free_out"), on: false, why: freesAt(m.kind) ? t("bar.free_back", { when: fmtIn(freesAt(m.kind)) }) : "" };
+    if (freeLeft(m.kind) <= 0) return { label: t("go.free_out"), on: false, why: freesAt(m.kind) ? t("bar.free_back", { at: fmtAt(freesAt(m.kind)) }) : "" };
   } else if (!keyOk(pay)) return keyStep(pay);
   const r = route(m, pay);
   if (needsVideo(m) && !cont && !S.files.some((f, i) => f.kind === "video" && r[i]?.go)) return { label: t("go.need_clip"), on: false };

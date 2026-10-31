@@ -24,6 +24,8 @@ export const byName = (a, b) => made("c" + lang, () => new Intl.Collator(lang)).
 export const warmFormats = () => { fmtNum(1); fmtNum(1.5, { maximumFractionDigits: 1 }); byName("a", "b"); };
 export const fmtSecs = (s) => t("unit.s", { n: fmtNum(+s || 0, { maximumFractionDigits: 1 }) });
 export const fmtTime = (ms) => new Date(ms).toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" });
+// "5 November, 14:30" in the browser's time zone: when a free run frees up.
+export const fmtAt = (ms) => made("a" + lang, () => new Intl.DateTimeFormat(lang, { day: "numeric", month: "long", hour: "numeric", minute: "2-digit" })).format(ms);
 // "in 3 hours", "in 2 days": when something comes back.
 export function fmtIn(ms) {
   const sec = Math.max(60, (ms - Date.now()) / 1000), rtf = made("r" + lang, () => new Intl.RelativeTimeFormat(lang, { numeric: "auto" }));

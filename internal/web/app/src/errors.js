@@ -3,7 +3,7 @@
 // before any job existed. Each says what happened to the money and which
 // buttons fit. The English message of a job is shown only where it is the
 // provider's own reason.
-import { t, fmtTime, fmtIn, fmtSecs, fmtNum } from "./i18n.js";
+import { t, fmtTime, fmtAt, fmtSecs, fmtNum } from "./i18n.js";
 import { C, PNAME, vname, hasAudio } from "./catalog.js";
 import { priceText } from "./price.js";
 
@@ -100,7 +100,7 @@ export function refusal(err, ctx = {}) {
   const R = (label, text, acts = [], more = {}) => ({ code, label, text, acts, ...more });
   switch (code) {
     case "price_changed": return R(t("ref.price_l"), t("ref.price", { p: priceText(b.estimate), was: ctx.shown || "" }), ["takeprice", "drop"], { estimate: b.estimate });
-    case "free_limit": return R(t("ref.free_out_l"), b.frees_at ? t(vid ? "ref.free_taken_video" : "ref.free_taken", { when: fmtIn(Date.parse(b.frees_at)) }) : t("err.free_out"), ["bykey"]);
+    case "free_limit": return R(t("ref.free_out_l"), b.frees_at ? t(vid ? "ref.free_taken_video" : "ref.free_taken", { at: fmtAt(Date.parse(b.frees_at)) }) : t("err.free_out"), ["bykey"]);
     case "free_closed": return R(t("ref.free_closed_l"), t("ref.free_closed", { time: fmtTime(Date.parse(b.until) || Date.now()) }), ["bykey"], { until: Date.parse(b.until) || 0 });
     case "not_free": return R(t("ref.not_free_l"), t("err.not_free"));
     case "no_connection": case "connection_invalid": {
