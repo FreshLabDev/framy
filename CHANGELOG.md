@@ -77,8 +77,7 @@ was written from, and the skeleton of the service.
   tokens, per-reference charges and Aleph's minimum. Each estimate says
   whether it is exact, about, up to, from, or known only after the run, and
   keeps the rates and quantities it used. It agrees with OpenAI's published
-  gpt-image-2 prices, OpenRouter's 16:9 example and BytePlus's Seedance 2.0
-  example. The overlay's `price` hints fill in what the rates leave out, and
+  gpt-image-2 prices and OpenRouter's 16:9 example. The overlay's `price` hints fill in what the rates leave out, and
   every sync logs the price lines the estimate cannot read. MAI counts an
   input image by its size, about 1,100 tokens a megapixel as measured, so an
   edit's estimate includes its photos. Of two video SKUs that fit a run
@@ -94,7 +93,13 @@ was written from, and the skeleton of the service.
   and 2.5 count an input image in 32 px patches, at most 1,536, as worked
   out on OpenAI's forum, so an edit's estimate includes its photos: a
   1280×853 photo took 1,080 tokens on the test bot, which the estimate had
-  left out.
+  left out. Seedance is priced as it bills: at the size it makes (864×496
+  at 480p 16:9 on Seedance 2.0, where OpenRouter lists 854×480), 24 frames
+  a second and one more, and a reference clip as at least 3 s. Two paid runs
+  of Seedance 2.0 Mini, 4 s of 480p with a 2 s and with a 3 s clip, cost
+  $0.1485 each where the estimate said $0.121 and $0.141; it now matches
+  both to the token. A size the overlay does not list, such as 9:21 or 4K,
+  is "about".
 - OpenRouter's discounts come off the price. The sync reads them from
   `/api/v1/models/{id}/endpoints`, the only place that carries them, and the
   estimate takes them off the total and keeps the listed price beside it, so
@@ -574,6 +579,13 @@ was written from, and the skeleton of the service.
   A failed job's `error.message` is now the provider's own words, without
   framy's prefixes, the JSON OpenRouter wraps them in and the request id;
   the whole line stays in the job's error for the logs (migration 023).
+- A provider's refusal of the sound a model made is its own error class,
+  `sound`: Seedance 2.0 Mini with sound on failed with "the output audio may
+  be related to copyright restrictions" and was not billed, and the same
+  run without sound went through. The chat says to turn sound off and try
+  again, in all sixteen languages, instead of "the model could not make
+  it". Neither `faces` nor `sound` is recorded against the person's key any
+  more, since neither says anything about it.
 - The chat preview is a rich message: the card on top, the prompt quoted
   under it, then Model and Settings as sections that open in place, and
   Generate and No below. Model lists every model of the run's kind the way

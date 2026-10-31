@@ -43,6 +43,30 @@ func TestARefusedPersonIsFaces(t *testing.T) {
 	}
 }
 
+// A provider that refuses the sound the model made fails the run as sound,
+// however the refusal comes: the plain text of a failed video job, as
+// Seedance 2.0 Mini's on 31 October 2026, an error object in it, or a 400
+// that passes the provider's answer on. A failure that only mentions sound
+// stays what it was.
+func TestARefusedSoundIsSound(t *testing.T) {
+	const words = "The request failed because the output audio may be related to copyright restrictions"
+	plain, _ := json.Marshal(words)
+	object, _ := json.Marshal(map[string]any{"code": 400, "message": words})
+	for name, pe := range map[string]*jobs.Error{
+		"plain text": videoFailure(videoJob{Status: videoFailed, Error: plain}),
+		"object":     videoFailure(videoJob{Status: videoFailed, Error: object}),
+		"passed on":  statusError(http.StatusBadRequest, nil, passed("BadRequest", words+". Request id: 0217-abc")),
+	} {
+		if pe.Class != jobs.Sound || !strings.HasPrefix(pe.Said(), words) {
+			t.Errorf("%s: class %s, said %q", name, pe.Class, pe.Said())
+		}
+	}
+	other, _ := json.Marshal("The output audio track could not be encoded")
+	if pe := videoFailure(videoJob{Status: videoFailed, Error: other}); pe.Class != jobs.ProviderFailed {
+		t.Errorf("a failure about sound alone: %s", pe.Class)
+	}
+}
+
 // Any other answer passed on stays refused, with the provider's words; a
 // message that is not one keeps its words; an answer with no error of
 // OpenRouter's says nothing of the provider's.

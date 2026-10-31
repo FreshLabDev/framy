@@ -29,6 +29,8 @@ func TestAnErrorIsShownWhenItWasWrittenForPeople(t *testing.T) {
 		{jobs.ProviderFailed, "   padded   ", "padded"},
 		// A real person in an input, in the provider's words.
 		{jobs.Faces, "The request failed because the input video 'content[1]' may contain real person.", "The request failed because the input video 'content[1]' may contain real person."},
+		// The provider refused the sound the model made, in its words.
+		{jobs.Sound, "The request failed because the output audio may be related to copyright restrictions", "The request failed because the output audio may be related to copyright restrictions"},
 		// framy's own words on a run it did not send.
 		{jobs.Invalid, "invalid_request: fast is not a setting of openrouter:alibaba/wan-3.0", "invalid_request: fast is not a setting of openrouter:alibaba/wan-3.0"},
 	} {

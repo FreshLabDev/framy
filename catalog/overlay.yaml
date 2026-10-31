@@ -406,6 +406,13 @@ models:
 
   # BytePlus does not take real faces in reference images and videos. A
   # sound needs an image or a video beside it.
+  #
+  # price.sizes is what Seedance makes, and bills tokens by: BytePlus's
+  # values as APIYI lists and checked them, and 864×496 at 480p 16:9 on
+  # framy's own bill of 2.0 Mini, where OpenRouter lists 854×480. 2.5 makes
+  # 854×480 there, the other sizes alike. 9:21 and 4K are not in the table
+  # and stay about. price.clip_min_seconds: a 2 s reference clip was billed
+  # as 3 s on 2.0 Mini (internal/price, clipFrames).
   bytedance/seedance-2.0:
     family: {id: seedance, gen: "2", tier: std, label: "2.0", keep: "makes 1080p and 4K, which 2.5 does not through OpenRouter"}
     featured: true
@@ -416,6 +423,12 @@ models:
       audio: 3
       video_clip: {min_seconds: 2, max_seconds: 15, total_seconds: 15, max_mb: 200}
       audio_clip: {min_seconds: 2, max_seconds: 15, total_seconds: 15, max_mb: 15}
+    price:
+      clip_min_seconds: 3
+      sizes:
+        480p: {"16:9": 864x496, "4:3": 752x560, "1:1": 640x640, "3:4": 560x752, "9:16": 496x864, "21:9": 992x432}
+        720p: {"16:9": 1280x720, "4:3": 1112x834, "1:1": 960x960, "3:4": 834x1112, "9:16": 720x1280, "21:9": 1470x630}
+        1080p: {"16:9": 1920x1080, "4:3": 1664x1248, "1:1": 1440x1440, "3:4": 1248x1664, "9:16": 1080x1920, "21:9": 2206x946}
 
   bytedance/seedance-2.5:
     family: {id: seedance, gen: "2.5", tier: std, label: "2.5"}
@@ -427,6 +440,11 @@ models:
       audio: 10
       video_clip: {min_seconds: 2, max_seconds: 30, total_seconds: 30, max_mb: 200}
       audio_clip: {min_seconds: 2, max_seconds: 30, total_seconds: 30, max_mb: 15}
+    price:
+      clip_min_seconds: 3
+      sizes:
+        480p: {"16:9": 854x480, "4:3": 752x560, "1:1": 640x640, "3:4": 560x752, "9:16": 496x864, "21:9": 992x432}
+        720p: {"16:9": 1280x720, "4:3": 1112x834, "1:1": 960x960, "3:4": 834x1112, "9:16": 720x1280, "21:9": 1470x630}
 
   bytedance/seedance-2.0-fast:
     family: {id: seedance, gen: "2", tier: fast, label: 2.0 Fast}
@@ -437,6 +455,11 @@ models:
       audio: 3
       video_clip: {min_seconds: 2, max_seconds: 15, total_seconds: 15, max_mb: 200}
       audio_clip: {min_seconds: 2, max_seconds: 15, total_seconds: 15, max_mb: 15}
+    price:
+      clip_min_seconds: 3
+      sizes:
+        480p: {"16:9": 864x496, "4:3": 752x560, "1:1": 640x640, "3:4": 560x752, "9:16": 496x864, "21:9": 992x432}
+        720p: {"16:9": 1280x720, "4:3": 1112x834, "1:1": 960x960, "3:4": 834x1112, "9:16": 720x1280, "21:9": 1470x630}
 
   bytedance/seedance-2.0-mini:
     family: {id: seedance, gen: "2", tier: mini, label: 2.0 Mini}
@@ -447,6 +470,11 @@ models:
       audio: 3
       video_clip: {min_seconds: 2, max_seconds: 15, total_seconds: 15, max_mb: 200}
       audio_clip: {min_seconds: 2, max_seconds: 15, total_seconds: 15, max_mb: 15}
+    price:
+      clip_min_seconds: 3
+      sizes:
+        480p: {"16:9": 864x496, "4:3": 752x560, "1:1": 640x640, "3:4": 560x752, "9:16": 496x864, "21:9": 992x432}
+        720p: {"16:9": 1280x720, "4:3": 1112x834, "1:1": 960x960, "3:4": 834x1112, "9:16": 720x1280, "21:9": 1470x630}
 
   alibaba/wan-3.0:
     family: {id: wan, gen: "3", tier: std, label: "3.0"}

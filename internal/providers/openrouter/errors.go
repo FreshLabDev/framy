@@ -134,6 +134,8 @@ func (e *APIError) class() jobs.Class {
 	switch s := e.Status; {
 	case facesCode.MatchString(e.Code):
 		return jobs.Faces
+	case soundRefused.MatchString(e.Message):
+		return jobs.Sound
 	case e.Moderated():
 		return jobs.Moderation
 	case s == http.StatusPaymentRequired || e.Type == "payment_required":
@@ -229,6 +231,13 @@ func (e *APIError) fill(b *errorBody) {
 // for a clip and InputImageSensitiveContentDetected.PrivacyInformation for a
 // picture (live, 30 October 2026).
 var facesCode = regexp.MustCompile(`^Input\w*SensitiveContentDetected\.PrivacyInformation$`)
+
+// soundRefused is a provider's refusal of the sound the model made: "The
+// request failed because the output audio may be related to copyright
+// restrictions", BytePlus for Seedance 2.0 Mini with generate_audio on (live,
+// 31 October 2026). The same run without sound went through, and the failed
+// one had no usage.
+var soundRefused = regexp.MustCompile(`(?i)\boutput audio\b.*\bcopyright`)
 
 var (
 	// wrapped is the provider's own answer as OpenRouter passes it on in its

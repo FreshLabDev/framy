@@ -499,6 +499,8 @@ func TestAFailedRunShowsTheCard(t *testing.T) {
 		{jobs.Failed, jobs.Moderation, true, "err.moderation"},
 		// A real person in an input: another model may take it.
 		{jobs.Failed, jobs.Faces, false, "err.faces"},
+		// The model's own sound: the same run without it may pass.
+		{jobs.Failed, jobs.Sound, false, "err.sound"},
 		{jobs.Failed, jobs.Money, false, "err.money"},
 		{jobs.Failed, jobs.Money, true, "err.failed"},
 		{jobs.Failed, jobs.Key, false, "err.key"},

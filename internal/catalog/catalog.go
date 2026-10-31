@@ -272,6 +272,14 @@ type PriceHints struct {
 	// OpenRouter's page says of HeyGen ("after first 2") and Hailuo H3
 	// ("first 5 free"); the SKU's name does not say it.
 	FreeImages int `json:"free_images,omitempty" yaml:"free_images"`
+	// Sizes is the width and height a video model makes, as "864x496", by
+	// resolution and then aspect ratio. Seedance bills tokens by the size it
+	// makes, and Seedance 2.0 makes 864×496 at 480p 16:9 where OpenRouter
+	// lists 854×480.
+	Sizes map[string]map[string]string `json:"sizes,omitempty" yaml:"sizes"`
+	// ClipMinSeconds: a reference clip is billed as at least this long, as
+	// Seedance 2.0 Mini billed a 2 s clip as 3 s.
+	ClipMinSeconds float64 `json:"clip_min_seconds,omitempty" yaml:"clip_min_seconds"`
 }
 
 // Traits is what the overlay knows about a model and no API says.

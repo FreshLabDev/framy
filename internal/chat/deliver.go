@@ -458,6 +458,8 @@ func reason(run db.ChatRun) string {
 		return "err.moderation"
 	case jobs.Faces:
 		return "err.faces"
+	case jobs.Sound:
+		return "err.sound"
 	case jobs.Money:
 		if run.Free {
 			return "err.failed"

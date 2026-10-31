@@ -369,7 +369,10 @@ func videoFailure(r videoJob) *jobs.Error {
 	}
 	e := &APIError{InBody: true, Message: text}
 	class := jobs.ProviderFailed
-	if saysModeration(text) {
+	switch {
+	case soundRefused.MatchString(text):
+		class = jobs.Sound
+	case saysModeration(text):
 		e.Type, class = "content_policy_violation", jobs.Moderation
 	}
 	return &jobs.Error{Class: class, Err: e}

@@ -315,7 +315,7 @@ The composer shows the price before the run. `internal/price` works it out from 
 
 | Kind | Shown as | When |
 |:--|:--|:--|
-| `exact` | the price | the rates and the quantities are known: tables by size and quality (FLUX.3, Seedream, Krea, Qwen, Recraft, Grok, Riverflow 2), video seconds by resolution and sound, Seedance's video tokens |
+| `exact` | the price | the rates and the quantities are known: tables by size and quality (FLUX.3, Seedream, Krea, Qwen, Recraft, Grok, Riverflow 2), video seconds by resolution and sound, Seedance's video tokens at a size in the overlay's table |
 | `about` | "about" | a formula or a rounding decides: OpenAI's and Gemini's tokens, FLUX.2's megapixels, the prompt's tokens, routes at different prices, two video rates that both fit and differ, the seconds of a reference clip as the provider measures it |
 | `up_to` | "up to" the most | a setting is not chosen yet, or the model picks it: Omni's 3 to 10 s, FLUX Video Upscale's factor, Seedream Pro's high resolution |
 | `from` | "from" the least | the provider sets the price after the run: Riverflow 2.5 |
@@ -333,7 +333,9 @@ Where OpenRouter's rates are not enough, a model's `price` in `catalog/overlay.y
 - `variants`: the settings a dearer rate is for, such as Krea's style references, so it is not taken otherwise;
 - `skip`: a billable framy never sends, with the reason, such as Riverflow 2's fonts;
 - `from`: why the price is only a floor;
-- `free_images`: how many images a per-image price leaves free, which OpenRouter says only on the model's page: HeyGen Video's first 2 references, Hailuo H3's first 5 (as MiniMax bills them). The first runs with references check it against the actual cost.
+- `free_images`: how many images a per-image price leaves free, which OpenRouter says only on the model's page: HeyGen Video's first 2 references, Hailuo H3's first 5 (as MiniMax bills them). The first runs with references check it against the actual cost;
+- `sizes`: the width and height a video model makes, by resolution and aspect ratio, where it bills by them and OpenRouter lists others: Seedance 2.0 makes 864×496 at 480p 16:9, OpenRouter lists 854×480. The values are BytePlus's, as APIYI lists and checked them, and 864×496 is on framy's own bill;
+- `clip_min_seconds`: a reference clip is billed as at least this long (Seedance, 3 s).
 
 `picks_length` is the range of a model that picks its own length. The build warns about a hint that matches no route; every sync logs the price lines and SKUs the estimate cannot read (`catalog price not understood`), so a new kind of price shows up before someone sees it as "about".
 
@@ -342,7 +344,7 @@ Of the video SKUs that fit a run, the most specific wins. When two fit equally, 
 Input images add their own price: per reference at Grok, Seedream Pro, Qwen 3 and K3 Edit, as tokens at OpenAI and Gemini, where the tokens follow the Input detail level. An attached video changes the price too:
 - a model that keeps the source's length (`source_video.keeps_length`) is priced by that length, so the estimate is exact;
 - a model that takes clips as references (`references.video`, no `source_video`) bills every clip's seconds beside the output's, at the output's rate: Wan 3.0 (job 44 on the test bot, a 14.948 s clip and 5 s of 480p, $0.848) and HeyGen, whose reference rate then applies to both (job 47, $0.698); Hailuo 3 as MiniMax bills it. Each clip is rounded up to a hundredth of a second, since the provider measures it itself, and the estimate is "about";
-- Seedance switches to its `with_video_input` rate and counts a clip's seconds beside the output's at the output's size, as BytePlus does. OpenRouter's bill of that is not checked on Seedance, but it passes the clips' seconds on for Wan and HeyGen. FLUX 3 Video switches to its continuation rate;
+- Seedance switches to its `with_video_input` rate. It bills tokens of 1,024 pixels of a frame at the size it makes (`price.sizes`), 24 frames a second and one more for the output, 24 a second for each clip and at least 3 s of it (`price.clip_min_seconds`), all at the output's size, rounded down to a whole token. Two runs of Seedance 2.0 Mini on 31 October, 4 s of 480p 16:9 with a 2 s clip and with a 3 s one, were billed $0.1485246 each: (97 + 72) × 864×496 / 1024 = 70,726 tokens at $2.1 a million. OpenRouter's pages give the formula without the extra frame and with the listed size. One clip up to 3 s at a size in the table is exact; a longer clip (24 frames a second by APIYI's bills, not framy's), several clips, and a size not in the table (9:21, 4K, Seedance 1.5) are "about". FLUX 3 Video switches to its continuation rate;
 - Aleph 2 costs at least $0.56 a run.
 
 After the run framy records the actual cost:
@@ -486,6 +488,7 @@ Progress for SSE goes through `pg_notify('framy_events', …)` in the transactio
 | 402; a 403 whose `limit_source` is a budget or the key's limit | `money` | no; a 402 for the in-flight budget with `Retry-After` waits that long and goes again |
 | 401; any other 403, such as a guardrail on the model | `key` | no |
 | 400 that passes on a provider's refusal of a real person in an input (`Input…SensitiveContentDetected.PrivacyInformation`, BytePlus for Seedance) | `faces` | no |
+| a refusal of the sound the model made ("the output audio may be related to copyright restrictions", BytePlus for Seedance) | `sound` | no |
 | 400, 404, 413, 422, image errors such as `image_download_failed` | `refused` | no |
 | 429 | `rate_limited` | after `Retry-After` |
 | 502, 503, 529, a connection that was never made | `unavailable` | after `Retry-After` or 5 s × requests² |
@@ -497,7 +500,7 @@ The moderation's reasons and the provider's name go into the job's error; the fl
 **OpenRouter video** (`internal/providers/openrouter`, `video.go` and `hook.go`). `POST /api/v1/videos` answers 202 with a job id. The settings go as fields of the request and are checked against the offer's parameters before anything is paid:
 - a file is a frame or a reference. The `frame_images` setting lists the frame type of each of the job's first files (`["first_frame"]`, `["first_frame", "last_frame"]`), and the other files go in `input_references` as `image_url`, `video_url` or `audio_url`. OpenRouter keeps the frames and drops the references when both come, so a run with both is refused. The free plans of a video from a start frame (`internal/free`) set `frame_images` themselves, since a photo sent as a reference is priced apart: HeyGen's 768p is $0.10 a second that way and $0.036 as a start frame;
 - `size` replaces `resolution` and `aspect_ratio`. A pass-through setting such as a negative prompt is refused, since the video catalog names no provider to put it under. No `user` is sent: the Videos API documents none;
-- `completed` is the downloaded results with `usage.cost`; `failed` is `moderation` when its text names a content filter and `provider` otherwise; `cancelled` is `provider` and `expired` is `timeout`. A status framy does not know is a run still going, and the hour's deadline ends it. A GET that answers 404 or 400 says nothing about a run that may be paid and finishing, so it is asked again;
+- `completed` is the downloaded results with `usage.cost`; `failed` is `sound` when the provider refused the sound the model made (Seedance 2.0 Mini with sound on, 31 October: no usage, and the same run without sound went through), `moderation` when its text names a content filter and `provider` otherwise; `cancelled` is `provider` and `expired` is `timeout`. A status framy does not know is a run still going, and the hour's deadline ends it. A GET that answers 404 or 400 says nothing about a run that may be paid and finishing, so it is asked again;
 - results come from `/videos/{id}/content?index=N` with the key, never from the URLs in the job object: unsigned ones need a key that must go only to OpenRouter, and signed ones are secrets. The download goes through `safehttp`, the key is dropped on a redirect to another host, and a link never reaches an error. A video above `MaxResponse` ends the run as `storage` with its cost kept.
 
 The webhook, `POST /hooks/or/{job}/{mac}`, checks in this order:
@@ -626,7 +629,7 @@ What `internal/chat` does today, and what comes later. The bot handles updates o
    - The result's `file_id` and `file_unique_id` are kept in `chat_run`, with the message it went out in, which finds the run of a reply to it (`chat_run_result`).
    - **Animate** is the button under an image result: the image becomes the start frame of a new draft of the weekly free video, with the image's prompt, on the person's key past the week's video. Its preview is a reply to the result, and in a group it goes to the requester alone: the press lets framy send an ephemeral message within 15 s, admin or not (`callback_query_id`). A double tap within 5 s is one press, and the press's id is the draft's key, so a replayed update makes no second one. A video result has no Animate.
    - **Later:** the buttons **Again**, **Original** (a full-size `sendDocument` on demand) and **Open on the site**.
-10. **Failure:** `editMessageMedia` into the error card (media cannot turn back into text). The card gives the reason in plain words: the model refused, the model does not take real people (`faces`: try another model), the key is out of credits, the provider refused the key, the model took too long, or the model could not make it. **Later:** **Retry** and **Change model**.
+10. **Failure:** `editMessageMedia` into the error card (media cannot turn back into text). The card gives the reason in plain words: the model refused, the model does not take real people (`faces`: try another model), the model refused its own sound (`sound`: turn sound off and try again), the key is out of credits, the provider refused the key, the model took too long, or the model could not make it. **Later:** **Retry** and **Change model**.
 11. **Stop:** a queued job is cancelled and the loop deleted. A running one cannot be stopped at the provider: it finishes in the person's history and is not posted, and the answer to the press says so.
 12. **An unconfirmed preview** expires with its draft after 10 minutes and is deleted.
 

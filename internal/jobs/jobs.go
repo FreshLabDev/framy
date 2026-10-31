@@ -264,6 +264,10 @@ const (
 	// Faces: the provider refused a real person in an input, such as
 	// Seedance on BytePlus. Another model may take the same files.
 	Faces Class = "faces"
+	// Sound: the provider refused the sound the model made, as BytePlus
+	// refuses Seedance's when it may be copyrighted. The same run without
+	// sound may pass, and nothing was billed.
+	Sound Class = "sound"
 	// Invalid: framy did not send the request, as the adapter could tell it
 	// would fail, such as a setting the offer lacks. Its message is framy's,
 	// and nothing reached the provider.

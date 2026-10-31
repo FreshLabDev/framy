@@ -568,6 +568,14 @@ func TestVideoFailuresThroughTheQueue(t *testing.T) {
 			class: jobs.ProviderFailed, submits: 1, polled: true, paid: true, in: "model crashed",
 		},
 		{
+			// Seedance 2.0 Mini with sound on, 31 October 2026: no usage.
+			name: "a sound the provider refused",
+			setup: func(r *stack) {
+				r.f.set(videoFailed, `"The request failed because the output audio may be related to copyright restrictions"`)
+			},
+			class: jobs.Sound, submits: 1, polled: true, in: "copyright",
+		},
+		{
 			name:  "a job OpenRouter cancelled",
 			setup: func(r *stack) { r.f.set(videoCancelled, "") },
 			class: jobs.ProviderFailed, submits: 1, polled: true, in: "cancelled",

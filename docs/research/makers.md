@@ -2,7 +2,7 @@
 
 A snapshot of 28 October 2026, from one audit per maker against the maker's documentation and OpenRouter's public JSON (`/api/v1/images/models`, `/api/v1/videos/models`, `/api/v1/models/{id}/endpoints`). framy reaches every model through OpenRouter, GPT Image also through OpenAI, the Gemini models and Omni also through the Gemini API. This file lists what a model can do at its maker and framy cannot ask for today, so a future direct port knows what it would gain.
 
-Each item says whether OpenRouter passes it: **no** (no field, no pass-through), **unverified** (OpenRouter lists the input or the name but documents nothing, so only a paid run settles it) or **partly**. Facts are marked as the audit found them: *confirmed* by the maker's own page, *likely* from strong indirect evidence, *unverified* otherwise. Nothing here was run for money.
+Each item says whether OpenRouter passes it: **no** (no field, no pass-through), **unverified** (OpenRouter lists the input or the name but documents nothing, so only a paid run settles it) or **partly**. Facts are marked as the audit found them: *confirmed* by the maker's own page, *likely* from strong indirect evidence, *unverified* otherwise. Nothing here was run for money, except the check of Seedance's reference clip under ByteDance.
 
 The catalog follows one rule meanwhile: a count of reference images, videos or sounds is set in `catalog/overlay.yaml` only where OpenRouter lists that kind of input for the model and the maker publishes the number. Everything else waits for a run.
 
@@ -64,6 +64,8 @@ FLUX Video Edit and Upscale lose nothing through OpenRouter. Upscale's `creativi
 | Seedream sequential `max_images` up to 15, streaming | yes | no (n up to 10) | |
 
 Seedream 5.0 Pro and Flash take 10 references at BytePlus while OpenRouter lists 14; the overlay caps them at 10. Seedance's reference limits: 2.0, Fast and Mini 9 images, 3 videos and 3 sounds (2 to 15 s, 15 s in all); 2.5 30, 10 and 10 (2 to 30 s, 30 s in all, an edited source 4 to 30 s). A sound needs an image or a video beside it on 2.0; 2.5 takes sound alone. BytePlus does not take real faces in references.
+
+Two paid runs on 31 October settled how OpenRouter bills a Seedance reference clip (Seedance 2.0 Mini, 4 s of 480p 16:9, no sound, a 2 s clip and then a 3 s one, the owner's OK). Both cost $0.1485246, which at $2.1 a million (`video_tokens_with_video_input`) is 70,726 tokens. The output came out 864×496, not the 854×480 OpenRouter lists, with 97 frames for 4 s; the clip counted as 72 frames at the output's size both times. So OpenRouter passes on BytePlus's bill: tokens = ⌊(24·d + 1 + 24·max(clip seconds, 3)) × W×H / 1024⌋, at the size the model makes. A clip longer than 3 s was not run; APIYI's bills count it at 24 frames a second. With `generate_audio` on, the first try failed with "the output audio may be related to copyright restrictions" and no usage; without sound it went through. framy prices it so (`price.sizes`, `price.clip_min_seconds`) and fails such a refusal as `sound`.
 
 ## Google (Gemini API, Vertex)
 
@@ -252,7 +254,7 @@ The Biological Computing Co., which writes itself TBC and the model in lower cas
 
 ## Checks that only a paid run settles
 
-The audit priced each; none was run.
+The audit priced each. The one on Seedance's reference clip was run on 31 October and is answered under ByteDance above.
 
 | Question | Cheapest run | About |
 |:--|:--|:--|
@@ -267,7 +269,6 @@ The audit priced each; none was run.
 | Does Omni run through framy's adapter from words and from a start frame, and is a refusal read right? (`TestLiveOmni`, issue #33) | two 720p videos and a refused prompt | $0.60 to $2.02 |
 | Does Omni keep to `response_format.duration`? | one 3 s video at 720p | about $0.30 |
 | How many tokens a second does Omni bill at 360p and 1080p? Gateways list 1,931 and 8,688 (17,376 at 4K); Google publishes only 720p | one video at each, the model picks 3 to 10 s | $0.56 to $1.86 |
-| Does OpenRouter bill a Seedance reference clip's seconds beside the output's, as BytePlus does? framy counts them, as OpenRouter does for Wan 3.0 and HeyGen | Seedance 2.0 Mini, a 2 s clip, 4 s of 480p out, compared with `usage.cost` | about $0.12 |
 | Does Image Search bring Search Suggestions, and in what shape? (`TestLiveProbes`) | one image on Nano Banana 2.1 at 1K | about $0.034 |
 | Do the Nano Banana models take `media_resolution`, and does the input token count drop? | two runs with one reference, `low` and `high` | about $0.07 |
 | Does mischief 1 rewrite the prompt through OpenRouter, and how is a portrait photo cropped? | 3 s at 480p from a portrait photo | $0.015 |

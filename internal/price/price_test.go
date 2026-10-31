@@ -132,19 +132,23 @@ func TestEstimates(t *testing.T) {
 		{"riverflow 2.5 is a floor", "openrouter:sourceful/riverflow-v2.5-pro", Request{Settings: set{"resolution": "2K"}}, 0.15, 0.15, From},
 		{"riverflow 2 without super-resolution references", "openrouter:sourceful/riverflow-v2-pro", Request{Settings: set{"resolution": "1K"}, Images: images(2)}, 0.15, 0, Exact},
 
-		// BytePlus's example: Seedance 2.0 at 1080p for 5 s is $1.87.
-		{"seedance 2.0 at 1080p", "openrouter:bytedance/seedance-2.0", Request{Settings: set{"resolution": "1080p", "aspect_ratio": "16:9", "duration": 5}}, 1920 * 1080 * 24 * 5 / 1024 * 7.7e-6, 0, Exact},
-		{"seedance 2.0 at 4K", "openrouter:bytedance/seedance-2.0", Request{Settings: set{"resolution": "4K", "aspect_ratio": "16:9", "duration": 5}}, 3840 * 2160 * 24 * 5 / 1024 * 4e-6, 0, Exact},
-		{"seedance 2.5 square at 480p keeps the area", "openrouter:bytedance/seedance-2.5", Request{Settings: set{"resolution": "480p", "aspect_ratio": "1:1", "duration": 5}}, 640 * 640 * 24 * 5 / 1024 * 1.07e-5, 0, Exact},
-		// BytePlus bills a reference clip's seconds too, at the output's size.
-		{"seedance 2.5 editing a video", "openrouter:bytedance/seedance-2.5", Request{Settings: set{"resolution": "720p", "aspect_ratio": "16:9", "duration": 5}, Video: clip}, 1280 * 720 * 24 * 10 / 1024 * 6.4e-6, 0, About},
+		// Seedance bills 24 frames a second and one more, so 5 s at 1080p is
+		// 121 × 2,025 tokens: $1.89, where BytePlus's example, without the
+		// extra frame, says $1.87.
+		{"seedance 2.0 at 1080p", "openrouter:bytedance/seedance-2.0", Request{Settings: set{"resolution": "1080p", "aspect_ratio": "16:9", "duration": 5}}, 121 * 2025 * 7.7e-6, 0, Exact},
+		// 4K is not in the overlay's sizes: the listed one, about.
+		{"seedance 2.0 at 4K", "openrouter:bytedance/seedance-2.0", Request{Settings: set{"resolution": "4K", "aspect_ratio": "16:9", "duration": 5}}, 121 * 8100 * 4e-6, 0, About},
+		{"seedance 2.5 square at 480p", "openrouter:bytedance/seedance-2.5", Request{Settings: set{"resolution": "480p", "aspect_ratio": "1:1", "duration": 5}}, 121 * 400 * 1.07e-5, 0, Exact},
+		// BytePlus bills a reference clip's frames too, at the output's size.
+		{"seedance 2.5 editing a video", "openrouter:bytedance/seedance-2.5", Request{Settings: set{"resolution": "720p", "aspect_ratio": "16:9", "duration": 5}, Video: clip}, (121 + 120) * 900 * 6.4e-6, 0, About},
 		// Without sound is Seedance's plain rate, so it costs what with sound
 		// does: with a clip, the rate with a video input.
-		{"seedance mini silent with a clip", "openrouter:bytedance/seedance-2.0-mini", Request{Settings: set{"resolution": "720p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": false}, Video: clip}, 1280 * 720 * 24 * 10 / 1024 * 2.1e-6, 0, About},
-		{"seedance mini with sound and a clip", "openrouter:bytedance/seedance-2.0-mini", Request{Settings: set{"resolution": "720p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": true}, Video: clip}, 1280 * 720 * 24 * 10 / 1024 * 2.1e-6, 0, About},
-		{"seedance mini silent from text", "openrouter:bytedance/seedance-2.0-mini", Request{Settings: set{"resolution": "720p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": false}}, 1280 * 720 * 24 * 5 / 1024 * 3.5e-6, 0, Exact},
-		{"seedance 2.0 silent at 1080p with a clip", "openrouter:bytedance/seedance-2.0", Request{Settings: set{"resolution": "1080p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": false}, Video: clip}, 1920 * 1080 * 24 * 10 / 1024 * 4.7e-6, 0, About},
-		{"seedance 1.5 without sound", "openrouter:bytedance/seedance-1-5-pro", Request{Settings: set{"resolution": "720p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": false}}, 1280 * 720 * 24 * 5 / 1024 * 1.2e-6, 0, Exact},
+		{"seedance mini silent with a clip", "openrouter:bytedance/seedance-2.0-mini", Request{Settings: set{"resolution": "720p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": false}, Video: clip}, (121 + 120) * 900 * 2.1e-6, 0, About},
+		{"seedance mini with sound and a clip", "openrouter:bytedance/seedance-2.0-mini", Request{Settings: set{"resolution": "720p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": true}, Video: clip}, (121 + 120) * 900 * 2.1e-6, 0, About},
+		{"seedance mini silent from text", "openrouter:bytedance/seedance-2.0-mini", Request{Settings: set{"resolution": "720p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": false}}, 121 * 900 * 3.5e-6, 0, Exact},
+		{"seedance 2.0 silent at 1080p with a clip", "openrouter:bytedance/seedance-2.0", Request{Settings: set{"resolution": "1080p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": false}, Video: clip}, (121 + 120) * 2025 * 4.7e-6, 0, About},
+		// No sizes in the overlay for 1.5: the listed one, about.
+		{"seedance 1.5 without sound", "openrouter:bytedance/seedance-1-5-pro", Request{Settings: set{"resolution": "720p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": false}}, 121 * 900 * 1.2e-6, 0, About},
 		{"veo fast 720p with sound", "openrouter:google/veo-3.1-fast", Request{Settings: set{"resolution": "720p", "duration": 8, "generate_audio": true}}, 0.80, 0, Exact},
 		{"veo fast 1080p without sound", "openrouter:google/veo-3.1-fast", Request{Settings: set{"resolution": "1080p", "duration": 8, "generate_audio": false}}, 0.80, 0, Exact},
 		{"veo fast 4K with sound", "openrouter:google/veo-3.1-fast", Request{Settings: set{"resolution": "4K", "duration": 8, "generate_audio": true}}, 2.40, 0, Exact},
@@ -197,17 +201,44 @@ func TestEstimates(t *testing.T) {
 	}
 }
 
-// Seedance with a clip counts the clip's seconds and says it is about; from
-// words alone it stays exact.
+// Seedance with a clip longer than 3 s counts the clip's frames and says it
+// is about; from words alone it stays exact.
 func TestSeedanceWithAClipCountsItsSeconds(t *testing.T) {
 	m, of := offer(t, "openrouter:bytedance/seedance-2.0-mini")
 	settings := set{"resolution": "720p", "aspect_ratio": "16:9", "duration": 5}
 	e := Of(m, of, Request{Settings: settings, Video: &Video{Seconds: 15, Width: 1280, Height: 720}})
-	if e.Kind != About || e.Note != "" || !near(e.USD, 1280*720*24*20/1024*2.1e-6) {
+	if e.Kind != About || e.Note != "" || !near(e.USD, (121+360)*900*2.1e-6) {
 		t.Errorf("with a clip: $%f, %s, note %q", e.USD, e.Kind, e.Note)
 	}
 	if e := Of(m, of, Request{Settings: settings}); e.Kind != Exact || e.Note != "" {
 		t.Errorf("from words: %s, note %q", e.Kind, e.Note)
+	}
+}
+
+// The two bills of Seedance 2.0 Mini on 31 October: 4 s of 480p 16:9 with a
+// 2 s clip and with a 3 s one, $0.1485246 each, 70,726 tokens of 864×496
+// frames: 97 of the output and 72 of the clip.
+func TestSeedanceBills(t *testing.T) {
+	m, of := offer(t, "openrouter:bytedance/seedance-2.0-mini")
+	settings := set{"resolution": "480p", "aspect_ratio": "16:9", "duration": 4, "generate_audio": false}
+	for _, seconds := range []float64{2, 3} {
+		e := Of(m, of, Request{Settings: settings, Video: &Video{Seconds: seconds, Width: 854, Height: 480}})
+		if e.Kind != Exact || len(e.Lines) != 1 || e.Lines[0].Quantity != 70726 || math.Abs(e.USD-0.1485246) > 1e-9 {
+			t.Errorf("with a %g s clip: $%.7f, %s, lines %+v", seconds, e.USD, e.Kind, e.Lines)
+		}
+	}
+	// Without a clip: 97 frames at the plain rate.
+	if e := Of(m, of, Request{Settings: settings}); e.Kind != Exact || math.Abs(e.USD-40594*3.5e-6) > 1e-9 {
+		t.Errorf("from words: $%.7f, %s, lines %+v", e.USD, e.Kind, e.Lines)
+	}
+	// Two short clips: the floor is either each clip's or theirs together.
+	e := Of(m, of, Request{Settings: settings, Video: &Video{Seconds: 2, Width: 854, Height: 480}, Clips: []float64{2, 2}})
+	if e.Kind != About || e.Lines[0].Quantity != math.Floor((97+144)*418.5) {
+		t.Errorf("two clips: %s, lines %+v", e.Kind, e.Lines)
+	}
+	// 9:21 is not in the overlay's sizes.
+	if e := Of(m, of, Request{Settings: set{"resolution": "480p", "aspect_ratio": "9:21", "duration": 4}}); e.Kind != About {
+		t.Errorf("at 9:21: %s", e.Kind)
 	}
 }
 
@@ -264,7 +295,7 @@ func TestOpenAIInputTokens(t *testing.T) {
 }
 
 func TestPublishedPrices(t *testing.T) {
-	// The figures as OpenAI, OpenRouter and BytePlus print them, rounded to
+	// The figures as OpenAI, OpenRouter and Tencent print them, rounded to
 	// a tenth of a cent or to a cent: the estimate has to round to them.
 	for _, tc := range []struct {
 		offer     string
@@ -278,7 +309,6 @@ func TestPublishedPrices(t *testing.T) {
 		{"openai:gpt-image-2", set{"size": "1024x1536", "quality": "medium"}, 0.041, 0.001},
 		{"openai:gpt-image-2", set{"size": "1536x1024", "quality": "high"}, 0.165, 0.001},
 		{"openrouter:openai/gpt-image-2", set{"aspect_ratio": "16:9", "quality": "high"}, 0.13, 0.01},
-		{"openrouter:bytedance/seedance-2.0", set{"resolution": "1080p", "aspect_ratio": "16:9", "duration": 5}, 1.87, 0.01},
 		// Tencent's 20,000 tokens at 4K at OpenRouter's rate.
 		{"openrouter:tencent/hy-image-v3.5-preview", set{"resolution": "4K"}, 0.032, 0.001},
 	} {

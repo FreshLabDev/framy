@@ -333,4 +333,14 @@ func checkPrice(model string, h PriceHints, offers []Offer, warn func(string, ..
 			warn("model %s: price.skip.%s, but no offer bills it", model, billable)
 		}
 	}
+	for _, res := range slices.Sorted(maps.Keys(h.Sizes)) {
+		if !offered("resolution", res) {
+			warn("model %s: price.sizes.%s, but no offer has that resolution", model, res)
+		}
+		for _, ratio := range slices.Sorted(maps.Keys(h.Sizes[res])) {
+			if !offered("aspect_ratio", ratio) {
+				warn("model %s: price.sizes.%s.%s, but no offer has that aspect ratio", model, res, ratio)
+			}
+		}
+	}
 }

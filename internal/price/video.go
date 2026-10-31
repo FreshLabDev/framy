@@ -194,25 +194,52 @@ func (c *calc) inMode(mode string) bool {
 	return false
 }
 
-// clipSeconds is how long the run's reference clips are together, on a
-// model that takes clips as references rather than as a source to edit.
-// Each is rounded up to a hundredth of a second: the provider measures the
-// clip itself, and a clip ffprobe reads as 14.948 s was billed as 14.95 s on
-// Wan 3.0 and 14.949 s on HeyGen.
-func (c *calc) clipSeconds() float64 {
+// clips are how long the run's reference clips are, on a model that takes
+// clips as references rather than as a source to edit. Each is rounded up
+// to a hundredth of a second: the provider measures the clip itself, and a
+// clip ffprobe reads as 14.948 s was billed as 14.95 s on Wan 3.0 and
+// 14.949 s on HeyGen.
+func (c *calc) clips() []float64 {
 	r := c.m.Traits.References
 	if r == nil || r.Video == 0 || c.m.Traits.SourceVideo != nil || c.req.Video == nil {
-		return 0
+		return nil
 	}
-	clips := c.req.Clips
+	clips := slices.Clone(c.req.Clips)
 	if len(clips) == 0 {
 		clips = []float64{c.req.Video.Seconds}
 	}
+	for i, s := range clips {
+		clips[i] = math.Ceil(s*100-1e-6) / 100
+	}
+	return clips
+}
+
+// clipSeconds is how long the run's reference clips are together.
+func (c *calc) clipSeconds() float64 {
 	var sum float64
-	for _, s := range clips {
-		sum += math.Ceil(s*100-1e-6) / 100
+	for _, s := range c.clips() {
+		sum += s
 	}
 	return sum
+}
+
+// clipFrames is how many frames of reference clips Seedance bills: 24 a
+// second, each clip at least price.clip_min_seconds long. Two runs on
+// Seedance 2.0 Mini billed a 2 s clip and a 3 s one alike, as 72 frames, so
+// one clip no longer than that is exact. A longer clip's 24 frames a second
+// come from APIYI's bills, not framy's, and whether the floor holds for each
+// of several clips or for all of them is not known: those are about.
+func (c *calc) clipFrames() float64 {
+	clips := c.clips()
+	least := c.hints.ClipMinSeconds
+	if len(clips) > 1 || len(clips) == 1 && (clips[0] <= 0 || clips[0] > least) {
+		c.about()
+	}
+	var frames float64
+	for _, s := range clips {
+		frames += 24 * math.Max(s, least)
+	}
+	return frames
 }
 
 // skus prices a video route by OpenRouter's SKUs: one SKU per thing billed,
@@ -333,23 +360,28 @@ func (c *calc) skuQuantity(s sku) (lo, hi float64, ok bool) {
 		}
 		return lo, hi, true
 	case perVideoToken:
-		// Seedance: width × height × 24 × seconds / 1024, the formula on
-		// OpenRouter's model pages.
+		// Seedance: a token is 1,024 pixels of a frame at the size the
+		// model makes, 24 frames a second and one more, rounded down to a
+		// whole token. OpenRouter's pages give width × height × 24 ×
+		// seconds / 1024, without the extra frame; the bills have it. A
+		// reference clip's frames count beside the output's, at the
+		// output's size: Seedance 2.0 Mini at 480p 16:9 made 864×496 and
+		// billed 4 s with a 2 s clip, and with a 3 s one, as (97 + 72) ×
+		// 418.5 = 70,726 tokens (two runs on 31 October).
 		sLo, sHi, ok := c.seconds()
 		if !ok {
 			c.outputUnknown("the length of the video")
 			return 0, 0, false
 		}
-		// BytePlus counts a reference clip's seconds beside the output's,
-		// at the output's size. OpenRouter's bill of it is not checked on
-		// Seedance, but it bills them on Wan 3.0 and HeyGen.
-		if s := c.clipSeconds(); s > 0 {
+		clip := c.clipFrames()
+		w, h, made := c.madeSize()
+		if !made {
+			// The size OpenRouter lists, which may not be the one made.
+			w, h = c.videoSize()
 			c.about()
-			sLo, sHi = sLo+s, sHi+s
 		}
-		w, h := c.videoSize()
-		per := float64(w*h) * 24 / 1024
-		return per * sLo, per * sHi, true
+		per := float64(w*h) / 1024
+		return math.Floor((24*sLo + 1 + clip) * per), math.Floor((24*sHi + 1 + clip) * per), true
 	case perMegapixelSecond:
 		v := c.req.Video
 		if v == nil {
@@ -379,6 +411,18 @@ func (c *calc) factor() (lo, hi float64) {
 		return *p.Min, *p.Max
 	}
 	return 1, 1
+}
+
+// madeSize is the size the overlay says the model makes at the chosen
+// resolution and aspect ratio.
+func (c *calc) madeSize() (w, h int, ok bool) {
+	res, ar := c.resolution(), c.setting("aspect_ratio")
+	for r, sizes := range c.hints.Sizes {
+		if s, found := sizes[ar]; found && strings.EqualFold(r, res) {
+			return size(s)
+		}
+	}
+	return 0, 0, false
 }
 
 // videoSize is the output's width and height: the chosen size, else the

@@ -791,6 +791,24 @@
     "ja": "キーのクレジットが不足しています。",
     "ar": "نفد الرصيد في مفتاحك."
   },
+  "err.sound": {
+    "en": "The model rejected its own sound: it may break copyright. Turn Sound off and try again.",
+    "ru": "Модель отклонила свой же звук: он может нарушать авторские права. Выключи звук и попробуй ещё раз.",
+    "uk": "Модель відхилила власний звук: він може порушувати авторські права. Вимкни звук і спробуй ще раз.",
+    "es": "El modelo rechazó su propio sonido: puede infringir derechos de autor. Desactiva el sonido y vuelve a intentarlo.",
+    "fr": "Le modèle a rejeté son propre son : il pourrait enfreindre un droit d’auteur. Désactive le son et réessaie.",
+    "de": "Das Modell hat seinen eigenen Ton verworfen: Er könnte Urheberrechte verletzen. Schalte den Ton aus und versuche es noch einmal.",
+    "it": "Il modello ha scartato il proprio audio: potrebbe violare il diritto d’autore. Disattiva l’audio e riprova.",
+    "pl": "Model odrzucił własny dźwięk: może naruszać prawa autorskie. Wyłącz dźwięk i spróbuj ponownie.",
+    "cs": "Model odmítl vlastní zvuk: může porušovat autorská práva. Vypni zvuk a zkus to znovu.",
+    "tr": "Model kendi ürettiği sesi reddetti: telif haklarını ihlal edebilir. Sesi kapat ve tekrar dene.",
+    "sv": "Modellen avvisade sitt eget ljud: det kan bryta mot upphovsrätten. Stäng av ljudet och försök igen.",
+    "be": "Мадэль адхіліла ўласны гук: ён можа парушаць аўтарскія правы. Выключы гук і паспрабуй яшчэ раз.",
+    "ca": "El model ha rebutjat el seu propi so: pot infringir drets d’autor. Desactiva el so i torna-ho a provar.",
+    "zh": "模型拒绝了自己生成的声音：可能涉及版权。请关闭声音后再试一次。",
+    "ja": "モデルが自分の生成した音声を拒否しました。著作権に触れるおそれがあります。音声をオフにして、もう一度お試しください。",
+    "ar": "رفض النموذج الصوت الذي أنشأه: قد ينتهك حقوق النشر. أوقف الصوت وحاول مرة أخرى."
+  },
   "err.timeout": {
     "en": "The model took too long.",
     "ru": "Модель слишком долго работала.",

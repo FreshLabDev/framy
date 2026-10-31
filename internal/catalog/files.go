@@ -451,12 +451,35 @@ func (r *References) validate() error {
 	return nil
 }
 
+// isSize says whether s is a width and a height, as "864x496".
+func isSize(s string) bool {
+	w, h, ok := strings.Cut(s, "x")
+	return ok && isPositive(w) && isPositive(h)
+}
+
+func isPositive(s string) bool {
+	return s != "" && s[0] != '0' && strings.Trim(s, "0123456789") == ""
+}
+
 func (h *PriceHints) validate() error {
 	if h == nil {
 		return nil
 	}
-	if len(h.Tokens) == 0 && len(h.OpenAITokens) == 0 && h.OpenAIInputPatches == 0 && h.InputTokensPerMP == 0 && len(h.Variants) == 0 && len(h.Skip) == 0 && h.From == "" && h.FreeImages == 0 {
+	if len(h.Tokens) == 0 && len(h.OpenAITokens) == 0 && h.OpenAIInputPatches == 0 && h.InputTokensPerMP == 0 && len(h.Variants) == 0 && len(h.Skip) == 0 && h.From == "" && h.FreeImages == 0 && len(h.Sizes) == 0 && h.ClipMinSeconds == 0 {
 		return errors.New("price says nothing")
+	}
+	if h.ClipMinSeconds < 0 || math.IsNaN(h.ClipMinSeconds) || math.IsInf(h.ClipMinSeconds, 0) {
+		return errors.New("price.clip_min_seconds cannot be negative")
+	}
+	for res, sizes := range h.Sizes {
+		if len(sizes) == 0 {
+			return fmt.Errorf("price.sizes.%s lists no sizes", res)
+		}
+		for ratio, size := range sizes {
+			if !isSize(size) {
+				return fmt.Errorf("price.sizes.%s.%s: %q is not a size like 864x496", res, ratio, size)
+			}
+		}
 	}
 	if h.FreeImages < 0 {
 		return errors.New("price.free_images cannot be negative")
