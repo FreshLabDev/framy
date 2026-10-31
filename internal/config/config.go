@@ -23,9 +23,16 @@ const DefaultOpenRouterAPIBase = "https://openrouter.ai/api/v1"
 type Config struct {
 	TelegramBotToken string
 	TelegramAPIBase  string
-	DatabaseURL      string
-	AutoMigrate      bool
-	HTTPAddr         string
+	// BotAPIFilesDir is where this process sees the media directory of a Bot
+	// API server started with --local (BOT_API_FILES_DIR). Such a server
+	// answers getFile with an absolute path on its own disk and serves
+	// nothing over HTTP, so the bot's own subdirectory, named after its
+	// token, is mounted here at the server's path. Required with any server
+	// but Telegram's own.
+	BotAPIFilesDir string
+	DatabaseURL    string
+	AutoMigrate    bool
+	HTTPAddr       string
 	// MetricsAddr serves /metrics apart from HTTPAddr, which the tunnel makes
 	// public with the site. Empty turns it off.
 	MetricsAddr string
@@ -117,6 +124,13 @@ func Load() (Config, error) {
 	}
 	if !strings.HasPrefix(cfg.TelegramAPIBase, "http://") && !strings.HasPrefix(cfg.TelegramAPIBase, "https://") {
 		return Config{}, fmt.Errorf("TELEGRAM_API_BASE must be an http or https URL")
+	}
+	cfg.BotAPIFilesDir = strings.TrimRight(valueOrDefault("BOT_API_FILES_DIR", ""), "/")
+	if cfg.TelegramAPIBase != DefaultTelegramAPIBase && cfg.BotAPIFilesDir == "" {
+		return Config{}, fmt.Errorf("BOT_API_FILES_DIR is required with a self-hosted TELEGRAM_API_BASE: such a server hands over files by absolute path and serves none over HTTP, so its media directory must be mounted")
+	}
+	if cfg.BotAPIFilesDir != "" && !filepath.IsAbs(cfg.BotAPIFilesDir) {
+		return Config{}, fmt.Errorf("BOT_API_FILES_DIR must be an absolute path: the server's own, as it names files")
 	}
 	if !strings.HasPrefix(cfg.OpenRouterAPIBase, "https://") && !strings.HasPrefix(cfg.OpenRouterAPIBase, "http://") {
 		return Config{}, fmt.Errorf("OPENROUTER_API_BASE must be an http or https URL")

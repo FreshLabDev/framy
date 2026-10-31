@@ -819,6 +819,16 @@ was written from, and the skeleton of the service.
   the start of the hour, lives 10 minutes past it, and its answer carries
   `Cache-Control: private, max-age=4200`, so the browser shows a file it has
   seen from its cache instead of fetching it on every page.
+- The production stack, `deploy/ws04/compose.yaml`: `@framyin_bot` and
+  `https://framy.ws04.cc` on ws04, on the shared `core-postgres` as
+  `framy_core` and on the family's `telegram-bot-api`. Operators: the
+  manifest's header lists the `.env` variables and the files in `secrets/`.
+- `BOT_API_FILES_DIR`, required with any Bot API server but Telegram's own.
+  A `--local` server hands a photo over by a path on its own disk and serves
+  none over HTTP, so without the bot's media directory mounted there every
+  photo sent to framy would fail to download. framy now reads it from that
+  directory, removes it after, and refuses to start when the directory is not
+  there or not writable.
 - Metrics of the jobs on the internal listener: what the providers billed
   by provider, model and payer (`framy_job_cost_usd_total`), the time from
   the queue to the result (`framy_job_duration_seconds`), the reasons jobs

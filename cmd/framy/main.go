@@ -87,7 +87,7 @@ func run(log *slog.Logger) error {
 		}
 	}
 
-	client := tg.New(cfg.TelegramBotToken,
+	tgOpts := []tg.Option{
 		tg.WithAPIBase(cfg.TelegramAPIBase),
 		// my_chat_member tells core which groups framy is in; Telegram leaves
 		// it out of the default set, so it has to be asked for. So does
@@ -106,7 +106,19 @@ func run(log *slog.Logger) error {
 				metrics.TelegramErrors.Inc(e.Method)
 			}
 		}),
-	)
+	}
+	// A --local server hands files over by path on its own disk.
+	if cfg.BotAPIFilesDir != "" {
+		tgOpts = append(tgOpts, tg.WithLocalFiles(cfg.BotAPIFilesDir))
+	}
+	client := tg.New(cfg.TelegramBotToken, tgOpts...)
+	if cfg.BotAPIFilesDir != "" {
+		// Found now rather than on the first photo: the bot's directory is
+		// mounted, and writable, since a file read is removed after.
+		if err := client.VerifyLocalFiles(); err != nil {
+			return err
+		}
+	}
 	// In a group the panel is an ephemeral reply; a server without ephemeral
 	// messages would leave /start there unanswered.
 	me, err := client.Preflight(ctx, tg.Needs{

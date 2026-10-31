@@ -185,10 +185,10 @@ a patch that fixes what went wrong; never retag or delete the bad release.
 | | |
 |:--|:--|
 | Stack | `framy` — `/opt/stacks/framy` |
-| Manifest | `deploy/ws04/compose.yaml` in this repository, once the stack exists |
-| Env file | `.env` on the host, never in git; file secrets beside it |
-| Networks | `core_net` (core-postgres), the Cloudflare Tunnel network for `framy.ws04.cc`, the network of the self-hosted `telegram-bot-api` |
-| Storage | R2 buckets `framy` (inputs and results) and `framy-backups`; a working volume shared with `telegram-bot-api` |
+| Manifest | `deploy/ws04/compose.yaml` in this repository, copied to the host; its header lists the `.env` variables and the files in `secrets/` |
+| Env file | `.env` on the host, never in git; file secrets beside it, owned by uid 101 |
+| Networks | `core_net` (core-postgres), `management` (the Cloudflare Tunnel for `framy.ws04.cc`), `telegram_bot_api_net` (the self-hosted `telegram-bot-api`) |
+| Storage | R2 buckets `framy` (inputs and results) and `framy-backups`; `work/` and `anim/` beside the manifest; the bot's own media directory of `telegram-bot-api`, mounted at the server's path |
 | Database | core migration `019_framy.sql` applied, `FRAMY_CORE_PASSWORD` in core's `.env` and framy's |
 | Ports | `8080` for the tunnel, never published to the host; `9090` for `/metrics`, reachable on the Docker networks only and never routed by the tunnel |
 | Proxies | `TRUSTED_PROXIES` in `.env`: the subnet of the Cloudflare Tunnel network. Without it the rate limits see cloudflared's address instead of the visitor, and the log says so once |
@@ -198,6 +198,18 @@ framy talks to the family's own `telegram-bot-api` in `--local` mode. The cloud
 Bot API downloads files only up to 20 MB and uploads up to 50 MB; photos sent
 as files and finished videos go past that.
 
+Such a server answers `getFile` with a path on its own disk, so framy needs
+`BOT_API_FILES_DIR` and the bot's media directory mounted there, and checks at
+start that it can write in it. A token is logged in on one server at a time,
+so the bot moves onto the server once, before its first start there:
+
+```sh
+# the cloud server lets the token go; it takes it back only after 10 minutes
+curl -s "https://api.telegram.org/bot$(cat secrets/bot-token)/logOut"
+# the media directory, before Docker makes it as root
+install -d -o 101 -g 101 "/opt/stacks/telegram-bot-api-next/files/$(cat secrets/bot-token)"
+```
+
 Files live in R2, not on the host. The database is backed up into
 `framy-backups`; the bucket `framy` is itself the copy off the home server.
 
@@ -205,8 +217,8 @@ Files live in R2, not on the host. The database is backed up into
 
 ```sh
 ws04 container list                    # health of everything
-ws04 logs framy --since 1h
-ws04 container inspect framy           # includes the image digest
+ws04 logs framy-bot --since 1h
+ws04 container inspect framy-bot       # includes the image digest
 ```
 
 The service reports its own version on `/healthz`. That and `docker inspect`

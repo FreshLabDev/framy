@@ -13,7 +13,7 @@ func setBase(t *testing.T) {
 	t.Helper()
 	for _, k := range []string{"TELEGRAM_BOT_TOKEN", "TELEGRAM_BOT_TOKEN_FILE", "DATABASE_URL", "DATABASE_URL_FILE", "TELEGRAM_API_BASE", "AUTO_MIGRATE", "HTTP_ADDR", "METRICS_ADDR", "LOG_LEVEL", "OPENROUTER_API_BASE", "CATALOG_SYNC_INTERVAL", "FX_SYNC", "JOBS_STOP_GRACE", "OPENROUTER_API_KEY", "OPENROUTER_API_KEY_FILE",
 		"R2_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID_FILE", "R2_SECRET_ACCESS_KEY", "R2_SECRET_ACCESS_KEY_FILE", "R2_ENDPOINT", "R2_ACCOUNT_ID", "R2_BUCKET", "R2_PREFIX",
-		"WORK_DIR", "FFMPEG", "FFPROBE", "OPERATOR_CHAT_ID"} {
+		"WORK_DIR", "FFMPEG", "FFPROBE", "OPERATOR_CHAT_ID", "BOT_API_FILES_DIR"} {
 		t.Setenv(k, "")
 	}
 	t.Setenv("TELEGRAM_BOT_TOKEN", "123:abc")
@@ -231,5 +231,36 @@ func TestLoadKEKFile(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "the-kek-itself") {
 		t.Error("the error names the KEK")
+	}
+}
+
+func TestASelfHostedServerNeedsItsFiles(t *testing.T) {
+	setBase(t)
+	t.Setenv("TELEGRAM_API_BASE", "http://telegram-bot-api-next:8081")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "BOT_API_FILES_DIR") {
+		t.Fatalf("no files directory: err = %v", err)
+	}
+	t.Setenv("BOT_API_FILES_DIR", "files")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "absolute") {
+		t.Fatalf("a relative directory: err = %v", err)
+	}
+	t.Setenv("BOT_API_FILES_DIR", "/var/lib/telegram-bot-api-files/")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.BotAPIFilesDir != "/var/lib/telegram-bot-api-files" {
+		t.Fatalf("BotAPIFilesDir = %q", cfg.BotAPIFilesDir)
+	}
+}
+
+func TestTelegramsOwnServerNeedsNoFiles(t *testing.T) {
+	setBase(t)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.BotAPIFilesDir != "" {
+		t.Fatalf("BotAPIFilesDir = %q", cfg.BotAPIFilesDir)
 	}
 }
