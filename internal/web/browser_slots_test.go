@@ -10,6 +10,7 @@ import (
 	_ "image/png"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -154,6 +155,115 @@ func TestBrowserVideoSlots(t *testing.T) {
 	}
 	noErrors(t, ctx)
 }
+
+// TestBrowserVideoSounds checks a sound in References: it turns a start
+// frame into a reference, goes on a key (a free run takes none), hides the
+// models that take no sound, and goes up as a clip does, by the bucket and
+// POST /api/videos, its id joining the run's inputs.
+func TestBrowserVideoSounds(t *testing.T) {
+	runs := &fakeRuns{}
+	var put, took atomic.Int32
+	ts := fakeSite(t, func(srv *Server) {
+		runs.mount(srv)
+		srv.HandleFunc("POST /api/uploads", func(w http.ResponseWriter, r *http.Request) {
+			c, _, err := image.DecodeConfig(r.Body)
+			if err != nil {
+				writeTestJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": "unreadable"})
+				return
+			}
+			writeTestJSON(w, http.StatusCreated, map[string]any{"id": c.Width, "content_type": "image/png", "bytes": 100, "width": c.Width, "height": c.Height})
+		})
+		srv.HandleFunc("POST /api/videos/uploads", func(w http.ResponseWriter, r *http.Request) {
+			writeTestJSON(w, http.StatusCreated, map[string]any{"url": "/bucket/sound", "token": "tok", "max_bytes": 100 << 20})
+		})
+		srv.HandleFunc("PUT /bucket/sound", func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.Header.Get("Content-Type"), "audio/") {
+				put.Add(1)
+			}
+			w.WriteHeader(http.StatusOK)
+		})
+		srv.HandleFunc("POST /api/videos", func(w http.ResponseWriter, r *http.Request) {
+			took.Add(1)
+			writeTestJSON(w, http.StatusAccepted, map[string]any{"task": "snd"})
+		})
+		srv.HandleFunc("GET /api/videos/snd", func(w http.ResponseWriter, r *http.Request) {
+			writeTestJSON(w, http.StatusOK, map[string]any{"status": "done", "file": map[string]any{"id": 900, "content_type": "audio/wav", "bytes": 48044, "seconds": 3, "audio": true}})
+		})
+	})
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	step := func(body string) map[string]any {
+		return js[map[string]any](t, ctx, pageHelpers+runHelpers+slotHelpers+soundHelpers+body)
+	}
+	js[bool](t, ctx, `
+	window.__quotes = []; window.__sent = [];
+	const fetch0 = window.fetch;
+	window.fetch = (u, o) => {
+	  const s = String(u);
+	  if (s.endsWith("/api/quote")) __quotes.push(JSON.parse(o.body));
+	  if (s.endsWith("/api/jobs") && o?.method === "POST") __sent.push(JSON.parse(o.body));
+	  return fetch0(u, o);
+	};
+	return true;`)
+	s := step(`
+	const out = {};
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(800);
+	await dropOn("start", [await png(64, 36)]);
+	// A sound dropped anywhere is a reference, and the start frame becomes one too.
+	const dt = new DataTransfer();
+	dt.items.add(wav(3));
+	document.body.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
+	await wait(1300);
+	out.groups = groups(); out.model = model();
+	const it = own();
+	out.pay = it?.pay; out.frames = frames();
+	out.sound = (it?.files || []).find((f) => f.content_type?.startsWith("audio/")) || null;
+	out.tag = [...document.querySelectorAll('#files [data-k="g-ref"] .thumb .tag')].map((x) => x.textContent).join(",");
+	out.list = await listed();
+	return out;`)
+	merge := func(m map[string]any) {
+		for k, v := range m {
+			s[k] = v
+		}
+	}
+	merge(step(`
+	const p = document.querySelector("#prompt");
+	p.value = "with a sound"; p.dispatchEvent(new Event("input"));
+	await wait(400);
+	document.querySelector("#go").click();
+	for (let i = 0; i < 80 && !__sent.length; i++) await wait(100);
+	const j = __sent[0];
+	return { job: j ? { inputs: j.inputs, offer: j.offer, frames: j.settings.frame_images || null } : null };`))
+	if s["groups"] != "ref:2+" || s["model"] != "HeyGen Video" || s["pay"] != "key" || s["frames"] != "null" {
+		t.Errorf("a sound beside a start frame: %v on %v paid %v, frames %v", s["groups"], s["model"], s["pay"], s["frames"])
+	}
+	if snd, _ := s["sound"].(map[string]any); snd == nil || snd["content_type"] != "audio/wav" || snd["seconds"] != float64(3) {
+		t.Errorf("the sound in the quote: %v", s["sound"])
+	}
+	if !strings.Contains(fmt.Sprint(s["tag"]), "3 s") {
+		t.Errorf("the sound's length on its cell: %q", s["tag"])
+	}
+	has := func(list any, word string) bool { return strings.Contains(fmt.Sprint(list), word) }
+	if l := s["list"]; has(l, "Kling") || has(l, "Veo") || has(l, "Grok") || !has(l, "HeyGen") || !has(l, "Seedance") || !has(l, "Wan") {
+		t.Errorf("models offered for a sound: %v", l)
+	}
+	job, _ := s["job"].(map[string]any)
+	if fmt.Sprint(job["inputs"]) != "[64 900]" || job["offer"] != "openrouter:heygen/heygen-video-1" || job["frames"] != nil || put.Load() != 1 || took.Load() != 1 {
+		t.Errorf("the run with a sound: %v, put %d, taken %d", job, put.Load(), took.Load())
+	}
+	noErrors(t, ctx)
+}
+
+// soundHelpers make a WAV of a few seconds of silence.
+const soundHelpers = `
+const wav = (secs) => {
+  const rate = 8000, n = rate * secs, b = new ArrayBuffer(44 + n * 2), v = new DataView(b);
+  const s = (o, x) => [...x].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  s(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); s(8, "WAVE"); s(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); s(36, "data"); v.setUint32(40, n * 2, true);
+  return new File([b], "s" + secs + ".wav", { type: "audio/wav" });
+};
+`
 
 // slotHelpers drop pictures on a slot and read the slots, the model and the
 // composer's own quote.

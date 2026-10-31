@@ -98,6 +98,13 @@ export function waiting(j) {
 export function refusal(err, ctx = {}) {
   const b = err.body || {}, vid = ctx.kind === "video", code = err.code;
   const R = (label, text, acts = [], more = {}) => ({ code, label, text, acts, ...more });
+  // A sound framy could not take: what was wrong with it.
+  if (ctx.sound) switch (code) {
+    case "video_too_long": return R(t("ref.sound_bad_l"), t("ref.sound_long"));
+    case "unsupported_type": return R(t("ref.sound_bad_l"), t("files.sound_type"));
+    case "unreadable": return R(t("ref.sound_bad_l"), t("ref.sound_unreadable"));
+    case "too_large": return R(t("ref.sound_bad_l"), ctx.maxBytes ? t("files.sound_big", { n: fmtNum(Math.floor(ctx.maxBytes / 1e6)) }) : t("err.too_large"));
+  }
   switch (code) {
     case "price_changed": return R(t("ref.price_l"), t("ref.price", { p: priceText(b.estimate), was: ctx.shown || "" }), ["takeprice", "drop"], { estimate: b.estimate });
     case "free_limit": return R(t("ref.free_out_l"), b.frees_at ? t(vid ? "ref.free_taken_video" : "ref.free_taken", { at: fmtAt(Date.parse(b.frees_at)) }) : t("err.free_out"), ["bykey"]);

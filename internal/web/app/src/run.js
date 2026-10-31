@@ -102,7 +102,7 @@ async function start(base, key = newKey()) {
     else {
       run.phase = "refused";
       resend = err.status >= 500 || err.status === 0;
-      run.why = refusal(err, { kind: run.kind, clip: err.clip || (!err.file && !!run.clip && err.code !== "price_changed"), name: err.file?.name, maxBytes: err.maxBytes,
+      run.why = refusal(err, { kind: run.kind, clip: !err.sound && (err.clip || (!err.file && !!run.clip && err.code !== "price_changed")), sound: !!err.sound, name: err.file?.name, maxBytes: err.maxBytes,
         shown: run.shownLabel, pay: run.pay, lastFrame: !!run.cont, clipSecs: run.clipSecs, cut: !!run.cut });
       // The same press again keeps its key when the server may have made the job.
       if (resend) run.retryKey = run.key;
@@ -113,7 +113,7 @@ async function start(base, key = newKey()) {
   }
 }
 
-// The files of a run go up: photos to framy, a clip to the bucket and then to framy.
+// The files of a run go up: photos to framy, a clip or a sound to the bucket and then to framy.
 async function prepare(run) {
   const sig = run.stop.signal, pics = run.files.filter((f) => f.kind === "image" && !f.upload);
   if (pics.length) {
@@ -124,7 +124,7 @@ async function prepare(run) {
   for (const f of run.files) {
     if (f.kind === "image") { ids.push(f.upload); continue; }
     try { ids.push(await takeClip(f, f === run.clip ? run.cut : null, { signal: sig, step: (s) => setStep(run, s) })); }
-    catch (e) { e.clip = true; throw e; }
+    catch (e) { if (f.kind === "audio") e.sound = true; else e.clip = true; throw e; }
     if (f === run.clip) run.clipSecs = f.secsOf?.[ids.at(-1)] || 0;
   }
   return ids;
@@ -204,7 +204,7 @@ function restore(run, pay = run.pay) {
   }
   const keep = new Set(run.files);
   // A video's files are in their slots already, and the photos beside them would not be.
-  S.files = run.hist || run.kind === "video" ? [...run.files] : [...run.files, ...S.files.filter((f) => !keep.has(f) && f.kind !== "video")];
+  S.files = run.hist || run.kind === "video" ? [...run.files] : [...run.files, ...S.files.filter((f) => !keep.has(f) && f.kind === "image")];
   delete S.wanted.frame_images;
   S.cut = run.cut ? { ...run.cut } : null;
   S.cont = run.cont;
@@ -356,6 +356,8 @@ function fileOfInput(f) {
   const meta = { content_type: f.content_type, bytes: f.bytes, width: f.width, height: f.height }, base = { id: "j" + f.id, server: true, name: "", upload: f.id, w: f.width, h: f.height };
   if (String(f.content_type).startsWith("video/"))
     return { ...base, kind: "video", url: f.url, poster: f.thumb?.url || "", secs: f.seconds || 0, bytes: f.bytes, token: "", cuts: {}, meta: { ...meta, seconds: f.seconds || 0 } };
+  if (String(f.content_type).startsWith("audio/"))
+    return { ...base, kind: "audio", slot: "ref", url: f.url, secs: f.seconds || 0, bytes: f.bytes, token: "", cuts: {}, meta: { content_type: f.content_type, bytes: f.bytes, seconds: f.seconds || 0 } };
   return { ...base, kind: "image", url: f.thumb?.url || f.url, meta };
 }
 // What a run of the library does before it acts in the composer: the page

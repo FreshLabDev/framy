@@ -26,6 +26,7 @@ const FILES = { dur: 360,
 
 const PICS = "image/png,image/jpeg,image/webp,image/gif,image/avif,image/heic";
 const CLIPS = "video/mp4,video/quicktime,video/webm,video/x-matroska,.mkv,.mov,.m4v";
+const SOUNDS = "audio/mpeg,audio/wav,audio/ogg,audio/flac,audio/aac,audio/mp4,audio/x-m4a,.mp3,.wav,.ogg,.oga,.opus,.flac,.aac,.m4a";
 
 let ACTING = 0;
 // Every change of the composer: the form's blocks glide, new ones rise, gone ones fade; the frame on the stage refits.
@@ -48,7 +49,7 @@ export function mountComposer() {
       h("textarea", { id: "prompt", rows: 3, maxlength: 4000 }),
       h("div", { class: "ptools", id: "ptools" })),
     h("div", { class: "files", id: "files" }),
-    h("input", { type: "file", id: "file", multiple: true, accept: PICS + "," + CLIPS, hidden: true }),
+    h("input", { type: "file", id: "file", multiple: true, accept: PICS + "," + CLIPS + "," + SOUNDS, hidden: true }),
     h("input", { type: "file", id: "slotfile", hidden: true }),
     h("div", { class: "how", id: "how" }),
     h("div", { class: "bar", id: "bar" },
@@ -147,7 +148,7 @@ function renderFiles(m, pay) {
   box.replaceChildren();
   const thumb = (f, r) => h("div", { class: "thumb" + (r.go ? "" : " off") + (f.kind === "video" ? " clip" : ""), title: f.name + (r.why ? ": " + r.why : ""), "data-k": "f" + f.id },
     thumbMedia(f),
-    f.kind === "video" ? h("span", { class: "tag" }, ic("film"), r.go && r.tag ? r.tag : f.secs ? fmtSecs(f.secs) : "") : f.frameOf ? h("span", { class: "tag" }, ic("next")) : null,
+    f.kind !== "image" ? h("span", { class: "tag" }, ic(f.kind === "audio" ? "audio" : "film"), r.go && r.tag ? r.tag : f.secs ? fmtSecs(f.secs) : "") : f.frameOf ? h("span", { class: "tag" }, ic("next")) : null,
     h("button", { type: "button", class: "rm", "aria-label": t("files.remove"), onclick: () => act(() => { removeFile(f); render(); }) }, ic("close")));
   const cont = contEl(m, pay), slots = slotted(m, pay);
   if (cont) box.append(cont);
@@ -211,12 +212,12 @@ function slotGroups(R, thumb) {
     return g;
   });
 }
-// A press on an empty slot picks its files: one picture for a frame, pictures and clips for References.
+// A press on an empty slot picks its files: one picture for a frame, pictures, clips and sounds for References.
 let into = "";
 function pickInto(s) {
   const el = $("#slotfile");
   into = s;
-  el.accept = s === "ref" ? PICS + "," + CLIPS : PICS;
+  el.accept = s === "ref" ? PICS + "," + CLIPS + "," + SOUNDS : PICS;
   el.multiple = s === "ref";
   el.click();
 }

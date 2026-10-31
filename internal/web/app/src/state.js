@@ -1,7 +1,7 @@
 // What the composer holds and the rules that follow from it: which model and
 // payment, the settings a run goes with, which files go, and what the one
 // button does now.
-import { C, freePlan, pays, offerOf, settings as settingsOf, photoLimit, needsImage, needsVideo, takesVideo, takesAudio, framesOf, refsOf, refClipsOf, PNAME } from "./catalog.js";
+import { C, freePlan, pays, offerOf, settings as settingsOf, photoLimit, needsImage, needsVideo, takesVideo, takesAudio, framesOf, refsOf, refClipsOf, soundsOf, PNAME } from "./catalog.js";
 import { t, fmtTime, fmtAt, fmtNum, fmtSecs } from "./i18n.js";
 import { known, need } from "./price.js";
 
@@ -25,13 +25,14 @@ export const M = () => C.byId[S.model[S.kind]];
 export const images = () => S.files.filter((f) => f.kind === "image");
 export const clips = () => S.files.filter((f) => f.kind === "video");
 export const clip = () => clips()[0];
+export const sounds = () => S.files.filter((f) => f.kind === "audio");
 
 /* The slots of a video (docs/design.md, Video): a picture is its start
    frame, its end frame or a reference, and a clip is a reference when it was
    put there, else whatever the model takes a clip as: the video it edits or a
    reference. The mode follows from what is in them; frames go alone. A
    picture of the image tab has no slot. */
-export const slotOf = (f) => (f.kind === "image" ? f.slot || "ref" : f.slot === "ref" ? "ref" : "source");
+export const slotOf = (f) => (f.kind === "image" ? f.slot || "ref" : f.kind === "audio" || f.slot === "ref" ? "ref" : "source");
 export const sources = () => S.files.filter((f) => f.kind === "video" && f.slot !== "ref");
 export const inSlot = (s) => S.files.filter((f) => S.kind === "video" && slotOf(f) === s);
 export const framed = () => inSlot("start").length + inSlot("end").length > 0;
@@ -60,6 +61,7 @@ export function refuses(m) {
   if (st && framesOf(m) < 1) return true;
   if (ri > refsOf(m)) return true;
   if (rc > refClipsOf(m)) return true;
+  if (sounds().length > soundsOf(m)) return true;
   return sources().length > 0 && !takesVideo(m);
 }
 
@@ -105,6 +107,8 @@ export const fitsFree = (m) => {
   if (!p) return false;
   const edit = needsVideo(m), n = edit ? clips().length : images().length;
   if (edit ? images().length : clips().length) return false;
+  // A free run takes no sound.
+  if (sounds().length) return false;
   // A free video from a picture takes it as the start frame only.
   if (p.start_frame && S.kind === "video" && images().some((f) => slotOf(f) !== "start")) return false;
   return n <= freeTakes(p) && n >= (p.min_inputs || 0) && !(S.cont && S.cont.model === m.id);
@@ -163,8 +167,24 @@ export function route(m, pay) {
   const nf = plan ? (plan.start_frame ? 1 : 0) : i.images?.frames || 0, frames = vid && nf > 0 && framed();
   const nr = plan ? (plan.start_frame ? 0 : Math.min(i.images?.refs || 0, plan.max_inputs ?? Infinity)) : i.images?.refs || 0;
   const keyRefs = !!offerOf(m, "openrouter")?.inputs?.images?.refs;
-  let n = 0, nv = 0, all = 0, secs = 0;
+  let n = 0, nv = 0, all = 0, secs = 0, na = 0, asecs = 0;
   return S.files.map((f) => {
+    // A sound is a reference, within the model's count, length and size;
+    // framy takes one up to a minute where the model names no length.
+    if (f.kind === "audio") {
+      const ai = i.audio, mx = ai?.secs?.max || 60;
+      if (frames) return { why: t("why.frames_alone") };
+      if (!ai) return { why: plan && offerOf(m, "openrouter")?.inputs?.audio ? t("why.free_no_sounds") : t("why.no_sounds") };
+      if (plan) return { why: t("why.free_no_sounds") };
+      if (na >= ai.max) return { why: t("why.max_sounds", { n: ai.max }), more: true };
+      if (f.secs && f.secs > mx + SLACK) return { why: t("why.clip_long", { n: fmtNum(mx) }) };
+      if (f.secs && ai.secs?.min && f.secs < ai.secs.min - SLACK) return { why: t("why.clip_short", { n: fmtNum(ai.secs.min) }) };
+      if (f.secs && ai.total_secs && asecs + f.secs > ai.total_secs + SLACK) return { why: t("why.clips_total", { n: fmtNum(ai.total_secs) }) };
+      if (ai.max_bytes && f.bytes > ai.max_bytes) return { why: t("why.sound_big", { n: fmtNum(Math.floor(ai.max_bytes / 1e6)) }) };
+      if (all >= cap) return { why: t("why.max_files", { n: cap }) };
+      na++; all++; asecs += f.secs || 0;
+      return { go: true, tag: f.secs ? fmtSecs(f.secs) : "" };
+    }
     if (vid && f.kind === "image") {
       const s = slotOf(f);
       if (s === "ref" && frames) return { why: t("why.frames_alone") };

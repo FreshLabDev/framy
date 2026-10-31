@@ -20,6 +20,28 @@ export const looksLikeClip = (f) => f.type.startsWith("video/") || (!f.type && E
 export const clipTypeOk = (f) => TYPES.test(f.type) || EXT.test(f.name);
 const typeOf = (f) => (TYPES.test(f.type) ? f.type : BY_EXT[(f.name.match(EXT)?.[1] || "").toLowerCase()] || f.type || "video/mp4");
 
+// A sound goes as a reference of a video, up and through framy as a clip
+// does. framy takes MP3, WAV, Ogg, FLAC, AAC and M4A.
+const SOUNDS = /^audio\/(mpeg|mp3|wav|x-wav|wave|vnd\.wave|ogg|opus|flac|x-flac|aac|x-aac|aacp|mp4|x-m4a|m4a|webm)$/, SEXT = /\.(mp3|wav|ogg|oga|opus|flac|aac|m4a|weba)$/i;
+const SBY_EXT = { mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", oga: "audio/ogg", opus: "audio/ogg", flac: "audio/flac", aac: "audio/aac", m4a: "audio/mp4", weba: "audio/webm" };
+export const looksLikeSound = (f) => f.type.startsWith("audio/") || (!f.type && SEXT.test(f.name));
+export const soundTypeOk = (f) => SOUNDS.test(f.type) || SEXT.test(f.name);
+// Its length, read by the browser; a sound it cannot play still goes, and framy reads it.
+export function readSound(file) {
+  const url = URL.createObjectURL(file), type = SOUNDS.test(file.type) ? file.type : SBY_EXT[(file.name.match(SEXT)?.[1] || "").toLowerCase()] || file.type;
+  const f = { kind: "audio", slot: "ref", file, name: file.name, url, secs: 0, bytes: file.size, upload: 0, token: "", cuts: {} };
+  const done = () => { f.meta = { content_type: type, bytes: file.size, seconds: f.secs }; return f; };
+  return new Promise((ok) => {
+    const a = document.createElement("audio");
+    let end = setTimeout(() => stop(), 8000);
+    const stop = () => { if (!end) return; clearTimeout(end); end = 0; a.removeAttribute("src"); a.load(); ok(done()); };
+    a.preload = "metadata";
+    a.onloadedmetadata = () => { f.secs = isFinite(a.duration) ? Math.round(a.duration * 1000) / 1000 : 0; stop(); };
+    a.onerror = stop;
+    a.src = url;
+  });
+}
+
 // What the browser can read of a clip: its length, its size and a frame for
 // the thumbnail. A clip it cannot play (some MKV and HEVC) still goes, with
 // what is known; framy reads it on Create.
@@ -61,6 +83,7 @@ export function thumbMedia(f) {
   if (f.poster) return h("img", { src: f.poster, alt: "" });
   if (f.frameOf) return frameEl(f.frameOf.url, f.frameOf.at);
   if (f.kind === "video" && f.url) return frameEl(f.url, 0.1);
+  if (f.kind === "audio") return h("span", { class: "noth" }, ic("audio"));
   return f.url ? h("img", { src: f.url, alt: "" }) : h("span", { class: "noth" }, ic(f.kind === "video" ? "film" : "image"));
 }
 // One frame of a clip, as a still: a video that is never played.
@@ -126,7 +149,7 @@ export async function takeClip(f, cut, { signal, step, again = false }) {
   if (cut && f.cuts[key]) return f.cuts[key];
   const part = cut ? { start: cut.start, seconds: cut.seconds } : {};
   const cutText = () => t("step.cutting", { a: fmtNum(cut.start, { maximumFractionDigits: 1 }), b: fmtNum(cut.start + cut.seconds, { maximumFractionDigits: 1 }) });
-  const text = cut ? cutText : () => t("step.clip_prep"), fig = cut ? "cut" : "strip";
+  const snd = f.kind === "audio", text = cut ? cutText : () => t(snd ? "step.sound_prep" : "step.clip_prep"), fig = cut ? "cut" : "strip";
   let body;
   if (f.upload) body = { file: f.upload, ...part };
   else {
@@ -134,7 +157,7 @@ export async function takeClip(f, cut, { signal, step, again = false }) {
       const up = await api("/api/videos/uploads", { method: "POST", signal });
       if (up.max_bytes && f.bytes > up.max_bytes) throw Object.assign(new ApiError(413, { error: "too_large" }), { maxBytes: up.max_bytes });
       let sent = 0;
-      step({ fig: "fill", prog: () => sent / f.bytes, text: () => t("step.clip_up", { a: MB(sent), b: MB(f.bytes) }), tick: true });
+      step({ fig: "fill", prog: () => sent / f.bytes, text: () => t(snd ? "step.sound_up" : "step.clip_up", { a: MB(sent), b: MB(f.bytes) }), tick: true });
       await put(up.url, f.file, f.meta.content_type, (n) => { sent = n; }, signal);
       f.token = up.token;
     }

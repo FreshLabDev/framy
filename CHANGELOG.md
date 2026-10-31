@@ -341,6 +341,10 @@ was written from, and the skeleton of the service.
   no last frame), and a model that cannot take it gives way to the nearest
   one that can. Gemini Omni says the model picks the length, and the wait
   shows how long it has gone, never a percentage.
+- References on the site take sounds: MP3, WAV, Ogg, FLAC, AAC or M4A, up
+  as a clip goes, within the model's count, length and size. A sound
+  goes on a key, since a free run takes none, and hides the models that
+  take no sound.
 - When the free pictures or the week's video are used up, the site says the
   date and the time of the next free one in the browser's time zone, on the
   refusal and under Generate, instead of how long until it.

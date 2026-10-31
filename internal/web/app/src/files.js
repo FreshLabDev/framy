@@ -8,7 +8,7 @@ import { act, render, setModel } from "./composer.js";
 import { toast } from "./ui.js";
 import { t } from "./i18n.js";
 import { api } from "./api.js";
-import { looksLikeClip, clipTypeOk, readClip, MAX_CLIP, openCut } from "./clips.js";
+import { looksLikeClip, clipTypeOk, readClip, MAX_CLIP, openCut, looksLikeSound, soundTypeOk, readSound } from "./clips.js";
 import { motion } from "./motion.js";
 
 let seq = 1;
@@ -51,6 +51,13 @@ export async function addFiles(list, slot = "") {
       got.push(f);
       continue;
     }
+    if (looksLikeSound(file)) {
+      if (!soundTypeOk(file)) { toast(t("files.sound_type")); continue; }
+      const f = await readSound(file);
+      f.id = seq++;
+      got.push(f);
+      continue;
+    }
     if (!file.type.startsWith("image/")) { toast(t("files.only_these")); continue; }
     let d;
     try { d = await measure(file); } catch { toast(t("files.unreadable", { name: file.name })); continue; }
@@ -58,16 +65,18 @@ export async function addFiles(list, slot = "") {
       meta: { content_type: file.type, bytes: file.size, width: d.w, height: d.h }, upload: 0 });
   }
   if (!got.length) return;
-  const clip0 = got.find((f) => f.kind === "video"), kind0 = S.kind;
+  const clip0 = got.find((f) => f.kind === "video"), snd0 = got.some((f) => f.kind === "audio"), kind0 = S.kind;
   act(() => {
     if (slot) {
       // Slots are a video's: the files go there as they were put.
       S.kind = "video";
       if (frame) for (const f of inSlot(slot)) removeFile(f, false);
-      for (const f of got) f.slot = slot;
-    } else if (clip0) {
-      toClip();
-      // A clip goes with references, never with frames.
+      for (const f of got) f.slot = f.kind === "audio" ? "ref" : slot;
+    } else if (clip0 || snd0) {
+      // A sound is a video's reference.
+      if (clip0) toClip();
+      else { S.kind = "video"; S.cont = null; }
+      // A clip or a sound goes with references, never with frames.
       for (const f of S.files) if (f.kind === "image" && f.slot !== "ref") f.slot = "ref";
     }
     S.files.push(...got);

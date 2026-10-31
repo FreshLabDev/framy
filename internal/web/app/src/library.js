@@ -687,8 +687,8 @@ function inputs(j) {
   const fs = j.inputs || [];
   if (!fs.length) return null;
   return h("div", { class: "vins" }, h("span", { class: "gl" }, t("view.inputs")), h("div", { class: "gt" }, fs.map((f) => {
-    const vid = String(f.content_type).startsWith("video/");
-    return h("span", { class: "thumb" + (vid ? " clip" : "") }, thumbMedia({ kind: vid ? "video" : "image", poster: vid ? f.thumb?.url || "" : "", url: vid ? f.url : f.thumb?.url || f.url }),
-      vid && f.seconds ? h("span", { class: "tag" }, ic("film"), fmtSecs(f.seconds)) : null);
+    const vid = String(f.content_type).startsWith("video/"), snd = String(f.content_type).startsWith("audio/");
+    return h("span", { class: "thumb" + (vid ? " clip" : "") }, thumbMedia(snd ? { kind: "audio" } : { kind: vid ? "video" : "image", poster: vid ? f.thumb?.url || "" : "", url: vid ? f.url : f.thumb?.url || f.url }),
+      (vid || snd) && f.seconds ? h("span", { class: "tag" }, ic(snd ? "audio" : "film"), fmtSecs(f.seconds)) : null);
   })));
 }
