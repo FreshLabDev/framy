@@ -15,6 +15,7 @@ import { openSheet, closeSheets } from "./ui.js";
 import { addFiles, removeFile } from "./files.js";
 import { generate, signIn } from "./run.js";
 import { openCut, thumbMedia, frameEl, looksLikeClip } from "./clips.js";
+import { openPrefs } from "./prefs.js";
 
 const FORM = { rel: true, dur: 380, after: 90,
   enter: (el, i, wait) => anim(el, [{ opacity: 0, transform: "translateY(6px)" }, { opacity: 1, transform: "none" }], { duration: 280, delay: 110 + wait + i * 30, fill: "backwards" }),
@@ -461,7 +462,7 @@ export function renderBar() {
   const btn = $("#go");
   btn.replaceChildren(nx.icon ? ic(nx.icon) : "", nx.label, nx.on ? h("small", { class: "kbd" }, MAC ? "⌘↵" : "Ctrl ↵") : "");
   btn.disabled = !nx.on;
-  btn.onclick = nx.act === "create" ? generate : nx.act === "signin" ? signIn : nx.act === "cut" ? openCut : null;
+  btn.onclick = nx.act === "create" ? generate : nx.act === "signin" ? signIn : nx.act === "cut" ? openCut : nx.act === "key" ? () => openPrefs(nx.provider) : null;
   btn.title = nx.on ? `${nx.label} (${MAC ? "⌘ Enter" : "Ctrl+Enter"})` : "";
   window.dispatchEvent(new CustomEvent("framy:button", { detail: nx }));
 }

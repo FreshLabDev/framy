@@ -29,8 +29,9 @@ careful with people's keys, and production-minded.
   Mini App (`internal/web/app`): sign-in, the API client with its event
   stream, the composer and the model picker, the result on the stage, the
   reasons a run failed or was refused with what helps, retries, cancelling,
-  clips with the editor of their part, and Continue. The library, the
-  viewer, the editor of a result and the settings are still to come.
+  clips with the editor of their part, Continue, and the settings with
+  the keys of each provider. The library, the viewer and the editor of a
+  result are still to come.
 - The service will be one Go binary (module `github.com/FreshLabDev/framy`):
   the HTTP server (site, Mini App, API, SSE, OAuth callbacks, provider
   webhooks), the bot, the job workers, the hourly catalog sync and the

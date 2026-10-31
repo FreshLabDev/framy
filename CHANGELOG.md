@@ -285,8 +285,8 @@ was written from, and the skeleton of the service.
   The page paints a skeleton at once and fetches the catalog and the person
   in its first line, the rest arrives as one script and one stylesheet of
   hashed names, and nothing comes from outside but Telegram's script. All
-  the lines are in the sixteen languages. The library, the viewer, the
-  editor and the settings come next.
+  the lines are in the sixteen languages. The library, the viewer and the
+  editor come next.
 - The site's stage, third stage: what happens when a run gives no result.
   A failed job says why in the person's words for each `error.class`,
   what came of the money (a run on the person's key that cost nothing shows
@@ -333,6 +333,28 @@ was written from, and the skeleton of the service.
   a clip framy keeps already is only cut. A clip over a minute, a file that is
   not a video, or a format framy cannot read is refused with a line that says
   so; a clip only too long keeps its upload for a part.
+- Settings on the site and in the Mini App, behind the account button at
+  the top and, in the Mini App, Telegram's Settings button. OpenRouter
+  connects through its own sign-in; in the Mini App that opens in the
+  browser, and the sheet reads the account again when the person comes back.
+  A key for OpenRouter, OpenAI or Gemini can be pasted instead: the field
+  refuses what cannot be a key before anything is sent, framy checks the key
+  with the provider, and the sheet says what the provider answered (a wrong
+  or revoked key, a key that may not list the models, or no answer, with a
+  10-second countdown before the next try). A connected key shows only its
+  last 4 characters and what its last run showed (it works, the account is
+  out of money, billing is off, the organization needs verifying, the
+  provider no longer accepts it), with Check, Paste again and Disconnect;
+  after a disconnect the sheet links to the provider's page to revoke the key
+  there. The composer's step that needs a key, and a run refused for a
+  missing or dead key, open that key's form. The sheet also shows the free
+  runs left with when the next one comes, the currency prices show in (USD,
+  UAH, EUR, PLN or BYN at the day's rate), framy's language, shared with the
+  family's bots (the page reloads in it and keeps the prompt), how many files
+  are stored, and sign-out. Deleting the account asks first and says that
+  runs, files and keys go, on the site and in Telegram; runs still waiting
+  can be cancelled from there, and a deletion that stopped halfway goes on
+  with one more press.
 - Sign-in, in `internal/auth`. On the site it is Telegram Login, Telegram's
   OpenID Connect with PKCE: framy checks the id token's signature, issuer,
   audience, expiry, nonce and state, and takes the account from the `id`

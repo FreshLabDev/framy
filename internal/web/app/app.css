@@ -506,6 +506,51 @@ input.search::placeholder {color: var(--muted);}
 .tog .tt {min-width: 2.6em;}
 .snote {margin: -4px 0 0; font-size: 13px; line-height: 1.35; color: var(--muted); text-wrap: pretty;}
 
+/* The settings: rows of the deep colour, each with its buttons on the right;
+   a key goes in under its row, as one field with its check. */
+#prefsBody {position: relative; container: prefs / inline-size;}
+#prefs .group {margin: 18px 0 6px; font-size: 14px; font-weight: 600; color: var(--soft);}
+#prefs .group:first-child {margin-top: 0;}
+.srow {display: flex; align-items: center; gap: 14px; min-height: 60px; padding: 10px 10px 10px 12px; background: var(--deep);}
+.srow > .ic, .srow > .lgi {flex: none; width: 20px; height: 20px; margin-inline: 8px; color: var(--soft);}
+.srow .l {flex: 1; min-width: 0;}
+.srow .l b {display: block; font-weight: 700;}
+.srow .l > span {display: block; font-size: 14px; color: var(--muted); overflow-wrap: anywhere;}
+.srow .l .warn {display: flex; gap: 6px; color: var(--soft);}
+.srow .warn .ic, .kerr .ic, .note.said .ic {flex: none; width: 14px; height: 14px; margin-top: calc((1lh - 14px) / 2);}
+.srow > button {flex: none; height: 40px; padding: 0 14px; display: flex; align-items: center; justify-content: center; gap: 6px; background: var(--field); font-weight: 600;}
+.srow > button .ic {width: 16px; height: 16px;}
+.srow > button.primary {background: var(--ink); color: var(--field);}
+.srow > button.danger {box-shadow: inset 0 0 0 1px var(--line);}
+.srow > button:disabled, .kform button:disabled {opacity: .55; cursor: default;}
+.srow > button[data-wait] {min-width: 108px;}
+.srow > button.fixw {min-width: 148px;}
+.srow.bad {box-shadow: inset 3px 0 0 var(--soft);}
+.srow .l button.link-t {display: inline; height: auto; padding: 0; background: none; font-size: inherit;}
+.srow select.pick {flex: none; height: 40px; max-width: 46%; padding: 0 10px; background: var(--field); color: var(--ink); font-weight: 600;}
+/* Narrow, or a key with a problem to read: the buttons go under the text. */
+.srow.two.bad {flex-wrap: wrap; row-gap: 10px;}
+.srow.two.bad .l {flex-basis: calc(100% - 50px);}
+.srow.two.bad > button:first-of-type {margin-inline-start: 50px;}
+@container prefs (max-width: 440px) {
+  .srow.two {flex-wrap: wrap; row-gap: 10px;}
+  .srow.two .l {flex-basis: calc(100% - 50px);}
+  .srow.two > button:first-of-type, .srow.two > select {margin-inline-start: 50px;}
+}
+.kform {display: grid; grid-template-columns: minmax(0, 1fr) auto 40px; gap: 6px; margin-top: calc(-1 * var(--gap)); padding: 0 10px 12px 12px; background: var(--deep);}
+.kform input {min-width: 0; height: 40px; padding: 0 12px; background: var(--field); color: var(--ink); letter-spacing: .04em;}
+.kform input::placeholder {color: var(--muted); letter-spacing: 0;}
+.kform input[aria-invalid="true"] {box-shadow: inset 0 0 0 1px var(--soft);}
+.kform button {height: 40px; padding: 0 14px; display: flex; align-items: center; justify-content: center; gap: 6px; background: var(--field); font-weight: 600;}
+.kform button.primary {min-width: 108px; background: var(--ink); color: var(--field);}
+.kform button.sq {padding: 0;}
+.kform .khint, .kform .kerr {grid-column: 1 / -1; margin: 0; font-size: 13px; color: var(--muted);}
+.kform .kerr {display: flex; gap: 6px; color: var(--soft);}
+#prefs .note {margin: 0; padding: 6px 2px 0; font-size: 14px; color: var(--muted);}
+#prefs .note.said {display: flex; gap: 6px; color: var(--soft);}
+#prefs .note a, .kform .khint a {color: var(--ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; overflow-wrap: anywhere;}
+.seg.cur > button small {white-space: normal; text-align: center;}
+
 /* The toast and the one question. */
 .toast {position: fixed; z-index: 90; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); display: flex; align-items: baseline; gap: 14px; width: max-content; max-width: min(520px, calc(100vw - 32px)); padding: 12px 16px; background: var(--ink); color: var(--field); font-size: 15px; font-weight: 600;}
 .toast .link-t {flex: none; color: var(--field);}
@@ -519,6 +564,7 @@ input.search::placeholder {color: var(--muted);}
 .ask .acts {display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); margin-top: 8px;}
 .ask .acts button {height: 48px; display: flex; align-items: center; justify-content: center; background: var(--deep); font-weight: 600;}
 .ask .acts button.yes {background: var(--ink); color: var(--field); font-weight: 700;}
+.ask .acts.one {grid-template-columns: 1fr;}
 @media (max-width: 959px) {
   .ask {place-items: end stretch; padding: 0;}
   .ask .box {width: 100%; border-width: 1px 0 0; padding: 22px 16px calc(16px + env(safe-area-inset-bottom, 0px));}
@@ -529,4 +575,4 @@ input.search::placeholder {color: var(--muted);}
 .fatal button {height: 48px; padding: 0 20px; background: var(--ink); color: var(--field); font-weight: 700;}
 
 /* In Telegram the bot's own header and main button stand in for ours. */
-#app[data-surface="mini"] .top, #app[data-surface="mini"] .go {display: none;}
+#app[data-surface="mini"] .top .logo, #app[data-surface="mini"] .go {display: none;}

@@ -326,7 +326,7 @@ func TestBrowserRuns(t *testing.T) {
 	for cls, w := range map[string]want{
 		"moderation":      {"Refused by the rules", "", "Edit the prompt", true, true},
 		"money":           {"No money on the key", "", "Top up OpenRouter", false, true},
-		"key":             {"The key does not work", "no longer accepts the key", "Edit the prompt", false, true},
+		"key":             {"The key does not work", "no longer accepts the key", "Replace the OpenRouter key", false, true},
 		"refused":         {"Not accepted", "did not accept the request", "Edit the prompt", true, true},
 		"rate_limited":    {"No answer", "Try again in a few minutes", "Try again", false, true},
 		"unavailable":     {"No answer", "Try again in a few minutes", "Try again", false, true},
@@ -479,7 +479,7 @@ func TestBrowserRunsPhone(t *testing.T) {
 // Telegram is kept in window.__tg for the checks to read, and its main
 // button is pressed by calling window.__tg.main().
 const fakeTelegram = `(() => {
-  const tg = window.__tg = { shared: [], main: null, events: {} };
+  const tg = window.__tg = { shared: [], links: [], main: null, settings: null, settingsShown: false, events: {} };
   const button = { setParams() {}, show() {}, hide() {}, onClick(fn) { tg.main = fn; } };
   window.Telegram = { WebApp: {
     version: "8.0", platform: "ios", initData: "",
@@ -488,7 +488,8 @@ const fakeTelegram = `(() => {
     MainButton: button, BackButton: { show() {}, hide() {}, onClick() {} },
     onEvent(name, fn) { tg.events[name] = fn; },
     shareMessage(id) { tg.shared.push(id); },
-    downloadFile() {}, openLink() {},
+    downloadFile() {}, openLink(u) { tg.links.push(u); },
+    SettingsButton: { show() { tg.settingsShown = true; }, hide() { tg.settingsShown = false; }, onClick(fn) { tg.settings = fn; } },
   } };
 })();`
 

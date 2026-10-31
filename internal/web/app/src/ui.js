@@ -57,14 +57,15 @@ export function toast(text, o = {}) {
   }, o.ms || 4200);
 }
 
-// One question with two answers; resolves true for yes.
-export function ask({ title, text, yes, no = t("cancel") }) {
+// One question with two answers, or one when it only tells; resolves true for yes.
+export function ask({ title, text, yes, no = t("cancel"), one = false }) {
   const box = $("#ask");
   return new Promise((done) => {
     const end = (v) => { box.hidden = true; box.replaceChildren(); done(v); };
     box.replaceChildren(h("div", { class: "box" },
       h("h2", { id: "askT" }, title), text ? h("p", { id: "askD" }, text) : null,
-      h("div", { class: "acts" }, h("button", { type: "button", class: "x", onclick: () => end(false) }, no), h("button", { type: "button", class: "x yes", onclick: () => end(true) }, yes))));
+      h("div", { class: "acts" + (one ? " one" : "") }, one ? null : h("button", { type: "button", class: "x", onclick: () => end(false) }, no),
+        h("button", { type: "button", class: "x yes", onclick: () => end(true) }, yes))));
     box.hidden = false;
     anim(box.firstChild, [{ opacity: 0, transform: "translateY(16px)" }, { opacity: 1, transform: "none" }], { duration: 320 });
     box.querySelector(".yes").focus();

@@ -63,10 +63,10 @@ export function failure(j) {
     case "moderation": return { cls, label: t("fail.moderation_l"), text: "", ...(free ? { note: t("fail.free_spent") } : none), said, acts: ["edit"] };
     case "money": return free
       ? { cls, label: t("fail.free_closed_l"), text: t("fail.free_money"), note: t("fail.free_kept"), acts: ["bykey"], closeFree: 15 * 60e3 }
-      : { cls, label: t("fail.money_l"), text: "", ...none, acts: ["topup"], provider: p };
+      : { cls, label: t("fail.money_l"), text: "", ...none, acts: ["topup", "rekey"], provider: p };
     case "key": return free
       ? { cls, label: t("fail.free_off_l"), text: t("fail.free_key"), note: t("fail.free_kept"), acts: ["bykey"] }
-      : { cls, label: t("fail.key_l"), text: t("fail.key", { provider: P }), ...none, acts: [], keyGone: true };
+      : { cls, label: t("fail.key_l"), text: t("fail.key", { provider: P }), ...none, acts: ["rekey"], provider: p };
     case "refused": return { cls, label: t("fail.refused_l"), text: t("fail.refused", { provider: P }), ...none, said, acts: ["edit"] };
     case "rate_limited": case "unavailable": return { cls, label: t("fail.no_answer_l"), text: "", ...none, note: (free ? back + " " : "") + t("fail.later"), acts: again };
     case "timeout": return { cls, label: t("fail.timeout_l"), text: "", note: may, acts: again };
@@ -101,7 +101,10 @@ export function refusal(err, ctx = {}) {
     case "free_limit": return R(t("ref.free_out_l"), b.frees_at ? t(vid ? "ref.free_taken_video" : "ref.free_taken", { when: fmtIn(Date.parse(b.frees_at)) }) : t("err.free_out"), ["bykey"]);
     case "free_closed": return R(t("ref.free_closed_l"), t("ref.free_closed", { time: fmtTime(Date.parse(b.until) || Date.now()) }), ["bykey"], { until: Date.parse(b.until) || 0 });
     case "not_free": return R(t("ref.not_free_l"), t("err.not_free"));
-    case "no_connection": case "connection_invalid": return R(t("ref.key_l"), t("err.no_key", { provider: PNAME[b.provider] || ctx.provider || "" }));
+    case "no_connection": case "connection_invalid": {
+      const p = b.provider || ctx.pay || "";
+      return R(t("ref.key_l"), t("err.no_key", { provider: PNAME[p] || p }), p && p !== "free" ? ["key"] : [], { provider: p });
+    }
     case "wrong_inputs": case "unknown_input": {
       // The clip came out longer than the model takes: say so, with its part to pick.
       const mx = b.inputs?.videos?.secs?.max;

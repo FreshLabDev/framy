@@ -26,6 +26,7 @@ import (
 
 	"github.com/evanw/esbuild/pkg/api"
 
+	"github.com/FreshLabDev/framy/internal/fx"
 	"github.com/FreshLabDev/framy/internal/i18n"
 )
 
@@ -89,10 +90,19 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// The settings pick from the family's languages, by their own names, and
+	// from the currencies framy prices in: the same lists as the server's.
+	var langs [][2]string
+	for _, l := range i18n.LANGUAGE_OPTIONS {
+		langs = append(langs, [2]string{l.Code, i18n.NameOf(l.Code)})
+	}
 	js, err := bundle(api.BuildOptions{
 		EntryPoints: []string{filepath.Join(src, "src", "main.js")},
 		Format:      api.FormatESModule,
-		Plugins:     []api.Plugin{virtual("assets:logos", "export default "+string(logoJS)+";")},
+		Plugins: []api.Plugin{
+			virtual("assets:logos", "export default "+string(logoJS)+";"),
+			virtual("assets:lists", "export const LANGS = "+mustJSON(langs)+";\nexport const CURRENCIES = "+mustJSON(fx.Codes)+";"),
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("main.js: %w", err)
@@ -276,7 +286,7 @@ func virtual(name, code string) api.Plugin {
 		b.OnResolve(api.OnResolveOptions{Filter: "^" + regexp.QuoteMeta(name) + "$"}, func(a api.OnResolveArgs) (api.OnResolveResult, error) {
 			return api.OnResolveResult{Path: name, Namespace: "virtual"}, nil
 		})
-		b.OnLoad(api.OnLoadOptions{Filter: ".*", Namespace: "virtual"}, func(a api.OnLoadArgs) (api.OnLoadResult, error) {
+		b.OnLoad(api.OnLoadOptions{Filter: "^" + regexp.QuoteMeta(name) + "$", Namespace: "virtual"}, func(a api.OnLoadArgs) (api.OnLoadResult, error) {
 			return api.OnLoadResult{Contents: &code, Loader: api.LoaderJS}, nil
 		})
 	}}

@@ -5,11 +5,12 @@ import { $, $$, h, ic, isPhone } from "./dom.js";
 import { anim, rise, snap, EASE, motion } from "./motion.js";
 import { t } from "./i18n.js";
 import { C, vname, famLogo, lg, ratioNum, ratioOfSize, PNAME } from "./catalog.js";
-import { S, M, payOf, settings, sourceRatio } from "./state.js";
+import { S, M, payOf, settings, sourceRatio, connection } from "./state.js";
 import { isFinal } from "./api.js";
 import { failure, waiting, left, BILLING } from "./errors.js";
 import { priceText } from "./price.js";
 import { halftone } from "./halftone.js";
+import { openPrefs } from "./prefs.js";
 import { again, editPrompt, otherModel, cancel, byKey, keyFor, takePrice, drop, pickPart, copyPrompt, continueFrom, fromLastFrame, canShare, share } from "./run.js";
 
 // The shape of a run: its ratio, or the photo's for "auto", else square.
@@ -131,11 +132,14 @@ function failActs(run, f) {
     else if (a === "edit") out.push(B("edit", t("act.edit"), () => editPrompt(run), out.length ? "" : "primary"));
     else if (a === "bykey") out.push(keyBtn(run));
     else if (a === "topup") out.push(topup(f.provider));
+    else if (a === "rekey") out.push(keyFix(f.provider, out.length ? "" : "primary"));
     else if (a === "model") out.push(B("grid", t("act.other_model"), () => otherModel(run), out.length ? "" : "primary"));
   }
   if (!f.acts.includes("edit")) out.push(B("edit", t("act.edit"), () => editPrompt(run)));
   return out;
 }
+// To the settings, at the key the run needs: connect it, or replace one that stopped working.
+const keyFix = (p, cls) => B("key", t(connection(p) ? "go.rekey" : "go.connect", { provider: PNAME[p] || p }), () => openPrefs(p), cls);
 function topup(p) {
   const url = BILLING[p];
   if (!url) return null;
@@ -152,6 +156,7 @@ function refusalActs(run, acts) {
     else if (a === "cut") out.push(B("film", t("act.pick_part"), () => pickPart(run), first));
     else if (a === "lastframe") out.push(B("next", t("act.lastframe"), () => fromLastFrame(run.cont), first));
     else if (a === "again") out.push(B("again", t("act.retry"), () => again(run), first));
+    else if (a === "key") out.push(keyFix(run.why.provider, first));
   }
   if (!acts.includes("drop")) out.push(B("edit", t("act.edit"), () => editPrompt(run)));
   return out.filter(Boolean);

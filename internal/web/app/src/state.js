@@ -174,21 +174,24 @@ export function next(prompt) {
   if (pay === "free") {
     if (S.closed[m.kind] > Date.now()) return { label: t("go.free_closed", { time: fmtTime(S.closed[m.kind]) }), on: false };
     if (freeLeft(m.kind) <= 0) return { label: t("go.free_out"), on: false, why: freesAt(m.kind) ? t("bar.free_back", { when: fmtIn(freesAt(m.kind)) }) : "" };
-  } else if (!keyOk(pay)) return { label: t("go.need_key", { provider: PNAME[pay] || pay }), on: false, why: t("bar.keys_later") };
+  } else if (!keyOk(pay)) return keyStep(pay);
   const r = route(m, pay);
   if (needsVideo(m) && !cont && !S.files.some((f, i) => f.kind === "video" && r[i]?.go)) return { label: t("go.need_clip"), on: false };
   if (!images().length && needsImage(m)) return { label: t("go.add_photo"), on: false };
   const cut = needsCut(m, pay);
   if (cut) return { label: t("go.pick_part", { n: fmtNum(cut) }), icon: "film", act: "cut", on: true };
   const q = known(runItem());
+  if (q?.refusal?.error === "no_connection" || q?.refusal?.error === "connection_invalid") return keyStep(offerOf(m, pay).provider);
   if (q?.refusal) return { label: refusalLabel(q.refusal, m), on: false };
   return { label: t("go.create"), icon: "spark", act: "create", on: !empty };
 }
+// A key is missing or stopped working: the button opens the settings at it.
+const keyStep = (p) => ({ label: t(connection(p) ? "go.rekey" : "go.connect", { provider: PNAME[p] || p }), icon: "key", act: "key", provider: p, on: true });
 export function refusalLabel(r, m) {
   switch (r.error) {
     case "free_limit": return t("go.free_out");
     case "free_closed": return t("go.free_closed", { time: fmtTime(Date.parse(r.until) || Date.now()) });
-    case "no_connection": case "connection_invalid": return t("go.need_key", { provider: PNAME[offerOf(m, payOf(m)).provider] || "" });
+    case "no_connection": case "connection_invalid": return t("go.connect", { provider: PNAME[offerOf(m, payOf(m)).provider] || "" });
     case "wrong_inputs": case "unknown_input": return t("go.files_dont_fit");
     case "not_free": return t("go.not_free");
     case "cannot_continue": return t("go.cannot_continue");

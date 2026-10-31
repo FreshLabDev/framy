@@ -16,7 +16,8 @@ import { refusal, failure, providerOf } from "./errors.js";
 import { toast, ask } from "./ui.js";
 
 export function signIn() {
-  if (S.mini) return;
+  // The Mini App signs in with its launch data, which a load trades again.
+  if (S.mini) { location.reload(); return; }
   try { sessionStorage.setItem("framy.draft", $("#prompt").value); } catch {}
   location.assign("/auth/login?return_to=" + encodeURIComponent("/"));
 }
@@ -25,11 +26,15 @@ export async function signOut() {
   const yes = await ask({ title: t("auth.signout_q"), yes: t("auth.signout") });
   if (!yes) return;
   try { await api("/auth/logout", { method: "POST" }); } catch {}
+  forget();
+  toast(t("auth.signed_out"));
+}
+// Nobody is signed in any more: signed out, the account deleted, or the session gone.
+export function forget() {
   stopWatch?.();
   S.signed = false; S.me = null; S.run = null;
   clearPrices();
   window.dispatchEvent(new Event("framy:me"));
-  toast(t("auth.signed_out"));
 }
 
 export async function refreshMe() {
@@ -92,7 +97,7 @@ async function start(base, key = newKey()) {
       run.phase = "refused";
       resend = err.status >= 500 || err.status === 0;
       run.why = refusal(err, { kind: run.kind, clip: err.clip || (!err.file && !!run.clip && err.code !== "price_changed"), name: err.file?.name, maxBytes: err.maxBytes,
-        shown: run.shownLabel, provider: PNAME[run.pay], lastFrame: !!run.cont, clipSecs: run.clipSecs, cut: !!run.cut });
+        shown: run.shownLabel, pay: run.pay, lastFrame: !!run.cont, clipSecs: run.clipSecs, cut: !!run.cut });
       // The same press again keeps its key when the server may have made the job.
       if (resend) run.retryKey = run.key;
       afterRefusal(run, err);
@@ -144,6 +149,7 @@ function afterRefusal(run, err) {
   if (err.code === "price_changed") clearPrices();
   if (err.code === "free_limit" || err.code === "free_closed" || err.code === "connection_invalid") refreshMe();
   if (err.code === "sign_in") { S.signed = false; S.me = null; window.dispatchEvent(new Event("framy:me")); }
+  if (err.code === "no_connection") refreshMe();
   render();
 }
 
