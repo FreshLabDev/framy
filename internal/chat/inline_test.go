@@ -49,7 +49,9 @@ func TestAnInlineQueryListsThePersonsResults(t *testing.T) {
 				Caption: "<blockquote>a red &lt;fox&gt;</blockquote>\n<b>Nano Banana</b>"},
 		},
 		CacheTime: inlineCache, IsPersonal: true,
-		Button: &tg.InlineQueryResultsButton{Text: i18n.T("en", "btn.open"), WebApp: &tg.WebAppInfo{URL: "https://framy.test"}},
+		// The bot's chat, not the Mini App: one opened from inline mode
+		// gets no initData and could not sign the person in.
+		Button: &tg.InlineQueryResultsButton{Text: i18n.T("en", "btn.open"), StartParameter: inlineStart},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("answer =\n%+v\nwant\n%+v", got, want)
@@ -84,8 +86,7 @@ func TestInlineResultsComeAPageAtATime(t *testing.T) {
 	}
 }
 
-// With nothing found the button says so, in the person's language; with no
-// Mini App to open it opens the bot's chat.
+// With nothing found the button says so, in the person's language.
 func TestAnInlineQueryWithNothingFound(t *testing.T) {
 	h := newHarness(t)
 	h.store.userLang[7] = "ru"

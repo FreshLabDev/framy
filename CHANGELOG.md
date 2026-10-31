@@ -665,7 +665,9 @@ was written from, and the skeleton of the service.
   went out as a photo or a video, newest first, 20 at a time, and typing
   filters them by the prompt. A result is sent again by its `file_id`, with
   its caption, so nothing is uploaded. The button above the results opens
-  the Mini App. framy now records what kind of file each result went out as
+  the bot's chat, whose panel opens the Mini App signed in: a Mini App
+  opened straight from inline mode gets no sign-in data from Telegram and
+  asked the person to sign in again. framy now records what kind of file each result went out as
   (migration 021); a result from before that is not listed. Inline mode has
   to be turned on in BotFather (`/setinline`).
 - Each result in the job API has a `download` link that saves the file as

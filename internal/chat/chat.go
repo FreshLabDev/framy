@@ -171,9 +171,9 @@ type Config struct {
 	// MaxVideo caps a clip read from Telegram. 0 is storage's limit on a
 	// clip.
 	MaxVideo int64
-	// AppURL is the site (SITE_URL), which the button of an inline answer
-	// opens as a Mini App. Telegram takes only https; with anything else the
-	// button opens the bot's chat.
+	// AppURL is the site (SITE_URL), where Telegram fetches the pictures of
+	// a guest run and of a shared result. Telegram takes only https; with
+	// anything else it is empty.
 	AppURL string
 }
 

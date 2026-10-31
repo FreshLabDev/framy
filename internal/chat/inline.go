@@ -23,8 +23,7 @@ const (
 	inlineCache = 5
 	// inlineTitle is how much of the prompt a result's title shows.
 	inlineTitle = 64
-	// inlineStart is what /start gets from the button when there is no Mini
-	// App to open.
+	// inlineStart is what /start gets from the button above the results.
 	inlineStart = "inline"
 )
 
@@ -68,17 +67,15 @@ func (f *Flow) inline(ctx context.Context, q *tg.InlineQuery) error {
 	return f.cfg.Telegram.AnswerInlineQuery(ctx, q.ID, answer)
 }
 
-// inlineButton opens the Mini App, or the bot's chat when there is none.
-// It says nothing was found when the answer is empty.
+// inlineButton opens the bot's chat with /start inline, whose panel opens
+// the Mini App. It does not open the Mini App itself: Telegram gives a Mini
+// App opened from inline mode no initData, so it could not sign the person
+// in and would ask them to sign in with Telegram inside Telegram. It says
+// nothing was found when the answer is empty.
 func (f *Flow) inlineButton(lang string, empty bool) *tg.InlineQueryResultsButton {
-	b := &tg.InlineQueryResultsButton{Text: t(lang, "btn.open")}
+	b := &tg.InlineQueryResultsButton{Text: t(lang, "btn.open"), StartParameter: inlineStart}
 	if empty {
 		b.Text = t(lang, "inline.empty")
-	}
-	if f.cfg.AppURL != "" {
-		b.WebApp = &tg.WebAppInfo{URL: f.cfg.AppURL}
-	} else {
-		b.StartParameter = inlineStart
 	}
 	return b
 }
