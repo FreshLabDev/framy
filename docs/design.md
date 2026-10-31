@@ -1019,7 +1019,7 @@ framy **(owner)**: a frame is both a still and a shot. Written in lowercase ever
 
 Live tests on a test bot and the real tunnel (details in [research/telegram.md](research/telegram.md), section 10.4):
 
-1. **Albums:** an admin with no rights receives every photo of an album (T2).
+1. **Albums:** an admin with no rights receives every photo of an album (T2). Checked on 31 October on framy-test: a new supergroup, @framytest_bot in privacy mode made an admin with every right off (`channels.editAdmin` with only `other`, which Telegram keeps as an admin with no rights; with no flag at all it demotes), and an album of 3 photos with no caption sent from a person's account. `album_item` got all three, one `media_group_id`, within a second. The `startgroup&admin=` link was not tried; framy does not use it.
 2. **`editMessageMedia` in a group:** photo → animation → photo, and → video (T6).
 3. **Ephemeral command** in reply to a photo: does `reply_to_message` come (T5).
 4. **Guest mode:** a reply to a photo, edits of the answer, callback buttons (T9). The flow is built; the open points are listed under Guest mode.

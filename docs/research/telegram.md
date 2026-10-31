@@ -438,6 +438,7 @@
 
 - T1. Privacy ON, не админ: ответ `/f` на элемент альбома. Ожидание: один `reply_to_message` с `media_group_id`, других элементов нет.
 - T2. Админ без прав: приходят ли все сообщения альбома, можно ли выдать админство без единого права, что даёт ссылка `startgroup&admin=`.
+  Проверено 31.10 на framy-test: да, админ без прав (`channels.editAdmin` только с флагом `other`) при включённом privacy получил все 3 фото альбома без подписи. Ссылку `startgroup&admin=` не пробовали.
 - T3. `forwardMessage` элемента альбома в служебный чат: есть ли `media_group_id` в ответе, совпадает ли `forward_origin.date` у соседей, как ведёт себя лимит.
 - T4. Патч `getMessages`: разрешает ли Telegram bot-аккаунту получать сообщения, которые он не видел (privacy ON).
 - T5. Ephemeral-команда в ответ на обычное фото: есть ли `reply_to_message`; окно 15 секунд; ephemeral-медиа и `editEphemeralMessageMedia`.
