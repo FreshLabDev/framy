@@ -709,7 +709,7 @@ In groups one run makes one result. Proposal: more than one only on the site and
 
 ## Guest mode
 
-`@framyin_bot …` in a chat framy is not a member of (Bot API 10.0). Telegram sends the bot that message as `guest_message`, with the message it replied to, and the bot answers it once with `answerGuestQuery`. The answer is an inline message, which only its `inline_message_id` reaches. Built (`internal/chat/guest.go`, `internal/bot/guest.go`), not tried live yet (T9):
+`@framyin_bot …` in a chat framy is not a member of (Bot API 10.0). Telegram sends the bot that message as `guest_message`, with the message it replied to, and the bot answers it once with `answerGuestQuery`. The answer is an inline message, which only its `inline_message_id` reaches. Built (`internal/chat/guest.go`, `internal/bot/guest.go`) and tried live on framy-test (T9, below):
 
 - **The run is a group's run with one message.** The preview, the loop and the result or the error card are edits of the answer by `inline_message_id`, in that order. The requester presses as in a group, and anyone else gets the same alert. A run is a guest one when its `chat_run` has an `inline_message_id` (migration 022), and its job's surface is `guest`.
 - **What is read.** The text of the message without framy's mention, in any case; other bots' mentions stay, since up to three guest bots can be summoned at once. The sources are those of `/img`: the photo replied to, or the message's own. framy is not in the chat, so of an album only the photo replied to is taken. A video gets a line that framy changes videos in a direct chat. No text gets a line on what to write.
@@ -728,8 +728,8 @@ In groups one run makes one result. Proposal: more than one only on the site and
 - **Done.** The answer becomes the result, with the prompt and the model and no buttons. One result per run, as in a group. A picture or a video Telegram cannot be given (a WebM, an MP4 over 20 MB), or one it refused, stays in the person's history, and the caption says so.
 - **Nothing can be deleted** in an inline message. No and an expired preview shrink the answer to one line, "Cancelled.", with no card and no buttons. Stop on the loop cannot go back to text: the answer becomes the card the run started from, with the prompt and "Stopped.", and no buttons.
 - **A reply to an open answer.** A guest message that replies to framy's answer while it still has buttons gets a line to use them, not a second run off the same words. framy's answer is told by its sender or `via_bot` and its `reply_markup`, which tg does not model, so both are read from the raw message. A reply to a result changes the result, as a reply to one does in a group.
-- **BotFather.** Guest Mode is turned on in BotFather's Mini App; not done yet for either bot.
-- **Open until T9 is run:** whether presses on a guest answer come as callback queries; how many edits Telegram allows on one; whether `getFile` takes a `file_id` from a guest message's reply; whether Telegram's fetcher gets through Cloudflare to the links, and whether it fetches the card while answering; whether a direct link to a JPEG shows as a large preview above the text; whether a reply to framy's answer carries its `reply_markup`.
+- **BotFather.** Guest Mode is turned on in BotFather's Mini App, and is on for both bots (`bot_guestchat` in their profiles, 31 October).
+- **T9, 31 October on framy-test.** In a new group without the bot, `@framytest_bot …` in reply to a photo got the answer with the card drawn from that photo, so `getFile` takes a `file_id` from a guest message's reply, and Telegram's fetcher got the card through Cloudflare while answering: a 1280×720 photo preview marked large. Presses come as callback queries. One answer took 8 edits, 3 of them new texts with a new card link, each fetched again. A reply to the open answer got "This one is still open: use its buttons", so the reply carries the answer's `reply_markup`. No turned it into "Cancelled." with no card and no buttons. Generate, the loop and the result were not pressed in this check; guest runs from private chats on 30 and 31 October went through them: eight done, seven of them free on MAI and one on the person's key, and one failed. Whether the preview stands above the text was not seen through the client API.
 
 ## Mini App
 
@@ -860,7 +860,7 @@ Temporary domain `framy.ws04.cc`. Mobile first; on a wide screen the composer an
   - inline mode (`/setinline`), on for both bots since 30 October 2026, and inline feedback (`/setinlinefeedback`), enabled for both on 26 October; it does nothing until framy asks for `chosen_inline_result`;
   - Main Mini App;
   - the Login Widget client with the site's URLs, which gives the client id and secret;
-  - Guest Mode, in BotFather's Mini App: framy handles it, not turned on yet.
+  - Guest Mode, in BotFather's Mini App: framy handles it, on for both bots.
 - **`allowed_updates`:** `message`, `edited_message`, `callback_query`, `my_chat_member`, `inline_query`, `guest_message`; later `chosen_inline_result`.
 - **Server:** our `telegram-bot-api` in `--local` mode. framy and the server share a volume, so a result is sent by a path on that volume (`InputFileLocal`) instead of an upload. Uploads up to 2,000 MB and downloads of any size.
 
@@ -1022,9 +1022,9 @@ framy **(owner)**: a frame is both a still and a shot. Written in lowercase ever
 Live tests on a test bot and the real tunnel (details in [research/telegram.md](research/telegram.md), section 10.4):
 
 1. **Albums:** an admin with no rights receives every photo of an album (T2). Checked on 31 October on framy-test: a new supergroup, @framytest_bot in privacy mode made an admin with every right off (`channels.editAdmin` with only `other`, which Telegram keeps as an admin with no rights; with no flag at all it demotes), and an album of 3 photos with no caption sent from a person's account. `album_item` got all three, one `media_group_id`, within a second. The `startgroup&admin=` link was not tried; framy does not use it.
-2. **`editMessageMedia` in a group:** photo → animation → photo, and → video (T6).
+2. **`editMessageMedia` in a group:** photo → animation → photo, and → video (T6). Photo → animation → photo went through on 28 October: two `/img` runs in a group got their result in the preview's own message. → video waits for a video run in a group.
 3. **Ephemeral command** in reply to a photo: does `reply_to_message` come (T5).
-4. **Guest mode:** a reply to a photo, edits of the answer, callback buttons (T9). The flow is built; the open points are listed under Guest mode.
+4. **Guest mode:** a reply to a photo, edits of the answer, callback buttons (T9). Checked on 31 October; the result is under Guest mode.
 5. **`CF-IPCountry`** behind our tunnel. Checked on 31 October: an anonymous `POST /api/quote` through framy-test.ws04.cc with `Accept-Language: en` and with `ru` came back in PLN, the currency of the caller's country, where without a country both give USD. The header reaches the service, and `web.FromProxy` believes it.
 6. **OpenRouter OAuth** end to end, from the Mini App too.
 7. **Prices:** estimate against `usage.cost` on 10 runs per pricing kind.

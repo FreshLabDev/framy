@@ -443,9 +443,11 @@
 - T4. Патч `getMessages`: разрешает ли Telegram bot-аккаунту получать сообщения, которые он не видел (privacy ON).
 - T5. Ephemeral-команда в ответ на обычное фото: есть ли `reply_to_message`; окно 15 секунд; ephemeral-медиа и `editEphemeralMessageMedia`.
 - T6. Переходы `editMessageMedia` в группе: photo -> animation -> video и photo, rich -> animation; MP4 по локальному пути; поведение при размере больше 10 МБ для photo.
+  Частично 31.10: photo -> animation -> photo в группе прошёл 28.10 (два `/img`, результат в сообщении превью). -> video в группе ещё не было.
 - T7. Вид rich-сообщения (collage, кнопки) в старых клиентах и в группах.
 - T8. Равенство `chat_instance` из Mini App и из `callback_query`.
 - T9. Guest mode: `reply_to_message` с фото, число правок ответа, callback-кнопки на `inline_message_id`.
+  Проверено 31.10 на framy-test: фото из ответа берётся, нажатия приходят как callback, 8 правок одного ответа прошли, карточка по ссылке подтягивается через Cloudflare. Подробности в design.md, Guest mode.
 - T10. Видео в большой группе: `message_id == 0` и отложенная отправка.
 - T11. `answerCallbackQuery.url` со ссылкой `t.me/<bot>/<app>?startapp=`.
 - T12. `SecureStorage` и `Fullscreen` на десктопе и в веб-клиенте.
