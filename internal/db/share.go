@@ -48,7 +48,7 @@ func (s *Store) ShareSource(ctx context.Context, userID, assetID int64) (ShareSo
 		LEFT JOIN chat_run r ON r.job_id = j.id
 		LEFT JOIN catalog_offer o ON o.id = j.offer_id
 		LEFT JOIN catalog_model m ON m.id = j.model_id
-		WHERE a.id = $2 AND a.user_id = $1 AND a.kind = 'result' AND j.user_id = $1
+		WHERE a.id = $2 AND a.user_id = $1 AND a.kind IN ('result', 'joined') AND j.user_id = $1
 		  AND j.status = 'done' AND j.deleted_at IS NULL`, userID, assetID).Scan(
 		&src.AssetID, &src.JobID, &src.Key, &src.ContentType, &src.Bytes, &src.Width, &src.Height,
 		&src.Seconds, &src.Prompt, &src.Model, &first, &src.FileID, &src.FileType)

@@ -125,6 +125,23 @@ func TestTheHistoryIsReadFromTheDatabase(t *testing.T) {
 	if failed := got[1]; failed.ID != run || len(failed.Inputs) != 1 || len(failed.Results) != 0 {
 		t.Errorf("the failed job: %+v", failed)
 	}
+	if last.Joined != nil {
+		t.Errorf("a job with no joined clip: %+v", last.Joined)
+	}
+
+	// A continuation's joined clip comes apart from its results.
+	var joined int64
+	if err := pool.QueryRow(ctx, `INSERT INTO asset (user_id, kind, job_id, object_key, content_type, bytes, sha256, seconds)
+		VALUES ($1, 'joined', $2, 'u/1001/out/joined.mp4', 'video/mp4', 3, 'x', 9.96) RETURNING id`, alice, fox).Scan(&joined); err != nil {
+		t.Fatal(err)
+	}
+	s, err := d.State(ctx, alice, fox)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Results) != 1 || s.Results[0].ID != out || s.Joined == nil || s.Joined.ID != joined || s.Joined.Seconds != 9.96 {
+		t.Errorf("results %v, joined %+v", s.Results, s.Joined)
+	}
 	if _, err := d.State(ctx, alice, gone); !errors.Is(err, ErrNotFound) {
 		t.Errorf("a deleted job reads: %v", err)
 	}

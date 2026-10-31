@@ -520,25 +520,28 @@ const posterAt = 1.0
 
 // LastFrame writes the last frame of the clip at dir/In as a PNG next to
 // it, for "Continue" on a model that starts from a frame: or the frame
-// 0.35 s before the end when the last one is a single colour.
-func (c *Converter) LastFrame(ctx context.Context, dir string) (string, error) {
+// 0.35 s before the end when the last one is a single colour. at is where
+// the frame is in the clip, in seconds from its start: its length for the
+// last frame.
+func (c *Converter) LastFrame(ctx context.Context, dir string) (path string, at float64, err error) {
 	in := filepath.Join(dir, In)
 	k, err := c.readClip(ctx, in)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	out := filepath.Join(dir, "frame.png")
 	// The last second, each frame written over the one before.
 	if err := c.still(ctx, k, in, out, []string{"-sseof", "-1"}, nil); err != nil {
-		return "", err
+		return "", 0, err
 	}
 	if flat, err := flatPNG(out); err != nil || !flat || k.seconds <= fadeBack*2 {
-		return out, err
+		return out, k.seconds, err
 	}
-	if err := c.still(ctx, k, in, out, []string{"-ss", seconds(k.seconds - fadeBack)}, []string{"-frames:v", "1"}); err != nil {
-		return "", err
+	at = k.seconds - fadeBack
+	if err := c.still(ctx, k, in, out, []string{"-ss", seconds(at)}, []string{"-frames:v", "1"}); err != nil {
+		return "", 0, err
 	}
-	return out, nil
+	return out, at, nil
 }
 
 // Poster writes the first frame of the clip at dir/In as a PNG next to it,

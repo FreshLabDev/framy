@@ -44,6 +44,10 @@ type jobJSON struct {
 	Error   *errorJSON   `json:"error,omitempty"`
 	RetryAt *time.Time   `json:"retry_at,omitempty"`
 	Results []resultJSON `json:"results,omitempty"`
+	// Joined is the clip the run went on from with the run's video after it,
+	// one file, when Continue started the run from that clip's last frame.
+	// The run's own video stays in Results.
+	Joined *resultJSON `json:"joined,omitempty"`
 	// Grounding comes with the results of a run grounded in Google Search.
 	// Google's terms ask that Grounding.Suggestions, HTML Google wrote, be
 	// shown beside the result, in a sandboxed frame (docs/design.md, Search
@@ -105,8 +109,9 @@ type resultJSON struct {
 	// file is gone or framy keeps none.
 	URL string `json:"url,omitempty"`
 	// Download is a link like URL whose answer saves the file, as
-	// framy-<job>-<n>.<ext>, n counting the job's results from 1. Results
-	// only; absent where URL is.
+	// framy-<job>-<n>.<ext>, n counting the job's results from 1, or
+	// framy-<job>-joined.mp4 for the joined clip. Results and the joined
+	// clip only; absent where URL is.
 	Download string `json:"download,omitempty"`
 	// Thumb is a result's thumbnail for a grid: a WebP at most 480 px on the
 	// long side, of a video its poster frame, linked as URL is. Absent until
@@ -140,6 +145,10 @@ func (a *API) renderAll(ctx context.Context, userID int64, states []State, lang 
 			for i, f := range s.Results {
 				ids = append(ids, f.ID)
 				names[f.ID] = downloadName(s.ID, i+1, f.ContentType)
+			}
+			if f := s.Joined; f != nil {
+				ids = append(ids, f.ID)
+				names[f.ID] = joinedName(s.ID, f.ContentType)
 			}
 		}
 	}
@@ -182,6 +191,11 @@ func downloadName(job int64, n int, contentType string) string {
 	return "framy-" + strconv.FormatInt(job, 10) + "-" + strconv.Itoa(n) + storage.Ext(contentType)
 }
 
+// joinedName is what the joined clip of job saves as.
+func joinedName(job int64, contentType string) string {
+	return "framy-" + strconv.FormatInt(job, 10) + "-joined" + storage.Ext(contentType)
+}
+
 func (a *API) renderOne(s State, lang string, links map[int64]storage.FileLinks) jobJSON {
 	settings := s.Settings
 	if settings == nil {
@@ -208,6 +222,9 @@ func (a *API) renderOne(s State, lang string, links map[int64]storage.FileLinks)
 	}
 	if s.Status == jobs.Done {
 		v.Results = filesJSON(s.Results, links, true)
+		if s.Joined != nil {
+			v.Joined = &filesJSON([]Result{*s.Joined}, links, true)[0]
+		}
 		v.Grounding = s.Grounding
 	}
 	return v

@@ -62,6 +62,10 @@ type State struct {
 	Inputs []Result
 	// Results are the files of a finished job, in order; empty before.
 	Results []Result
+	// Joined is the clip the job went on from with the job's video after it,
+	// for a run Continue started from the clip's last frame; nil for any
+	// other, and before the job is done.
+	Joined *Result
 	// Grounding is what a search-grounded run brought with its results.
 	Grounding *jobs.Grounding
 }
@@ -278,18 +282,36 @@ func (d pgData) files(ctx context.Context, userID int64, states []State) error {
 		s.Inputs = append(s.Inputs, x.Result)
 	}
 	rows, err = d.pool.Query(ctx, `
-		SELECT job_id, id, content_type, bytes, COALESCE(width, 0), COALESCE(height, 0), COALESCE(seconds, 0)::float8
-		FROM asset WHERE job_id = ANY($1) AND user_id = $2 AND kind = 'result'
+		SELECT job_id, id, content_type, bytes, COALESCE(width, 0), COALESCE(height, 0), COALESCE(seconds, 0)::float8,
+		  kind = 'joined'
+		FROM asset WHERE job_id = ANY($1) AND user_id = $2 AND kind IN ('result', 'joined')
 		ORDER BY job_id, id`, ids, userID)
 	if err != nil {
 		return fmt.Errorf("read the results of jobs: %w", err)
 	}
-	results, err := pgx.CollectRows(rows, scan)
+	results, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (struct {
+		job    int64
+		joined bool
+		Result
+	}, error) {
+		var x struct {
+			job    int64
+			joined bool
+			Result
+		}
+		return x, r.Scan(&x.job, &x.ID, &x.ContentType, &x.Bytes, &x.Width, &x.Height, &x.Seconds, &x.joined)
+	})
 	if err != nil {
 		return fmt.Errorf("read the results of jobs: %w", err)
 	}
 	for _, x := range results {
-		if s := &states[at[x.job]]; s.Status == jobs.Done {
+		s := &states[at[x.job]]
+		switch {
+		case s.Status != jobs.Done:
+		case x.joined:
+			joined := x.Result
+			s.Joined = &joined
+		default:
 			s.Results = append(s.Results, x.Result)
 		}
 	}

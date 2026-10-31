@@ -43,6 +43,16 @@ func TestAShareSourceIsTheResultWithItsFileInTelegram(t *testing.T) {
 	if src, err := store.ShareSource(ctx, 4601, second); err != nil || src.FileID != "" || src.FileType != "" {
 		t.Fatalf("second = %+v, %v", src, err)
 	}
+	// A continuation's joined clip goes too, as a file of its own.
+	var joined int64
+	if err := store.pool.QueryRow(ctx, `
+		INSERT INTO asset (user_id, kind, job_id, object_key, content_type, bytes, sha256)
+		VALUES (4601, 'joined', $1, $2, 'video/mp4', 4096, 'x') RETURNING id`, job, "share/joined/"+strconv.FormatInt(job, 10)).Scan(&joined); err != nil {
+		t.Fatal(err)
+	}
+	if src, err := store.ShareSource(ctx, 4601, joined); err != nil || src.AssetID != joined || src.FileID != "" || src.ContentType != "video/mp4" {
+		t.Fatalf("joined = %+v, %v", src, err)
+	}
 }
 
 func TestOnlyTheOwnersDoneResultIsShared(t *testing.T) {

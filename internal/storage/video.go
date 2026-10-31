@@ -186,7 +186,9 @@ func linkOrCopy(src, dst string) error {
 
 // LastFrame keeps the last frame of a clip of the person's as a new upload,
 // through the photo pipeline: the start frame of a run that continues the
-// clip on a model that starts from a frame.
+// clip on a model that starts from a frame. The upload names the clip and
+// where in it the frame is, so the run's video is joined to the clip
+// (Keep).
 func (s *Store) LastFrame(ctx context.Context, userID, assetID int64) (Asset, error) {
 	src, err := s.video(ctx, userID, assetID)
 	if err != nil {
@@ -200,7 +202,7 @@ func (s *Store) LastFrame(ctx context.Context, userID, assetID int64) (Asset, er
 	if err := s.fetchObject(ctx, src.Key, filepath.Join(dir, media.In), s.cfg.MaxResult); err != nil {
 		return Asset{}, err
 	}
-	path, err := s.media.LastFrame(ctx, dir)
+	path, at, err := s.media.LastFrame(ctx, dir)
 	if err != nil {
 		return Asset{}, err
 	}
@@ -209,7 +211,14 @@ func (s *Store) LastFrame(ctx context.Context, userID, assetID int64) (Asset, er
 		return Asset{}, err
 	}
 	defer f.Close()
-	return s.UploadCopy(ctx, userID, f, "")
+	a, err := s.UploadCopy(ctx, userID, f, "")
+	if err != nil {
+		return Asset{}, err
+	}
+	if _, err := s.pool.Exec(ctx, `UPDATE asset SET frame_of=$2, frame_at=$3 WHERE id=$1`, a.ID, src.ID, at); err != nil {
+		return Asset{}, fmt.Errorf("note the clip of the frame: %w", err)
+	}
+	return a, nil
 }
 
 // video is a clip of the person's: ErrNotFound for a file that is not
@@ -272,7 +281,7 @@ func (s *Store) keepVideo(ctx context.Context, userID int64, dir string, cut *me
 	}
 	err = s.pool.QueryRow(ctx, `
 		INSERT INTO asset (user_id, kind, object_key, content_type, bytes, width, height, sha256, seconds, fps, audio)
-		VALUES ($1, 'upload', $2, $3, $4, $5, $6, $7, $8, NULLIF($9, 0), $10)
+		VALUES ($1, 'upload', $2, $3, $4, $5, $6, $7, $8, NULLIF($9::float8, 0), $10)
 		RETURNING id, created_at`,
 		a.UserID, a.Key, a.ContentType, a.Bytes, a.Width, a.Height, a.SHA256, a.Seconds, a.FPS, a.Audio).Scan(&a.ID, &a.CreatedAt)
 	if err != nil {

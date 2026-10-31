@@ -643,7 +643,10 @@ was written from, and the skeleton of the service.
   BT.709, a rotated clip comes upright, and its metadata, location included,
   goes. Its length, frame rate and sound are kept with the file (migration
   018), for uploads and for the videos providers make, so a run on a clip is
-  checked and priced by what framy read, not by the browser.
+  checked and priced by what framy read, not by the browser. Until 31
+  October a provider's video kept its length and frame rate in whole
+  seconds and frames, cut down, and an upload its frame rate: 5.04 s was
+  kept as 5, so a run on that clip was priced a little low.
   `POST /api/files/{id}/last-frame` keeps a clip's last frame as a photo, the
   frame before a fade when the last one is flat. A run names the job it
   continues with `continues`: framy fills `previous_job_id` or Omni's
@@ -652,6 +655,16 @@ was written from, and the skeleton of the service.
   clip. A client that sends either setting itself is refused. The free edit
   on FLUX Video Edit now takes a clip of up to 5 s only, checked from the
   stored length in the queue's transaction.
+- Continue joins the clips. A run that starts from a clip's last frame
+  keeps its own video as the result and, beside it, the clip up to that
+  frame with the new video after it, as one file: `joined` in the job, with
+  its own link, download (`framy-<job>-joined.mp4`) and thumbnail. The two
+  parts take the larger size and the higher frame rate, a part without
+  sound gets silence, and the new video's first frame, which repeats the
+  frame it started from, is dropped. Continuing the joined clip adds to all
+  of it, up to 180 s. A join that fails leaves the run's video as it is.
+  The frame remembers its clip (migration 026). Omni's own continuation is
+  not joined, since its video may already hold the earlier one.
 - `/edit` in a chat. In reply to a video, a GIF, a round video or a video
   document, or as the caption of one's own video, it edits the clip on FLUX
   Video Edit: the week's free video first, then the person's OpenRouter key.

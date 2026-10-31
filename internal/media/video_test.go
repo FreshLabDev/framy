@@ -351,7 +351,7 @@ func TestTheLastFrame(t *testing.T) {
 	// Blue, then red: the last frame is red.
 	dir := makeClip(t, "-f", "lavfi", "-i", "color=c=blue:s=320x180:r=30:d=1", "-f", "lavfi", "-i", "color=c=red:s=320x180:r=30:d=1",
 		"-filter_complex", "[0][1]concat=n=2:v=1[v]", "-map", "[v]", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-f", "mp4")
-	frame, err := c.LastFrame(context.Background(), dir)
+	frame, at, err := c.LastFrame(context.Background(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -362,25 +362,35 @@ func TestTheLastFrame(t *testing.T) {
 	if px := img.At(160, 90); !near(px, "fe0000") {
 		t.Errorf("the last frame is %s, not red", hex(px))
 	}
+	// Red is one colour, so it is taken 0.35 s before the end.
+	if math.Abs(at-(2-fadeBack)) > 0.05 {
+		t.Errorf("the frame is at %.3f s, not %.3f", at, 2-fadeBack)
+	}
 	// A clip that fades to black gives the frame before the fade.
 	dir = makeClip(t, "-f", "lavfi", "-i", "testsrc2=s=320x180:r=30:d=2", "-f", "lavfi", "-i", "color=c=black:s=320x180:r=30:d=0.2",
 		"-filter_complex", "[0][1]concat=n=2:v=1[v]", "-map", "[v]", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-f", "mp4")
-	frame, err = c.LastFrame(context.Background(), dir)
+	frame, at, err = c.LastFrame(context.Background(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if flat(readPNG(t, frame)) {
 		t.Error("a fade to black gives the black frame")
 	}
+	if math.Abs(at-(2.2-fadeBack)) > 0.05 {
+		t.Errorf("the frame before the fade is at %.3f s, not %.3f", at, 2.2-fadeBack)
+	}
 	// A rotated clip gives an upright frame.
 	src := h264(t, "320x180", "1")
 	dir = makeClip(t, "-display_rotation", "90", "-i", filepath.Join(src, In), "-c", "copy", "-f", "mp4")
-	frame, err = c.LastFrame(context.Background(), dir)
+	frame, at, err = c.LastFrame(context.Background(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if b := readPNG(t, frame).Bounds(); b.Dx() != 180 || b.Dy() != 320 {
 		t.Errorf("a rotated clip's frame is %v", b)
+	}
+	if math.Abs(at-1) > 0.05 {
+		t.Errorf("the last frame is at %.3f s, not at the end, 1 s", at)
 	}
 }
 

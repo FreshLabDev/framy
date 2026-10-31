@@ -322,6 +322,10 @@ func (s *Store) Keep(ctx context.Context, j jobs.Job, results []jobs.Result) err
 			return fmt.Errorf("result %d: %w", i+1, err)
 		}
 	}
+	// The run's own video is kept whatever becomes of the join.
+	if err := s.join(ctx, j); err != nil && ctx.Err() == nil {
+		s.log.Warn("a continuation is kept without its clip joined to it", "job", j.ID, "error", err)
+	}
 	s.checkBucket(ctx)
 	return nil
 }
@@ -387,7 +391,7 @@ func (s *Store) keep(ctx context.Context, j jobs.Job, i int, r jobs.Result) erro
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO asset (user_id, kind, job_id, object_key, content_type, bytes, width, height, sha256, seconds, fps, audio,
 		  thumb_key, thumb_width, thumb_height, thumb_bytes)
-		VALUES ($1, 'result', $2, $3, $4, $5, NULLIF($6, 0), NULLIF($7, 0), $8, NULLIF($9, 0), NULLIF($10, 0), $11, $12, $13, $14, $15)
+		VALUES ($1, 'result', $2, $3, $4, $5, NULLIF($6, 0), NULLIF($7, 0), $8, NULLIF($9::float8, 0), NULLIF($10::float8, 0), $11, $12, $13, $14, $15)
 		ON CONFLICT (object_key) DO UPDATE SET bytes = EXCLUDED.bytes, sha256 = EXCLUDED.sha256,
 		  content_type = EXCLUDED.content_type, width = EXCLUDED.width, height = EXCLUDED.height,
 		  seconds = EXCLUDED.seconds, fps = EXCLUDED.fps, audio = EXCLUDED.audio,
@@ -493,7 +497,7 @@ func (s *Store) fillThumb(ctx context.Context) (found, made bool, err error) {
 		var a Asset
 		err := tx.QueryRow(ctx, `
 			SELECT id, object_key, content_type FROM asset
-			WHERE kind = 'result' AND thumb_key IS NULL AND thumb_tries < $1
+			WHERE kind IN ('result', 'joined') AND thumb_key IS NULL AND thumb_tries < $1
 			ORDER BY thumb_tries, id DESC
 			LIMIT 1
 			FOR UPDATE SKIP LOCKED`, maxThumbTries).Scan(&a.ID, &a.Key, &a.ContentType)
@@ -680,10 +684,10 @@ func (s *Store) sweepUpload(ctx context.Context, age time.Duration) (bool, error
 	return gone, err
 }
 
-// DeleteResults removes every result of a job of the person's and returns
-// how many went.
+// DeleteResults removes every result of a job of the person's, and the clip
+// joined to it, and returns how many went.
 func (s *Store) DeleteResults(ctx context.Context, userID, jobID int64) (int, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id FROM asset WHERE job_id=$1 AND user_id=$2 AND kind='result' ORDER BY id`, jobID, userID)
+	rows, err := s.pool.Query(ctx, `SELECT id FROM asset WHERE job_id=$1 AND user_id=$2 AND kind IN ('result', 'joined') ORDER BY id`, jobID, userID)
 	if err != nil {
 		return 0, err
 	}
