@@ -1,0 +1,66 @@
+# SPDX-License-Identifier: Apache-2.0
+# Local development. Production joins core_net and connects as framy_core; see
+# deploy/ws04/compose.yaml.
+name: framy
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: framy
+      POSTGRES_PASSWORD: framy
+      POSTGRES_DB: framy
+    volumes:
+      - framy-postgres:/var/lib/postgresql/data
+      - ./deploy/core-init.sql:/docker-entrypoint-initdb.d/00-core-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U framy -d framy"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  framy:
+    build:
+      context: .
+      args:
+        VERSION: ${BUILD_VERSION:-dev}
+        COMMIT: ${BUILD_COMMIT:-none}
+        DATE: ${BUILD_DATE:-unknown}
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgres://framy:framy@postgres:5432/framy?sslmode=disable
+      HTTP_ADDR: :8080
+      # The test bot token, from a file the container reads; see .env.example.
+      TELEGRAM_BOT_TOKEN_FILE: /run/secrets/bot-token
+    volumes:
+      - ./secrets/bot-token:/run/secrets/bot-token:ro
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Longer than JOBS_STOP_GRACE (3m30s): a stop waits for runs in progress.
+    stop_grace_period: 4m
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  framy-postgres:

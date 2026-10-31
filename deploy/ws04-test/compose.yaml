@@ -1,0 +1,118 @@
+# SPDX-License-Identifier: Apache-2.0
+# The test bot @framytest_bot on ws04, in /opt/stacks/framy-test.
+#
+# Its own PostgreSQL, seeded with the core stand-in (initdb/00-core-init.sql
+# is deploy/core-init.sql), so it never sees production data. It shares the
+# R2 bucket under the prefix test/, and talks to the cloud Bot API.
+#
+# Until there is a release to pin, the image is built on the host from a
+# commit of dev:
+#   git -C <checkout> checkout <commit>
+#   docker build -t framy:test-<commit> --build-arg VERSION=dev-<commit> \
+#     --build-arg COMMIT=<commit> <checkout>
+# and FRAMY_IMAGE in .env names it.
+#
+# .env holds FRAMY_IMAGE, FRAMY_TEST_DB_PASSWORD, R2_ACCOUNT_ID and
+# TRUSTED_PROXIES. The files in secrets/ belong to uid 10001, the image's
+# user, mode 0400: bot-token, kek, r2-access-key-id, r2-secret-access-key,
+# openrouter-key, hook-path-secret (head -c 32 /dev/urandom | base64), and
+# telegram-login-client-id and telegram-login-client-secret: the OpenID
+# Connect client of @framytest_bot in BotFather (Login Widget, with the
+# redirect URI https://framy-test.ws04.cc/auth/callback and RS256), and
+# openrouter-webhook-secret: the webhook signing secret of the OpenRouter
+# workspace that openrouter-key belongs to (Workspace settings, Webhooks).
+#
+# The site is https://framy-test.ws04.cc: the ws04-management tunnel routes
+# it to framy-test-bot:8080 over the external network management, and
+# TRUSTED_PROXIES is that network's range, where cloudflared connects from.
+# No port is published to the host.
+#
+# openrouter-key is framy's own key, the same one the production stack pays
+# the free allowance with. Each stack counts its own daily budget, so stop
+# this one when it is not in use, or the key pays the free tier twice.
+name: framy-test
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: framy-test-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: framy
+      POSTGRES_PASSWORD: ${FRAMY_TEST_DB_PASSWORD:?FRAMY_TEST_DB_PASSWORD is required}
+      POSTGRES_DB: framy
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U framy -d framy"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  bot:
+    image: ${FRAMY_IMAGE:?FRAMY_IMAGE is required}
+    pull_policy: never
+    container_name: framy-test-bot
+    restart: unless-stopped
+    # Longer than JOBS_STOP_GRACE (3m30s): a stop waits for runs in progress.
+    stop_grace_period: 4m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 1g
+    env_file:
+      - path: .env
+        required: true
+    environment:
+      DATABASE_URL: postgres://framy:${FRAMY_TEST_DB_PASSWORD}@postgres:5432/framy?sslmode=disable
+      HTTP_ADDR: :8080
+      METRICS_ADDR: :9090
+      TELEGRAM_BOT_TOKEN_FILE: /run/secrets/bot-token
+      FRAMY_KEK_FILE: /run/secrets/kek
+      R2_BUCKET: framy
+      R2_PREFIX: test/
+      R2_ACCESS_KEY_ID_FILE: /run/secrets/r2-access-key-id
+      R2_SECRET_ACCESS_KEY_FILE: /run/secrets/r2-secret-access-key
+      OPENROUTER_API_KEY_FILE: /run/secrets/openrouter-key
+      SITE_URL: https://framy-test.ws04.cc
+      HOOK_PATH_SECRET_FILE: /run/secrets/hook-path-secret
+      OPENROUTER_WEBHOOK_SECRET_FILE: /run/secrets/openrouter-webhook-secret
+      TELEGRAM_LOGIN_CLIENT_ID_FILE: /run/secrets/telegram-login-client-id
+      TELEGRAM_LOGIN_CLIENT_SECRET_FILE: /run/secrets/telegram-login-client-secret
+      WORK_DIR: /var/lib/framy/work
+      ANIM_CACHE_DIR: /var/lib/framy/anim
+    volumes:
+      - ./secrets:/run/secrets:ro
+      - work:/var/lib/framy/work
+      - anim:/var/lib/framy/anim
+    networks: [default, management]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  pgdata:
+  work:
+  anim:
+
+networks:
+  management:
+    external: true

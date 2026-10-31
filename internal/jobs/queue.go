@@ -1,0 +1,557 @@
+// SPDX-License-Identifier: Apache-2.0
+package jobs
+
+import (
+	"cmp"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/riverdriver/riverpgxv5"
+	"github.com/riverqueue/river/rivermigrate"
+
+	"github.com/FreshLabDev/framy/internal/catalog"
+)
+
+// Schema is where framy's and River's tables live.
+const Schema = "framy"
+
+// Queue names: one per provider and kind, each with its own workers.
+const (
+	QueueOpenAI          = "openai"
+	QueueGemini          = "gemini"
+	QueueOpenRouterImage = "openrouter_image"
+	QueueOpenRouterVideo = "openrouter_video"
+)
+
+// QueueFor is the queue of a provider's runs of a kind.
+func QueueFor(provider string, kind catalog.Kind) string {
+	switch {
+	case provider == "openrouter" && kind == catalog.Video:
+		return QueueOpenRouterVideo
+	case provider == "openrouter":
+		return QueueOpenRouterImage
+	case provider == "gemini":
+		return QueueGemini
+	}
+	return QueueOpenAI
+}
+
+// DefaultWorkers is how many jobs of each queue one process works at once. A
+// video job waits for the provider snoozed, not holding a worker.
+var DefaultWorkers = map[string]int{
+	QueueOpenAI:          4,
+	QueueGemini:          4,
+	QueueOpenRouterImage: 8,
+	QueueOpenRouterVideo: 4,
+}
+
+// Timings. The image call's limit is the design's; River rescues a job whose
+// worker died after RescueAfter, which has to outlast the longest attempt.
+const (
+	imageCall = 180 * time.Second
+	// videoCall bounds sending a video request and asking about a run that
+	// is not done.
+	videoCall = 60 * time.Second
+	// videoPoll bounds a poll of a video run: the one that finds the video
+	// done downloads it in the same call, up to 128 MiB.
+	videoPoll = 5 * time.Minute
+	// videoKeep bounds what follows that poll: copying the video to R2 and
+	// ending the job. A poll may come back after a stop has begun, so this
+	// runs apart from the attempt's own limit.
+	videoKeep = 3 * time.Minute
+	// settleWrites bounds the writes that follow any other call.
+	settleWrites = 30 * time.Second
+	attemptLimit = 4 * time.Minute
+	// videoAttempt is a video job's attempt: the poll, the copy, a margin.
+	// River leaves a job alone until its own limit has passed, however old
+	// rescueAfter says it is, so the images keep the shorter rescue.
+	videoAttempt = videoPoll + videoKeep + time.Minute
+	rescueAfter  = 5 * time.Minute
+	// maxSubmits caps the paid requests refused before the run started.
+	maxSubmits = 5
+	// maxAttempts caps River's own retries, for errors that are framy's.
+	maxAttempts = 5
+	draftTTL    = 10 * time.Minute
+	// runDeadline: a run the provider has not finished by then expires.
+	runDeadline = time.Hour
+)
+
+// Config is the queue's setup. Providers are keyed by the catalog's provider
+// name: openai, gemini, openrouter.
+type Config struct {
+	Providers map[string]Provider
+	Sink      Sink
+	// Inputs finds the files a job takes; nil while framy keeps none.
+	Inputs Inputs
+	// Admit decides whether a free job may start, in the transaction that
+	// creates or queues it. Every free job passes it, so framy sets it
+	// wherever its own key can pay; nil, as in tests of the queue alone,
+	// lets every free job through.
+	Admit Admitter
+	Log   *slog.Logger
+	// MaxRunning is how many jobs one person runs at once; 2 by default.
+	MaxRunning int
+	// Workers per queue; DefaultWorkers by default.
+	Workers map[string]int
+	// StopGrace is how long a stop waits for runs in progress before it
+	// cuts them short, which costs the person a run: longer than an image
+	// call by default.
+	StopGrace time.Duration
+	// WaitSlot is how often a job over the person's limit looks again, in
+	// case the wake-up from the job before it was missed. PollEvery is how
+	// often a background run is asked about.
+	WaitSlot  time.Duration
+	PollEvery time.Duration
+	// FetchPoll is how often River looks for jobs without a notification;
+	// River's default when zero. Tests make it short.
+	FetchPoll time.Duration
+}
+
+// Queue creates jobs and works them.
+type Queue struct {
+	pool   *pgxpool.Pool
+	river  *river.Client[pgx.Tx]
+	cfg    Config
+	log    *slog.Logger
+	now    func() time.Time
+	cancel context.CancelFunc
+}
+
+// NewQueue builds the queue on pool, whose search_path is framy.
+func NewQueue(pool *pgxpool.Pool, cfg Config) (*Queue, error) {
+	cfg.MaxRunning = cmp.Or(cfg.MaxRunning, 2)
+	cfg.StopGrace = cmp.Or(cfg.StopGrace, imageCall+30*time.Second)
+	cfg.WaitSlot = cmp.Or(cfg.WaitSlot, 5*time.Second)
+	cfg.PollEvery = cmp.Or(cfg.PollEvery, 30*time.Second)
+	if cfg.Workers == nil {
+		cfg.Workers = DefaultWorkers
+	}
+	if cfg.Log == nil {
+		cfg.Log = slog.Default()
+	}
+	q := &Queue{pool: pool, cfg: cfg, log: cfg.Log, now: time.Now}
+
+	workers := river.NewWorkers()
+	if err := river.AddWorkerSafely(workers, &generateWorker{q: q}); err != nil {
+		return nil, err
+	}
+	if err := river.AddWorkerSafely(workers, &sweepWorker{q: q}); err != nil {
+		return nil, err
+	}
+	queues := map[string]river.QueueConfig{river.QueueDefault: {MaxWorkers: 1}}
+	for name, n := range cfg.Workers {
+		queues[name] = river.QueueConfig{MaxWorkers: max(n, 1)}
+	}
+	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
+		Schema:               Schema,
+		Queues:               queues,
+		Workers:              workers,
+		JobTimeout:           attemptLimit,
+		RescueStuckJobsAfter: rescueAfter,
+		MaxAttempts:          maxAttempts,
+		SoftStopTimeout:      cfg.StopGrace,
+		FetchPollInterval:    cfg.FetchPoll,
+		FetchCooldown:        min(cmp.Or(cfg.FetchPoll, 100*time.Millisecond), 100*time.Millisecond),
+		Logger:               cfg.Log,
+		PeriodicJobs: []*river.PeriodicJob{
+			river.NewPeriodicJob(river.PeriodicInterval(time.Minute),
+				func() (river.JobArgs, *river.InsertOpts) { return sweepArgs{}, nil },
+				&river.PeriodicJobOpts{RunOnStart: true}),
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("river client: %w", err)
+	}
+	q.river = client
+	return q, nil
+}
+
+// MigrateRiver brings River's tables in the framy schema up to date, in tx.
+func MigrateRiver(ctx context.Context, tx pgx.Tx) error {
+	m, err := rivermigrate.New(riverpgxv5.New(nil), &rivermigrate.Config{Schema: Schema})
+	if err != nil {
+		return err
+	}
+	if _, err := m.MigrateTx(ctx, tx, rivermigrate.DirectionUp, nil); err != nil {
+		return fmt.Errorf("river migrations: %w", err)
+	}
+	return nil
+}
+
+// Start starts working jobs. It returns at once; Stop ends the work.
+func (q *Queue) Start(ctx context.Context) error {
+	// The work outlives the signal that starts a stop: Stop decides how long
+	// runs in progress get.
+	ctx, q.cancel = context.WithCancel(context.WithoutCancel(ctx))
+	return q.river.Start(ctx)
+}
+
+// Stop stops fetching jobs and waits for the ones in progress, up to
+// StopGrace, then cuts them short.
+func (q *Queue) Stop(ctx context.Context) error {
+	err := q.river.Stop(ctx)
+	if q.cancel != nil {
+		q.cancel()
+	}
+	return err
+}
+
+// Enqueue creates a queued job and its River job in one transaction. A job
+// with the same dedupe key is returned instead, and nothing starts.
+func (q *Queue) Enqueue(ctx context.Context, n New) (id int64, created bool, err error) {
+	err = pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
+		if err := q.admitNew(ctx, tx, n); err != nil {
+			return err
+		}
+		id, created, err = q.insert(ctx, tx, n, Queued)
+		if err != nil || !created {
+			return err
+		}
+		return q.schedule(ctx, tx, id, n.Offer.Provider, n.Offer.Kind)
+	})
+	return id, created, err
+}
+
+// Draft creates a job that waits for "Generate", as a chat preview does.
+func (q *Queue) Draft(ctx context.Context, n New) (id int64, created bool, err error) {
+	err = pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
+		// A draft takes no slot of the allowance, but a preview that could
+		// never run is not offered.
+		if err := q.admitNew(ctx, tx, n); err != nil {
+			return err
+		}
+		id, created, err = q.insert(ctx, tx, n, Draft)
+		return err
+	})
+	return id, created, err
+}
+
+// Generate queues a draft. A draft older than 10 minutes, already started or
+// cancelled gives ErrNotDraft, so a repeated press starts nothing.
+func (q *Queue) Generate(ctx context.Context, id int64) error {
+	return pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
+		if err := q.admitDraft(ctx, tx, id); err != nil {
+			return err
+		}
+		var provider, kind string
+		err := tx.QueryRow(ctx, `
+			UPDATE job SET status='queued', queued_at=now(), updated_at=now()
+			WHERE id=$1 AND status='draft' AND created_at > now() - make_interval(secs => $2)
+			RETURNING provider, kind`, id, draftTTL.Seconds()).Scan(&provider, &kind)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotDraft
+		}
+		if err != nil {
+			return err
+		}
+		return q.schedule(ctx, tx, id, provider, catalog.Kind(kind))
+	})
+}
+
+// Revise changes what a draft runs: the offer, the settings, who pays and
+// the price shown, as the chat's panels do. The person and the prompt stay,
+// and so does the draft's age. The files stay too while n.Inputs is nil;
+// otherwise they are replaced by n.Inputs, in order, which must be the
+// person's own, or ErrNoInput. A job that is not a draft any more gives
+// ErrNotDraft. A free revision asks the allowance as a new job would, about
+// the files it takes after the change.
+func (q *Queue) Revise(ctx context.Context, id int64, n New) error {
+	return pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
+		a := Admission{Offer: n.Offer.ID, Kind: n.Offer.Kind, Settings: n.Settings}
+		err := tx.QueryRow(ctx, `
+			SELECT user_id, (SELECT count(*) FROM job_input WHERE job_id = job.id)
+			FROM job
+			WHERE id=$1 AND status='draft' AND created_at > now() - make_interval(secs => $2)
+			FOR UPDATE`, id, draftTTL.Seconds()).Scan(&a.UserID, &a.Inputs)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotDraft
+		}
+		if err != nil {
+			return err
+		}
+		if n.Inputs != nil {
+			if _, err := tx.Exec(ctx, `DELETE FROM job_input WHERE job_id=$1`, id); err != nil {
+				return fmt.Errorf("revise job %d inputs: %w", id, err)
+			}
+			if err := insertInputs(ctx, tx, id, a.UserID, n.Inputs); err != nil {
+				return err
+			}
+			a.Inputs = len(n.Inputs)
+		}
+		if n.Free && q.cfg.Admit != nil {
+			if n.Estimate != nil {
+				a.EstimateUSD = n.Estimate.USD
+			}
+			if a.Videos, err = draftVideos(ctx, tx, id); err != nil {
+				return err
+			}
+			if err := q.cfg.Admit.Admit(ctx, tx, a); err != nil {
+				return err
+			}
+		}
+		var estimateUSD *float64
+		if n.Estimate != nil {
+			estimateUSD = &n.Estimate.USD
+		}
+		settings := n.Settings
+		if settings == nil {
+			settings = map[string]any{}
+		}
+		var currency *string
+		var fxRate *float64
+		var fxDate *time.Time
+		if n.FX != nil {
+			currency, fxRate = &n.FX.Code, &n.FX.PerUSD
+			if !n.FX.Date.IsZero() {
+				fxDate = &n.FX.Date
+			}
+		}
+		_, err = tx.Exec(ctx, `
+			UPDATE job SET offer_id=$2, model_id=$3, provider=$4, kind=$5, settings=$6, free=$7,
+			       estimate_usd=$8, estimate=$9, currency=$10, fx_rate=$11, fx_date=$12::date, updated_at=now()
+			WHERE id=$1`,
+			id, n.Offer.ID, n.Offer.ModelID, n.Offer.Provider, n.Offer.Kind, settings, n.Free,
+			estimateUSD, n.Estimate, currency, fxRate, fxDate)
+		if err != nil {
+			return fmt.Errorf("revise job %d: %w", id, err)
+		}
+		return nil
+	})
+}
+
+// admitNew asks the allowance about a free job about to be created.
+func (q *Queue) admitNew(ctx context.Context, tx pgx.Tx, n New) error {
+	if !n.Free || q.cfg.Admit == nil {
+		return nil
+	}
+	a := Admission{
+		UserID: n.UserID, DedupeKey: n.DedupeKey, Offer: n.Offer.ID, Kind: n.Offer.Kind,
+		Settings: n.Settings, Inputs: len(n.Inputs),
+	}
+	if n.Estimate != nil {
+		a.EstimateUSD = n.Estimate.USD
+	}
+	if len(n.Inputs) > 0 {
+		rows, err := tx.Query(ctx, `
+			SELECT COALESCE(a.seconds, 0)::float8
+			FROM unnest($1::bigint[]) WITH ORDINALITY AS u(id, ord)
+			JOIN asset a ON a.id = u.id AND a.user_id = $2
+			WHERE a.content_type LIKE 'video/%'
+			ORDER BY u.ord`, n.Inputs, n.UserID)
+		if err != nil {
+			return err
+		}
+		if a.Videos, err = pgx.CollectRows(rows, pgx.RowTo[float64]); err != nil {
+			return err
+		}
+	}
+	return q.cfg.Admit.Admit(ctx, tx, a)
+}
+
+// draftVideos is the length of each clip a draft takes, 0 where it is not
+// known.
+func draftVideos(ctx context.Context, tx pgx.Tx, id int64) ([]float64, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT COALESCE(a.seconds, 0)::float8
+		FROM job_input i JOIN asset a ON a.id = i.asset_id
+		WHERE i.job_id = $1 AND a.content_type LIKE 'video/%'
+		ORDER BY i.position`, id)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[float64])
+}
+
+// admitDraft asks the allowance about a free draft about to be queued. The
+// draft is read first and queued after, both under the allowance's locks. A
+// draft that cannot be queued is left to Generate's own update to refuse.
+func (q *Queue) admitDraft(ctx context.Context, tx pgx.Tx, id int64) error {
+	if q.cfg.Admit == nil {
+		return nil
+	}
+	a := Admission{}
+	var free bool
+	var estimate *float64
+	err := tx.QueryRow(ctx, `
+		SELECT user_id, offer_id, kind, settings, free, estimate_usd::float8,
+		       (SELECT count(*) FROM job_input WHERE job_id = job.id)
+		FROM job
+		WHERE id=$1 AND status='draft' AND created_at > now() - make_interval(secs => $2)`, id, draftTTL.Seconds()).Scan(
+		&a.UserID, &a.Offer, &a.Kind, &a.Settings, &free, &estimate, &a.Inputs)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !free) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	a.EstimateUSD = deref(estimate)
+	if a.Videos, err = draftVideos(ctx, tx, id); err != nil {
+		return err
+	}
+	return q.cfg.Admit.Admit(ctx, tx, a)
+}
+
+// Cancel ends a draft or a queued job. A running one gives ErrRunning; one
+// already ended is left as it is.
+func (q *Queue) Cancel(ctx context.Context, id int64) error {
+	return pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
+		var riverID *int64
+		err := tx.QueryRow(ctx, `
+			UPDATE job SET status='cancelled', finished_at=now(), updated_at=now()
+			WHERE id=$1 AND status IN ('draft','queued')
+			RETURNING river_job_id`, id).Scan(&riverID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			var status Status
+			if err := tx.QueryRow(ctx, `SELECT status FROM job WHERE id=$1`, id).Scan(&status); err != nil {
+				return err
+			}
+			if status == Running {
+				return ErrRunning
+			}
+			return nil
+		}
+		if err != nil || riverID == nil {
+			return err
+		}
+		_, err = q.river.JobCancelTx(ctx, tx, *riverID)
+		return err
+	})
+}
+
+// Get reads a job.
+func (q *Queue) Get(ctx context.Context, id int64) (Job, error) {
+	return load(ctx, q.pool, id)
+}
+
+func (q *Queue) insert(ctx context.Context, tx pgx.Tx, n New, status Status) (int64, bool, error) {
+	var estimateUSD *float64
+	if n.Estimate != nil {
+		estimateUSD = &n.Estimate.USD
+	}
+	settings := n.Settings
+	if settings == nil {
+		settings = map[string]any{}
+	}
+	var currency *string
+	var fxRate *float64
+	var fxDate *time.Time
+	if n.FX != nil {
+		currency, fxRate = &n.FX.Code, &n.FX.PerUSD
+		if !n.FX.Date.IsZero() {
+			fxDate = &n.FX.Date
+		}
+	}
+	var id int64
+	err := tx.QueryRow(ctx, `
+		INSERT INTO job (user_id, surface, chat_id, message_id, dedupe_key, offer_id, model_id, provider, kind,
+		                 prompt, settings, free, status, estimate_usd, estimate, currency, fx_rate, fx_date, queued_at)
+		VALUES ($1, $2, NULLIF($3::bigint, 0), NULLIF($4::bigint, 0), NULLIF($5, ''), $6, $7, $8, $9,
+		        $10, $11, $12, $13, $14, $15, $16, $17, $18::date, CASE WHEN $13 = 'queued' THEN now() END)
+		ON CONFLICT (dedupe_key) DO NOTHING
+		RETURNING id`,
+		n.UserID, n.Surface, n.ChatID, n.MessageID, n.DedupeKey, n.Offer.ID, n.Offer.ModelID, n.Offer.Provider, n.Offer.Kind,
+		n.Prompt, settings, n.Free, status, estimateUSD, n.Estimate, currency, fxRate, fxDate).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = tx.QueryRow(ctx, `SELECT id FROM job WHERE dedupe_key=$1`, n.DedupeKey).Scan(&id)
+		return id, false, err
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("insert job: %w", err)
+	}
+	if err := insertInputs(ctx, tx, id, n.UserID, n.Inputs); err != nil {
+		return 0, false, err
+	}
+	return id, true, nil
+}
+
+// insertInputs gives job id its files, in order. Only the person's own: an
+// id of anyone else's adds no row, and the whole change is ErrNoInput.
+func insertInputs(ctx context.Context, tx pgx.Tx, id, userID int64, inputs []int64) error {
+	if len(inputs) == 0 {
+		return nil
+	}
+	tag, err := tx.Exec(ctx, `
+		INSERT INTO job_input (job_id, position, asset_id)
+		SELECT $1, u.ord - 1, a.id
+		FROM unnest($2::bigint[]) WITH ORDINALITY AS u(id, ord)
+		JOIN asset a ON a.id = u.id AND a.user_id = $3`,
+		id, inputs, userID)
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+		// The sweep deleted a file no job had taken while this one read it.
+		return ErrNoInput
+	}
+	if err != nil {
+		return fmt.Errorf("insert job inputs: %w", err)
+	}
+	if tag.RowsAffected() != int64(len(inputs)) {
+		return ErrNoInput
+	}
+	return nil
+}
+
+// schedule inserts the River job that works job id, in the same
+// transaction.
+func (q *Queue) schedule(ctx context.Context, tx pgx.Tx, id int64, provider string, kind catalog.Kind) error {
+	res, err := q.river.InsertTx(ctx, tx, generateArgs{JobID: id, Video: kind == catalog.Video}, &river.InsertOpts{
+		Queue:      QueueFor(provider, kind),
+		UniqueOpts: river.UniqueOpts{ByArgs: true},
+	})
+	if err != nil {
+		return fmt.Errorf("insert river job: %w", err)
+	}
+	_, err = tx.Exec(ctx, `UPDATE job SET river_job_id=$2 WHERE id=$1`, id, res.Job.ID)
+	return err
+}
+
+type querier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+func load(ctx context.Context, db querier, id int64) (Job, error) {
+	var j Job
+	var chatID, messageID *int64
+	var dedupe, providerJobID, errClass, errText *string
+	var params, routes []byte
+	err := db.QueryRow(ctx, `
+		SELECT j.id, j.user_id, j.surface, j.chat_id, j.message_id, j.dedupe_key, j.offer_id, j.model_id, j.provider, j.kind,
+		       j.prompt, j.settings, j.free, j.status, j.idempotency_key::text, j.submits, j.submitted_at, j.retry_at, j.provider_job_id,
+		       j.estimate_usd::float8, j.actual_usd::float8, j.error_class, j.error, j.created_at,
+		       o.provider_model_id, o.name, o.input_modalities, o.params, o.routes
+		FROM job j JOIN catalog_offer o ON o.id = j.offer_id
+		WHERE j.id=$1`, id).Scan(
+		&j.ID, &j.UserID, &j.Surface, &chatID, &messageID, &dedupe, &j.OfferID, &j.ModelID, &j.Provider, &j.Kind,
+		&j.Prompt, &j.Settings, &j.Free, &j.Status, &j.IdempotencyKey, &j.Submits, &j.SubmittedAt, &j.RetryAt, &providerJobID,
+		&j.EstimateUSD, &j.ActualUSD, &errClass, &errText, &j.CreatedAt,
+		&j.Offer.ProviderModelID, &j.Offer.Name, &j.Offer.InputModalities, &params, &routes)
+	if err != nil {
+		return Job{}, fmt.Errorf("load job %d: %w", id, err)
+	}
+	j.ChatID, j.MessageID = deref(chatID), deref(messageID)
+	j.ProviderJobID, j.Error = deref(providerJobID), deref(errText)
+	j.ErrorClass = Class(deref(errClass))
+	j.Offer.ID, j.Offer.ModelID, j.Offer.Provider, j.Offer.Kind = j.OfferID, j.ModelID, j.Provider, j.Kind
+	if err := json.Unmarshal(params, &j.Offer.Params); err != nil {
+		return Job{}, fmt.Errorf("load job %d: offer params: %w", id, err)
+	}
+	if err := json.Unmarshal(routes, &j.Offer.Routes); err != nil {
+		return Job{}, fmt.Errorf("load job %d: offer routes: %w", id, err)
+	}
+	return j, nil
+}
+
+func deref[T any](p *T) T {
+	var zero T
+	if p == nil {
+		return zero
+	}
+	return *p
+}

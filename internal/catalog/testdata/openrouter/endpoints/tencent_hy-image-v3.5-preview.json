@@ -1,0 +1,62 @@
+{
+ "id": "tencent/hy-image-v3.5-preview",
+ "endpoints": [
+  {
+   "provider_name": "Tencent Cloud",
+   "provider_slug": "tencent",
+   "supported_parameters": {
+    "resolution": {
+     "type": "enum",
+     "values": [
+      "1K",
+      "1.5K",
+      "2K",
+      "4K"
+     ]
+    },
+    "aspect_ratio": {
+     "type": "enum",
+     "values": [
+      "1:1",
+      "1:2",
+      "1:4",
+      "2:1",
+      "2:3",
+      "3:2",
+      "3:4",
+      "4:1",
+      "4:3",
+      "4:5",
+      "5:4",
+      "9:16",
+      "16:9"
+     ]
+    },
+    "n": {
+     "type": "range",
+     "min": 1,
+     "max": 1
+    },
+    "input_references": {
+     "type": "range",
+     "min": 0,
+     "max": 20
+    },
+    "seed": {
+     "type": "boolean"
+    },
+    "size": {
+     "type": "boolean"
+    }
+   },
+   "allowed_passthrough_parameters": [],
+   "pricing": [
+    {
+     "billable": "output_image",
+     "unit": "token",
+     "cost_usd": 1.6e-06
+    }
+   ]
+  }
+ ]
+}

@@ -11,7 +11,28 @@ careful with people's keys, and production-minded.
   [`docs/design.md`](docs/design.md), the research behind it (in Russian, with
   sources) in [`docs/research/`](docs/research/README.md). Read the design
   before changing behavior.
-- Nothing runs yet.
+- The Go service so far: configuration from the environment and file
+  secrets (`NAME_FILE`), PostgreSQL with embedded migrations, Telegram long
+  polling that records people and chats in `core`, `Preflight`, `/healthz`,
+  `/metrics` on its own listener, the family's panels on `/start`, the hourly
+  model catalog sync, the price estimate, the currency rates, the job queue
+  on River, the free allowance, the encrypted store of people's keys, the
+  OpenRouter (images, and video with its webhook), OpenAI and Gemini image
+  adapters, connecting OpenRouter with OAuth PKCE (`internal/oauth`),
+  storage in R2 with the ffmpeg photo pipeline, the renderer of the album
+  preview, the generating loop and the error card (`internal/anim`), the
+  public HTTP server's foundation (`internal/web`: security headers, CSRF,
+  cache rules, rate limits), sign-in (`internal/auth`: Telegram Login on the
+  site, `initData` in the Mini App, sessions of which the database keeps
+  only a hash), the job API with progress over SSE (`internal/api`), and a
+  clean stop on SIGTERM, and the first three stages of the site and the
+  Mini App (`internal/web/app`): sign-in, the API client with its event
+  stream, the composer and the model picker, the result on the stage, the
+  reasons a run failed or was refused with what helps, retries, cancelling,
+  clips with the editor of their part, Continue, the settings with the
+  keys of each provider, the default models and the DM switch, and the
+  library with the viewer of a run at
+  `/r/<id>`. The editor of a result is still to come.
 - The service will be one Go binary (module `github.com/FreshLabDev/framy`):
   the HTTP server (site, Mini App, API, SSE, OAuth callbacks, provider
   webhooks), the bot, the job workers, the hourly catalog sync and the
@@ -31,6 +52,41 @@ careful with people's keys, and production-minded.
 - `Preflight` runs before the bot starts and names the methods framy cannot
   work without.
 
+## One Of The Family
+
+framy is a sibling of vido, searchy, quoto, branchy, makeitMD, voicy and maply,
+and a person who knows one of them should recognise framy. Before adding a
+screen, a command or a table, check how the siblings do it.
+
+- **One database.** framy's tables live in the `framy` schema of the shared
+  `core-postgres`, created by core migration `019_framy.sql` and reached as
+  `framy_core`. Identity, presence and language are core's: call `core.touch`
+  for every update with a sender, read the language with
+  `core.effective_language`, write it with `core.set_language` and
+  `core.clear_language`. framy holds `REFERENCES` on `core.person` and
+  `core.chat` and no `SELECT`: it learns who a person is from the update or
+  the Telegram Login claims. A new grant is a core migration that revokes
+  `PUBLIC` in the same file.
+- **Panels.** Every screen follows `core/docs/panels.md` (R1 to R9): title,
+  hint and quote from one helper; "Back" to go up; Close only in a group, as
+  Danger; at most one Primary; Success only on the chosen option; `◉`/`◎` and
+  `■`/`□` marks; the sixteen languages in the family's order; no emoji; the
+  About card exactly as written there; Follow Telegram on the language screen.
+  Callbacks are `m:<owner>:<action>`, and only the owner's press acts.
+- **Groups.** `/start` there is an ephemeral command and the panel an
+  ephemeral reply; an ordinary `/start` in a group stays unanswered, and only
+  an ephemeral panel is addressable by a callback. Admin rights are asked of
+  Telegram on every use, never cached.
+- **Profile.** The command menu, the description and the short description
+  are published per language at start, a description only when it changed.
+  The direct chat's menu has `/start` only; the other tabs answer when typed.
+- **Version and metrics.** The About card shows the version from the build's
+  ldflags, never a commit or a date. Metrics are in the Prometheus text
+  format on `METRICS_ADDR`, never on the public listener: counters
+  `framy_*_total`, gauges and histograms `framy_*` named for what they hold.
+- **Writing.** No em dash anywhere a person reads; the i18n tests check the
+  translations and the strings in Go code.
+
 ## Money And Keys
 
 - A run is paid either by the free allowance or by one of the person's own
@@ -42,27 +98,40 @@ careful with people's keys, and production-minded.
   round in framy's favour, and always label an estimate as one.
 - The free allowance **(owner)**: 5 images in any 24 hours and 1 video in any
   7 days per Telegram user id, across every surface, on the models the design
-  names. It is counted from `job`, not stored separately, and a global daily
-  budget closes it. Changing the counts, the windows or the models is the
+  names. The video can instead be an edit of a clip up to 5 s on FLUX Video
+  Edit. It is counted from `job`, not stored separately, and a global daily
+  budget ($1, `FREE_DAILY_BUDGET_USD`) and the limit on framy's OpenRouter key
+  close it. `internal/free` checks it inside the transaction that creates or
+  queues a free job. Changing the counts, the windows or the models is the
   owner's call.
 - People's keys are encrypted at rest with AES-GCM under a KEK read from a file.
   Only the last four characters are ever shown. A key never appears in a log
   line, an error, a metric label, a job row or a message.
 - A message in a DM that looks like a key is deleted at once and nothing from
   it is saved.
+- An adapter gets its key from `keys.Service.JobKey` and runs behind
+  `Service.Track`, which writes what a run showed about the key as the
+  connection's status. An adapter's error can say more than its class by
+  having `KeyStatus() string` (`invalid`, `needs_billing`,
+  `needs_verification`, `no_credits`); without it only a Money error moves a
+  status, to `no_credits`.
 
 ## Product Boundaries
 
 - One account per Telegram user id: `from.id` in an update,
   `initData.user.id` in the Mini App, the `id` claim of Telegram Login on the
   site.
-- `/f` in a group: without a reply it makes an image from scratch; in reply to
-  a photo it edits that photo; in reply to a photo of an album it takes every
-  photo of the album with one instruction. Allowed on anyone's photo
-  **(owner)**. Nothing is generated until the requester presses Generate, and
+- `/img` in a group: without a reply it makes an image from scratch; in reply
+  to a photo it edits that photo; in reply to a photo of an album it takes
+  every photo of the album with one instruction. `/edit` does the same for a
+  video. In a DM a plain message is enough: framy asks whether it is for an
+  image or a video. Allowed on anyone's photo **(owner)**. Nothing is generated until the requester presses Generate, and
   only the requester can press the buttons of a preview.
 - The catalog is data: synced from OpenRouter every hour, plus hand-written
-  descriptors for OpenAI and Gemini. A new model must not need a code change.
+  descriptors for OpenAI and Gemini in `catalog/`, joined and annotated by
+  `catalog/overlay.yaml`. A new model must not need a code change. A model's
+  id is its OpenRouter id, every hand-written offer is listed under a model in
+  the overlay, and catalog rows are disabled, never deleted.
 - Interface text lives in `i18n`, never inline. framy speaks the family's
   sixteen languages, and they ship together; a key missing in one language is
   a bug.
@@ -77,13 +146,40 @@ careful with people's keys, and production-minded.
   proportion, square corners, no shadows, gradients or rounded panels. The
   owner wants it original, not the usual generator layout of a chat box over a
   grid of pictures.
-- Plain HTML, CSS and JavaScript without a bundler. Fonts and libraries are
-  served by the service itself; only `telegram-web-app.js` comes from outside.
+- Plain HTML, CSS and JavaScript modules, with no framework. `go generate
+  ./internal/web` bundles them with esbuild, which runs as a Go library (no
+  Node anywhere), into `internal/web/dist`: one minified script with the
+  makers' marks inside it (a CSS mask whose file is still loading paints
+  nothing), one stylesheet, the fonts and the lines of each language, every
+  file named by its content and cached for a year. `dist/` is
+  committed, and CI fails when it differs from what the sources give. The
+  page inlines only its skeleton style and boot script, which the CSP allows
+  by their hashes (`web.App.CSP`); the boot script asks for the catalog and
+  the person while the skeleton paints. The site's lines are the `web.*` keys
+  of `internal/i18n/translations.json`. Motion is transform and opacity only,
+  with the Web Animations API, and `go test -tags=browser ./internal/web/`
+  checks the layout at 390 and 1440 px and that no task holds the main thread
+  over 50 ms on a CPU four times slower than an M-series laptop: the test
+  measures the machine on DOM work like the steps', slows it to that speed,
+  and brings a machine already slower than that down to the laptop's times
+  (`cpuRef` in `browser_test.go`). Fonts and libraries are served by
+  the service itself; only `telegram-web-app.js` comes from outside, and only
+  the Mini App loads it.
 
 ## Data And Security
 
+- Every route of the public listener is registered on the `web.Server`
+  (`site.Handle`), never on a bare mux: it gives the route the CSP, the cache
+  rules, the CSRF check and the rate limits. A new class of route is a rate
+  class in `internal/web/ratelimit.go`; a route that must take a cross-site
+  POST is a deliberate entry in `csrfBypass`. `CF-Connecting-IP` is believed
+  only from `TRUSTED_PROXIES`.
 - Never log the bot token, provider keys, the KEK, R2 credentials, OAuth codes
-  and verifiers, a database URL with its password, or full Bot API URLs.
+  and verifiers, session ids and bearer tokens, `initData`, a database URL with
+  its password, or full Bot API URLs.
+- Who is asking comes from `auth.Person` (or `Require` around a handler),
+  never from a header or a body the client wrote. A session id is stored as its
+  SHA-256 only; the account is the `id` claim, never `sub`.
 - Connect with `search_path=framy` and call `core.touch` before domain writes
   that reference `core.person`.
 - Secrets live in `.env` and in file secrets, both outside git.
@@ -167,6 +263,17 @@ contains `test`; they refuse to run anywhere else:
 FRAMY_TEST_DATABASE_URL=postgres://framy:framy@localhost:5432/framy_test?sslmode=disable \
   go test -tags=integration -p 1 ./...
 ```
+
+The media tests need FFmpeg 8.0 or newer and skip without it; CI runs them
+inside the image with `FRAMY_MEDIA_TESTS=1`, which makes a skip a failure.
+`internal/media/testdata/make.swift` regenerates the iPhone fixtures on macOS.
+
+The live R2 check runs by hand against the real buckets, where the token is:
+`go test -tags r2live -run Live ./internal/r2` with `R2_ACCOUNT_ID`,
+`R2_ACCESS_KEY_ID_FILE` and `R2_SECRET_ACCESS_KEY_FILE`. It writes a few bytes
+under `incoming/` and removes them. Set `R2_FOREIGN_BUCKET` to a throwaway
+bucket of the same account to check the token is refused there. It prints no
+credential and no presigned URL; keep it that way.
 
 Verify the site and the Mini App in a browser at phone width (375×812 and
 320×568) and on a wide screen, with and without the Telegram emulation hash

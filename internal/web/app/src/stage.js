@@ -1,0 +1,296 @@
+// The stage: the frame of what Create will make, in its shape, and once a
+// run starts, that run: its files going up, the wait, a retry, the result,
+// or why there is none, with the buttons that fit.
+import { $, $$, h, ic, isPhone } from "./dom.js";
+import { anim, rise, snap, EASE, motion } from "./motion.js";
+import { t } from "./i18n.js";
+import { C, vname, famLogo, lg, ratioNum, ratioOfSize, PNAME } from "./catalog.js";
+import { S, M, payOf, settings, sourceRatio, connection } from "./state.js";
+import { isFinal, outsOf } from "./api.js";
+import { failure, waiting, left, BILLING } from "./errors.js";
+import { priceText } from "./price.js";
+import { halftone } from "./halftone.js";
+import { player, fmtClock } from "./player.js";
+import { openPrefs } from "./prefs.js";
+import { again, quiet, editPrompt, otherModel, cancel, byKey, keyFor, takePrice, drop, pickPart, copyPrompt, continueFrom, fromLastFrame, canShare, share } from "./run.js";
+
+// The shape of a run: its ratio, or the photo's for "auto", else square.
+function ratioOf(set, m) {
+  if (set.size && /x/.test(set.size)) return ratioNum(ratioOfSize(set.size));
+  if (set.aspect_ratio && set.aspect_ratio !== "auto") return ratioNum(set.aspect_ratio);
+  return sourceRatio() || (m?.kind === "video" ? 16 / 9 : 1);
+}
+function ratioLabel(set) {
+  if (set.size && /x/.test(set.size)) return ratioOfSize(set.size);
+  if (set.aspect_ratio && set.aspect_ratio !== "auto") return set.aspect_ratio;
+  return sourceRatio() ? t("val.photo") : t("val.auto");
+}
+// The largest box of ratio r that fits the stage, with room under it for
+// what a run says (more for the reason it failed).
+function fit(r, under = 0) {
+  const st = $("#stage"), phone = isPhone();
+  const W = Math.max(160, phone ? innerWidth - 32 : st.clientWidth);
+  const dock = phone ? $("#composer").offsetHeight : 0, top = $("#top")?.offsetHeight || 0;
+  const H = Math.max(160, (phone ? innerHeight - dock - top - 92 : innerHeight - top - 120) - under);
+  let w = W, hh = W / r;
+  if (hh > H) { hh = H; w = H * r; }
+  return { w: Math.round(w), h: Math.round(hh) };
+}
+
+export function stageFrom() { return snap($("#stage"), { box: true, dur: 440 }); }
+
+// A run has ended: refused, stopped before the job, or a job that is final.
+export const runOver = (run) => !!run && (run.phase === "refused" || run.phase === "cancelled" || (run.phase === "job" && isFinal(run.job.status)));
+
+export function renderStage() {
+  const st = $("#stage");
+  if (!st) return;
+  const run = S.run;
+  if (run && S.showJob) { renderRun(st, run); ticking(); return; }
+  ticking();
+  const m = M();
+  if (!m) return;
+  const pay = payOf(m), set = settings(m, pay), r = ratioOf(set, m), b = fit(r), f = C.famOf[m.id];
+  const ghost = h("div", { class: "ghost", "data-k": "pv", style: { width: b.w + "px", height: b.h + "px" } },
+    h("i"), h("i"), h("i"), h("i"),
+    h("div", { class: "c" }, ic(m.kind), h("b", {}, ratioLabel(set)),
+      h("small", {}, h("span", { class: "it" }, lg(famLogo(f), f.maker, "s"), vname(m)))));
+  ghost._r = r;
+  const kids = [h("div", { class: "preview", "data-k": "pvbox" }, ghost)];
+  if (run) kids.push(h("button", { type: "button", class: "link back", "data-k": "pv-back", onclick: () => { S.showJob = true; renderStage(); } },
+    ic(runOver(run) ? "image" : "clock"), t(runOver(run) ? "stage.last" : "stage.current")));
+  st.replaceChildren(...kids);
+}
+
+function runRatio(run) {
+  const res = outsOf(run.job)[0];
+  if (res?.width && res?.height) return res.width / res.height;
+  const m = C.byId[run.model], set = run.settings || {};
+  if (set.size && /x/.test(set.size)) return ratioNum(ratioOfSize(set.size));
+  if (set.aspect_ratio && set.aspect_ratio !== "auto") return ratioNum(set.aspect_ratio);
+  const f = run.files[0];
+  return f?.w && f?.h ? f.w / f.h : m?.kind === "video" ? 16 / 9 : 1;
+}
+
+// A line that counts down: its text is asked again every second.
+const live = (text, cls = "") => { const el = h("small", { class: ("tk " + cls).trim() }, text()); el._text = text; return el; };
+// The wait: how long since the press, or since the job was made, and how long
+// the model usually takes, as framy measured its own runs. Never a percentage:
+// no provider reports one.
+const typicalOf = (j) => C.byId[j.model]?.offers.find((o) => o.id === j.offer)?.typical_seconds || 0;
+function tookEl(run) {
+  const since = run.t0 || Date.parse(run.job.created_at) || Date.now(), u = typicalOf(run.job);
+  return live(() => { const s = fmtClock((Date.now() - since) / 1000); return u > 0 ? t("stage.usually", { t: s, u: fmtClock(u) }) : s; }, "took");
+}
+
+// What the stage says about run: the frame's status, the reason under it and
+// the buttons. The library's viewer shows a run with it too: o.res is which
+// result, o.again makes the button that runs it again.
+export function view(run, o = {}) {
+  const j = run.job, kind = run.kind;
+  // ht is the figure of the halftone in the frame (halftone.js).
+  const spin = (label, sub, ht) => ({ status: h("div", { class: "c run" }, h("b", {}, label), sub), ht });
+  const stop = h("button", { type: "button", onclick: () => cancel(run) }, ic("stop"), t("act.cancel"));
+  if (run.phase === "prep") {
+    const s = run.step;
+    return { ...spin(t("stage.starting"), s ? live(s.text) : null, s?.fig ? { fig: s.fig, until: s.until, prog: s.prog } : { fig: "start" }), acts: run.sending ? [] : [stop] };
+  }
+  if (run.phase === "refused") {
+    const w = run.why;
+    return { fail: true, status: failEl(w.label), why: [w.text], acts: refusalActs(run, w.acts), ht: { fig: w.acts.includes("cut") ? "cut" : REFFIG[w.code] || "bang", still: true } };
+  }
+  if (run.phase === "cancelled") {
+    const free = run.pay === "free";
+    return { fail: true, status: failEl(t("stage.cancelled")), why: [free ? t("fail.free_back") : ""], zero: !free, acts: againActs(run), ht: { fig: "line", still: true } };
+  }
+  const st = j.status;
+  if (st === "queued") {
+    const w = waiting(j);
+    if (w) return { ...spin(t("stage.retry"), live(() => w.line(left(w.at))), { fig: "wait", until: w.at }), acts: [stop] };
+    return { ...spin(t("stage.queued"), tookEl(run), { fig: "queue" }), acts: [stop] };
+  }
+  if (st === "running") {
+    return { ...spin(t("stage.running"), tookEl(run), { fig: "loop" }), acts: [h("span", { class: "busy" }, ic("info"), t(kind === "video" ? "cancel.running_video" : "cancel.running"))] };
+  }
+  const res = outsOf(j)[o.res || 0];
+  if (st === "done" && res) return { done: true, res, acts: doneActs(run, j, res, o) };
+  const f = failure(j);
+  return { fail: true, status: failEl(f.label, f.said), why: [f.text, f.note], zero: f.zero, acts: failActs(run, f, o), ht: { fig: FAILFIG[f.cls] || "cross", still: true } };
+}
+// The provider's own words stand small under the label, two lines of them; a press shows the rest.
+export const failEl = (label, said) => h("div", { class: "c fail" }, h("b", {}, label),
+  said ? h("small", { class: "said", title: said, onclick: (e) => e.currentTarget.classList.toggle("open") }, said) : null);
+// A price of 0 in the person's currency, from a label of the run's own price.
+const zeroOf = (label) => (label || "$0").replace(/\d[\d.,]*/, "0");
+// The figure of each reason a run gave nothing; the rest show a cross.
+const FAILFIG = { moderation: "ban", refused: "ban", faces: "ban", sound: "ban", money: "coin", key: "key", timeout: "clock", draft_expired: "clock", rate_limited: "hush", unavailable: "hush", interrupted: "link", cancelled: "line" };
+const REFFIG = { price_changed: "coin", not_free: "coin", free_limit: "clock", free_closed: "clock", no_connection: "key", connection_invalid: "key", sign_in: "key",
+  network: "link", shutting_down: "link", http_429: "hush", busy: "hush", wrong_inputs: "bang", unknown_input: "bang", unknown_offer: "bang", cannot_continue: "bang",
+  not_a_video: "cross", unsupported_type: "cross", unreadable: "cross", frame_too_large: "cross", too_large: "cross", picture_too_large: "cross", storage_unavailable: "cross" };
+
+// The buttons of a run, the first of them the one that helps most.
+// A square one shows only its icon on a phone, so each says its name.
+export const B = (icon, label, fn, cls = "") => h("button", { type: "button", class: cls || null, "aria-label": cls.startsWith("sq") ? label : null, onclick: fn }, ic(icon), h("span", { class: "t" }, label));
+const againActs = (run) => [B("again", t("act.retry"), () => again(run), "primary"), B("edit", t("act.edit"), () => editPrompt(run))];
+function keyBtn(run) {
+  const p = keyFor(run);
+  return p ? B("key", t("act.bykey", { provider: PNAME[p] }), () => byKey(run), "primary") : null;
+}
+const againBtn = (run, o, label, cls) => (o.again ? o.again(label, cls) : B("again", label, () => again(run), cls));
+function failActs(run, f, o = {}) {
+  const out = [];
+  for (const a of f.acts) {
+    if (a === "retry") out.push(againBtn(run, o, t("act.retry"), out.length ? "" : "primary"));
+    else if (a === "edit") out.push(B("edit", t("act.edit"), () => editPrompt(run), out.length ? "" : "primary"));
+    else if (a === "bykey") out.push(keyBtn(run));
+    else if (a === "topup") out.push(topup(f.provider));
+    else if (a === "rekey") out.push(keyFix(f.provider, out.length ? "" : "primary"));
+    else if (a === "model") out.push(B("grid", t("act.other_model"), () => otherModel(run), out.length ? "" : "primary"));
+    else if (a === "quiet") out.push(B("mute", t("act.no_sound"), () => quiet(run), out.length ? "" : "primary"));
+  }
+  if (!f.acts.includes("edit")) out.push(B("edit", t("act.edit"), () => editPrompt(run)));
+  return out;
+}
+// To the settings, at the key the run needs: connect it, or replace one that stopped working.
+const keyFix = (p, cls) => B("key", t(connection(p) ? "go.rekey" : "go.connect", { provider: PNAME[p] || p }), () => openPrefs(p), cls);
+function topup(p) {
+  const url = BILLING[p];
+  if (!url) return null;
+  if (S.tg?.openLink) return B("coin", t("act.topup", { provider: PNAME[p] || p }), () => S.tg.openLink(url), "primary");
+  return h("a", { class: "primary", href: url, target: "_blank", rel: "noopener" }, ic("coin"), h("span", { class: "t" }, t("act.topup", { provider: PNAME[p] || p })));
+}
+function refusalActs(run, acts) {
+  const out = [];
+  for (const a of acts) {
+    const first = out.length ? "" : "primary";
+    if (a === "takeprice") out.push(B("spark", t("act.takeprice", { p: priceText(run.why.estimate) }), () => takePrice(run), first));
+    else if (a === "drop") out.push(B("close", t("cancel"), () => drop(), first));
+    else if (a === "bykey") out.push(keyBtn(run));
+    else if (a === "cut") out.push(B("film", t("act.pick_part"), () => pickPart(run), first));
+    else if (a === "lastframe") out.push(B("next", t("act.lastframe"), () => fromLastFrame(run.cont), first));
+    else if (a === "again") out.push(B("again", t("act.retry"), () => again(run), first));
+    else if (a === "key") out.push(keyFix(run.why.provider, first));
+  }
+  if (!acts.includes("drop")) out.push(B("edit", t("act.edit"), () => editPrompt(run)));
+  return out.filter(Boolean);
+}
+function doneActs(run, j, res, o = {}) {
+  const vid = res.content_type?.startsWith("video/");
+  let sb = null;
+  if (canShare(res)) { sb = B("send", t("act.share"), () => share(res, sb), "sq"); sb.title = t("act.share_tip"); }
+  // The joined clip shows; the part this run made saves on its own too.
+  const part = res === j.joined ? j.results?.[0] : null;
+  return [res.url ? download(j, res, o.res || 0) : null,
+    part?.url ? download(j, part, 0, { label: t("act.part"), cls: "sq" }) : null,
+    againBtn(run, o, t("act.again"), "sq2"),
+    B("edit", t("act.edit"), () => editPrompt(run), "sq"),
+    vid && res.url ? B("next", t("act.continue"), () => continueFrom(run, res), "sq") : null, sb];
+}
+
+function renderRun(st, run) {
+  const v = view(run), r = runRatio(run), b = fit(r, v.fail ? 150 : 70), j = run.job, m = C.byId[run.model];
+  let media = null;
+  if (v.done) {
+    const res = v.res;
+    media = res.content_type?.startsWith("video/") ? player(res) : h("img", { src: res.url, alt: run.prompt || "", decoding: "async" });
+    const pic = media.tagName === "IMG" ? media : media.querySelector("video");
+    pic.addEventListener(media === pic ? "load" : "loadeddata", () => anim(pic, [{ opacity: 0 }, { opacity: 1 }], { duration: 420 }), { once: true });
+  }
+  // While the page cannot reach framy, the frame says so; it hears again by itself.
+  const going = run.phase === "job" && !isFinal(j.status);
+  if (going && run.net === "lost" && v.status) {
+    const lost = h("small", { class: "lost" }, t("net.lost_line")), sub = v.status.querySelector("small");
+    if (sub) sub.replaceWith(lost); else v.status.append(lost);
+  }
+  const box = h("div", { class: "jbox" + (v.done ? " done" : "") + (v.fail ? " failed" : ""), "data-k": "pv", style: { width: b.w + "px", height: b.h + "px" } },
+    v.done ? media : [h("i"), h("i"), h("i"), h("i")], v.status || null);
+  box._r = r; box._under = v.fail ? 150 : 70;
+  // The dots: a figure for the state, or the result showing through them as it arrives.
+  if (v.ht) halftone(box, v.ht.fig, { ...v.ht, n: run.n, lost: going && run.net === "lost" });
+  else if (v.done) halftone(box, "reveal", { n: run.n });
+  const cost = j?.cost?.label ? j.cost.label : v.zero ? zeroOf(j?.estimate?.label || run.priceLabel)
+    : j?.free || (run.pay === "free" && !v.fail) ? t("bar.free") : run.shownLabel && !v.fail ? run.shownLabel : "";
+  const line = h("p", { class: "jline", "data-k": "j-line" }, [m ? vname(m) : "", cost].filter(Boolean).join(" · "),
+    going && run.net === "poll" ? h("span", { class: "jtag", title: t("net.poll_tip") }, t("net.poll")) : null);
+  const [text, note] = v.why || [];
+  const why = text || note
+    ? h("div", { class: "jwhy", "data-k": "j-why" }, h("p", {}, text, text && note ? " " : "", note ? h("span", { class: "note" }, note) : null))
+    : null;
+  const prompt = run.prompt ? h("p", { class: "jprompt", "data-k": "j-prompt", hidden: samePrompt(run) }, h("span", { class: "tx" }, run.prompt),
+    h("button", { type: "button", class: "cp", "aria-label": t("act.copy"), title: t("act.copy"), onclick: () => copyPrompt(run.prompt) }, ic("copy"))) : null;
+  const acts = h("div", { class: "jacts acts", "data-k": "j-acts" }, v.acts.filter(Boolean),
+    runOver(run) ? h("button", { type: "button", class: "sq", "aria-label": t("stage.next"), title: t("stage.next"), onclick: () => drop() }, ic("plus"), h("span", { class: "t" }, t("stage.next"))) : null);
+  st.replaceChildren(h("div", { class: "preview", "data-k": "pvbox" }, box), h("div", { class: "jfoot", "data-k": "j-foot" }, line, why, acts, prompt));
+}
+
+// The composer holds the run's prompt still: the stage does not say it twice.
+const samePrompt = (run) => ($("#prompt")?.value || "").trim() === (run.prompt || "").trim();
+addEventListener("input", (e) => {
+  const p = e.target?.id === "prompt" && S.run && $("#stage .jprompt");
+  if (p) p.hidden = samePrompt(S.run);
+});
+
+// Download saves the original. res.download is a link that asks for an
+// attachment, which a browser saves where it is and Telegram's downloadFile
+// takes; res.url only shows the file, and a browser ignores the download
+// attribute on another site's link, so without the first it opens in a tab.
+const EXT = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/avif": "avif", "image/gif": "gif", "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov" };
+export function download(j, res, i = 0, o = {}) {
+  // The name the server gives the download, for Telegram, which asks for one.
+  const name = `framy-${j.id}-${res === j.joined ? "joined" : i + 1}.${EXT[res.content_type] || (res.content_type || "").split("/")[1] || "bin"}`;
+  const label = o.label || t("stage.download"), cls = o.cls || "primary", aria = cls.startsWith("sq") ? label : null;
+  const kids = [ic("down"), h("span", { class: "t" }, label)], tg = S.tg;
+  if (res.download && tg?.downloadFile && tg.isVersionAtLeast?.("8.0"))
+    return h("button", { type: "button", class: cls, "aria-label": aria, onclick: () => tg.downloadFile({ url: res.download, file_name: name }) }, ...kids);
+  if (res.download) return h("a", { class: cls, "aria-label": aria, href: res.download, download: name }, ...kids);
+  return h("a", { class: cls, "aria-label": aria, href: res.url, download: name, target: "_blank", rel: "noopener" }, ...kids);
+}
+
+// What the stage shows of the run, to tell a new state from the same one again.
+let shownSig = "", shownN = 0, shownStep = null;
+const sigOf = (run) => [run.n, run.phase, run.job?.status || "", run.job?.results?.length || 0, run.job?.joined?.id || 0, run.job?.error?.class || "", run.job?.retry_at || "",
+  run.job?.cost?.label || "", run.net, run.sending ? 1 : 0, S.showJob ? 1 : 0].join("|");
+// The run changed: the stage shows its new state, the frame glides to its new shape.
+export function runChanged() {
+  const run = S.run;
+  if (!run) { shownSig = ""; renderStage(); return; }
+  const sig = sigOf(run);
+  if (sig === shownSig && run.step === shownStep) return;
+  const fresh = run.n !== shownN;
+  shownSig = sig; shownN = run.n; shownStep = run.step;
+  const d = stageFrom();
+  renderStage();
+  d();
+  if (fresh && S.showJob) anim($("#stage .jbox"), [{ transform: "scale(.96)", opacity: 0.6 }, { transform: "none", opacity: 1 }], { duration: 420, easing: EASE });
+  else if (motion()) { const c = $("#stage .jbox .c"); if (c && (run.phase !== "job" || !isFinal(run.job?.status))) rise([c], { y: 6 }); }
+}
+
+// The countdowns on the stage and in the viewer, once a second while there are any.
+let tickT = 0;
+export function ticking() {
+  const any = () => $$(".tk").length > 0;
+  if (any() && !tickT) tickT = setInterval(() => {
+    if (!any()) { clearInterval(tickT); tickT = 0; return; }
+    for (const el of $$(".tk")) { const x = el._text?.(); if (x != null && el.textContent !== x) el.textContent = x; }
+  }, 1000);
+}
+
+// A new window size or a taller dock only resizes the frame: the picture and a playing video stay.
+// On a phone the stage takes the room over the dock and keeps the frame in
+// the middle of it; the room under the frame waits for the result's line.
+function room() {
+  const st = $("#stage");
+  if (!st) return;
+  if (!isPhone()) { st.style.minHeight = ""; return; }
+  const top = st.getBoundingClientRect().top + scrollY;
+  st.style.minHeight = Math.max(0, Math.floor(innerHeight - $("#composer").offsetHeight - top - 24)) + "px";
+}
+export function refit() {
+  room();
+  const b = $("#stage [data-k=pv]");
+  if (!b?._r) return;
+  const f = fit(b._r, b._under || 0);
+  b.style.width = f.w + "px";
+  b.style.height = f.h + "px";
+}
+addEventListener("resize", refit);

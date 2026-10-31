@@ -1,0 +1,36 @@
+/* The first paint, inline in the page: the field, the logo and the blocks of
+   the composer where they will stand, before the stylesheet and the catalog
+   arrive. The rest of the look is in app.css. */
+html, body { margin: 0; background: #00606E; color: #fff; }
+body { font: 400 16px/1.45 system-ui, sans-serif; }
+[hidden] { display: none !important; }
+#skel { max-width: 1240px; margin: 0 auto; padding: 0 16px; }
+#skel i { display: block; background: #00454F; }
+.sk-top { display: flex; align-items: center; justify-content: space-between; height: 68px; }
+.sk-top b { font: 700 34px/1 "Arial Narrow", sans-serif; letter-spacing: -.01em; }
+.sk-top i { width: 96px; height: 40px; }
+.sk-main { display: grid; gap: 40px; }
+.sk-col { display: grid; gap: 14px; }
+.sk-col .k { height: 42px; }
+.sk-col .p { height: 100px; }
+.sk-col .m { height: 120px; margin-top: 8px; }
+.sk-col .r { height: 44px; }
+.sk-col .b { height: 52px; margin-top: 10px; width: 150px; justify-self: end; background: #D9E7E9; }
+.sk-stage { display: none; }
+@media (min-width: 960px) {
+  .sk-main { grid-template-columns: 460px minmax(0, 1fr); gap: 56px; }
+  .sk-stage { display: block; }
+  .sk-stage i { aspect-ratio: 1; max-height: calc(100vh - 120px); margin: 0 auto; width: min(100%, calc(100vh - 120px)); }
+}
+@media (max-width: 959.98px) {
+  .sk-col .p, .sk-col .m, .sk-col .r { display: none; }
+  .sk-col { position: fixed; left: 0; right: 0; bottom: 0; padding: 10px 16px; background: #00606E; border-top: 1px solid #0B7280; }
+  .sk-col .k { height: 54px; }
+  .sk-col .b { margin-top: 0; }
+  .sk-stage { display: block; }
+  .sk-stage i { aspect-ratio: 1; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  #skel i { animation: sk 1.4s ease-in-out infinite alternate; }
+  @keyframes sk { from { opacity: 1; } to { opacity: .55; } }
+}

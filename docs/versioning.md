@@ -138,10 +138,10 @@ ever be true of either.
 
 ## framy today
 
-framy has no release yet. The first line:
+The first release is `v0.1.0-alpha.1` (31 October 2026). The line:
 
 ```text
-v0.1.0-alpha.N  the service, the site, the free images and /f
+v0.1.0-alpha.N  the service, the site, the free images and /img
 v0.1.0-beta.N   images work end to end on the site, in the Mini App and in groups
 v0.1.0-rc.N     a closed week with a few groups, only fixes land
 v0.1.0          first public MVP: images
@@ -168,4 +168,6 @@ A change is breaking — and needs a `Breaking` changelog entry — when it affe
 - the free allowance: what counts, its windows, its models
 - the layout of objects in the R2 bucket and the lifetime of presigned links
 - the HTTP API the site and the Mini App call
+- the ids of catalog models and offers, which jobs and links refer to, and the
+  form of `catalog/*.yaml`
 - Docker Compose or deployment assumptions
