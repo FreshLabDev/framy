@@ -14,6 +14,8 @@ export const S = {
   more: false, allRatios: false,
   sort: "maker", info: null, hover: null, detVar: {}, lastVar: {},
   run: null, showJob: false, busy: false, closed: { image: 0, video: 0 },
+  // The view the page shows: "create" (the composer) or "library".
+  view: "create",
 };
 
 export const M = () => C.byId[S.model[S.kind]];

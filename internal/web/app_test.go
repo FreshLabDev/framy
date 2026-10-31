@@ -67,6 +67,23 @@ func TestAppPage(t *testing.T) {
 	}
 }
 
+// The library and a run of it are the same page; an address that is not a
+// job's number is not.
+func TestAppViews(t *testing.T) {
+	s, _ := appSite(t)
+	page := s.get(t, "/").Body.String()
+	for _, p := range []string{"/library", "/r/1", "/r/42"} {
+		if rr := s.get(t, p); rr.Code != 200 || rr.Body.String() != page {
+			t.Errorf("%s: status %d", p, rr.Code)
+		}
+	}
+	for _, p := range []string{"/r/", "/r/abc", "/r/0", "/r/01", "/r/-1", "/r/1x", "/r/1234567890123456789", "/library/x"} {
+		if rr := s.get(t, p); rr.Code != http.StatusNotFound {
+			t.Errorf("%s: status %d, want 404", p, rr.Code)
+		}
+	}
+}
+
 func TestAppAssets(t *testing.T) {
 	s, app := appSite(t)
 	page := s.get(t, "/").Body.String()

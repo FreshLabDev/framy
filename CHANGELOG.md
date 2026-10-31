@@ -285,8 +285,7 @@ was written from, and the skeleton of the service.
   The page paints a skeleton at once and fetches the catalog and the person
   in its first line, the rest arrives as one script and one stylesheet of
   hashed names, and nothing comes from outside but Telegram's script. All
-  the lines are in the sixteen languages. The library, the viewer and the
-  editor come next.
+  the lines are in the sixteen languages. The editor of a result comes next.
 - The site's stage, third stage: what happens when a run gives no result.
   A failed job says why in the person's words for each `error.class`,
   what came of the money (a run on the person's key that cost nothing shows
@@ -355,6 +354,23 @@ was written from, and the skeleton of the service.
   runs, files and keys go, on the site and in Telegram; runs still waiting
   can be cancelled from there, and a deletion that stopped halfway goes on
   with one more press.
+- The library and the viewer, on the site and in the Mini App. Two tabs at
+  the top switch between Create and the library, and on the site the
+  address follows: `/library`, and `/r/<id>` for one run, which opens only
+  for its owner. The library shows every run, newest first and by day, made
+  on the site or in Telegram, with its cover, prompt, model and cost; a run
+  still going shows its state and is read again every 5 seconds until it
+  ends. It filters to images or videos, finds runs by a word of the prompt,
+  and loads the next 30 as the end comes near. The viewer shows the result
+  (each one, for a run that made several), the settings, what it cost, the
+  files it started from, and when and where it was made; the arrow keys go
+  to the next and previous run. Again runs it once more with the photos and
+  clip framy still keeps, at today's price, which shows on the button before
+  the press. Download, Edit the prompt, Continue and, in the Mini App, Share
+  work as on the stage. Delete asks first and says what stays: what the bot
+  already sent to chats, and the free run in the count. A run still going
+  cannot be deleted. In the Mini App, Telegram's back button closes the
+  viewer, then goes back to the composer.
 - Sign-in, in `internal/auth`. On the site it is Telegram Login, Telegram's
   OpenID Connect with PKCE: framy checks the id token's signature, issuer,
   audience, expiry, nonce and state, and takes the account from the `id`

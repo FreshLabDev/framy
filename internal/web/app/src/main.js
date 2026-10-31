@@ -14,6 +14,7 @@ import { closeSheets, onSheets, toast, sheetOpen } from "./ui.js";
 import { signIn, refreshMe, generate, netState } from "./run.js";
 import { mountCutter, openCut } from "./clips.js";
 import { mountPrefs, openPrefs, renderPrefs, prefsOpen, oauthResult, oauthBack } from "./prefs.js";
+import { mountLibrary, mountViewer, tabs, go, route, libMe } from "./library.js";
 
 const B = window.framy;
 
@@ -34,14 +35,20 @@ function account() {
   }
   return S.mini ? null : h("button", { type: "button", class: "signin", onclick: signIn }, ic("send"), t("auth.signin"));
 }
-function renderTop() { $("#top").replaceChildren(h("div", { class: "logo" }, "framy"), h("span", { class: "sp" }), account()); }
+function renderTop() {
+  const top = $("#top");
+  top.replaceChildren(...[h("div", { class: "logo" }, "framy"), tabs(), h("span", { class: "sp" }), account()].filter(Boolean));
+  placeSegs(top);
+}
 
 function mount() {
   const app = $("#app");
   app.dataset.surface = "site";
+  app.dataset.view = S.view;
   app.replaceChildren(
     h("div", { class: "wrap" }, h("header", { class: "top", id: "top" }),
-      h("main", { class: "create", id: "create" }, mountComposer(), h("section", { class: "stage", id: "stage", "aria-label": t("stage.label") }))),
+      h("main", { class: "create", id: "create" }, mountComposer(), h("section", { class: "stage", id: "stage", "aria-label": t("stage.label") })),
+      mountLibrary()),
     h("div", { class: "scrim", id: "scrim", hidden: true, onclick: () => closeSheets() }),
     mountPicker(),
     h("section", { class: "sheet half", id: "tune", hidden: true, "aria-label": t("tune.title"), role: "dialog", "aria-modal": "true" },
@@ -49,6 +56,7 @@ function mount() {
       h("div", { class: "body", id: "tuneBody" })),
     mountCutter(),
     mountPrefs(),
+    mountViewer(),
     h("div", { class: "ask", id: "ask", hidden: true, role: "alertdialog", "aria-modal": "true", "aria-labelledby": "askT" }));
   app.addEventListener("click", (e) => { if (e.target.closest("[data-close]")) closeSheets(); });
   $("#tune").addEventListener("closed", tuneClosed);
@@ -79,9 +87,10 @@ function telegram(tg) {
   const sync = (nx) => {
     if (!nx) return;
     run = nx.act === "create" ? generate : nx.act === "signin" ? signIn : nx.act === "cut" ? openCut : nx.act === "key" ? () => openPrefs(nx.provider) : null;
-    mb.setParams({ text: nx.label, is_active: !!nx.on, is_visible: true, color: "#FFFFFF", text_color: "#00606E" });
+    mb.setParams({ text: nx.label, is_active: !!nx.on, is_visible: S.view === "create", color: "#FFFFFF", text_color: "#00606E" });
   };
   addEventListener("framy:button", (e) => sync(e.detail));
+  addEventListener("framy:view", () => renderBar());
   mb.onClick(() => run?.());
   renderBar();
   // Telegram's own Settings in the menu of the Mini App.
@@ -90,8 +99,11 @@ function telegram(tg) {
     const sb = () => (S.signed ? tg.SettingsButton.show() : tg.SettingsButton.hide());
     sb(); addEventListener("framy:me", sb);
   }
-  onSheets((open) => { if (open) tg.BackButton.show(); else tg.BackButton.hide(); });
-  tg.BackButton.onClick(() => closeSheets());
+  const back = () => (sheetOpen() || S.view === "library" ? tg.BackButton.show() : tg.BackButton.hide());
+  onSheets(back);
+  addEventListener("framy:view", back);
+  back();
+  tg.BackButton.onClick(() => (sheetOpen() ? closeSheets() : go("create")));
   // Telegram could not send a prepared message; closing the picker is no failure.
   tg.onEvent?.("shareMessageFailed", (e) => { if (e?.error !== "USER_DECLINED") toast(t("share.failed")); });
 }
@@ -120,6 +132,9 @@ async function main() {
   renderTop();
   render();
   reveal();
+  // The address names the view: /library, a run of it at /r/<id>, or the composer.
+  addEventListener("framy:view", renderTop);
+  route();
 
   const sp = new URLSearchParams(location.search), si = sp.get("sign_in");
   if (si) { toast(t("auth." + (["cancelled", "expired", "failed"].includes(si) ? si : "failed"))); history.replaceState(null, "", location.pathname + location.hash); }
@@ -131,7 +146,7 @@ async function main() {
   if (back && S.signed && !sp.get("connect")) openPrefs();
   if (authFail) toast(t(authFail.error === "init_data_expired" ? "auth.mini_expired" : "auth.mini_failed"), { ms: 8000 });
 
-  addEventListener("framy:me", () => { renderTop(); render(); if (prefsOpen()) { if (S.signed) renderPrefs(); else closeSheets(true); } });
+  addEventListener("framy:me", () => { renderTop(); render(); libMe(); if (prefsOpen()) { if (S.signed) renderPrefs(); else closeSheets(true); } });
   // Back on the page after a while: the free counts and the keys may have changed elsewhere.
   let hidAt = 0;
   document.addEventListener("visibilitychange", () => {

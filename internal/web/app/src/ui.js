@@ -11,7 +11,8 @@ export const sheetOpen = () => open.length > 0;
 export function openSheet(sel) {
   const el = $(sel), scrim = $("#scrim");
   if (!el.hidden) return;
-  for (const s of open.splice(0)) s.hidden = true;
+  // A sheet another one replaces is closed as any other.
+  for (const s of open.splice(0)) { s.hidden = true; s.dispatchEvent(new Event("closed")); }
   el.hidden = false; scrim.hidden = false;
   open.push(el);
   const wide = isWide();
@@ -69,6 +70,7 @@ export function ask({ title, text, yes, no = t("cancel"), one = false }) {
     box.hidden = false;
     anim(box.firstChild, [{ opacity: 0, transform: "translateY(16px)" }, { opacity: 1, transform: "none" }], { duration: 320 });
     box.querySelector(".yes").focus();
-    box.onkeydown = (e) => { if (e.key === "Escape") end(false); };
+    // Escape answers the question only, not the sheet under it.
+    box.onkeydown = (e) => { if (e.key === "Escape") { e.stopPropagation(); end(false); } };
   });
 }

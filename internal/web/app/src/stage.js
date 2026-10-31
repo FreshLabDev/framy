@@ -74,8 +74,10 @@ function runRatio(run) {
 // A line that counts down: its text is asked again every second.
 const live = (text, cls = "") => { const el = h("small", { class: ("tk " + cls).trim() }, text()); el._text = text; return el; };
 
-// What the stage says about run: the frame's status, the reason under it and the buttons.
-function view(run) {
+// What the stage says about run: the frame's status, the reason under it and
+// the buttons. The library's viewer shows a run with it too: o.res is which
+// result, o.again makes the button that runs it again.
+export function view(run, o = {}) {
   const j = run.job, kind = run.kind;
   // ht is the figure of the halftone in the frame (halftone.js).
   const spin = (label, sub, ht) => ({ status: h("div", { class: "c run" }, h("b", {}, label), sub), ht });
@@ -101,13 +103,13 @@ function view(run) {
   if (st === "running") {
     return { ...spin(t("stage.running"), null, { fig: "loop" }), acts: [h("span", { class: "busy" }, ic("info"), t(kind === "video" ? "cancel.running_video" : "cancel.running"))] };
   }
-  const res = j.results?.[0];
-  if (st === "done" && res) return { done: true, res, acts: doneActs(run, j, res) };
+  const res = j.results?.[o.res || 0];
+  if (st === "done" && res) return { done: true, res, acts: doneActs(run, j, res, o) };
   const f = failure(j);
-  return { fail: true, status: failEl(f.label, f.said), why: [f.text, f.note], zero: f.zero, acts: failActs(run, f), ht: { fig: FAILFIG[f.cls] || "cross", still: true } };
+  return { fail: true, status: failEl(f.label, f.said), why: [f.text, f.note], zero: f.zero, acts: failActs(run, f, o), ht: { fig: FAILFIG[f.cls] || "cross", still: true } };
 }
 // The provider's own words stand small under the label, two lines of them; a press shows the rest.
-const failEl = (label, said) => h("div", { class: "c fail" }, h("b", {}, label),
+export const failEl = (label, said) => h("div", { class: "c fail" }, h("b", {}, label),
   said ? h("small", { class: "said", title: said, onclick: (e) => e.currentTarget.classList.toggle("open") }, said) : null);
 // A price of 0 in the person's currency, from a label of the run's own price.
 const zeroOf = (label) => (label || "$0").replace(/\d[\d.,]*/, "0");
@@ -119,16 +121,17 @@ const REFFIG = { price_changed: "coin", not_free: "coin", free_limit: "clock", f
 
 // The buttons of a run, the first of them the one that helps most.
 // A square one shows only its icon on a phone, so each says its name.
-const B = (icon, label, fn, cls = "") => h("button", { type: "button", class: cls || null, "aria-label": cls.startsWith("sq") ? label : null, onclick: fn }, ic(icon), h("span", { class: "t" }, label));
+export const B = (icon, label, fn, cls = "") => h("button", { type: "button", class: cls || null, "aria-label": cls.startsWith("sq") ? label : null, onclick: fn }, ic(icon), h("span", { class: "t" }, label));
 const againActs = (run) => [B("again", t("act.retry"), () => again(run), "primary"), B("edit", t("act.edit"), () => editPrompt(run))];
 function keyBtn(run) {
   const p = keyFor(run);
   return p ? B("key", t("act.bykey", { provider: PNAME[p] }), () => byKey(run), "primary") : null;
 }
-function failActs(run, f) {
+const againBtn = (run, o, label, cls) => (o.again ? o.again(label, cls) : B("again", label, () => again(run), cls));
+function failActs(run, f, o = {}) {
   const out = [];
   for (const a of f.acts) {
-    if (a === "retry") out.push(B("again", t("act.retry"), () => again(run), out.length ? "" : "primary"));
+    if (a === "retry") out.push(againBtn(run, o, t("act.retry"), out.length ? "" : "primary"));
     else if (a === "edit") out.push(B("edit", t("act.edit"), () => editPrompt(run), out.length ? "" : "primary"));
     else if (a === "bykey") out.push(keyBtn(run));
     else if (a === "topup") out.push(topup(f.provider));
@@ -161,14 +164,14 @@ function refusalActs(run, acts) {
   if (!acts.includes("drop")) out.push(B("edit", t("act.edit"), () => editPrompt(run)));
   return out.filter(Boolean);
 }
-function doneActs(run, j, res) {
+function doneActs(run, j, res, o = {}) {
   const vid = res.content_type?.startsWith("video/");
   let sb = null;
   if (canShare(res)) { sb = B("send", t("act.share"), () => share(res, sb), "sq"); sb.title = t("act.share_tip"); }
-  return [download(j, res),
-    B("again", t("act.again"), () => again(run), "sq2"),
+  return [res.url ? download(j, res, o.res || 0) : null,
+    againBtn(run, o, t("act.again"), "sq2"),
     B("edit", t("act.edit"), () => editPrompt(run), "sq"),
-    vid ? B("next", t("act.continue"), () => continueFrom(run), "sq") : null, sb];
+    vid && res.url ? B("next", t("act.continue"), () => continueFrom(run, res), "sq") : null, sb];
 }
 
 function renderRun(st, run) {
@@ -220,9 +223,9 @@ addEventListener("input", (e) => {
 // takes; res.url only shows the file, and a browser ignores the download
 // attribute on another site's link, so without the first it opens in a tab.
 const EXT = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/avif": "avif", "image/gif": "gif", "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov" };
-function download(j, res) {
+export function download(j, res, i = 0) {
   // The name the server gives the download, for Telegram, which asks for one.
-  const name = `framy-${j.id}-1.${EXT[res.content_type] || (res.content_type || "").split("/")[1] || "bin"}`;
+  const name = `framy-${j.id}-${i + 1}.${EXT[res.content_type] || (res.content_type || "").split("/")[1] || "bin"}`;
   const kids = [ic("down"), h("span", { class: "t" }, t("stage.download"))], tg = S.tg;
   if (res.download && tg?.downloadFile && tg.isVersionAtLeast?.("8.0"))
     return h("button", { type: "button", class: "primary", onclick: () => tg.downloadFile({ url: res.download, file_name: name }) }, ...kids);
@@ -249,13 +252,13 @@ export function runChanged() {
   else if (motion()) { const c = $("#stage .jbox .c"); if (c && (run.phase !== "job" || !isFinal(run.job?.status))) rise([c], { y: 6 }); }
 }
 
-// The countdowns on the stage, once a second while there are any.
+// The countdowns on the stage and in the viewer, once a second while there are any.
 let tickT = 0;
-function ticking() {
-  const any = () => $$("#stage .tk").length > 0;
+export function ticking() {
+  const any = () => $$(".tk").length > 0;
   if (any() && !tickT) tickT = setInterval(() => {
     if (!any()) { clearInterval(tickT); tickT = 0; return; }
-    for (const el of $$("#stage .tk")) { const x = el._text?.(); if (x != null && el.textContent !== x) el.textContent = x; }
+    for (const el of $$(".tk")) { const x = el._text?.(); if (x != null && el.textContent !== x) el.textContent = x; }
   }, 1000);
 }
 

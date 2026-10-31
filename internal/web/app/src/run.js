@@ -19,7 +19,9 @@ export function signIn() {
   // The Mini App signs in with its launch data, which a load trades again.
   if (S.mini) { location.reload(); return; }
   try { sessionStorage.setItem("framy.draft", $("#prompt").value); } catch {}
-  location.assign("/auth/login?return_to=" + encodeURIComponent("/"));
+  // Back where the person was: the composer, the library or one run of it.
+  const back = /^\/(library|r\/\d+)$/.test(location.pathname) ? location.pathname : "/";
+  location.assign("/auth/login?return_to=" + encodeURIComponent(back));
 }
 
 export async function signOut() {
@@ -54,7 +56,7 @@ export async function refreshMe() {
    not, "cancelled" when the person stopped it before. */
 let seq = 0, stopWatch = null;
 const newKey = () => "site-" + crypto.randomUUID();
-const shownOf = (e) => (e && e.kind !== "unknown" ? (e.kind === "up_to" ? e.max_usd : e.usd) : null);
+export const shownOf = (e) => (e && e.kind !== "unknown" ? (e.kind === "up_to" ? e.max_usd : e.usd) : null);
 
 function fromComposer() {
   const m0 = M(), pay = payOf(m0), { m, set } = fastOf(m0, pay, settings(m0, pay)), e = known(runItem(m, pay, set))?.estimate;
@@ -88,6 +90,7 @@ async function start(base, key = newKey()) {
     if (run.cont) body.continues = run.cont.job;
     const job = await api("/api/jobs", { method: "POST", body, headers: { "Idempotency-Key": run.key } });
     run.phase = "job"; run.job = job; run.step = null;
+    told(job);
     follow(run);
     if (run.pay === "free") refreshMe();
   } catch (err) {
@@ -125,10 +128,13 @@ async function prepare(run) {
 }
 function setStep(run, s) { run.step = s; if (S.run === run) runChanged(); }
 
+// Every new state of a job the page hears of, for the library.
+const told = (j) => window.dispatchEvent(new CustomEvent("framy:job", { detail: j }));
 function follow(run) {
   stopWatch = watchJob(run.job.id, (j) => {
     const was = run.job.status;
     run.job = j;
+    told(j);
     if (S.run !== run) return;
     if (isFinal(j.status) && !isFinal(was)) ended(run);
     runChanged();
@@ -170,6 +176,9 @@ export async function cancel(run = S.run) {
   try {
     const j = await api(`/api/jobs/${run.job.id}/cancel`, { method: "POST" });
     run.job = j;
+    told(j);
+    // A run of the library is not the one the stage follows.
+    if (S.run !== run) return;
     if (isFinal(j.status)) { stopWatch?.(); ended(run); }
     runChanged();
   } catch (e) {
@@ -181,19 +190,24 @@ export async function cancel(run = S.run) {
 /* What can be done with what came of a run. */
 
 // The run, back in the composer as it was pressed: model, payment, settings, files and words.
+// A run of the library brings its own files only; a model that left the
+// catalog leaves the composer's.
 function restore(run, pay = run.pay) {
   S.kind = run.kind;
-  S.model[run.kind] = run.model;
-  S.pay[run.model] = pay;
-  if (run.pay !== "free") Object.assign(S.wanted, run.settings);
+  if (C.byId[run.model]) {
+    S.model[run.kind] = run.model;
+    S.pay[run.model] = pay;
+    if (run.pay !== "free") Object.assign(S.wanted, run.settings);
+  }
   const keep = new Set(run.files);
-  S.files = [...run.files, ...S.files.filter((f) => !keep.has(f) && f.kind !== "video")];
+  S.files = run.hist ? [...run.files] : [...run.files, ...S.files.filter((f) => !keep.has(f) && f.kind !== "video")];
   S.cut = run.cut ? { ...run.cut } : null;
   S.cont = run.cont;
   $("#prompt").value = run.prompt;
   try { sessionStorage.setItem("framy.draft", run.prompt); } catch {}
 }
 export function editPrompt(run = S.run) {
+  leave(run);
   act(() => { restore(run); S.showJob = false; render(); });
   const p = $("#prompt");
   p.focus({ preventScroll: true });
@@ -201,11 +215,13 @@ export function editPrompt(run = S.run) {
 }
 // The same run on another model: the run back in the composer, the picker open.
 export function otherModel(run = S.run) {
+  leave(run);
   act(() => { restore(run); S.showJob = false; render(); });
   openPicker();
 }
 export function again(run = S.run) {
-  if (S.busy) return;
+  if (S.busy || !C.byId[run.model]) return;
+  leave(run);
   act(() => { restore(run); render(); });
   start(copyOf(run), run.retryKey || newKey());
 }
@@ -219,6 +235,7 @@ export const keyFor = (run) => { const m = C.byId[run.model]; return m?.offers.m
 export function byKey(run = S.run) {
   const p = keyFor(run), m = C.byId[run.model];
   if (!p || !m) return;
+  leave(run);
   act(() => { restore(run, p); render(); });
   const r = fastOf(m, p, settings(m, p)), e = known(runItem(r.m, p, r.set))?.estimate;
   start(copyOf(run, { model: r.m.id, pay: p, offer: offerOf(r.m, p).id, settings: r.set, shown: shownOf(e), shownLabel: e ? priceText(e) : "", priceLabel: e?.label || "" }));
@@ -263,9 +280,10 @@ export function canContinue(j) {
   const m = C.byId[j.model], p = providerOf(j);
   return !!m && m.traits?.continue && !j.free && (p === "openrouter" || p === "gemini") && keyOk(p);
 }
-export async function continueFrom(run = S.run) {
-  const j = run.job, res = j?.results?.[0];
+export async function continueFrom(run = S.run, res = run.job?.results?.[0]) {
+  const j = run.job;
   if (!res) return;
+  leave(run);
   if (canContinue(j)) {
     const p = providerOf(j);
     act(() => {
@@ -301,5 +319,31 @@ export async function fromLastFrame(src = S.cont) {
     render();
   });
   $("#prompt").focus({ preventScroll: true });
+}
+
+/* Runs of the library: a job of the person's, from GET /api/jobs, as a run
+   the actions above take. Its files are the ones framy keeps, by id. */
+export function runOfJob(j) {
+  const files = (j.inputs || []).filter((f) => f.url).map(fileOfInput), c = files.find((f) => f.kind === "video") || null;
+  return { kind: j.kind, model: j.model, pay: j.free ? "free" : providerOf(j), offer: j.offer, prompt: j.prompt || "", settings: j.settings || {}, files,
+    clip: c, cut: null, cont: null, shown: null, shownLabel: "", priceLabel: j.estimate?.label || "", n: 0, key: "", phase: "job", job: j, why: null, net: "", hist: true };
+}
+function fileOfInput(f) {
+  const meta = { content_type: f.content_type, bytes: f.bytes, width: f.width, height: f.height }, base = { id: "j" + f.id, server: true, name: "", upload: f.id, w: f.width, h: f.height };
+  if (String(f.content_type).startsWith("video/"))
+    return { ...base, kind: "video", url: f.url, poster: f.thumb?.url || "", secs: f.seconds || 0, bytes: f.bytes, token: "", cuts: {}, meta: { ...meta, seconds: f.seconds || 0 } };
+  return { ...base, kind: "image", url: f.thumb?.url || f.url, meta };
+}
+// What a run of the library does before it acts in the composer: the page
+// turns to it (library.js says how).
+let leaveHist = () => {};
+export const onLeave = (fn) => { leaveHist = fn; };
+const leave = (run) => { if (run?.hist) leaveHist(); };
+
+// Deleting a job: DELETE /api/jobs/{id}. A job the stage shows goes from it too.
+export async function removeJob(id) {
+  try { await api(`/api/jobs/${id}`, { method: "DELETE" }); }
+  catch (e) { if (e.status !== 404) throw e; }
+  if (S.run?.job?.id === id) { stopWatch?.(); stopWatch = null; S.run = null; S.showJob = false; runChanged(); renderBar(); }
 }
 export { isFinal };

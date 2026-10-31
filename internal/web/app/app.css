@@ -575,4 +575,120 @@ input.search::placeholder {color: var(--muted);}
 .fatal button {height: 48px; padding: 0 20px; background: var(--ink); color: var(--field); font-weight: 700;}
 
 /* In Telegram the bot's own header and main button stand in for ours. */
-#app[data-surface="mini"] .top .logo, #app[data-surface="mini"] .go {display: none;}
+#app[data-surface="mini"] .top .logo, #app[data-surface="mini"] #go {display: none;}
+
+/* The views: the composer or the library, one at a time; the tabs say which. */
+.tabs {display: flex; gap: var(--gap);}
+.tab {height: 40px; padding: 0 14px; display: flex; align-items: center; gap: 8px; background: var(--deep); color: var(--ink); font-weight: 600; text-decoration: none;}
+@media (max-width: 520px) {
+  .tab {width: 44px; padding: 0; justify-content: center;}
+  .tab .t {display: none;}
+}
+
+/* The library: the runs by day, a grid of covers with the prompt and the model under each. */
+main.library {display: grid; gap: 18px; padding: 6px 0 calc(48px + env(safe-area-inset-bottom, 0px));}
+.libhead {display: flex; flex-wrap: wrap; align-items: center; gap: 12px;}
+.libhead h1 {margin: 0 auto 0 0; font: 700 36px/1 var(--display);}
+.libhead .seg {width: 340px; max-width: 100%;}
+.libhead .seg > button {min-height: 42px;}
+.lsearch {position: relative; display: flex; align-items: center; width: 280px; max-width: 100%;}
+.lsearch > .ic {position: absolute; left: 12px; width: 16px; height: 16px; color: var(--muted); pointer-events: none;}
+.lsearch input {flex: 1; min-width: 0; height: 42px; padding: 0 40px 0 38px; background: var(--deep); font-size: 15px;}
+.lsearch input::placeholder {color: var(--muted);}
+.lsearch input::-webkit-search-cancel-button {display: none;}
+.lsearch .clr {position: absolute; right: 4px; width: 34px; height: 34px; display: grid; place-items: center; color: var(--soft); opacity: 0; pointer-events: none;}
+.lsearch .clr .ic {width: 14px; height: 14px;}
+.lsearch.has .clr {opacity: 1; pointer-events: auto;}
+@media (max-width: 959px) {
+  .libhead .seg, .lsearch {width: 100%;}
+}
+.lday {display: grid; gap: 12px;}
+.lday + .lday {margin-top: 10px;}
+.lday > h2 {margin: 0; font-size: 17px; font-weight: 700;}
+.libmore {min-height: 56px; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--muted); font-size: 14px;}
+.libmore .x {height: 36px; padding: 0 12px; display: inline-flex; align-items: center; gap: 6px; background: var(--deep); color: var(--ink); font-weight: 600;}
+.lspin {width: 14px; height: 14px; border: 2px solid var(--line); border-top-color: var(--ink);}
+.lempty {display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 28px; padding: 32px; background: var(--deep);}
+.lempty .t {display: grid; justify-items: start; gap: 10px;}
+.lempty h2 {margin: 0; font: 700 28px/1.1 var(--display);}
+.lempty p {margin: 0; color: var(--soft); max-width: 46ch;}
+.lempty .go {margin-top: 8px;}
+.lempty.slim {grid-template-columns: minmax(0, 1fr); padding: 20px;}
+.lempty .x {height: 40px; padding: 0 14px; display: inline-flex; align-items: center; gap: 8px; background: var(--field); font-weight: 600;}
+.lframe {position: relative; width: 132px; aspect-ratio: 4 / 3; background: var(--field);}
+.lframe > i, .li .cover.none > i {position: absolute; width: 22px; aspect-ratio: 1; border: 0 solid var(--soft);}
+.lframe > i:nth-of-type(1), .li .cover.none > i:nth-of-type(1) {left: 10px; top: 10px; border-width: 3px 0 0 3px;}
+.lframe > i:nth-of-type(2), .li .cover.none > i:nth-of-type(2) {right: 10px; top: 10px; border-width: 3px 3px 0 0;}
+.lframe > i:nth-of-type(3), .li .cover.none > i:nth-of-type(3) {left: 10px; bottom: 10px; border-width: 0 0 3px 3px;}
+.lframe > i:nth-of-type(4), .li .cover.none > i:nth-of-type(4) {right: 10px; bottom: 10px; border-width: 0 3px 3px 0;}
+@media (max-width: 600px) {
+  .lempty {grid-template-columns: minmax(0, 1fr); padding: 24px 20px; gap: 20px;}
+  .lempty h2 {font-size: 24px;}
+}
+.libgrid {display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 22px 8px;}
+@media (max-width: 359px) {
+  .libgrid {grid-template-columns: repeat(2, minmax(0, 1fr));}
+}
+@media (min-width: 700px) {
+  .libgrid {grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));}
+}
+.li {display: grid; gap: 7px; align-content: start; min-width: 0; color: inherit; text-decoration: none;}
+.li .cover {position: relative; aspect-ratio: 1; background: var(--deep); overflow: hidden; display: grid; place-items: center;}
+.li .cover > img {position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover;}
+.li .cover .c {display: grid; justify-items: center; gap: 6px; padding: 0 16px; text-align: center; color: var(--muted); font-size: 13px;}
+.li .cover .c .ic {width: 26px; height: 26px; color: var(--line);}
+.li .cover .c b {font-size: 14px; font-weight: 600; color: var(--soft); line-height: 1.25;}
+.li .cover.none > i {width: 16%; border-color: var(--line);}
+.li .badge {position: absolute; right: 0; top: 0; padding: 3px 6px; display: flex; gap: 4px; align-items: center; background: var(--deep); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;}
+.li .badge.n {right: auto; left: 0;}
+.li .badge .ic {width: 10px; height: 10px;}
+.li .p {font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+.li .m {display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 13px; color: var(--muted);}
+.li .m > span {white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+.li:focus-visible {outline-offset: 4px;}
+@media (hover: hover) {
+  .tab:not([aria-current="page"]):hover, .libmore .x:hover, .lempty .x:hover {background-color: var(--line);}
+  .li:hover .p {text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px;}
+}
+@media (prefers-reduced-motion: no-preference) {
+  .tab, .libmore .x, .lempty .x {transition: background-color .16s, color .16s;}
+}
+
+/* The viewer: one run on a sheet. On a wide screen the result stands beside what it says. */
+.vnav {display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--soft); font-variant-numeric: tabular-nums; white-space: nowrap;}
+.vnav:empty {display: none;}
+.vnav .ib {width: 38px; min-height: 38px; height: 38px;}
+.vnav .ib:disabled {opacity: .35; cursor: default;}
+#viewer h3 {min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
+.vrun {display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; min-width: 0;}
+@media (min-width: 900px) {
+  .vrun {grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; align-items: start;}
+  .vside {position: sticky; top: 0;}
+}
+.vmain {display: grid; justify-items: center; gap: 10px; min-width: 0;}
+.vbox {position: relative; background: #00262B; overflow: hidden;}
+.vbox > img, .vbox > video {position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain;}
+.vside {display: grid; gap: 12px; align-content: start; min-width: 0;}
+.vpicks {display: flex; flex-wrap: wrap; justify-content: center; gap: 6px;}
+.vpicks button {position: relative; width: 56px; height: 56px; display: grid; place-items: center; background: var(--deep); color: var(--muted); overflow: hidden;}
+.vpicks button img {position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;}
+.vpicks button[aria-pressed="true"] {outline: 2px solid var(--ink); outline-offset: -2px;}
+.vpicks button[aria-pressed="false"] img {opacity: .6;}
+.vfacts {gap: 6px 14px;}
+.vwhen {font-size: 14px; color: var(--muted);}
+.vins {display: grid; gap: 6px;}
+.vins .gl {font-size: 13px; color: var(--muted);}
+.vins .gt {display: flex; flex-wrap: wrap; gap: 6px;}
+.vins .thumb {width: 52px; height: 52px;}
+#viewBody .jprompt > .tx {display: block; overflow: visible; -webkit-line-clamp: none; color: var(--soft);}
+#viewBody .jacts {flex-wrap: wrap;}
+#viewBody .jacts > button:disabled {opacity: .55;}
+#viewBody .jacts > button > .t .usd {font-weight: 600;}
+@media (max-width: 959px) {
+  /* Again says its price: it keeps its words on a phone. */
+  #viewBody .jacts > .sq2 {width: auto; padding: 0 14px;}
+  #viewBody .jacts > .sq2 > .t {display: inline;}
+}
+@media (max-width: 899px) {
+  #viewer .x {padding: 0 12px;}
+}

@@ -111,10 +111,25 @@ func (a *App) CSP() map[string][]string {
 	return out
 }
 
-// Mount registers the page and the assets on the server.
+// Mount registers the page and the assets on the server. The page answers
+// at the addresses of its views too: the library, and one run of it at
+// /r/<job id>, which the page opens for whoever owns that job.
 func (a *App) Mount(s *Server) {
 	s.Handle("GET /{$}", http.HandlerFunc(a.servePage))
+	s.Handle("GET /library", http.HandlerFunc(a.servePage))
+	s.Handle("GET /r/{id}", http.HandlerFunc(a.serveRun))
 	s.Handle("GET /assets/", http.HandlerFunc(a.serveAsset))
+}
+
+// serveRun answers the page for /r/<id> when the id is a job's number, and a
+// 404 for anything else.
+func (a *App) serveRun(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" || len(id) > 18 || strings.TrimLeft(id, "0123456789") != "" || id[0] == '0' {
+		http.NotFound(w, r)
+		return
+	}
+	a.servePage(w, r)
 }
 
 // servePage answers the page. The cache rules make it no-cache, so a browser

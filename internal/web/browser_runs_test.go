@@ -479,13 +479,13 @@ func TestBrowserRunsPhone(t *testing.T) {
 // Telegram is kept in window.__tg for the checks to read, and its main
 // button is pressed by calling window.__tg.main().
 const fakeTelegram = `(() => {
-  const tg = window.__tg = { shared: [], links: [], main: null, settings: null, settingsShown: false, events: {} };
-  const button = { setParams() {}, show() {}, hide() {}, onClick(fn) { tg.main = fn; } };
+  const tg = window.__tg = { shared: [], links: [], main: null, params: null, back: false, backClick: null, settings: null, settingsShown: false, events: {} };
+  const button = { setParams(p) { tg.params = { ...tg.params, ...p }; }, show() {}, hide() {}, onClick(fn) { tg.main = fn; } };
   window.Telegram = { WebApp: {
     version: "8.0", platform: "ios", initData: "",
     isVersionAtLeast: (v) => parseFloat(v) <= 8,
     ready() {}, expand() {}, setHeaderColor() {}, setBackgroundColor() {}, setBottomBarColor() {}, disableVerticalSwipes() {},
-    MainButton: button, BackButton: { show() {}, hide() {}, onClick() {} },
+    MainButton: button, BackButton: { show() { tg.back = true; }, hide() { tg.back = false; }, onClick(fn) { tg.backClick = fn; } },
     onEvent(name, fn) { tg.events[name] = fn; },
     shareMessage(id) { tg.shared.push(id); },
     downloadFile() {}, openLink(u) { tg.links.push(u); },
