@@ -34,6 +34,8 @@ func TestInputsOfTheCatalog(t *testing.T) {
 		}},
 		// A video model with frames only.
 		{"x-ai/grok-imagine-video-1.5", Inputs{Images: &ImageInputs{Max: 1, Frames: 1}}},
+		// One that makes a video only from its start frame.
+		{"tbc/mischief-1", Inputs{Images: &ImageInputs{Min: 1, Max: 1, Frames: 1}}},
 		// The maker takes fewer references than OpenRouter lists.
 		{"bytedance-seed/seedream-5-0-pro", Inputs{Images: &ImageInputs{Max: 10, Refs: 10}}},
 		{"recraft/recraft-v4-styles", Inputs{Images: &ImageInputs{Min: 1, Max: 10, Refs: 10}}},
@@ -98,6 +100,7 @@ func TestInputsCheck(t *testing.T) {
 		{"a clip too big for an editor", editor, Video, Count{Videos: 1, VideoSecs: []float64{8}, VideoBytes: []int64{49 << 20}}, "at most 50.3 MB"},
 		{"a reference to a frame-only model", frameOnly, Video, Count{Images: 1}, "send the image as a frame"},
 		{"a frame to a frame-only model", frameOnly, Video, Count{Images: 1, Frames: 1}, ""},
+		{"no frame to a model that needs one", Inputs{Images: &ImageInputs{Min: 1, Max: 1, Frames: 1}}, Video, Count{}, "at least 1 images"},
 		{"a video to a model without", frameOnly, Video, Count{Videos: 1}, "no videos"},
 		{"a style without its image", styles, Image, Count{}, "at least 1 images"},
 		{"styles", styles, Image, Count{Images: 3}, ""},

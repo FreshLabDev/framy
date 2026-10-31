@@ -209,6 +209,8 @@ Aleph 2's `aspect_ratio` is very probably an outpaint target, so framy sends no 
 
 Riverflow 2 Fast makes no 4K, though OpenRouter lists it; the overlay drops it. Sourceful suggests timeouts up to 5 minutes for Fast and 10 for Pro, and OpenRouter's Images API has a 524 edge timeout.
 
+Riverflow 2.6 Pro came out on 29 October 2026, the only model of the 2.6 lineup so far: no 2.6 Fast on OpenRouter or elsewhere by 31 October, so 2.5 Fast stays current. Beside 2.5 Pro it adds 5:4 and 4:5 and a custom `size` up to 16,384 px a side, which framy does not send, since a size would replace the aspect ratio and the resolution. It takes the same 10 references and fonts as a pass-through, and has the same price table: from $0.13 at 1K, $0.15 at 2K and $0.17 at 4K, the final price known only after the run. Sourceful had published no page of its own on 2.6 by 31 October; this is OpenRouter's listing.
+
 ## SpaceXSI (xAI)
 
 | Capability | At the maker | Through OpenRouter | Why framy wants it |
@@ -235,6 +237,19 @@ No xAI endpoint takes more than one input video: the "many videos" are images. G
 
 Tencent's price table counts 15,000 tokens an image at 1K and 2K and 20,000 at 4K; framy's estimate uses it. References are not billed. The API takes 20 references while Tencent's launch post says 5 work well. The old Hunyuan platform closed on 30 September 2026.
 
+## TBC (mischief 1)
+
+The Biological Computing Co., which writes itself TBC and the model in lower case. mischief 1 came out on 30 October 2026, on fal and OpenRouter: Wan 2.2 with an add-on of under 0.1% of its parameters, which TBC derived from measuring living neurons and says renders five times faster at Wan 2.2's quality. No independent benchmark is published (confirmed by TBC's release and fal's schema).
+
+| Capability | At the maker | Through OpenRouter | Why framy wants it |
+|:--|:--|:--|:--|
+| text to video | no: a start image is required (confirmed, fal) | the generic page allows a prompt alone, but the model is image to video only | the overlay marks `frame_required` |
+| `prompt_processing`: `enhanced`, the default, rewrites the prompt against the image; `original` keeps it | yes (fal) | no (pass-through list empty) | exact prompts; which mode OpenRouter uses is unverified |
+| `image_transform`: `center_crop`, the default, or `resize` | yes (fal) | no | a portrait photo is cropped to 16:9 |
+| reference images, last frame, sound, 9:16 | no | no | |
+
+3 or 5 s at 16 fps on Wan's 4N+1 frame grid, so a clip runs 3.06 or 5.06 s, billed by the seconds asked. 480p (854x480 on OpenRouter, 832x480 at fal) at $0.005 a second and 720p at $0.01, so 5 s of 720p cost $0.05: on 31 October the cheapest video in framy's catalog by a factor of four. TBC's policy service screens the prompt and the image before rendering.
+
 ## Checks that only a paid run settles
 
 The audit priced each; none was run.
@@ -255,3 +270,5 @@ The audit priced each; none was run.
 | Does OpenRouter bill a Seedance reference clip's seconds beside the output's, as BytePlus does? framy counts them, as OpenRouter does for Wan 3.0 and HeyGen | Seedance 2.0 Mini, a 2 s clip, 4 s of 480p out, compared with `usage.cost` | about $0.12 |
 | Does Image Search bring Search Suggestions, and in what shape? (`TestLiveProbes`) | one image on Nano Banana 2.1 at 1K | about $0.034 |
 | Do the Nano Banana models take `media_resolution`, and does the input token count drop? | two runs with one reference, `low` and `high` | about $0.07 |
+| Does mischief 1 rewrite the prompt through OpenRouter, and how is a portrait photo cropped? | 3 s at 480p from a portrait photo | $0.015 |
+| Does Riverflow 2.6 Pro make 5:4, and how far above the $0.13 floor does a run land? | one image at 1K, 5:4 | from $0.13 |

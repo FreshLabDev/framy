@@ -183,6 +183,10 @@ type References struct {
 	// VideoClip and AudioClip bound the attached videos and sounds.
 	VideoClip *Clip `json:"video_clip,omitempty" yaml:"video_clip,omitempty"`
 	AudioClip *Clip `json:"audio_clip,omitempty" yaml:"audio_clip,omitempty"`
+	// FrameRequired: a video model that makes a video only from a start
+	// frame, so a run needs a picture. OpenRouter's frame_images says only
+	// that one is taken.
+	FrameRequired bool `json:"frame_required,omitempty" yaml:"frame_required,omitempty"`
 }
 
 // Clip bounds the attached videos or sounds of one run: the seconds and the

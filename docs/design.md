@@ -171,7 +171,7 @@ To be reviewed after the blind tests.
 | Image | `gpt-image-2.5-sunburst`, `gpt-image-2.5-flare`, Nano Banana 2.1, `gemini-3-pro-image`, `mai-image-2.6`, `flux-3-image`, `seedream-5-0-pro`, `hy-image-v3.5-preview` (20 references), `recraft-v4.1-vector` (SVG), `riverflow-v2.5-pro` (fonts) |
 | Video | Veo 3.1 / Fast / Lite (OpenRouter only, through Vertex), `kling-v3.0-pro`, `seedance-2.0`, `seedance-2.5`, `wan-3.0`, `hailuo-3-max`, `grok-imagine-video-1.5-lite`, `heygen-video-1`, `gemini-omni-1.1-flash`, `flux-video-edit`, `aleph-2` |
 
-The video editors and the upscaler (`runway/aleph-2`, `flux-video-edit`, `flux-video-upscale`) are in the same video list. The overlay marks them `source_video.required`: they run only on an attached video.
+The video editors and the upscaler (`runway/aleph-2`, `flux-video-edit`, `flux-video-upscale`) are in the same video list. The overlay marks them `source_video.required`: they run only on an attached video. A video model that makes a video only from a start frame, as TBC's mischief 1, is marked `references.frame_required`: its offers take at least one picture, and it is dimmed in the list until a photo is attached. OpenRouter's `frame_images` says only that a frame is taken.
 
 ## Composer
 

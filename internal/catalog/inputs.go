@@ -82,6 +82,9 @@ func InputsOf(m Model, of Offer) Inputs {
 		if p, ok := of.Params[framesParam]; ok {
 			img.Frames = len(p.Values)
 		}
+		if refs.FrameRequired && img.Frames > 0 {
+			img.Min = 1
+		}
 	} else if refs.Image > 0 && refs.Image < img.Refs {
 		// The maker takes fewer than OpenRouter lists.
 		img.Refs = refs.Image

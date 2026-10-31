@@ -271,10 +271,17 @@ models:
 
   # Draws text in the fonts it is given. Its reasoning setting is not on
   # OpenRouter's Images API, neither as a parameter nor as a pass-through, so
-  # it has no effort here.
+  # it has no effort here. 2.6 Pro, out on 29 October 2026, adds 5:4 and 4:5
+  # and custom sizes up to 16,384 px a side, which framy does not offer: a
+  # size would replace the aspect ratio and the resolution. Same price table
+  # as 2.5 Pro. Sourceful has no 2.6 Fast; 2.5 Fast stays current.
+  sourceful/riverflow-v2.6-pro:
+    family: {id: riverflow, gen: "2.6", tier: pro, label: 2.6 Pro}
+    featured: true
+    price:
+      from: the price grows with reasoning, resolution and the image's complexity
   sourceful/riverflow-v2.5-pro:
     family: {id: riverflow, gen: "2.5", tier: pro, label: 2.5 Pro}
-    featured: true
     price:
       from: the price grows with reasoning, resolution and the image's complexity
 
@@ -554,6 +561,15 @@ models:
 
   heygen/avatar-iv:
     hide: a talking head from a photo and a voice; the composer takes no voice yet
+
+  # The Biological Computing Co. (TBC), out on 30 October 2026: Wan 2.2 with
+  # an add-on TBC derived from living neurons, which it says renders five
+  # times faster at the same quality. A video only from a start frame, which
+  # is cropped to 16:9; 3 or 5 s at 16 fps, 480p or 720p, no sound, no
+  # reference images. $0.005 a second at 480p and $0.01 at 720p, by the
+  # seconds asked, though the clip runs a frame over (fal's schema).
+  tbc/mischief-1:
+    references: {frame_required: true}
 
   # Variants with nothing to add but their place in the picker.
   x-ai/grok-imagine-video-1.5:

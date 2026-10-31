@@ -956,6 +956,26 @@
     ]
    },
    "expiration_date": null
+  },
+  {
+   "id": "sourceful/riverflow-v2.6-pro",
+   "architecture": {
+    "input_modalities": [
+     "text",
+     "image"
+    ]
+   },
+   "expiration_date": null
+  },
+  {
+   "id": "tbc/mischief-1",
+   "architecture": {
+    "input_modalities": [
+     "text",
+     "image"
+    ]
+   },
+   "expiration_date": null
   }
  ]
 }

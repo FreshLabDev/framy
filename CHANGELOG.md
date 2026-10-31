@@ -510,6 +510,11 @@ was written from, and the skeleton of the service.
   Gemini key takes all 14 aspect ratios. `docs/research/makers.md` lists
   what each maker's own API offers beyond OpenRouter, for the direct ports
   to come.
+- Riverflow 2.6 Pro, out on 29 October, opens the Riverflow family in place
+  of 2.5 Pro, which is now outdated, at the same price. TBC's mischief 1, an
+  image-to-video model out on 30 October, from $0.005 a second, runs only
+  from a photo: `references.frame_required` in the overlay makes a run need a
+  start frame, and the picker dims the model until a photo is attached.
 - Video through OpenRouter (`POST /api/v1/videos`), with start and end
   frames and references sent as presigned links. The provider's job id is
   saved before the first poll, so a retry never pays twice; results are

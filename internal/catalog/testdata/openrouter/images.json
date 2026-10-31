@@ -3168,6 +3168,78 @@
    },
    "supports_streaming": false,
    "endpoints": "/api/v1/images/models/google/gemini-2.5-flash-image/endpoints"
+  },
+  {
+   "id": "sourceful/riverflow-v2.6-pro",
+   "name": "Sourceful: Riverflow V2.6 Pro",
+   "description": "Riverflow 2.6 Pro is the flagship model of Sourceful's Riverflow 2.6 lineup, a unified text-to-image and image-to-image family that treats generation as a production workflow: an integrated reasoning model plans...",
+   "created": 1793289528,
+   "architecture": {
+    "input_modalities": [
+     "text",
+     "image"
+    ],
+    "output_modalities": [
+     "image"
+    ]
+   },
+   "supported_parameters": {
+    "resolution": {
+     "type": "enum",
+     "values": [
+      "1K",
+      "2K",
+      "4K"
+     ]
+    },
+    "aspect_ratio": {
+     "type": "enum",
+     "values": [
+      "1:1",
+      "4:3",
+      "3:4",
+      "3:2",
+      "2:3",
+      "5:4",
+      "4:5",
+      "16:9",
+      "9:16",
+      "21:9",
+      "auto"
+     ]
+    },
+    "output_format": {
+     "type": "enum",
+     "values": [
+      "png",
+      "jpeg",
+      "webp"
+     ]
+    },
+    "background": {
+     "type": "enum",
+     "values": [
+      "auto",
+      "transparent",
+      "opaque"
+     ]
+    },
+    "n": {
+     "type": "range",
+     "min": 1,
+     "max": 1
+    },
+    "input_references": {
+     "type": "range",
+     "min": 0,
+     "max": 10
+    },
+    "size": {
+     "type": "boolean"
+    }
+   },
+   "supports_streaming": false,
+   "endpoints": "/api/v1/images/models/sourceful/riverflow-v2.6-pro/endpoints"
   }
  ]
 }
