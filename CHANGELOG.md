@@ -11,6 +11,12 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+### Fixed
+
+- Switching an empty composer from Image to Video no longer flashes the
+  hint of the row of files at the left edge of the page, one word to a
+  line.
+
 ## v0.1.0-alpha.1 - 2026-10-31
 
 The first alpha of framy: images and videos from AI models on the site

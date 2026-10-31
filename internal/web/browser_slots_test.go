@@ -55,6 +55,9 @@ func TestBrowserVideoSlots(t *testing.T) {
 	s := step(`
 	const out = {};
 	document.querySelectorAll("#kind > button")[1].click();
+	// The empty row of files was hidden: nothing of it leaves on the switch,
+	// least of all its hint squeezed into a column at the page's edge.
+	out.ghost = [...document.querySelectorAll("[aria-hidden='true']")].some((e) => e.textContent.includes("or a clip to change"));
 	await wait(800);
 	out.empty = groups();
 	out.loose = !!document.querySelector("#files .addfile:not(.slotadd)");
@@ -116,8 +119,8 @@ func TestBrowserVideoSlots(t *testing.T) {
 	await wait(800);
 	const r = await press("running", (s) => s.label === "Making it");
 	return { took: r.sub };`))
-	if s["empty"] != "start:0+ ref:0+" || s["loose"] != false {
-		t.Errorf("empty slots: %v, plain add button %v", s["empty"], s["loose"])
+	if s["empty"] != "start:0+ ref:0+" || s["loose"] != false || s["ghost"] != false {
+		t.Errorf("empty slots: %v, plain add button %v, the hidden hint left on the switch %v", s["empty"], s["loose"], s["ghost"])
 	}
 	// One picture in Start runs free on HeyGen: its plan sets frame_images on the server.
 	if s["start"] != "start:1 end:0+" || s["m1"] != "HeyGen Video" || s["pay1"] != "free" {
