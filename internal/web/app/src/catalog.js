@@ -7,7 +7,7 @@ import LOGOS from "assets:logos";
 
 export const C = { models: [], byId: {}, FAM: [], famOf: {}, varOf: {}, plans: {}, free: {}, recommend: {} };
 
-export const PNAME = { openrouter: "OpenRouter", openai: "OpenAI", gemini: "Gemini" };
+export const PNAME = { openrouter: "OpenRouter", openai: "OpenAI", gemini: "AI Studio" };
 
 export function loadCatalog(cat) {
   const models = cat.models || [];

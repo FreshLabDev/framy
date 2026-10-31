@@ -27,10 +27,13 @@ type fakePrefs struct {
 	conns     map[string]map[string]any
 	currency  string
 	language  string
-	puts      int              // keys sent to be checked
-	patches   []map[string]any // PATCH /api/me bodies
-	active    string           // what a deletion finds still going: "queued", "running" or ""
-	storeFail int              // deletions the storage fails first
+	langPick  bool              // the language is the person's own pick
+	defaults  map[string]string // default models by kind
+	deliver   bool              // the site's results go to the DM
+	puts      int               // keys sent to be checked
+	patches   []map[string]any  // PATCH /api/me bodies
+	active    string            // what a deletion finds still going: "queued", "running" or ""
+	storeFail int               // deletions the storage fails first
 	deleted   bool
 }
 
@@ -42,7 +45,8 @@ func (f *fakePrefs) me() map[string]any {
 		}
 	}
 	return map[string]any{
-		"user_id": 1, "name": "Ada", "language": f.language, "currency": f.currency, "currency_chosen": true, "connections": list,
+		"user_id": 1, "name": "Ada", "language": f.language, "language_chosen": f.langPick, "currency": f.currency, "currency_chosen": true, "connections": list,
+		"default_models": f.defaults, "deliver_to_telegram": f.deliver,
 		"free": map[string]any{
 			"images": map[string]any{"used": 5, "limit": 5, "left": 0, "window_seconds": 86400, "frees_at": time.Now().Add(3 * time.Hour).UTC()},
 			"videos": map[string]any{"used": 0, "limit": 1, "left": 1, "window_seconds": 604800},
@@ -58,7 +62,7 @@ func (f *fakePrefs) connect(p, last4, status string) {
 
 func (f *fakePrefs) mount(srv *Server) {
 	f.conns = map[string]map[string]any{}
-	f.currency, f.language = "USD", "en"
+	f.currency, f.language, f.defaults, f.deliver = "USD", "en", map[string]string{}, true
 	signIn := func(w http.ResponseWriter) bool {
 		if f.deleted {
 			writeTestJSON(w, http.StatusUnauthorized, map[string]any{"error": "sign_in"})
@@ -83,10 +87,23 @@ func (f *fakePrefs) mount(srv *Server) {
 			f.currency = c
 		}
 		if l, ok := b["language"].(string); ok {
+			f.langPick = l != ""
 			if l == "" {
 				l = "en"
 			}
 			f.language = l
+		}
+		if d, ok := b["default_models"].(map[string]any); ok {
+			for k, v := range d {
+				if id, _ := v.(string); id == "" {
+					delete(f.defaults, k)
+				} else {
+					f.defaults[k] = id
+				}
+			}
+		}
+		if on, ok := b["deliver_to_telegram"].(bool); ok {
+			f.deliver = on
 		}
 		writeTestJSON(w, http.StatusOK, f.me())
 	})
@@ -209,6 +226,8 @@ async function typeKey(p, v) {
   form(p).requestSubmit();
   await wait(50);
 }
+const defRow = (k) => { const r = document.querySelector('#prefsBody [data-k="p-def-' + k + '"]'); return r ? { title: r.querySelector(".l b").textContent, sub: r.querySelector(".l > span").textContent,
+  btns: [...r.querySelectorAll(":scope > button")].map((b) => b.textContent.trim()) } : null; };
 const kerr = (p) => form(p)?.querySelector(".kerr")?.textContent || "";
 const toastText = () => document.querySelector(".toast")?.textContent || "";
 async function yes() { const b = await until(() => !document.querySelector("#ask").hidden && document.querySelector("#ask .yes")); const q = document.querySelector("#ask h2").textContent; b.click(); await wait(100); return q; }
@@ -233,7 +252,8 @@ func TestBrowserPrefs(t *testing.T) {
 	return { or: rowText("openrouter"), oa: rowText("openai"), ge: rowText("gemini"), groups: [...document.querySelectorAll("#prefs .group")].map((g) => g.textContent),
 	  out: !!btn(sheet(), "Sign out"), store: note("p-store"), free: note("p-free-image") };`)
 	if fmt.Sprint(s["or"]) != "map[bad:false btns:[Connect] sub:Sign in through OpenRouter. Have a key? Paste it]" ||
-		fmt.Sprint(s["oa"]) != "map[bad:false btns:[Key] sub:Paste a key, framy checks it]" || fmt.Sprint(s["groups"]) != "[Model keys Free Currency Language Account]" ||
+		fmt.Sprint(s["oa"]) != "map[bad:false btns:[Key] sub:Paste a key, framy checks it]" ||
+		fmt.Sprint(s["groups"]) != "[Model keys Free Default models Telegram Currency Language Account]" ||
 		s["out"] != true || s["store"] != "Files stored: 1230 MB · pictures, clips and uploads" || !strings.HasPrefix(s["free"].(string), "Pictures0 left of 5 a day · next one in 3 hours") {
 		t.Errorf("settings: %v", s)
 	}
@@ -318,7 +338,7 @@ func TestBrowserPrefs(t *testing.T) {
 	await until(() => form("gemini"));
 	await wait(300);
 	return { r, focused: document.activeElement === form("gemini").querySelector("input") };`)
-	if fmt.Sprint(s["r"]) != "map[bad:true btns:[Paste again Disconnect] sub:Gemini no longer accepts the key]" || s["focused"] != true {
+	if fmt.Sprint(s["r"]) != "map[bad:true btns:[Paste again Disconnect] sub:AI Studio no longer accepts the key]" || s["focused"] != true {
 		t.Errorf("invalid: %v", s)
 	}
 	// Check with no answer counts down on the row.
@@ -328,7 +348,7 @@ func TestBrowserPrefs(t *testing.T) {
 	btn(rowOf("gemini"), "Check").click();
 	await until(() => rowText("gemini").bad);
 	return rowText("gemini");`)
-	if fmt.Sprint(s) != "map[bad:true btns:[In 2 s Disconnect] sub:Gemini did not answer. Try again in 10 seconds.]" {
+	if fmt.Sprint(s) != "map[bad:true btns:[In 2 s Disconnect] sub:AI Studio did not answer. Try again in 10 seconds.]" {
 		t.Errorf("check without an answer: %v", s)
 	}
 
@@ -462,6 +482,135 @@ func TestBrowserPrefsLanguage(t *testing.T) {
 	if s["lang"] != "ru" || s["title"] != "Настройки" || s["sel"] != "ru" || s["prompt"] != "a fox" || s["opts"] != float64(17) {
 		t.Errorf("language: %v", s)
 	}
+	// Automatic again: the language core resolves, and the list says Automatic.
+	prefs(t, ctx, `
+	const sel = sheet().querySelector("select.pick");
+	sel.value = ""; sel.dispatchEvent(new Event("change"));
+	return {};`)
+	time.Sleep(800 * time.Millisecond)
+	ready(t, ctx)
+	s = prefs(t, ctx, `
+	await until(() => !sheet().hidden);
+	return { lang: document.documentElement.lang, sel: sheet().querySelector("select.pick").value, shown: sheet().querySelector("select.pick").selectedOptions[0].textContent };`)
+	if s["lang"] != "en" || s["sel"] != "" || s["shown"] != "Automatic" {
+		t.Errorf("automatic: %v", s)
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserPrefsDefaults checks the rows of what the site keeps for the
+// person: what a key spent through framy, the models the composer opens on,
+// picked in the picker and back in the settings after it, and the switch of
+// the DM.
+func TestBrowserPrefsDefaults(t *testing.T) {
+	f := &fakePrefs{}
+	ts := fakeSite(t, f.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	f.with(func() {
+		f.connect("openai", "ab12", "verified")
+		f.conns["openai"]["spent"] = map[string]any{"usd": 0.42, "amount": 0.42, "currency": "USD", "label": "$0.42"}
+		f.conns["openai"]["spent_30d"] = map[string]any{"usd": 0.1, "amount": 0.1, "currency": "USD", "label": "$0.10"}
+		f.connect("gemini", "cd34", "valid")
+		f.conns["gemini"]["spent"] = map[string]any{"usd": 0, "amount": 0, "currency": "USD", "label": "$0.00"}
+	})
+	ready(t, ctx)
+	const name = `const name = () => [...document.querySelectorAll("#how .mname > span, #dtools .chipbtn .nm > span")].find(vis).textContent;`
+	s := prefs(t, ctx, name+`
+	document.querySelector("#meBtn").click();
+	await until(() => !sheet().hidden && defRow("image"));
+	await wait(500);
+	const tog = sheet().querySelector('[data-k="p-tg"] .tog');
+	return { oa: rowText("openai").sub, ge: rowText("gemini").sub, image: defRow("image"), video: defRow("video"), composer: name(),
+	  tg: note("p-tg"), on: tog.getAttribute("aria-checked"), lang: sheet().querySelector("select.pick").value };`)
+	if s["oa"] != "Key …ab12 · worksThrough framy: $0.42 in all, $0.10 in 30 days" || s["ge"] != "Key …cd34 · accepted" ||
+		fmt.Sprint(s["image"]) != "map[btns:[Change] sub:MAI-Image 2.6 Flash, framy's choice title:Pictures]" ||
+		fmt.Sprint(s["video"]) != "map[btns:[Change] sub:HeyGen Video, framy's choice title:Videos]" || s["composer"] != "MAI-Image 2.6 Flash" ||
+		s["tg"] != "Send results to the chatWhat you make on the site also comes to your chat with framy" || s["on"] != "true" || s["lang"] != "" {
+		t.Errorf("rows: %v", s)
+	}
+
+	// Change: the picker of pictures, without the settings under it; a pick
+	// comes back to them, and the composer is on it too.
+	s = prefs(t, ctx, name+`
+	btn(document.querySelector('#prefsBody [data-k="p-def-image"]'), "Change").click();
+	await until(() => vis(document.querySelector("#picker")) && document.querySelector("#pkrows .frow"));
+	await wait(500);
+	const title = document.querySelector("#pickTitle").textContent, under = !sheet().hidden;
+	// The makers' marks are in the page from the start, never a file still loading.
+	const marks = [...document.querySelectorAll("#picker .lg > i")].map((i) => i.style.getPropertyValue("--m"));
+	const inline = marks.length > 10 && marks.every((m) => m.startsWith('url("data:image/svg+xml;base64,'));
+	const svgs = performance.getEntriesByType("resource").filter((r) => r.name.endsWith(".svg")).length;
+	const row = [...document.querySelectorAll("#pkrows .frow")].find((r) => r.getAttribute("aria-current") !== "true" && !r.classList.contains("dim"));
+	const fam = row.querySelector(".nm").textContent;
+	row.querySelector(".fhit").click();
+	await until(() => !sheet().hidden && defRow("image").btns.length === 2);
+	await wait(500);
+	const image = defRow("image");
+	btn(sheet(), "Done").click();
+	await until(() => sheet().hidden);
+	await wait(400);
+	return { title, under, fam, image, inline, svgs, picker: document.querySelector("#picker").hidden, composer: name() };`)
+	var picked string
+	f.with(func() {
+		if len(f.patches) == 1 {
+			picked, _ = f.patches[0]["default_models"].(map[string]any)["image"].(string)
+		}
+		if picked == "" || picked == "microsoft/mai-image-2.6-flash" || f.defaults["image"] != picked {
+			t.Errorf("default sent: %v, kept %v", f.patches, f.defaults)
+		}
+	})
+	image, _ := s["image"].(map[string]any)
+	if s["title"] != "Default model for pictures" || s["under"] != false || s["picker"] != true || s["inline"] != true || s["svgs"] != float64(0) ||
+		fmt.Sprint(image["btns"]) != "[Reset Change]" || !strings.HasPrefix(fmt.Sprint(image["sub"]), fmt.Sprint(s["fam"])) ||
+		strings.Contains(fmt.Sprint(image["sub"]), "framy's choice") || s["composer"] != image["sub"] {
+		t.Errorf("pick a default: %v (sent %q)", s, picked)
+	}
+
+	// Escape in the picker goes back to the settings and keeps the model;
+	// Reset goes back to framy's choice; the switch turns the DM off.
+	s = prefs(t, ctx, `
+	document.querySelector("#meBtn").click();
+	await until(() => !sheet().hidden && defRow("image"));
+	await wait(400);
+	btn(document.querySelector('#prefsBody [data-k="p-def-video"]'), "Change").click();
+	await until(() => vis(document.querySelector("#picker")));
+	await wait(400);
+	const title = document.querySelector("#pickTitle").textContent;
+	document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+	await until(() => !sheet().hidden);
+	await wait(400);
+	const back = { picker: document.querySelector("#picker").hidden, scrim: document.querySelector("#scrim").hidden, video: defRow("video").sub };
+	btn(document.querySelector('#prefsBody [data-k="p-def-image"]'), "Reset").click();
+	await until(() => defRow("image").btns.length === 1);
+	await wait(300);
+	sheet().querySelector('[data-k="p-tg"] .tog').click();
+	await until(() => sheet().querySelector('[data-k="p-tg"] .tog').getAttribute("aria-checked") === "false");
+	await wait(300);
+	return { title, back, image: defRow("image").sub, tg: note("p-tg") };`)
+	if s["title"] != "Default model for videos" || fmt.Sprint(s["back"]) != "map[picker:true scrim:false video:HeyGen Video, framy's choice]" ||
+		s["image"] != "MAI-Image 2.6 Flash, framy's choice" || s["tg"] != "Send results to the chatWhat you make on the site stays on the site" {
+		t.Errorf("back, reset, switch: %v", s)
+	}
+	f.with(func() {
+		if len(f.patches) != 3 || fmt.Sprint(f.patches[1]) != "map[default_models:map[image:]]" || fmt.Sprint(f.patches[2]) != "map[deliver_to_telegram:false]" ||
+			len(f.defaults) != 0 || f.deliver {
+			t.Errorf("sent: %v, kept %v, deliver %v", f.patches, f.defaults, f.deliver)
+		}
+	})
+
+	// The next visit opens on the person's models.
+	f.with(func() { f.defaults["video"] = "google/veo-3.1" })
+	prefs(t, ctx, `setTimeout(() => location.reload(), 50); return {};`)
+	time.Sleep(800 * time.Millisecond)
+	ready(t, ctx)
+	s = prefs(t, ctx, name+`
+	const image = name();
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(700);
+	return { image, video: name() };`)
+	if s["image"] != "MAI-Image 2.6 Flash" || s["video"] != "Veo 3.1" {
+		t.Errorf("opens on: %v", s)
+	}
 	noErrors(t, ctx)
 }
 
@@ -471,6 +620,8 @@ func TestBrowserPrefsLanguage(t *testing.T) {
 func TestBrowserPrefsPhone(t *testing.T) {
 	f := &fakePrefs{}
 	ts := fakeSite(t, f.mount)
+	// A default model of the person's: its row has two buttons.
+	f.with(func() { f.defaults["image"] = "bytedance-seed/seedream-5-0-pro" })
 	for _, size := range [][2]int64{{320, 568}, {375, 812}} {
 		ctx := browser(t, ts.URL, size[0], size[1], true)
 		s := prefs(t, ctx, `

@@ -14,6 +14,7 @@ package main
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -67,7 +68,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	logos, err := copyDir(o, filepath.Join(src, "logos"), ".svg")
+	logos, err := inlineDir(filepath.Join(src, "logos"), ".svg", "image/svg+xml")
 	if err != nil {
 		return err
 	}
@@ -176,6 +177,29 @@ func copyDir(o *out, dir, ext string) (map[string]string, error) {
 			return nil, err
 		}
 		urls[strings.TrimSuffix(e.Name(), ext)] = o.put(e.Name(), b)
+	}
+	return urls, nil
+}
+
+// inlineDir returns the files of dir with ext as data URLs, by name. The
+// makers' marks are CSS masks: a mask whose file is still loading paints
+// nothing, so a mark fetched apart blinks in late or stays empty in a row
+// drawn while it loads. All of them together are about 20 KB.
+func inlineDir(dir, ext, mime string) (map[string]string, error) {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	urls := map[string]string{}
+	for _, e := range ents {
+		if e.IsDir() || filepath.Ext(e.Name()) != ext {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			return nil, err
+		}
+		urls[strings.TrimSuffix(e.Name(), ext)] = "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(b)
 	}
 	return urls, nil
 }

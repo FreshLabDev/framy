@@ -11,13 +11,20 @@ import { openSheet, closeSheets } from "./ui.js";
 import { act, render, setModel } from "./composer.js";
 
 let query = "";
+// Opened from the settings, the picker chooses the model a kind opens on,
+// not the composer's: FOR is {kind, cur, pick, back}. What the composer holds
+// does not rule a model out there.
+let FOR = null;
+const K = () => FOR?.kind || S.kind;
+const fit = (m) => (FOR ? "" : misfit(m));
+const famFit = (f) => (FOR ? "" : famMisfit(f));
 const ROWS = (o = {}) => ({ dur: o.dur || 440, ease: EASE,
   enter: (el, i) => anim(el, [{ opacity: 0, transform: "translateY(10px)" }, { opacity: 1, transform: "none" }], { duration: 360, delay: 80 + Math.min(i, 12) * (o.step ?? 30), fill: "backwards" }),
   leave: (g) => anim(g, [{ opacity: 1, transform: "none" }, { opacity: 0, transform: "scale(.97)" }], { duration: 180, easing: OUT, fill: "forwards" }) });
 const listUpdate = (fn, o) => morph($("#pkrows"), fn, ROWS(o));
 
 export function mountPicker() {
-  return h("section", { class: "sheet wide", id: "picker", hidden: true, "aria-label": t("pick.label"), role: "dialog", "aria-modal": "true" },
+  return h("section", { class: "sheet wide", id: "picker", hidden: true, "aria-label": t("pick.label"), role: "dialog", "aria-modal": "true", onclosed: () => { FOR = null; } },
     h("header", {}, h("h3", { id: "pickTitle" }), h("button", { type: "button", class: "x", "data-close": "" }, t("pick.done"))),
     h("div", { class: "body" }, h("div", { class: "pk" },
       h("div", { class: "pkl" },
@@ -46,14 +53,17 @@ export function prefetchPicker() {
   idle(step);
 }
 
-export function openPicker() {
+// o is the settings' choice of a default; the composer's buttons pass their click.
+export function openPicker(o) {
+  o = o?.pick ? o : null;
+  FOR = o;
   S.info = null; S.hover = null; query = "";
   $("#pksearch").value = "";
-  $("#pickTitle").textContent = t(S.kind === "video" ? "pick.video" : "pick.image");
+  $("#pickTitle").textContent = t(o ? (o.kind === "video" ? "prefs.def_pick_video" : "prefs.def_pick_image") : S.kind === "video" ? "pick.video" : "pick.image");
   // Built while hidden, so the sheet is laid out once, with its new rows.
   renderSort(false);
   renderPicker({ fresh: true });
-  openSheet("#picker");
+  openSheet("#picker", { back: o?.back });
   $("#picker .body").scrollTop = 0;
   placeSegs($("#picker"));
 }
@@ -71,19 +81,20 @@ const hoverFam = (f, wide, vid) => (e) => {
 };
 let found = [];
 function clearSearch() { listUpdate(() => { query = ""; $("#pksearch").value = ""; renderPicker(); }, { dur: 300, step: 15 }); $("#pksearch").focus(); }
-const focusId = () => S.model[S.kind];
+const focusId = () => (FOR ? FOR.cur : S.model[S.kind]);
 const lowUsd = (f) => (f.cur.some((v) => freePlan(v.m)) ? 0 : Math.min(...f.cur.map((v) => { const e = lowest(bestItems(v.m)); return !e || e.kind === "unknown" ? Infinity : e.usd; })));
 
 function renderPicker(o = {}) {
   const box = $("#pkrows"), wide = isWide(), ql = query.trim().toLowerCase();
-  const fams = C.FAM.filter((f) => f.kind === S.kind && (!ql || famText(f).includes(ql)));
+  const fams = C.FAM.filter((f) => f.kind === K() && (!ql || famText(f).includes(ql)));
   found = [];
   const rows = [], ghead = (k, icon, title, cnt) => h("div", { class: "ghead", "data-k": "g-" + k }, icon, title, cnt ? h("span", { class: "cnt" }, cnt) : null);
   const count = (fs) => fmtNum(fs.reduce((a, f) => a + f.cur.length, 0));
   if (!ql) {
-    const recKey = S.kind === "image" ? (images().length > 5 ? "many_photos" : "image") : "video";
+    const many = !FOR && S.kind === "image" && images().length > 5;
+    const recKey = many ? "many_photos" : K();
     const rec = (C.recommend[recKey] || []).map((id) => C.byId[id]).filter((m) => m && C.famOf[m.id]);
-    if (rec.length) rows.push(ghead("rec", ic("spark"), images().length > 5 && S.kind === "image" ? t("pick.rec_photos", { n: images().length }) : t("pick.rec")),
+    if (rec.length) rows.push(ghead("rec", ic("spark"), many ? t("pick.rec_photos", { n: images().length }) : t("pick.rec")),
       h("div", { class: "recs", "data-k": "recs" }, rec.map((m) => recCard(m, wide))));
   }
   if (S.sort === "price") {
@@ -114,14 +125,14 @@ function famPrice(f) {
 }
 const priceTextShort = (e) => (e.kind === "from" ? t("price.from", { p: e.label }) : e.kind === "about" ? t("price.about", { p: e.label }) : e.kind === "up_to" ? t("price.up_to", { p: e.label }) : e.label);
 function recCard(m, wide) {
-  const f = C.famOf[m.id], why = misfit(m), plan = freePlan(m);
+  const f = C.famOf[m.id], why = fit(m), plan = freePlan(m);
   const reason = why || [plan ? freePer(m.kind) : "", ...facts(m, 4).filter((x) => x[0] !== "ticket").map((x) => x[1])].filter(Boolean).slice(0, 2).join(" · ");
   return h("button", { type: "button", class: "rcard" + (why ? " dim" : ""), "aria-current": String(focusId() === m.id), onclick: (e) => choose(C.varOf[m.id], e.currentTarget), onpointermove: hoverFam(f, wide, m.id) },
     lg(famLogo(f), f.maker), h("span", { class: "nm" }, vname(m)), h("span", { class: "why" }, reason), h("span", { class: "pr" }, plan ? t("pay.free") : minEl(bestItems(m))));
 }
 // A family is one row: the whole row picks it, the variants are pills inside it.
 function famRow(f, wide) {
-  const cur = focusId(), mine = C.famOf[cur] === f, why = famMisfit(f);
+  const cur = focusId(), mine = C.famOf[cur] === f, why = famFit(f);
   const pick = C.varOf[mine ? cur : S.lastVar[f.idx]] || f.def;
   const sub = why ? [ic("warn"), why] : facts(f.cur.map((v) => v.m), 3).filter((x) => x[0] !== "ticket").map((x) => x[1]).join(" · ");
   const olds = S.sort === "price" || query.trim() ? f.old : [];
@@ -140,7 +151,7 @@ function renderDetail() {
   if (!isWide()) { box.replaceChildren(); detFam = null; return; }
   const cur = C.famOf[focusId()], q = query.trim() && found.length && !found.includes(cur) ? found[0] : cur;
   const f = (S.hover != null ? C.FAM[S.hover] : null) || q;
-  const ok = f && f.kind === S.kind, prev = detFam;
+  const ok = f && f.kind === K(), prev = detFam;
   detFam = ok ? f.idx : null;
   box.replaceChildren(ok ? detail(f) : "");
   if (ok && prev !== null && prev !== f.idx) anim(box.firstChild, [{ opacity: 0.4 }, { opacity: 1 }], { duration: 160 });
@@ -149,6 +160,7 @@ function renderDetail() {
 
 // Choosing a model: its mark flies from the row into the composer while the sheet slides away.
 function choose(v, from) {
+  if (FOR) { FOR.pick(v.id); return; }
   const src = from?.querySelector(".lg"), r0 = src?.getBoundingClientRect();
   const m0 = M(), same = m0.id === v.id, old = vname(m0);
   act(() => { setModel(v.id); render(); });
@@ -194,7 +206,7 @@ function detail(f) {
   rows.push(["key", t("det.keys"), m.offers.map((o) => h("span", { class: "prov" }, provMark(o.provider), PNAME[o.provider] || o.provider))]);
   const sets = [...new Set(m.offers.flatMap(fieldsOf))];
   if (sets.length) rows.push(["sliders", t("det.settings"), sets.map(label).join(", ")]);
-  const isCur = cur === m.id, why = misfit(m), many = f.vars.length > 1;
+  const isCur = cur === m.id, why = fit(m), many = f.vars.length > 1;
   const sub = [f.maker, f.cur.length > 1 ? t("pick.versions", { n: f.cur.length }) : ""].filter(Boolean).join(" · ");
   return h("div", { class: "det" },
     h("div", { class: "dhead" }, lg(famLogo(f), f.maker, "l"), h("div", {}, h("h4", {}, f.title), h("div", { class: "mk" }, sub))),

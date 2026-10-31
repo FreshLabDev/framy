@@ -23,11 +23,19 @@ export const images = () => S.files.filter((f) => f.kind === "image");
 export const clips = () => S.files.filter((f) => f.kind === "video");
 export const clip = () => clips()[0];
 
+// framy's own choice for a kind: the first recommended model the picker shows.
+export function autoModel(k) {
+  const rec = (C.recommend[k] || []).find((id) => C.byId[id] && C.famOf[id]);
+  return rec || C.models.find((m) => m.kind === k && C.famOf[m.id])?.id || "";
+}
 export function initModels() {
-  for (const k of ["image", "video"]) {
-    const rec = (C.recommend[k] || []).find((id) => C.byId[id] && C.famOf[id]);
-    S.model[k] = rec || C.models.find((m) => m.kind === k && C.famOf[m.id])?.id || "";
-  }
+  for (const k of ["image", "video"]) S.model[k] = autoModel(k);
+}
+// The person's default models, where they are still in the catalog; one that
+// left it gives way to framy's choice.
+export const ownDefault = (k) => { const id = S.me?.default_models?.[k]; return id && C.byId[id] && C.famOf[id] ? id : ""; };
+export function useDefaults() {
+  for (const k of ["image", "video"]) { const id = ownDefault(k); if (id) S.model[k] = id; }
 }
 
 /* The free allowance, from /api/me. */

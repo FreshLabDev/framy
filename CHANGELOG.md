@@ -336,7 +336,9 @@ was written from, and the skeleton of the service.
   the top and, in the Mini App, Telegram's Settings button. OpenRouter
   connects through its own sign-in; in the Mini App that opens in the
   browser, and the sheet reads the account again when the person comes back.
-  A key for OpenRouter, OpenAI or Gemini can be pasted instead: the field
+  A key for OpenRouter, OpenAI or AI Studio (Google's, for Gemini; the site
+  names the provider AI Studio, where the key is made) can be pasted
+  instead: the field
   refuses what cannot be a key before anything is sent, framy checks the key
   with the provider, and the sheet says what the provider answered (a wrong
   or revoked key, a key that may not list the models, or no answer, with a
@@ -346,11 +348,16 @@ was written from, and the skeleton of the service.
   provider no longer accepts it), with Check, Paste again and Disconnect;
   after a disconnect the sheet links to the provider's page to revoke the key
   there. The composer's step that needs a key, and a run refused for a
-  missing or dead key, open that key's form. The sheet also shows the free
-  runs left with when the next one comes, the currency prices show in (USD,
-  UAH, EUR, PLN or BYN at the day's rate), framy's language, shared with the
-  family's bots (the page reloads in it and keeps the prompt), how many files
-  are stored, and sign-out. Deleting the account asks first and says that
+  missing or dead key, open that key's form. Under a key, what framy's runs
+  on it cost by the provider's bill, in all and over 30 days. The sheet also
+  shows the free runs left with when the next one comes; the models Create
+  opens on, for pictures and for videos, chosen in the model picker, which
+  goes back to the settings, or left to framy's choice; whether the site's
+  results also come to the chat with framy; the currency prices show in (USD,
+  UAH, EUR, PLN or BYN at the day's rate); framy's language, shared with the
+  family's bots, Automatic until the person picks one in framy (the page
+  reloads in it and keeps the prompt); how many files are stored; and
+  sign-out. Deleting the account asks first and says that
   runs, files and keys go, on the site and in Telegram; runs still waiting
   can be cancelled from there, and a deletion that stopped halfway goes on
   with one more press.

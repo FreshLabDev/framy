@@ -30,7 +30,8 @@ careful with people's keys, and production-minded.
   stream, the composer and the model picker, the result on the stage, the
   reasons a run failed or was refused with what helps, retries, cancelling,
   clips with the editor of their part, Continue, the settings with the
-  keys of each provider, and the library with the viewer of a run at
+  keys of each provider, the default models and the DM switch, and the
+  library with the viewer of a run at
   `/r/<id>`. The editor of a result is still to come.
 - The service will be one Go binary (module `github.com/FreshLabDev/framy`):
   the HTTP server (site, Mini App, API, SSE, OAuth callbacks, provider
@@ -146,9 +147,10 @@ screen, a command or a table, check how the siblings do it.
   grid of pictures.
 - Plain HTML, CSS and JavaScript modules, with no framework. `go generate
   ./internal/web` bundles them with esbuild, which runs as a Go library (no
-  Node anywhere), into `internal/web/dist`: one minified script, one
-  stylesheet, the fonts, the makers' marks and the lines of each language,
-  every file named by its content and cached for a year. `dist/` is
+  Node anywhere), into `internal/web/dist`: one minified script with the
+  makers' marks inside it (a CSS mask whose file is still loading paints
+  nothing), one stylesheet, the fonts and the lines of each language, every
+  file named by its content and cached for a year. `dist/` is
   committed, and CI fails when it differs from what the sources give. The
   page inlines only its skeleton style and boot script, which the CSP allows
   by their hashes (`web.App.CSP`); the boot script asks for the catalog and

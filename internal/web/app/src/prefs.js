@@ -1,11 +1,12 @@
-// The settings: the person's keys, what is left free, the currency, the
-// language and the account. Each change goes to the server first; the sheet
-// shows what it said.
+// The settings: the person's keys, what is left free, the default models,
+// the DM, the currency, the language and the account. Each change goes to
+// the server first; the sheet shows what it said.
 import { $, $$, h, ic } from "./dom.js";
 import { t, lang, fmtNum, fmtIn, fmtTime } from "./i18n.js";
 import { api } from "./api.js";
-import { S, connection } from "./state.js";
-import { PNAME, provMark } from "./catalog.js";
+import { S, connection, autoModel, ownDefault } from "./state.js";
+import { C, PNAME, provMark, vname } from "./catalog.js";
+import { openPicker } from "./picker.js";
 import { clearPrices } from "./price.js";
 import { openSheet, closeSheets, toast, ask } from "./ui.js";
 import { anim, morph, opt, placeSegs } from "./motion.js";
@@ -231,7 +232,9 @@ function keyRows(p) {
     const bad = c.status === "invalid" || k.err === "key_unreadable", problem = PROBLEM.has(c.status) ? t("key." + c.status, { provider: P }) : "";
     const sub = k.edit ? t("key.last4", { last4: c.last4 }) : k.err ? warn(keyErr(p, k.err)) : problem ? warn(problem)
       : t(c.status === "verified" ? "key.works" : "key.accepted", { last4: c.last4 });
-    r = row(sub,
+    // What framy's runs on the key cost by the provider's bill, since it was saved.
+    const spent = !k.edit && c.spent?.usd > 0 ? h("small", { class: "spent" }, t("key.spent", { all: c.spent.label, month: c.spent_30d?.label || "" })) : null;
+    r = row(spent ? [sub, spent] : sub,
       bad ? (k.edit ? null : h("button", { type: "button", class: "primary", onclick: () => edit(p) }, t("key.repaste"))) : waitBtn(p, t("key.check"), { onclick: () => recheck(p) }),
       h("button", { type: "button", disabled: !!k.busy, onclick: () => disconnect(p) }, t("key.disconnect")));
     if (problem || (k.err && !k.edit)) r.classList.add("bad");
@@ -275,6 +278,51 @@ function freeRow(kind) {
   if (S.closed[kind] > Date.now()) sub += " · " + t("prefs.closed_until", { time: fmtTime(S.closed[kind]) });
   else if (!m.left && m.frees_at) sub += " · " + t("prefs.next", { when: fmtIn(Date.parse(m.frees_at)) });
   return sheetRow("free-" + kind, ic(kind), t(kind === "video" ? "prefs.free_videos" : "prefs.free_images"), sub);
+}
+
+/* The models the composer opens on, and the DM: PATCH /api/me. */
+function defRow(kind) {
+  const own = ownDefault(kind), m = C.byId[own || autoModel(kind)];
+  if (!m) return null;
+  const choose = () => openPicker({ kind, cur: m.id, pick: (id) => setDefault(kind, id), back: () => (S.signed ? openPrefs() : closeSheets(true)) });
+  return sheetRow("def-" + kind, ic(kind), t(kind === "video" ? "prefs.def_video" : "prefs.def_image"), own ? vname(m) : t("prefs.def_auto", { name: vname(m) }),
+    S.me.default_models?.[kind] ? h("button", { type: "button", onclick: () => setDefault(kind, "") }, t("prefs.def_reset")) : null,
+    h("button", { type: "button", onclick: choose }, t("prefs.def_change")));
+}
+// A pick also moves the composer to it now; going back to framy's choice
+// leaves the composer as it is.
+async function setDefault(kind, id) {
+  if (!S.me) return;
+  const was = S.me.default_models || {};
+  S.me.default_models = { ...was, [kind]: id || undefined };
+  if (id && C.byId[id]) { S.model[kind] = id; const f = C.famOf[id]; if (f) S.lastVar[f.idx] = id; }
+  if (prefsOpen()) update(); else openPrefs();
+  try { S.me = await api("/api/me", { method: "PATCH", body: { default_models: { [kind]: id } } }); }
+  catch (e) {
+    if (e.code === "sign_in") return lost();
+    S.me.default_models = was;
+    toast(e.code === "network" ? t("err.network") : t("prefs.not_saved"));
+  }
+  meChanged();
+  update();
+}
+function deliverRow() {
+  const on = S.me.deliver_to_telegram !== false;
+  return sheetRow("tg", ic("send"), t("prefs.deliver"), t(on ? "prefs.deliver_on" : "prefs.deliver_off"),
+    h("button", { type: "button", class: "tog", role: "switch", "aria-checked": String(on), "aria-label": t("prefs.deliver"), onclick: () => setDeliver(!on) },
+      h("span", { class: "knob" })));
+}
+async function setDeliver(on) {
+  if (!S.me) return;
+  S.me.deliver_to_telegram = on;
+  update();
+  try { S.me = await api("/api/me", { method: "PATCH", body: { deliver_to_telegram: on } }); }
+  catch (e) {
+    if (e.code === "sign_in") return lost();
+    S.me.deliver_to_telegram = !on;
+    toast(e.code === "network" ? t("err.network") : t("prefs.not_saved"));
+  }
+  update();
 }
 
 /* Currency and language: PATCH /api/me. */
@@ -365,16 +413,22 @@ export function renderPrefs() {
   // A form being typed in keeps its focus across a redraw.
   const typing = document.activeElement?.closest?.("#prefsBody .kform")?.dataset.k;
   const st = S.me.storage;
-  const lang0 = S.me.language || lang;
+  // Automatic until the person picks one in framy, whatever the other bots of the family hold.
+  const lang0 = S.me.language_chosen ? S.me.language || lang : "";
   const sel = h("select", { class: "pick", "aria-label": t("prefs.lang_row"), disabled: S.busy, onchange: (e) => setLanguage(e.target.value) },
     [["", t("prefs.lang_auto")], ...LANGS].map(([c, n]) => h("option", { value: c, selected: c === lang0, lang: c || null }, n)));
   const accSub = ACC === "busy" ? t("prefs.deleting") : ACC === "fail" ? warn(t("prefs.delete_failed")) : t("prefs.delete_sub");
   const free = [freeRow("image"), freeRow("video")].filter(Boolean);
+  const defs = [defRow("image"), defRow("video")].filter(Boolean);
   body.replaceChildren(
     h("div", { class: "group", "data-k": "g-keys" }, t("prefs.keys")),
     ...PROVIDERS.flatMap(keyRows),
     h("p", { class: "note", "data-k": "n-keys" }, t("prefs.keys_note")),
     free.length ? h("div", { class: "group", "data-k": "g-free" }, t("prefs.free")) : null, ...free,
+    defs.length ? h("div", { class: "group", "data-k": "g-def" }, t("prefs.models")) : null, ...defs,
+    defs.length ? h("p", { class: "note", "data-k": "n-def" }, t("prefs.models_note")) : null,
+    h("div", { class: "group", "data-k": "g-tg" }, t("prefs.telegram")),
+    deliverRow(),
     h("div", { class: "group", "data-k": "g-cur" }, t("prefs.currency")),
     h("div", { class: "seg wrapping cur", role: "radiogroup", "aria-label": t("prefs.currency"), "data-seg": "cur", "data-dur": 360, "data-k": "s-cur" },
       CURRENCIES.map((c) => opt({ key: "cur", v: c, on: S.me.currency === c, pick: () => setCurrency(c) }, c, h("small", {}, curName(c))))),

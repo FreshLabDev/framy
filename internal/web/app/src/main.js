@@ -6,7 +6,7 @@ import { anim, placeSegs } from "./motion.js";
 import { setTexts, t, lang, warmFormats } from "./i18n.js";
 import { session, setToken } from "./api.js";
 import { loadCatalog } from "./catalog.js";
-import { S, initModels } from "./state.js";
+import { S, initModels, useDefaults } from "./state.js";
 import { mountComposer, wireComposer, render, renderBar, tuneClosed } from "./composer.js";
 import { mountPicker, prefetchPicker } from "./picker.js";
 import { renderStage } from "./stage.js";
@@ -122,6 +122,7 @@ async function main() {
   try { const a = await B.auth; if (a) setToken(a); } catch (e) { authFail = e; }
   try { S.me = authFail ? null : await B.me; } catch { S.me = null; }
   S.signed = !!S.me;
+  useDefaults();
   // The person's own language, where it is another than the one guessed for the first paint.
   const want = S.me?.language;
   if (want && want !== B.lang && B.langs[want]) {

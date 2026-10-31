@@ -528,6 +528,8 @@ input.search::placeholder {color: var(--muted);}
 .srow.bad {box-shadow: inset 3px 0 0 var(--soft);}
 .srow .l button.link-t {display: inline; height: auto; padding: 0; background: none; font-size: inherit;}
 .srow select.pick {flex: none; height: 40px; max-width: 46%; padding: 0 10px; background: var(--field); color: var(--ink); font-weight: 600;}
+.srow .l .spent {display: block; margin-top: 2px; font-size: 13px; color: var(--soft);}
+.srow > button.tog {height: 44px; padding: 0 4px; background: none;}
 /* Narrow, or a key with a problem to read: the buttons go under the text. */
 .srow.two.bad {flex-wrap: wrap; row-gap: 10px;}
 .srow.two.bad .l {flex-basis: calc(100% - 50px);}
