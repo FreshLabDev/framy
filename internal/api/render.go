@@ -32,6 +32,11 @@ type jobJSON struct {
 	Prompt   string         `json:"prompt"`
 	Settings map[string]any `json:"settings"`
 	Surface  string         `json:"surface"`
+	// Batch is the press of Create with several frames the job is part of
+	// (POST /api/batches), and Frames the frame of each of its results, in
+	// order; both absent for a job of its own.
+	Batch  string  `json:"batch,omitempty"`
+	Frames []int32 `json:"frames,omitempty"`
 	// Inputs are the files the job took that are still kept, in order, with
 	// links like the results'.
 	Inputs []resultJSON `json:"inputs"`
@@ -209,6 +214,7 @@ func (a *API) renderOne(s State, lang string, links map[int64]storage.FileLinks)
 	v := jobJSON{
 		ID: s.ID, Seq: s.Seq, Status: string(s.Status), Kind: string(s.Kind), Offer: s.Offer, Free: s.Free,
 		Model: s.Model, Prompt: s.Prompt, Settings: settings, Surface: s.Surface, Inputs: filesJSON(s.Inputs, links, false),
+		Batch: s.Batch, Frames: s.BatchFrames,
 		CreatedAt: s.CreatedAt.UTC(), RetryAt: utc(s.RetryAt), FinishedAt: utc(s.FinishedAt),
 	}
 	code, perUSD := fx.USD, 1.0

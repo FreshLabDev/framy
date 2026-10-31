@@ -75,10 +75,30 @@ func (a *API) history(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, err)
 		return
 	}
+	// A page ends where a batch does, so the library shows one press as one
+	// run: it takes the rest of the batch it would cut.
+	cut := min(page, len(states))
+	for cut < len(states) && sameBatch(states[cut-1], states[cut]) {
+		cut++
+	}
+	if cut == len(states) && len(states) > page {
+		g := f
+		g.Before, g.Limit = states[len(states)-1].ID, maxImageFrames+1
+		more, err := a.data.List(r.Context(), user, g)
+		if err != nil {
+			a.internal(w, r, err)
+			return
+		}
+		for len(more) > 0 && sameBatch(states[len(states)-1], more[0]) {
+			states, more = append(states, more[0]), more[1:]
+		}
+		cut = len(states)
+		states = append(states, more...)
+	}
 	out := historyJSON{}
-	if len(states) > page {
-		states = states[:page]
-		out.Next = states[page-1].ID
+	if len(states) > cut {
+		states = states[:cut]
+		out.Next = states[cut-1].ID
 	}
 	out.Jobs = a.renderAll(r.Context(), user, states, a.language(r.Context(), r, user))
 	writeJSON(w, http.StatusOK, out)
@@ -179,3 +199,6 @@ func (a *API) cancel(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, a.render(ctx, user, st, a.language(ctx, r, user)))
 }
+
+// sameBatch reports whether two jobs are of the same press of Create.
+func sameBatch(a, b State) bool { return a.Batch != "" && a.Batch == b.Batch }

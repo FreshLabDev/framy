@@ -110,97 +110,27 @@ func (a *API) create(w http.ResponseWriter, r *http.Request) {
 		aerr.write(w)
 		return
 	}
-	m, offer, err := a.cfg.Store.Offer(ctx, req.Offer)
-	if errors.Is(err, db.ErrNoOffer) {
-		newError(http.StatusUnprocessableEntity, codeUnknownOffer, "no such offer, or it is not offered now").write(w)
-		return
-	}
+	p, aerr, err := a.prepare(r, user, req, &connList{})
 	if err != nil {
 		a.internal(w, r, err)
 		return
 	}
-	settings := req.Settings
-	if settings == nil {
-		settings = map[string]any{}
-	}
-	if aerr := checkSettings(m, offer, settings); aerr != nil {
+	if aerr != nil {
 		aerr.write(w)
 		return
 	}
-	isFree := req.Pay == payFree
-	if isFree {
-		plan, ok := free.PlanOf(offer.ID)
-		if !ok {
-			a.refused(w, r, &free.NotFreeError{Reason: offer.ID + " is not a model of the free allowance"})
-			return
-		}
-		// The allowance's settings are not the client's to know: a run that
-		// leaves one out gets it, and one that sets it to something else is
-		// refused by the allowance. A video from a start frame says so.
-		fillFree(settings, plan, len(req.Inputs))
-	} else if conns, err := a.connections(r, user); err != nil {
-		a.internal(w, r, err)
-		return
-	} else if aerr := checkConnection(conns, offer.Provider); aerr != nil {
-		aerr.write(w)
-		return
-	}
-	var source *InputAsset
-	if req.Continues != 0 {
-		c, aerr := a.continuation(r, user, req.Continues, m, offer, isFree)
-		if aerr != nil {
-			aerr.write(w)
-			return
-		}
-		settings[c.setting], source = c.providerJobID, &c.video
-	}
-	inputs, err := a.data.Inputs(ctx, user, req.Inputs)
-	if err != nil {
-		a.internal(w, r, err)
-		return
-	}
-	if len(inputs) != len(req.Inputs) {
-		newError(http.StatusUnprocessableEntity, codeUnknownInput, "an input is not one of your files").write(w)
-		return
-	}
-	if aerr := checkLengths(inputs); aerr != nil {
-		aerr.write(w)
-		return
-	}
-	files := countOf(settings, inputs, nil)
-	fillFrames(settings, m, offer, files.Images)
-	files.Frames = frameCount(settings)
-	if aerr := checkInputs(m, offer, files); aerr != nil {
-		aerr.write(w)
-		return
-	}
-	if !isFree {
-		fillDefaults(settings, offer, shapeOf(assetSizes(inputs)...))
-	}
-
-	estimate := price.Of(m, offer, priceRequest(m, req.Prompt, settings, inputs, source))
 	lang := a.language(ctx, r, user)
 	quote, err := a.quote(r, user, lang)
 	if err != nil {
 		a.internal(w, r, err)
 		return
 	}
-	if !isFree && req.ShownUSD != nil && dearer(estimate, *req.ShownUSD, quote, lang) {
-		e := estimateJSONOf(estimate.USD, &estimate, quote.Code, quote.PerUSD, lang)
-		if quote.Code != fx.USD {
-			e.RateDate = quote.Date.Format(time.DateOnly)
-		}
-		newError(http.StatusConflict, codePriceChanged, "the price is higher than the one shown; show the new one and ask again").
-			with("estimate", e).write(w)
+	if !p.n.Free && req.ShownUSD != nil && dearer(*p.n.Estimate, *req.ShownUSD, quote, lang) {
+		priceChanged(*p.n.Estimate, quote, lang).write(w)
 		return
 	}
-	n := jobs.New{
-		UserID: user, Surface: jobs.Site, DedupeKey: dedupe, Offer: offer, Prompt: req.Prompt,
-		Settings: settings, Free: isFree, Estimate: &estimate, Inputs: req.Inputs,
-	}
-	if req.Surface == string(jobs.MiniApp) {
-		n.Surface = jobs.MiniApp
-	}
+	n := p.n
+	n.DedupeKey = dedupe
 	// A price shown in dollars alone keeps no rate.
 	if quote.Code != fx.USD {
 		n.FX = &quote
@@ -211,6 +141,119 @@ func (a *API) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.accepted(w, r, user, id, created)
+}
+
+// priceChanged is the answer to a run whose price would now show higher
+// than the one the person saw: the new estimate, to show and ask again.
+func priceChanged(e price.Estimate, quote fx.Quote, lang string) *apiError {
+	shown := estimateJSONOf(e.USD, &e, quote.Code, quote.PerUSD, lang)
+	if quote.Code != fx.USD {
+		shown.RateDate = quote.Date.Format(time.DateOnly)
+	}
+	return newError(http.StatusConflict, codePriceChanged, "the price is higher than the one shown; show the new one and ask again").
+		with("estimate", shown)
+}
+
+// prepared is a run checked and priced, ready to queue: the job without its
+// dedupe key and rate, and what prices it again with other settings.
+type prepared struct {
+	n      jobs.New
+	m      catalog.Model
+	offer  catalog.Offer
+	inputs []InputAsset
+	source *InputAsset
+}
+
+// priceWith is the price of the run with these settings instead.
+func (p prepared) priceWith(settings map[string]any) price.Estimate {
+	return price.Of(p.m, p.offer, priceRequest(p.m, p.n.Prompt, settings, p.inputs, p.source))
+}
+
+// connList reads the person's connections once for all the runs of a
+// request.
+type connList struct {
+	list []keys.Connection
+	read bool
+}
+
+// prepare checks and prices a run of POST /api/jobs, or a frame of POST
+// /api/batches, as checkCreate left it. An *apiError is the client's
+// mistake or a refusal to answer with; an error is framy's own.
+func (a *API) prepare(r *http.Request, user int64, req createRequest, conns *connList) (prepared, *apiError, error) {
+	ctx := r.Context()
+	m, offer, err := a.cfg.Store.Offer(ctx, req.Offer)
+	if errors.Is(err, db.ErrNoOffer) {
+		return prepared{}, newError(http.StatusUnprocessableEntity, codeUnknownOffer, "no such offer, or it is not offered now"), nil
+	}
+	if err != nil {
+		return prepared{}, nil, err
+	}
+	settings := req.Settings
+	if settings == nil {
+		settings = map[string]any{}
+	}
+	if aerr := checkSettings(m, offer, settings); aerr != nil {
+		return prepared{}, aerr, nil
+	}
+	isFree := req.Pay == payFree
+	if isFree {
+		plan, ok := free.PlanOf(offer.ID)
+		if !ok {
+			return prepared{}, a.refusal(&free.NotFreeError{Reason: offer.ID + " is not a model of the free allowance"}), nil
+		}
+		// The allowance's settings are not the client's to know: a run that
+		// leaves one out gets it, and one that sets it to something else is
+		// refused by the allowance. A video from a start frame says so.
+		fillFree(settings, plan, len(req.Inputs))
+	} else {
+		if !conns.read {
+			if conns.list, err = a.connections(r, user); err != nil {
+				return prepared{}, nil, err
+			}
+			conns.read = true
+		}
+		if aerr := checkConnection(conns.list, offer.Provider); aerr != nil {
+			return prepared{}, aerr, nil
+		}
+	}
+	var source *InputAsset
+	if req.Continues != 0 {
+		c, aerr := a.continuation(r, user, req.Continues, m, offer, isFree)
+		if aerr != nil {
+			return prepared{}, aerr, nil
+		}
+		settings[c.setting], source = c.providerJobID, &c.video
+	}
+	inputs, err := a.data.Inputs(ctx, user, req.Inputs)
+	if err != nil {
+		return prepared{}, nil, err
+	}
+	if len(inputs) != len(req.Inputs) {
+		return prepared{}, newError(http.StatusUnprocessableEntity, codeUnknownInput, "an input is not one of your files"), nil
+	}
+	if aerr := checkLengths(inputs); aerr != nil {
+		return prepared{}, aerr, nil
+	}
+	files := countOf(settings, inputs, nil)
+	fillFrames(settings, m, offer, files.Images)
+	files.Frames = frameCount(settings)
+	if aerr := checkInputs(m, offer, files); aerr != nil {
+		return prepared{}, aerr, nil
+	}
+	if !isFree {
+		fillDefaults(settings, offer, shapeOf(assetSizes(inputs)...))
+	}
+	p := prepared{m: m, offer: offer, inputs: inputs, source: source}
+	p.n = jobs.New{
+		UserID: user, Surface: jobs.Site, Offer: offer, Prompt: req.Prompt,
+		Settings: settings, Free: isFree, Inputs: req.Inputs,
+	}
+	if req.Surface == string(jobs.MiniApp) {
+		p.n.Surface = jobs.MiniApp
+	}
+	estimate := p.priceWith(settings)
+	p.n.Estimate = &estimate
+	return p, nil, nil
 }
 
 // accepted answers 202 with the job as it is now.
@@ -540,37 +583,51 @@ func knownSetting(m catalog.Model, offer catalog.Offer, name string) bool {
 // decode reads and checks the body of a create request.
 func decode(r *http.Request) (createRequest, *apiError) {
 	var req createRequest
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&req); err != nil {
-		var tooBig *http.MaxBytesError
-		if errors.As(err, &tooBig) {
-			return req, newError(http.StatusRequestEntityTooLarge, codeTooLarge, "the request is too big")
-		}
-		return req, badRequest("", "the body must be a JSON object: "+jsonProblem(err))
-	}
-	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
-		return req, badRequest("", "the body must be one JSON object")
-	}
-	switch {
-	case req.Offer == "":
-		return req, badRequest("offer", "offer is needed")
-	case req.Pay != payFree && req.Pay != payKey:
-		return req, badRequest("pay", `pay must be "free" or "key"`)
-	case req.Surface != "" && req.Surface != string(jobs.Site) && req.Surface != string(jobs.MiniApp):
-		return req, badRequest("surface", `surface must be "site" or "mini_app"`)
-	case req.ShownUSD != nil && (math.IsNaN(*req.ShownUSD) || *req.ShownUSD < 0):
-		return req, badRequest("shown_usd", "shown_usd is the price shown, in dollars")
-	case req.Continues < 0:
-		return req, badRequest("continues", "continues is the id of a job of yours")
-	}
-	if e := checkRun("", req.Prompt, req.Settings, req.Inputs); e != nil {
+	if e := readJSON(r, &req); e != nil {
 		return req, e
 	}
-	if strings.TrimSpace(req.Prompt) == "" && len(req.Inputs) == 0 {
-		return req, badRequest("prompt", "send a prompt or an input file")
+	return req, checkCreate("", req)
+}
+
+// readJSON reads the body, one JSON object of known fields, into v.
+func readJSON(r *http.Request, v any) *apiError {
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			return newError(http.StatusRequestEntityTooLarge, codeTooLarge, "the request is too big")
+		}
+		return badRequest("", "the body must be a JSON object: "+jsonProblem(err))
 	}
-	return req, nil
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return badRequest("", "the body must be one JSON object")
+	}
+	return nil
+}
+
+// checkCreate checks a run as POST /api/jobs takes it; prefix goes before
+// the field a refusal names.
+func checkCreate(prefix string, req createRequest) *apiError {
+	switch {
+	case req.Offer == "":
+		return badRequest(prefix+"offer", "offer is needed")
+	case req.Pay != payFree && req.Pay != payKey:
+		return badRequest(prefix+"pay", `pay must be "free" or "key"`)
+	case req.Surface != "" && req.Surface != string(jobs.Site) && req.Surface != string(jobs.MiniApp):
+		return badRequest(prefix+"surface", `surface must be "site" or "mini_app"`)
+	case req.ShownUSD != nil && (math.IsNaN(*req.ShownUSD) || *req.ShownUSD < 0):
+		return badRequest(prefix+"shown_usd", "shown_usd is the price shown, in dollars")
+	case req.Continues < 0:
+		return badRequest(prefix+"continues", "continues is the id of a job of yours")
+	}
+	if e := checkRun(prefix, req.Prompt, req.Settings, req.Inputs); e != nil {
+		return e
+	}
+	if strings.TrimSpace(req.Prompt) == "" && len(req.Inputs) == 0 {
+		return badRequest(prefix+"prompt", "send a prompt or an input file")
+	}
+	return nil
 }
 
 // checkRun checks the prompt, the settings and the inputs of a run, for a

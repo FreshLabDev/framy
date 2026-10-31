@@ -1063,3 +1063,48 @@ func TestTheComposersReadsComeFromTheDatabase(t *testing.T) {
 		t.Errorf("the job keeps %q of its discount", kept)
 	}
 }
+
+// A press with several frames is its jobs in the database: one batch, each
+// job with the frames it makes, read back by GET and by a repeat.
+func TestAPressIsItsJobsInTheDatabase(t *testing.T) {
+	w := newWorld(t)
+	in := w.instance()
+	key := "press-1"
+	body := `{"prompt":"a fox","frames":[{"offer":"` + freeOffer + `","pay":"key"},{"offer":"` + freeOffer + `","pay":"key"},{"offer":"` + paidOffer + `","pay":"key"}]}`
+	post := func() (int, map[string]any, http.Header) {
+		resp := in.do(alice, http.MethodPost, "/api/batches", strings.NewReader(body), "Content-Type", "application/json", "Idempotency-Key", key)
+		return resp.StatusCode, jsonOf(t, resp), resp.Header
+	}
+	code, m, _ := post()
+	if code != http.StatusAccepted {
+		t.Fatalf("%d %v", code, m)
+	}
+	list := m["jobs"].([]any)
+	if len(list) != 2 {
+		t.Fatalf("%d jobs: %v", len(list), m)
+	}
+	first, second := list[0].(map[string]any), list[1].(map[string]any)
+	if first["batch"] != m["batch"] || fmt.Sprint(first["frames"]) != "[0 1]" || first["settings"].(map[string]any)["n"] != 2.0 {
+		t.Errorf("first %v %v %v", first["batch"], first["frames"], first["settings"])
+	}
+	if second["batch"] != m["batch"] || fmt.Sprint(second["frames"]) != "[2]" {
+		t.Errorf("second %v %v", second["batch"], second["frames"])
+	}
+	id := idOf(t, first)
+	got := jsonOf(t, in.do(alice, http.MethodGet, fmt.Sprintf("/api/jobs/%d", id), nil))
+	if got["batch"] != m["batch"] || fmt.Sprint(got["frames"]) != "[0 1]" {
+		t.Errorf("GET %v %v", got["batch"], got["frames"])
+	}
+	code, again, hdr := post()
+	if code != http.StatusAccepted || hdr.Get("Idempotent-Replayed") != "true" || again["batch"] != m["batch"] || len(again["jobs"].([]any)) != 2 {
+		t.Errorf("repeat %d %q %v", code, hdr.Get("Idempotent-Replayed"), again)
+	}
+	var n int
+	if err := w.pool.QueryRow(context.Background(), `SELECT count(*) FROM framy.job WHERE batch IS NOT NULL`).Scan(&n); err != nil || n != 2 {
+		t.Errorf("%d jobs in the batch, %v", n, err)
+	}
+	// Bob has none of it.
+	if resp := in.do(bob, http.MethodGet, fmt.Sprintf("/api/jobs/%d", id), nil); resp.StatusCode != http.StatusNotFound {
+		t.Errorf("bob: %d", resp.StatusCode)
+	}
+}

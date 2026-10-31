@@ -32,6 +32,13 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 - `FRAMY_STACK` names the bot when two share one schema: empty for
   production, `test` for the test bot. A stack other than production puts its
   name before its River queues and its Telegram dedupe keys.
+- Several results from one press, each with its own model and settings
+  (`POST /api/batches`). framy decides how many requests that is: frames
+  that are the same run go together, as many as the model makes at once,
+  so five pictures where a model makes four at once are two requests, four
+  and one. A press is queued whole or not at all, and the history keeps it
+  as one run. A quote with `batch: true` says which frames go together and
+  what the press costs.
 
 ### Breaking
 

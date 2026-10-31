@@ -237,6 +237,59 @@ func (q *Queue) Enqueue(ctx context.Context, n New) (id int64, created bool, err
 	return id, created, err
 }
 
+// EnqueueBatch queues the jobs of one press of the site's Create in one
+// transaction: every one of them, or none when one is refused. Each has its
+// own dedupe key and they share n.Batch. created is false when the first
+// key was taken already: the press was answered before, and ids are the
+// jobs of that batch, in order.
+func (q *Queue) EnqueueBatch(ctx context.Context, ns []New) (ids []int64, created bool, err error) {
+	err = pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
+		ids = make([]int64, 0, len(ns))
+		for i, n := range ns {
+			if err := q.admitNew(ctx, tx, n); err != nil {
+				return err
+			}
+			id, made, err := q.insert(ctx, tx, n, Queued)
+			if err != nil {
+				return err
+			}
+			if !made {
+				if i > 0 {
+					return fmt.Errorf("job %d of batch %s was there without the first", id, n.Batch)
+				}
+				ids, err = batchOf(ctx, tx, id)
+				return err
+			}
+			ids = append(ids, id)
+			if err := q.schedule(ctx, tx, id, n.Offer.Provider, n.Offer.Kind); err != nil {
+				return err
+			}
+		}
+		created = true
+		return nil
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	return ids, created, nil
+}
+
+// batchOf is the jobs of the batch job id is part of, in order.
+func batchOf(ctx context.Context, tx pgx.Tx, id int64) ([]int64, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT j.id FROM job j
+		JOIN job first ON first.id = $1 AND j.user_id = first.user_id AND j.batch = first.batch
+		ORDER BY j.id`, id)
+	if err != nil {
+		return nil, fmt.Errorf("read batch of job %d: %w", id, err)
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[int64])
+	if err != nil {
+		return nil, fmt.Errorf("read batch of job %d: %w", id, err)
+	}
+	return ids, nil
+}
+
 // Draft creates a job that waits for "Generate", as a chat preview does.
 func (q *Queue) Draft(ctx context.Context, n New) (id int64, created bool, err error) {
 	err = pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
@@ -469,13 +522,16 @@ func (q *Queue) insert(ctx context.Context, tx pgx.Tx, n New, status Status) (in
 	var id int64
 	err := tx.QueryRow(ctx, `
 		INSERT INTO job (user_id, surface, chat_id, message_id, dedupe_key, offer_id, model_id, provider, kind,
-		                 prompt, settings, free, status, estimate_usd, estimate, currency, fx_rate, fx_date, queued_at, stack)
+		                 prompt, settings, free, status, estimate_usd, estimate, currency, fx_rate, fx_date, queued_at, stack,
+		                 batch, batch_frames)
 		VALUES ($1, $2, NULLIF($3::bigint, 0), NULLIF($4::bigint, 0), NULLIF($5, ''), $6, $7, $8, $9,
-		        $10, $11, $12, $13, $14, $15, $16, $17, $18::date, CASE WHEN $13 = 'queued' THEN now() END, $19)
+		        $10, $11, $12, $13, $14, $15, $16, $17, $18::date, CASE WHEN $13 = 'queued' THEN now() END, $19,
+		        NULLIF($20, ''), $21::int4[])
 		ON CONFLICT (dedupe_key) DO NOTHING
 		RETURNING id`,
 		n.UserID, n.Surface, n.ChatID, n.MessageID, n.DedupeKey, n.Offer.ID, n.Offer.ModelID, n.Offer.Provider, n.Offer.Kind,
-		n.Prompt, settings, n.Free, status, estimateUSD, n.Estimate, currency, fxRate, fxDate, q.cfg.Stack).Scan(&id)
+		n.Prompt, settings, n.Free, status, estimateUSD, n.Estimate, currency, fxRate, fxDate, q.cfg.Stack,
+		n.Batch, n.BatchFrames).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = tx.QueryRow(ctx, `SELECT id FROM job WHERE dedupe_key=$1`, n.DedupeKey).Scan(&id)
 		return id, false, err

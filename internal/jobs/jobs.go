@@ -90,6 +90,11 @@ type New struct {
 	// Inputs are the person's files the run takes, in order: ids of
 	// framy.asset rows that are theirs.
 	Inputs []int64
+	// Batch is the press of the site's Create the job is part of, the same on
+	// every job of it (EnqueueBatch); empty for a job of its own.
+	// BatchFrames is the frame of each result the job makes, in order.
+	Batch       string
+	BatchFrames []int32
 }
 
 // TelegramUpdate is the dedupe key of a job a Telegram update starts.
