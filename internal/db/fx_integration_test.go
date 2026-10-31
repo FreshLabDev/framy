@@ -72,6 +72,37 @@ func TestRatesDateNeedsEveryCode(t *testing.T) {
 	}
 }
 
+func TestRateDaysAreTheCompleteDaysInTheRange(t *testing.T) {
+	store := fxStore(t)
+	ctx := context.Background()
+	for _, rates := range [][]fx.Rate{
+		nbuDay("2026-10-26", 45.5),
+		nbuDay("2026-10-28", 45.6),
+		nbuDay("2026-10-29", 45.7)[:3], // no BYN yet
+		nbuDay("2026-11-02", 45.3),
+	} {
+		if err := store.SaveRates(ctx, rates); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := store.RateDays(ctx, date("2026-10-27"), date("2026-11-02"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []time.Time{date("2026-10-28"), date("2026-11-02")}
+	if len(got) != len(want) {
+		t.Fatalf("days = %v, want %v", got, want)
+	}
+	for i := range want {
+		if !got[i].Equal(want[i]) {
+			t.Fatalf("days = %v, want %v", got, want)
+		}
+	}
+	if got, err := store.RateDays(ctx, date("2026-10-30"), date("2026-11-01")); err != nil || len(got) != 0 {
+		t.Fatalf("a range of holes = %v, %v", got, err)
+	}
+}
+
 func TestTheNBUWinsOverCurrencyAPI(t *testing.T) {
 	store := fxStore(t)
 	ctx := context.Background()

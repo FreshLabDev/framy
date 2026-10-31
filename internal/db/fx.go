@@ -48,6 +48,23 @@ func (s *Store) RatesDate(ctx context.Context) (time.Time, error) {
 	return *day, nil
 }
 
+// RateDays are the days from from to to, both in, with a rate of every
+// stored code, oldest first.
+func (s *Store) RateDays(ctx context.Context, from, to time.Time) ([]time.Time, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT date FROM fx_rate WHERE code = ANY($1) AND date BETWEEN $2 AND $3
+		GROUP BY date HAVING count(*) = cardinality($1::text[])
+		ORDER BY date`, fx.Stored, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("fx rate days: %w", err)
+	}
+	days, err := pgx.CollectRows(rows, pgx.RowTo[time.Time])
+	if err != nil {
+		return nil, fmt.Errorf("fx rate days: %w", err)
+	}
+	return days, nil
+}
+
 // Quote is the rate a price in code is shown with on day: the latest day
 // up to it that has both the USD row and code's, else the first after it,
 // as on a first start in the afternoon. fx.ErrNoRate when there is none.

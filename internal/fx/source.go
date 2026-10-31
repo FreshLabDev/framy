@@ -20,6 +20,9 @@ const (
 	NBUURL            = "https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?json"
 	CurrencyAPIURL    = "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.min.json"
 	CurrencyAPIMirror = "https://latest.currency-api.pages.dev/v1/currencies/usd.min.json"
+	// currency-api keeps every past day; {date} is the day as 2006-01-02.
+	CurrencyAPIDayURL    = "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@{date}/v1/currencies/usd.min.json"
+	CurrencyAPIDayMirror = "https://{date}.currency-api.pages.dev/v1/currencies/usd.min.json"
 )
 
 // maxBody bounds an answer; the NBU's is about 6 KB, currency-api's 6 KB.
@@ -29,10 +32,12 @@ const maxBody = 1 << 20
 type Client struct {
 	HTTP      *http.Client
 	UserAgent string
-	// NBUURL and CurrencyAPIURLs are the URLs, the defaults when empty;
-	// CurrencyAPIURLs are tried in order.
-	NBUURL          string
-	CurrencyAPIURLs []string
+	// NBUURL, CurrencyAPIURLs and CurrencyAPIDayURLs are the URLs, the
+	// defaults when empty. NBUOn adds the day to NBUURL; a day URL has
+	// {date} where the day goes, and they are tried in order.
+	NBUURL             string
+	CurrencyAPIURLs    []string
+	CurrencyAPIDayURLs []string
 }
 
 // NBUDay is one day of the NBU's rates: hryvnias for one unit, by code.
@@ -51,12 +56,34 @@ type USDDay struct {
 // NBU reads the NBU's current rates. After 15:30 Kyiv they are the next
 // day's. USD, EUR and PLN must be there.
 func (c *Client) NBU(ctx context.Context) (NBUDay, error) {
+	return c.nbu(ctx, or(c.NBUURL, NBUURL))
+}
+
+// NBUOn reads the NBU's rates of one day. The NBU has a rate for every day,
+// a weekend's being Friday's, and none for a day it has not set yet.
+func (c *Client) NBUOn(ctx context.Context, day time.Time) (NBUDay, error) {
+	u := or(c.NBUURL, NBUURL)
+	sep := "?"
+	if strings.Contains(u, "?") {
+		sep = "&"
+	}
+	got, err := c.nbu(ctx, u+sep+"date="+day.Format("20060102"))
+	if err != nil {
+		return NBUDay{}, err
+	}
+	if !got.Date.Equal(day) {
+		return NBUDay{}, fmt.Errorf("nbu: asked for %s, got %s", day.Format(time.DateOnly), got.Date.Format(time.DateOnly))
+	}
+	return got, nil
+}
+
+func (c *Client) nbu(ctx context.Context, url string) (NBUDay, error) {
 	var rows []struct {
 		Rate float64 `json:"rate"`
 		CC   string  `json:"cc"`
 		Date string  `json:"exchangedate"`
 	}
-	if err := c.get(ctx, or(c.NBUURL, NBUURL), &rows); err != nil {
+	if err := c.get(ctx, url, &rows); err != nil {
 		return NBUDay{}, fmt.Errorf("nbu: %w", err)
 	}
 	day := NBUDay{UAH: map[string]float64{}}
@@ -110,6 +137,31 @@ func (c *Client) CurrencyAPI(ctx context.Context) (USDDay, error) {
 		return USDDay{}, fmt.Errorf("currency-api: %w", errors.Join(errs...))
 	}
 	return best, nil
+}
+
+// CurrencyAPIOn reads currency-api's USD rates of one day from the first
+// URL that has it. A day's file is out once the day has begun in UTC.
+func (c *Client) CurrencyAPIOn(ctx context.Context, day time.Time) (USDDay, error) {
+	urls := c.CurrencyAPIDayURLs
+	if len(urls) == 0 {
+		urls = []string{CurrencyAPIDayURL, CurrencyAPIDayMirror}
+	}
+	date := day.Format(time.DateOnly)
+	var errs []error
+	for _, u := range urls {
+		got, err := c.currencyAPI(ctx, strings.ReplaceAll(u, "{date}", date))
+		if err == nil && !got.Date.Equal(day) {
+			err = fmt.Errorf("asked for %s, got %s", date, got.Date.Format(time.DateOnly))
+		}
+		if err == nil {
+			return got, nil
+		}
+		if ctx.Err() != nil {
+			return USDDay{}, ctx.Err()
+		}
+		errs = append(errs, err)
+	}
+	return USDDay{}, fmt.Errorf("currency-api %s: %w", date, errors.Join(errs...))
 }
 
 func (c *Client) currencyAPI(ctx context.Context, url string) (USDDay, error) {

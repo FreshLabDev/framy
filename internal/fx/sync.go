@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/FreshLabDev/framy/internal/metrics"
@@ -14,6 +15,9 @@ import (
 type Source interface {
 	NBU(context.Context) (NBUDay, error)
 	CurrencyAPI(context.Context) (USDDay, error)
+	// NBUOn and CurrencyAPIOn read the rates of one day, for a day missed.
+	NBUOn(context.Context, time.Time) (NBUDay, error)
+	CurrencyAPIOn(context.Context, time.Time) (USDDay, error)
 }
 
 // Store keeps the rates.
@@ -24,7 +28,15 @@ type Store interface {
 	// RatesDate is the latest day with a row for every stored code, zero
 	// before the first.
 	RatesDate(context.Context) (time.Time, error)
+	// RateDays are the days from from to to, both in, with a row for every
+	// stored code, oldest first.
+	RateDays(ctx context.Context, from, to time.Time) ([]time.Time, error)
 }
+
+// fillDays is how far back a missed day is filled. A price is quoted with
+// the latest rate up to its day, so a hole left while framy was down would
+// price that day, today included, with an older rate.
+const fillDays = 31
 
 // publishAt is when the NBU's rate for the next day is out: it sets it at
 // 15:30 Kyiv, and the API has it a few minutes later.
@@ -74,8 +86,8 @@ func (s *Syncer) Run(ctx context.Context) {
 	}
 }
 
-// Step brings the rates up to Want when they are behind, and says how long
-// to wait before the next step.
+// Step brings the rates up to Want when they are behind, fills the days
+// missed before them, and says how long to wait before the next step.
 func (s *Syncer) Step(ctx context.Context) time.Duration {
 	now := s.now()
 	until := next(now).Sub(now)
@@ -89,20 +101,79 @@ func (s *Syncer) Step(ctx context.Context) time.Duration {
 		return min(retry, until)
 	}
 	need := Want(now)
-	if !have.Before(need) {
-		return until
+	wait := until
+	if have.Before(need) {
+		got, err := s.SyncOnce(ctx)
+		switch {
+		case err != nil:
+			wait = min(retry, until)
+		case got.Before(need):
+			// The NBU has not published the day yet, or only currency-api
+			// answered and it is a day behind.
+			s.Log.Info("fx rates behind the day wanted; asking again in an hour", "want", need.Format(time.DateOnly), "have", got.Format(time.DateOnly))
+			wait = min(time.Hour, until)
+		}
+		if got.IsZero() {
+			return wait
+		}
+		have = got
 	}
-	got, err := s.SyncOnce(ctx)
+	s.fill(ctx, Day(now), have)
+	return wait
+}
+
+// fill reads by date the days missing before have: from the first day
+// kept in the last fillDays, or from today when none was. A day that fails
+// is asked again at the next step; once it is older than fillDays, never.
+func (s *Syncer) fill(ctx context.Context, today, have time.Time) {
+	from := today.AddDate(0, 0, -fillDays)
+	if !from.Before(have) {
+		return
+	}
+	kept, err := s.Store.RateDays(ctx, from, have)
+	if err != nil {
+		s.Log.Warn("fx days kept unknown; missed days not filled", "error", err)
+		return
+	}
+	start := today
+	if len(kept) > 0 && kept[0].Before(start) {
+		start = kept[0]
+	}
+	for d := start; d.Before(have); d = d.AddDate(0, 0, 1) {
+		if ctx.Err() != nil {
+			return
+		}
+		if !slices.ContainsFunc(kept, d.Equal) {
+			s.fillDay(ctx, d)
+		}
+	}
+}
+
+// fillDay saves one missed day the way SyncOnce saves the newest, BYN from
+// currency-api's file of the same day.
+func (s *Syncer) fillDay(ctx context.Context, d time.Time) {
+	nbu, nbuErr := s.Source.NBUOn(ctx, d)
+	usd, usdErr := s.Source.CurrencyAPIOn(ctx, d)
+	var rates []Rate
 	switch {
-	case err != nil:
-		return min(retry, until)
-	case got.Before(need):
-		// The NBU has not published the day yet, or only currency-api
-		// answered and it is a day behind.
-		s.Log.Info("fx rates behind the day wanted; asking again in an hour", "want", need.Format(time.DateOnly), "have", got.Format(time.DateOnly))
-		return min(time.Hour, until)
+	case nbuErr == nil && usdErr == nil:
+		rates = FromNBU(nbu, &usd)
+	case nbuErr == nil:
+		rates = FromNBU(nbu, nil)
+	case usdErr == nil:
+		rates = FromCurrencyAPI(usd)
+	default:
+		if ctx.Err() == nil {
+			s.Log.Warn("fx missed day not filled", "day", d.Format(time.DateOnly), "error", errors.Join(nbuErr, usdErr))
+		}
+		return
 	}
-	return until
+	if err := s.Store.SaveRates(ctx, rates); err != nil {
+		s.Log.Warn("fx missed day not saved", "day", d.Format(time.DateOnly), "error", err)
+		return
+	}
+	s.Log.Info("fx missed day filled", "day", d.Format(time.DateOnly), "source", rates[0].Source,
+		"rows", len(rates), "complete", len(rates) == len(Stored))
 }
 
 // SyncOnce reads both sources and saves what they give, and returns the

@@ -102,6 +102,61 @@ func TestCurrencyAPITakesTheNewestMirror(t *testing.T) {
 	}
 }
 
+// record serves body and keeps the path and query of every request.
+func record(t *testing.T, status int, body string, got *[]string) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*got = append(*got, r.URL.RequestURI())
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+func TestNBUOnAsksForTheDay(t *testing.T) {
+	ctx := context.Background()
+	var asked []string
+	c := &Client{NBUURL: record(t, 200, nbuAnswer, &asked) + "/exchange?json"}
+	got, err := c.NBUOn(ctx, day("2026-10-27"))
+	if err != nil || !got.Date.Equal(day("2026-10-27")) || got.UAH[USD] != 45.5382 {
+		t.Fatalf("nbu on the 27th = %+v, %v", got, err)
+	}
+	if len(asked) != 1 || asked[0] != "/exchange?json&date=20261027" {
+		t.Fatalf("asked %v", asked)
+	}
+	// Another day in the answer, or none, as for a day not set yet.
+	if _, err := c.NBUOn(ctx, day("2026-10-28")); err == nil {
+		t.Error("the rates of another day were taken")
+	}
+	if _, err := (&Client{NBUURL: serve(t, 200, "[]")}).NBUOn(ctx, day("2026-11-03")); err == nil {
+		t.Error("an empty answer was taken")
+	}
+}
+
+func TestCurrencyAPIOnTakesTheFirstFileOfTheDay(t *testing.T) {
+	ctx := context.Background()
+	var missing, found []string
+	c := &Client{CurrencyAPIDayURLs: []string{
+		record(t, 404, "", &missing) + "/npm/currency-api@{date}/usd.min.json",
+		record(t, 200, usdAnswer, &found) + "/{date}/usd.min.json",
+	}}
+	got, err := c.CurrencyAPIOn(ctx, day("2026-10-27"))
+	if err != nil || !got.Date.Equal(day("2026-10-27")) || got.PerUSD[BYN] != 2.94785894 {
+		t.Fatalf("currency-api on the 27th = %+v, %v", got, err)
+	}
+	if !slices.Equal(missing, []string{"/npm/currency-api@2026-10-27/usd.min.json"}) || !slices.Equal(found, []string{"/2026-10-27/usd.min.json"}) {
+		t.Fatalf("asked %v, then %v", missing, found)
+	}
+	// A file of another day is no answer.
+	if _, err := c.CurrencyAPIOn(ctx, day("2026-10-28")); err == nil {
+		t.Error("the file of another day was taken")
+	}
+	if !strings.Contains(CurrencyAPIDayURL, "{date}") || !strings.Contains(CurrencyAPIDayMirror, "{date}") {
+		t.Error("a default day URL has no {date}")
+	}
+}
+
 func TestCross(t *testing.T) {
 	nbu := NBUDay{Date: day("2026-10-27"), UAH: map[string]float64{USD: 45.5382, EUR: 50.9527, PLN: 11.5669}}
 	usd := USDDay{Date: day("2026-10-26"), PerUSD: map[string]float64{UAH: 45.67066934, EUR: 0.89509869, PLN: 3.9416428, BYN: 2.94785894}}
@@ -337,12 +392,46 @@ func (m *memStore) RatesDate(context.Context) (time.Time, error) {
 	return latest, nil
 }
 
+func (m *memStore) RateDays(_ context.Context, from, to time.Time) ([]time.Time, error) {
+	count := map[time.Time]int{}
+	for _, r := range m.rows {
+		if !r.Date.Before(from) && !r.Date.After(to) {
+			count[r.Date]++
+		}
+	}
+	var days []time.Time
+	for d, n := range count {
+		if n == len(Stored) {
+			days = append(days, d)
+		}
+	}
+	slices.SortFunc(days, time.Time.Compare)
+	return days, nil
+}
+
+// complete says the stored rows of d are every code's.
+func (m *memStore) complete(d string) bool {
+	for _, code := range Stored {
+		if _, ok := m.rows[d+code]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// fakeSource answers the newest day from nbu and usd, and a past day from
+// nbuOn and usdOn, by date; a day missing there is an error, as a day the
+// source has not published.
 type fakeSource struct {
 	nbu      NBUDay
 	usd      USDDay
 	nbuErr   error
 	usdErr   error
 	requests int
+	nbuOn    map[string]NBUDay
+	usdOn    map[string]USDDay
+	// asked are the past days asked for, once a source.
+	asked []string
 }
 
 func (f *fakeSource) NBU(context.Context) (NBUDay, error) {
@@ -353,6 +442,36 @@ func (f *fakeSource) NBU(context.Context) (NBUDay, error) {
 func (f *fakeSource) CurrencyAPI(context.Context) (USDDay, error) {
 	f.requests++
 	return f.usd, f.usdErr
+}
+
+func (f *fakeSource) NBUOn(_ context.Context, d time.Time) (NBUDay, error) {
+	key := d.Format(time.DateOnly)
+	f.asked = append(f.asked, "nbu "+key)
+	if day, ok := f.nbuOn[key]; ok {
+		return day, nil
+	}
+	return NBUDay{}, errors.New("nbu: no rate of USD")
+}
+
+func (f *fakeSource) CurrencyAPIOn(_ context.Context, d time.Time) (USDDay, error) {
+	key := d.Format(time.DateOnly)
+	f.asked = append(f.asked, "usd "+key)
+	if day, ok := f.usdOn[key]; ok {
+		return day, nil
+	}
+	return USDDay{}, errors.New("currency-api: status 404")
+}
+
+// onDay gives the source the rates of a past day: the NBU's with usdUAH as
+// its dollar, and currency-api's unless noUSD.
+func (f *fakeSource) onDay(d string, usdUAH float64, noUSD bool) {
+	if f.nbuOn == nil {
+		f.nbuOn, f.usdOn = map[string]NBUDay{}, map[string]USDDay{}
+	}
+	f.nbuOn[d] = NBUDay{Date: day(d), UAH: map[string]float64{USD: usdUAH, EUR: 50.7, PLN: 11.53}}
+	if !noUSD {
+		f.usdOn[d] = USDDay{Date: day(d), PerUSD: map[string]float64{UAH: usdUAH, EUR: 0.9, PLN: 3.95, BYN: 2.95}}
+	}
 }
 
 func source(nbuDay, usdDay string) *fakeSource {
@@ -370,20 +489,23 @@ func TestStep(t *testing.T) {
 	ctx := context.Background()
 	var logs bytes.Buffer
 	src := source("2026-10-28", "2026-10-27")
+	src.onDay("2026-10-27", 45.5382, false)
 	store := &memStore{}
 	now := kyiv("2026-10-27 15:40")
 	s := &Syncer{Source: src, Store: store, Log: logTo(&logs), Now: func() time.Time { return now }}
 
-	// Behind: the rates are fetched, and the next step is at midnight.
+	// Behind: the rates are fetched, and the next step is at midnight. On a
+	// first start in the afternoon, today is read by date beside tomorrow.
 	if wait := s.Step(ctx); wait != kyiv("2026-10-28 00:00").Sub(now) {
 		t.Fatalf("wait after a sync = %s", wait)
 	}
-	if src.requests != 2 || store.saves != 1 {
-		t.Fatalf("requests %d, saves %d", src.requests, store.saves)
+	if src.requests != 2 || store.saves != 2 || !store.complete("2026-10-27") || !store.complete("2026-10-28") {
+		t.Fatalf("requests %d, saves %d, rows %v", src.requests, store.saves, store.rows)
 	}
 	// Up to date: a restart asks no one.
-	if wait := s.Step(ctx); wait != kyiv("2026-10-28 00:00").Sub(now) || src.requests != 2 {
-		t.Fatalf("an up-to-date step asked again: wait %s, requests %d", wait, src.requests)
+	asked := len(src.asked)
+	if wait := s.Step(ctx); wait != kyiv("2026-10-28 00:00").Sub(now) || src.requests != 2 || len(src.asked) != asked {
+		t.Fatalf("an up-to-date step asked again: wait %s, requests %d, days %v", wait, src.requests, src.asked)
 	}
 
 	// The NBU has not published the next day yet: ask again in an hour.
@@ -407,6 +529,97 @@ func TestStep(t *testing.T) {
 	now = kyiv("2026-10-28 23:55")
 	if wait := s.Step(ctx); wait != 5*time.Minute {
 		t.Fatalf("retry before midnight = %s", wait)
+	}
+}
+
+// framy down from 29 October to the 31st, a Saturday: the NBU's newest day
+// is Monday the 2nd, and the days between are read by date.
+func TestStepFillsTheDaysMissed(t *testing.T) {
+	ctx := context.Background()
+	var logs bytes.Buffer
+	src := source("2026-11-02", "2026-10-31")
+	src.nbu.UAH[USD] = 45.3526
+	for _, d := range []string{"2026-10-29", "2026-10-30", "2026-10-31"} {
+		src.onDay(d, 45.5293, false)
+	}
+	// currency-api has no file of Sunday yet.
+	src.onDay("2026-11-01", 45.5293, true)
+	src.onDay("2025-12-31", 41.9, false)
+	store := &memStore{}
+	first := NBUDay{Date: day("2025-12-31"), UAH: map[string]float64{USD: 41.9, EUR: 49, PLN: 11.6}}
+	kept := NBUDay{Date: day("2026-10-28"), UAH: map[string]float64{USD: 45.5923, EUR: 50.7666, PLN: 11.5261}}
+	byn := USDDay{Date: day("2026-10-28"), PerUSD: map[string]float64{BYN: 2.94}}
+	for _, d := range []NBUDay{first, kept} {
+		if err := store.SaveRates(ctx, FromNBU(d, &byn)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A hole older than fillDays stays.
+	delete(store.rows, "2025-12-31"+BYN)
+	now := kyiv("2026-10-31 10:00")
+	s := &Syncer{Source: src, Store: store, Log: logTo(&logs), Now: func() time.Time { return now }}
+
+	if wait := s.Step(ctx); wait != kyiv("2026-10-31 15:35").Sub(now) {
+		t.Fatalf("wait = %s", wait)
+	}
+	for _, d := range []string{"2026-10-29", "2026-10-30", "2026-10-31", "2026-11-02"} {
+		if !store.complete(d) {
+			t.Fatalf("%s not filled: %v", d, store.rows)
+		}
+	}
+	if r := store.rows["2026-10-31"+USD]; r.Source != NBU || r.UAHPerUnit != 45.5293 {
+		t.Fatalf("Saturday's USD = %+v, want the NBU's of that day", r)
+	}
+	// BYN of a filled day is anchored on that day's own currency-api file.
+	if r := store.rows["2026-10-30"+BYN]; !near(r.UAHPerUnit, 45.5293/2.95) || r.Source != CurrencyAPI {
+		t.Fatalf("BYN of the 30th = %+v", r)
+	}
+	// Sunday has the NBU's rows and waits for BYN.
+	if store.complete("2026-11-01") || store.rows["2026-11-01"+USD].Source != NBU {
+		t.Fatalf("Sunday = %v", store.rows)
+	}
+	if slices.ContainsFunc(src.asked, func(a string) bool { return strings.HasSuffix(a, "2025-12-31") }) {
+		t.Fatalf("a day older than fillDays was asked: %v", src.asked)
+	}
+
+	// The next step asks only for Sunday, and fills it once currency-api has it.
+	src.asked = nil
+	if s.Step(ctx); !slices.Equal(src.asked, []string{"nbu 2026-11-01", "usd 2026-11-01"}) {
+		t.Fatalf("asked %v", src.asked)
+	}
+	src.onDay("2026-11-01", 45.5293, false)
+	s.Step(ctx)
+	if !store.complete("2026-11-01") {
+		t.Fatal("Sunday not filled once currency-api had it")
+	}
+	src.asked = nil
+	if s.Step(ctx); len(src.asked) != 0 || src.requests != 2 {
+		t.Fatalf("nothing missing, yet asked %v, requests %d", src.asked, src.requests)
+	}
+	if strings.Contains(logs.String(), `"level":"ERROR"`) {
+		t.Fatalf("logs: %s", logs.String())
+	}
+}
+
+// A missed day the NBU fails for is filled from currency-api alone.
+func TestAMissedDayFallsBackToCurrencyAPI(t *testing.T) {
+	ctx := context.Background()
+	src := source("2026-10-30", "2026-10-29")
+	src.onDay("2026-10-29", 45.5923, false)
+	delete(src.nbuOn, "2026-10-29")
+	store := &memStore{}
+	if err := store.SaveRates(ctx, FromNBU(NBUDay{Date: day("2026-10-28"), UAH: src.nbu.UAH}, &src.usd)); err != nil {
+		t.Fatal(err)
+	}
+	s := &Syncer{Source: src, Store: store, Log: logTo(&bytes.Buffer{}), Now: func() time.Time { return kyiv("2026-10-29 16:00") }}
+	s.Step(ctx)
+	if !store.complete("2026-10-29") || store.rows["2026-10-29"+USD].Source != CurrencyAPI {
+		t.Fatalf("the 29th = %v", store.rows)
+	}
+	// Complete, the day is not asked again: the stand-in stays.
+	src.asked = nil
+	if s.Step(ctx); len(src.asked) != 0 {
+		t.Fatalf("asked %v", src.asked)
 	}
 }
 

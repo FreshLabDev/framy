@@ -232,7 +232,10 @@ was written from, and the skeleton of the service.
   from the NBU every day, and the next day's after 15:35 Kyiv, with
   `fawazahmed0/currency-api` behind it and for BYN, which the NBU does not
   list; when both fail the last saved rate stays. The sync asks only when the
-  saved rates are behind, so a restart costs no request. The default currency
+  saved rates are behind, so a restart costs no request. Days missed while
+  framy was down, weekends included, are read by date from both sources, up
+  to 31 days back, so a price never falls back to an older day's rate. The
+  default currency
   comes from the country on the site and from the language in the bot, and a
   person's choice is kept in `profile`. An amount is written the way the
   person's language writes it and never rounds down, with the rate's date
