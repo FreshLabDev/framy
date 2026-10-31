@@ -96,6 +96,9 @@ func newFakeLibrary() *fakeLibrary {
 			j["free"] = true
 		case 6: // 64, made in the direct chat
 			j["surface"] = "dm"
+		case 8: // 62, a video that went on from a clip, joined to it
+			j["joined"] = map[string]any{"id": 3062, "content_type": "video/mp4", "bytes": 9000, "width": 1280, "height": 720, "seconds": 11,
+				"url": "/test/clip.mp4?joined", "download": "/test/clip.mp4?download=joined", "thumb": map[string]any{"url": "/test/result.png?joined", "width": 480, "height": 270}}
 		case 9: // 61, made by guest mode
 			j["surface"] = "guest"
 		case 10: // 60, two pictures
@@ -646,4 +649,28 @@ func TestBrowserLibrarySmooth(t *testing.T) {
 			noErrors(t, ctx)
 		})
 	}
+}
+
+// TestBrowserViewerJoined checks a run of the library joined to the clip it
+// went on from: its tile and the viewer show the joined clip, which Download
+// saves, and the new part saves on its own.
+func TestBrowserViewerJoined(t *testing.T) {
+	f := newFakeLibrary()
+	ts := fakeSite(t, f.mount)
+	ctx := browser(t, ts.URL+"/library", 1440, 900, false)
+	got := js[map[string]any](t, ctx, libHelpers+`
+	await settled();
+	const tile = tiles().find((e) => e.getAttribute("href") === "/r/62");
+	const r = { cover: tile?.querySelector(".cover img")?.getAttribute("src"), badge: tile?.querySelector(".badge")?.textContent };
+	tile?.click();
+	await until(() => vis(document.querySelector("#viewer")) && document.querySelector("#viewBody .vbox video"));
+	const v = document.querySelector("#viewer");
+	r.video = v.querySelector(".vbox video")?.getAttribute("src");
+	r.links = [...v.querySelectorAll(".jacts > a")].map((a) => a.getAttribute("href") + " | " + a.textContent.trim());
+	return r;`)
+	want := []any{"/test/clip.mp4?download=joined | Download", "/test/clip.mp4?download=1 | New part"}
+	if got["cover"] != "/test/result.png?joined" || got["badge"] != "11 s" || got["video"] != "/test/clip.mp4?joined" || fmt.Sprint(got["links"]) != fmt.Sprint(want) {
+		t.Errorf("joined in the library: %v", got)
+	}
+	noErrors(t, ctx)
 }

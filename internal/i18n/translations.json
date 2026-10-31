@@ -3311,6 +3311,24 @@
     "ja": "別のモデル",
     "ar": "نموذج آخر"
   },
+  "web.act.part": {
+    "en": "New part",
+    "ru": "Новая часть",
+    "uk": "Нова частина",
+    "es": "Parte nueva",
+    "fr": "Nouvelle partie",
+    "de": "Neuer Teil",
+    "it": "Parte nuova",
+    "pl": "Nowa część",
+    "cs": "Nová část",
+    "tr": "Yeni bölüm",
+    "sv": "Ny del",
+    "be": "Новая частка",
+    "ca": "Part nova",
+    "zh": "新片段",
+    "ja": "新しいパート",
+    "ar": "الجزء الجديد"
+  },
   "web.act.pick_part": {
     "en": "Pick a part",
     "ru": "Выбрать отрезок",

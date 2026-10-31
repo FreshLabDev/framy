@@ -55,6 +55,9 @@ export async function api(path, o = {}) {
 }
 
 export const isFinal = (s) => s === "done" || s === "failed" || s === "cancelled" || s === "expired";
+// What a job shows: the clip it went on from with its own video after it,
+// where the server joined them (results then hold only the new part), else its results.
+export const outsOf = (j) => (j?.joined ? [j.joined] : j?.results || []);
 const wait = (ms, sig) => new Promise((done) => { const t = setTimeout(done, ms); sig?.addEventListener("abort", () => { clearTimeout(t); done(); }); });
 
 /* A job's events (GET /api/jobs/{id}/events). Server-sent events read through fetch, since the Mini App

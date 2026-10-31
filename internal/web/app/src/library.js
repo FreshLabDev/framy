@@ -7,7 +7,7 @@
 import { $, $$, h, ic, isWide, isPhone } from "./dom.js";
 import { anim, morph, opt, placeSegs, leadSeg, motion, OUT } from "./motion.js";
 import { t, lang, fmtNum, fmtSecs } from "./i18n.js";
-import { api, isFinal } from "./api.js";
+import { api, isFinal, outsOf } from "./api.js";
 import { C, vname, famLogo, lg, show, SICON, SHOWN, factEl, ratioNum, ratioOfSize } from "./catalog.js";
 import { S } from "./state.js";
 import { failure } from "./errors.js";
@@ -240,8 +240,8 @@ function days(list) {
 const dayEl = (g) => h("section", { class: "lday" }, h("h2", { "data-k": "ld-" + g.k }, dayName(g.d)), h("div", { class: "libgrid" }, g.jobs.map(tile)));
 
 const nameOf = (id) => String(id || "").split("/").pop();
-const coverOf = (j) => { const r = j.results?.[0]; return r ? r.thumb?.url || (j.kind === "video" ? "" : r.url || "") : ""; };
-const sigOf = (j) => [j.status, j.results?.length || 0, coverOf(j), j.results?.[0]?.url ? 1 : 0, j.cost?.label || "", j.error?.class || "", j.retry_at || "", j.prompt].join("|");
+const coverOf = (j) => { const r = outsOf(j)[0]; return r ? r.thumb?.url || (j.kind === "video" ? "" : r.url || "") : ""; };
+const sigOf = (j) => [j.status, outsOf(j).length, coverOf(j), outsOf(j)[0]?.url ? 1 : 0, j.cost?.label || "", j.error?.class || "", j.retry_at || "", j.prompt].join("|");
 // What the line under a tile says after the model: the price, or where the run stands.
 function said(j) {
   switch (j.status) {
@@ -268,7 +268,7 @@ function tile(j) {
   return a;
 }
 function cover(j) {
-  const res = j.results?.[0], vid = j.kind === "video";
+  const res = outsOf(j)[0], vid = j.kind === "video";
   if (j.status === "done" && res) {
     const src = coverOf(j), kids = [];
     if (src) {
@@ -279,7 +279,7 @@ function cover(j) {
       kids.push(im);
     } else kids.push(h("span", { class: "c" }, ic(vid ? "film" : "image"), res.url ? null : h("small", {}, t("lib.gone"))));
     if (vid && res.seconds) kids.push(h("span", { class: "badge" }, ic("play"), fmtSecs(res.seconds)));
-    if (j.results.length > 1) kids.push(h("span", { class: "badge n" }, "×" + fmtNum(j.results.length)));
+    if (outsOf(j).length > 1) kids.push(h("span", { class: "badge n" }, "×" + fmtNum(outsOf(j).length)));
     return h("span", { class: "cover" }, kids);
   }
   const wait = j.status === "queued" || j.status === "running", stop = j.status === "cancelled";
@@ -485,7 +485,7 @@ function nav() {
 }
 
 function ratioOf(j) {
-  const r = j.results?.[V.i] || j.results?.[0];
+  const r = outsOf(j)[V.i] || outsOf(j)[0];
   if (r?.width && r?.height) return r.width / r.height;
   const s = j.settings || {};
   if (s.size && /x/.test(s.size)) return ratioNum(ratioOfSize(s.size));
@@ -587,7 +587,7 @@ function fill() {
 }
 // More than one result: small pictures under the big one pick which shows.
 function picks(j) {
-  const rs = j.status === "done" ? j.results || [] : [];
+  const rs = j.status === "done" ? outsOf(j) : [];
   if (rs.length < 2) return null;
   return h("div", { class: "vpicks", role: "group", "aria-label": t("stage.label") }, rs.map((r, i) =>
     h("button", { type: "button", "aria-pressed": String(i === V.i), "aria-label": t("view.result", { n: fmtNum(i + 1) }), onclick: () => { if (V.i !== i) { V.i = i; fill(); } } },
@@ -609,7 +609,7 @@ function fullGo(d) {
   FULL.strip.scrollTo({ left: dirOf() * k * FULL.strip.clientWidth, behavior: motion() ? "smooth" : "auto" });
 }
 function openFull(at = 0) {
-  const j = V.j, rs = (j?.results || []).filter((r) => r.url);
+  const j = V.j, rs = outsOf(j).filter((r) => r.url);
   if (!rs.length || FULL) return;
   const box = $("#full"), n = rs.length, rtl = dirOf() < 0;
   const cells = rs.map((r) => {
@@ -633,7 +633,7 @@ function openFull(at = 0) {
     cnt.textContent = n > 1 ? t("view.of", { i: fmtNum(c + 1), n: fmtNum(n) }) : t("kind." + j.kind);
     if (nav.length) { nav[0].disabled = c === 0; nav[1].disabled = c === n - 1; }
     dots?.querySelectorAll("i").forEach((e, i) => e.classList.toggle("on", i === c));
-    acts.replaceChildren(...view(V.run, { res: j.results.indexOf(rs[c]), again: againBtn }).acts.filter(Boolean));
+    acts.replaceChildren(...view(V.run, { res: outsOf(j).indexOf(rs[c]), again: againBtn }).acts.filter(Boolean));
     cells.forEach((cell, i) => { const v = cell.querySelector("video"); if (v && i === c) v.play().catch(() => {}); else v?.pause(); });
   };
   let raf = 0;

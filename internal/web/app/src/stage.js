@@ -6,7 +6,7 @@ import { anim, rise, snap, EASE, motion } from "./motion.js";
 import { t } from "./i18n.js";
 import { C, vname, famLogo, lg, ratioNum, ratioOfSize, PNAME } from "./catalog.js";
 import { S, M, payOf, settings, sourceRatio, connection } from "./state.js";
-import { isFinal } from "./api.js";
+import { isFinal, outsOf } from "./api.js";
 import { failure, waiting, left, BILLING } from "./errors.js";
 import { priceText } from "./price.js";
 import { halftone } from "./halftone.js";
@@ -62,7 +62,7 @@ export function renderStage() {
 }
 
 function runRatio(run) {
-  const res = run.job?.results?.[0];
+  const res = outsOf(run.job)[0];
   if (res?.width && res?.height) return res.width / res.height;
   const m = C.byId[run.model], set = run.settings || {};
   if (set.size && /x/.test(set.size)) return ratioNum(ratioOfSize(set.size));
@@ -103,7 +103,7 @@ export function view(run, o = {}) {
   if (st === "running") {
     return { ...spin(t("stage.running"), null, { fig: "loop" }), acts: [h("span", { class: "busy" }, ic("info"), t(kind === "video" ? "cancel.running_video" : "cancel.running"))] };
   }
-  const res = j.results?.[o.res || 0];
+  const res = outsOf(j)[o.res || 0];
   if (st === "done" && res) return { done: true, res, acts: doneActs(run, j, res, o) };
   const f = failure(j);
   return { fail: true, status: failEl(f.label, f.said), why: [f.text, f.note], zero: f.zero, acts: failActs(run, f, o), ht: { fig: FAILFIG[f.cls] || "cross", still: true } };
@@ -169,7 +169,10 @@ function doneActs(run, j, res, o = {}) {
   const vid = res.content_type?.startsWith("video/");
   let sb = null;
   if (canShare(res)) { sb = B("send", t("act.share"), () => share(res, sb), "sq"); sb.title = t("act.share_tip"); }
+  // The joined clip shows; the part this run made saves on its own too.
+  const part = res === j.joined ? j.results?.[0] : null;
   return [res.url ? download(j, res, o.res || 0) : null,
+    part?.url ? download(j, part, 0, { label: t("act.part"), cls: "sq" }) : null,
     againBtn(run, o, t("act.again"), "sq2"),
     B("edit", t("act.edit"), () => editPrompt(run), "sq"),
     vid && res.url ? B("next", t("act.continue"), () => continueFrom(run, res), "sq") : null, sb];
@@ -224,19 +227,20 @@ addEventListener("input", (e) => {
 // takes; res.url only shows the file, and a browser ignores the download
 // attribute on another site's link, so without the first it opens in a tab.
 const EXT = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/avif": "avif", "image/gif": "gif", "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov" };
-export function download(j, res, i = 0) {
+export function download(j, res, i = 0, o = {}) {
   // The name the server gives the download, for Telegram, which asks for one.
-  const name = `framy-${j.id}-${i + 1}.${EXT[res.content_type] || (res.content_type || "").split("/")[1] || "bin"}`;
-  const kids = [ic("down"), h("span", { class: "t" }, t("stage.download"))], tg = S.tg;
+  const name = `framy-${j.id}-${res === j.joined ? "joined" : i + 1}.${EXT[res.content_type] || (res.content_type || "").split("/")[1] || "bin"}`;
+  const label = o.label || t("stage.download"), cls = o.cls || "primary", aria = cls.startsWith("sq") ? label : null;
+  const kids = [ic("down"), h("span", { class: "t" }, label)], tg = S.tg;
   if (res.download && tg?.downloadFile && tg.isVersionAtLeast?.("8.0"))
-    return h("button", { type: "button", class: "primary", onclick: () => tg.downloadFile({ url: res.download, file_name: name }) }, ...kids);
-  if (res.download) return h("a", { class: "primary", href: res.download, download: name }, ...kids);
-  return h("a", { class: "primary", href: res.url, download: name, target: "_blank", rel: "noopener" }, ...kids);
+    return h("button", { type: "button", class: cls, "aria-label": aria, onclick: () => tg.downloadFile({ url: res.download, file_name: name }) }, ...kids);
+  if (res.download) return h("a", { class: cls, "aria-label": aria, href: res.download, download: name }, ...kids);
+  return h("a", { class: cls, "aria-label": aria, href: res.url, download: name, target: "_blank", rel: "noopener" }, ...kids);
 }
 
 // What the stage shows of the run, to tell a new state from the same one again.
 let shownSig = "", shownN = 0, shownStep = null;
-const sigOf = (run) => [run.n, run.phase, run.job?.status || "", run.job?.results?.length || 0, run.job?.error?.class || "", run.job?.retry_at || "",
+const sigOf = (run) => [run.n, run.phase, run.job?.status || "", run.job?.results?.length || 0, run.job?.joined?.id || 0, run.job?.error?.class || "", run.job?.retry_at || "",
   run.job?.cost?.label || "", run.net, run.sending ? 1 : 0, S.showJob ? 1 : 0].join("|");
 // The run changed: the stage shows its new state, the frame glides to its new shape.
 export function runChanged() {

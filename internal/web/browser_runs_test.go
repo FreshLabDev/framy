@@ -111,6 +111,7 @@ func (f *fakeRuns) mount(srv *Server) {
 		writeTestJSON(w, http.StatusOK, map[string]any{"id": 72, "content_type": "image/jpeg", "bytes": 30000, "width": 832, "height": 480})
 	})
 	srv.HandleFunc("GET /test/clip.mp4", func(w http.ResponseWriter, _ *http.Request) { w.Header().Set("Content-Type", "video/mp4") })
+	srv.HandleFunc("GET /test/joined.mp4", func(w http.ResponseWriter, _ *http.Request) { w.Header().Set("Content-Type", "video/mp4") })
 	srv.HandleFunc("GET /test/result.png", func(w http.ResponseWriter, _ *http.Request) {
 		img := image.NewRGBA(image.Rect(0, 0, 64, 64))
 		for i := range img.Pix {
@@ -203,6 +204,13 @@ func (f *fakeRuns) create(w http.ResponseWriter, r *http.Request) {
 		steps = append(steps, at("running", map[string]any{"kind": "video"}), at("done", map[string]any{"kind": "video",
 			"cost":    map[string]any{"usd": 0.04, "amount": 0.04, "currency": "USD", "label": "$0.040"},
 			"results": []map[string]any{{"id": 9, "content_type": "video/mp4", "url": url, "download": url + "?download=1", "width": 832, "height": 480, "seconds": 5}}}))
+	case p == "done:joined":
+		// A run that went on from a clip's last frame, joined to that clip.
+		url, joined := "http://"+r.Host+"/test/clip.mp4", "http://"+r.Host+"/test/joined.mp4"
+		steps = append(steps, at("running", map[string]any{"kind": "video"}), at("done", map[string]any{"kind": "video",
+			"cost":    map[string]any{"usd": 0.04, "amount": 0.04, "currency": "USD", "label": "$0.040"},
+			"results": []map[string]any{{"id": 9, "content_type": "video/mp4", "url": url, "download": url + "?download=1", "width": 832, "height": 480, "seconds": 5}},
+			"joined":  map[string]any{"id": 10, "content_type": "video/mp4", "url": joined, "download": joined + "?download=1", "width": 832, "height": 480, "seconds": 9.96}}))
 	case p == "slow":
 		for range 14 {
 			steps = append(steps, at("running", nil))
@@ -787,6 +795,37 @@ func TestBrowserLastFrame(t *testing.T) {
 	}
 	if n, _ := s["asked"].(float64); n < 1 {
 		t.Errorf("the price with the last frame was not asked: %v", s)
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserJoined checks a run that went on from a clip's last frame and
+// came back joined to it: the stage plays and saves the joined clip, the new
+// part saves on its own, and Continue takes the last frame of all of it.
+func TestBrowserJoined(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const frames = [], fetch0 = window.fetch;
+	window.fetch = (u, o) => { const m = String(u).match(/\/api\/files\/(\d+)\/last-frame$/); if (m) frames.push(+m[1]); return fetch0(u, o); };
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(700);
+	const p = document.querySelector("#prompt");
+	p.value = "done:joined"; p.dispatchEvent(new Event("input"));
+	await wait(300);
+	document.querySelector("#go").click();
+	let cont = null;
+	for (let i = 0; i < 100 && !cont; i++) { await wait(100); cont = document.querySelector("#stage .jacts button[aria-label=Continue]"); }
+	const st = document.querySelector("#stage");
+	const video = st.querySelector(".jbox video")?.getAttribute("src") || "";
+	const links = [...st.querySelectorAll(".jacts > a")].map((a) => [a.getAttribute("href").replace(location.origin, ""), a.getAttribute("download"), a.textContent.trim(), a.getAttribute("aria-label") || ""].join(" | "));
+	cont?.click();
+	for (let i = 0; i < 30 && !frames.length; i++) await wait(100);
+	return { video: video.replace(location.origin, ""), links, frames };`)
+	want := []any{"/test/joined.mp4?download=1 | framy-1-joined.mp4 | Download | ", "/test/clip.mp4?download=1 | framy-1-1.mp4 | New part | New part"}
+	if s["video"] != "/test/joined.mp4" || fmt.Sprint(s["links"]) != fmt.Sprint(want) || fmt.Sprint(s["frames"]) != "[10]" {
+		t.Errorf("joined: %v", s)
 	}
 	noErrors(t, ctx)
 }

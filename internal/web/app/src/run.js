@@ -3,7 +3,7 @@
 // refused, cancelling, and the actions on what came of it.
 import { $ } from "./dom.js";
 import { t } from "./i18n.js";
-import { api, watchJob, isFinal } from "./api.js";
+import { api, watchJob, isFinal, outsOf } from "./api.js";
 import { S, M, payOf, settings, fastOf, going, clip, contFits, keyOk, runItem } from "./state.js";
 import { C, offerOf, PNAME, framesOf, photoLimit } from "./catalog.js";
 import { known, priceText, clearPrices } from "./price.js";
@@ -294,16 +294,18 @@ export function canContinue(j) {
   const m = C.byId[j.model], p = providerOf(j);
   return !!m && m.traits?.continue && !j.free && (p === "openrouter" || p === "gemini") && keyOk(p);
 }
-export async function continueFrom(run = S.run, res = run.job?.results?.[0]) {
+export async function continueFrom(run = S.run, res = outsOf(run.job)[0]) {
   const j = run.job;
   if (!res) return;
   leave(run);
   if (canContinue(j)) {
-    const p = providerOf(j);
+    // The model goes on from its own video; the last frame, where it cannot,
+    // is the joined clip's, so what follows joins to all of it.
+    const p = providerOf(j), own = j.results?.[0] || res;
     act(() => {
       S.kind = "video"; S.model.video = j.model; S.pay[j.model] = p;
       S.files = []; S.cut = null;
-      S.cont = { job: j.id, model: j.model, pay: p, secs: res.seconds || 0, url: res.url, w: res.width, h: res.height, result: res.id };
+      S.cont = { job: j.id, model: j.model, pay: p, secs: own.seconds || 0, url: own.url, w: own.width, h: own.height, result: res.id };
       $("#prompt").value = "";
       S.showJob = false;
       render();

@@ -322,10 +322,13 @@ was written from, and the skeleton of the service.
   regained its connection, and marks a run it reads every 5 seconds instead
   of the stream. A result has Again, Edit the prompt, Continue for a video
   (on the same model where it goes on, else from its last frame, which the
-  composer marks with Continue's icon and prices with the frame in it) and a copy
-  button for the prompt. In the Mini App it also has Share, which opens
-  Telegram's chat picker with the result; one Telegram will not take says
-  to download it instead.
+  composer marks with Continue's icon and prices with the frame in it) and a
+  copy button for the prompt. A run that went on from a last frame shows,
+  saves and sends the clip joined to it, everywhere the site shows a result,
+  and saves its new part on its own with New part; Continue then takes the
+  last frame of the whole clip. In the Mini App it also has Share, which
+  opens Telegram's chat picker with the result; one Telegram will not take
+  says to download it instead.
 - The stage shows every state of a run as a halftone of dots in the frame,
   as the bot's previews do: the bot's generating loop while the job runs,
   and a figure of its own for the start, the queue, a wait with what is left
