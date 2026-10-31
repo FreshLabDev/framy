@@ -412,7 +412,7 @@ At most about $3.7 a month for a person who uses everything with the main models
 
 A blind test confirms the choice before launch:
 - images: 20–30 typical prompts, half of them edits of photos with people, on MAI 2.6 Flash and FLUX.3 Klein, under $1. MAI is already chosen; the test measures its actual price per image and decides whether Klein is good enough for albums of more than 5 photos and as a fallback;
-- video: 10 prompts, 5 of them from a start frame, on HeyGen and Grok Lite, about $3, and 3 edits of 5 s clips on FLUX Video Edit, $0.45.
+- video: dropped (owner, 31 October). HeyGen, Grok Lite and FLUX Video Edit stay the free video models without it, and real runs show how they do.
 
 ## Jobs
 
@@ -1028,7 +1028,7 @@ Live tests on a test bot and the real tunnel (details in [research/telegram.md](
 5. **`CF-IPCountry`** behind our tunnel. Checked on 31 October: an anonymous `POST /api/quote` through framy-test.ws04.cc with `Accept-Language: en` and with `ru` came back in PLN, the currency of the caller's country, where without a country both give USD. The header reaches the service, and `web.FromProxy` believes it.
 6. **OpenRouter OAuth** end to end, from the Mini App too.
 7. **Prices:** estimate against `usage.cost` on 10 runs per pricing kind.
-8. **Blind tests** of the free-tier candidates.
+8. **Blind test** of the free image models (#30). The video one was dropped (owner, 31 October).
 9. **Files:** HEIC from real iPhones (Portrait, Live Photo, HDR) through the ffmpeg in framy's image; the final MP4s on iOS, Android, Desktop and Web.
 10. **OpenRouter webhooks:** checked on 28 October through the test stack's tunnel. `callback_url` works with a key made by the OAuth flow: a 1 s video on a person's connection got its delivery 27.6 s after the submit, and the poll it brought forward finished the run 2.2 s later. The signature is `t=<unix seconds>,v1=<hex>`, an HMAC-SHA256 of `t`, a comma and the raw body, keyed with the whole secret string as OpenRouter shows it; a free run's delivery passed the check. A forged signature and a missing one get 401. Bot Fight Mode is off on ws04.cc, and the POST comes through. The secret is generated in the workspace settings (Webhooks, "Generate signing secret"), is shown once, and covers every key of the workspace, OAuth keys included.
 11. **Cloudflare:** "Respect Existing Headers" on Free, checked with `curl -I`; whether `downloadFile` follows a redirect.
@@ -1040,7 +1040,7 @@ Live tests on a test bot and the real tunnel (details in [research/telegram.md](
 
 Settled on 26 October: the chat command (now `/img`) on anyone's photo, rolling windows, every file in R2 until the person deletes it, `mai-image-2.6-flash` as the free image model. Settled on 27 October: the global daily budget of the free tier, $1 a day.
 
-1. The free video models, and Klein for albums and as a fallback: confirm after the blind test.
+1. Klein for albums and as a fallback: confirm after the image blind test. The free video models stay without one (owner, 31 October).
 2. Pre-moderation of free-tier prompts with OpenAI's endpoint while the traffic goes to OpenRouter.
 3. Public result links and whether a public gallery exists.
 4. A permanent domain.
