@@ -1022,7 +1022,7 @@ Live tests on a test bot and the real tunnel (details in [research/telegram.md](
 2. **`editMessageMedia` in a group:** photo → animation → photo, and → video (T6).
 3. **Ephemeral command** in reply to a photo: does `reply_to_message` come (T5).
 4. **Guest mode:** a reply to a photo, edits of the answer, callback buttons (T9). The flow is built; the open points are listed under Guest mode.
-5. **`CF-IPCountry`** behind our tunnel.
+5. **`CF-IPCountry`** behind our tunnel. Checked on 31 October: an anonymous `POST /api/quote` through framy-test.ws04.cc with `Accept-Language: en` and with `ru` came back in PLN, the currency of the caller's country, where without a country both give USD. The header reaches the service, and `web.FromProxy` believes it.
 6. **OpenRouter OAuth** end to end, from the Mini App too.
 7. **Prices:** estimate against `usage.cost` on 10 runs per pricing kind.
 8. **Blind tests** of the free-tier candidates.
