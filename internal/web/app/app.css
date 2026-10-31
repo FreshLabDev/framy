@@ -382,7 +382,6 @@ input.search::placeholder {color: var(--muted);}
 .chipbtn .nm > span {display: block; overflow: hidden; text-overflow: ellipsis;}
 .chipbtn .nm > .out {position: absolute; left: 0; top: 0;}
 .chipbtn.set {flex: none;}
-.chipbtn.att {flex: none; width: 46px; padding: 0; justify-content: center;}
 .chipbtn > .lg.o {width: 28px; height: 28px; font-size: 13px;}
 @media (max-width: 959px) {
   .stage {align-content: center;}
@@ -397,7 +396,7 @@ input.search::placeholder {color: var(--muted);}
   .composer > .how {display: none;}
   .composer textarea#prompt {min-height: 54px; max-height: 30vh; overflow: auto; padding: 12px 14px; font-size: 18px;}
   .composer .files {flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;}
-  .composer .files.nofiles {display: none;}
+  .composer .files.nofiles .fhint {display: none;}
   .composer .thumb, .composer .addfile {flex: none; width: 52px; height: 52px;}
   .composer .fgroup {flex: none;}
   .composer .fgroup > .gt {flex-wrap: nowrap;}
@@ -409,10 +408,14 @@ input.search::placeholder {color: var(--muted);}
   .top {height: 56px;}
   .stage .preview {justify-items: center;}
 }
-@media (max-width: 420px) {
-  .chipbtn.set > span, .chipbtn > .lg {display: none;}
-  .chipbtn {padding: 0 10px; gap: 6px;}
+@media (max-width: 959px) {
+  .chipbtn.set > span {display: none;}
   .chipbtn.set {width: 46px; padding: 0; justify-content: center;}
+  .chipbtn.set:has(.cnt) {width: auto; padding: 0 12px; gap: 6px;}
+}
+@media (max-width: 420px) {
+  .chipbtn > .lg {display: none;}
+  .chipbtn:not(.set) {padding: 0 10px; gap: 6px;}
 }
 
 /* The run on the stage. */

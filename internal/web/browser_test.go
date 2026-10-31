@@ -262,7 +262,7 @@ func TestBrowserPhone(t *testing.T) {
 	if res["open"] != true || res["back"] != true || res["closed"] != true || len(res["bad"].([]any)) > 0 {
 		t.Errorf("settings sheet: %v", res)
 	}
-	pickAnother(t, ctx, "#dtools .chipbtn:not(.set):not(.att)")
+	pickAnother(t, ctx, "#dtools .chipbtn:not(.set)")
 	noErrors(t, ctx)
 }
 

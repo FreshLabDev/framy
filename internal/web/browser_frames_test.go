@@ -106,10 +106,11 @@ func TestBrowserFramesPhone(t *testing.T) {
 	for _, size := range [][2]int64{{375, 812}, {320, 568}} {
 		ctx := browser(t, ts.URL, size[0], size[1], true)
 		s := js[map[string]any](t, ctx, pageHelpers+framesHelpers+`
-	// The card that stands whole in the strip: at its start, or the last one at its end.
-	const at = () => { const s = document.querySelector("#stage .strip"), cs = [...s.querySelectorAll(":scope > .cell")], r = s.getBoundingClientRect();
-	  return cs.findIndex((c, i) => { const b = c.getBoundingClientRect(); return Math.abs(b.left - r.left - 16) < 2 || i === cs.length - 1 && Math.abs(r.right - 16 - b.right) < 2; }); };
+	// The frame the strip shows: the dot that is lit, and that frame standing whole in the strip.
 	const dot = () => [...document.querySelectorAll("#stage .dots i")].findIndex((i) => i.classList.contains("on"));
+	const whole = (k) => { const s = document.querySelector("#stage .strip"), c = s.querySelectorAll(":scope > .cell")[k], r = s.getBoundingClientRect(), b = c.getBoundingClientRect();
+	  return b.left >= r.left - 1 && b.right <= r.right + 1; };
+	const at = () => { const k = dot(); return k >= 0 && whole(k) ? k : -1; };
 	const settle = async (k) => { for (let i = 0; i < 25 && at() !== k; i++) await wait(100); await wait(200); };
 	document.querySelector("#stage .addf").click(); await wait(900);
 	document.querySelector("#stage .addf").click(); await settle(2);

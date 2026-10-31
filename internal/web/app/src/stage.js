@@ -33,7 +33,8 @@ function space(under = 0) {
   const st = $("#stage"), phone = isPhone();
   const W = Math.max(160, phone ? innerWidth - 32 : st.clientWidth);
   const dock = phone ? $("#composer").offsetHeight : 0, top = $("#top")?.offsetHeight || 0;
-  const H = Math.max(160, (phone ? innerHeight - dock - top - 92 : innerHeight - top - 120) - under);
+  // A short phone with the files row in the dock leaves little; the frames shrink rather than go under it.
+  const H = Math.max(phone ? 96 : 160, (phone ? innerHeight - dock - top - 92 : innerHeight - top - 120) - under);
   return { W, H };
 }
 // The largest box of ratio r that fits the stage.
@@ -177,6 +178,9 @@ function stripOf(P) {
 // The card the strip stands at: the last one once it can roll no further.
 function stripAt(s) {
   const cs = [...s.querySelectorAll(":scope > .cell")], x = Math.abs(s.scrollLeft);
+  // On a short phone the cards are small and several stand whole: the one the strip was sent to stays the one.
+  const r = s.getBoundingClientRect(), b = cs[s._at]?.getBoundingClientRect();
+  if (b && b.left >= r.left - 1 && b.right <= r.right + 1) return s._at;
   if (x > 0 && x >= s.scrollWidth - s.clientWidth - 2) return cs.length - 1;
   let k = 0, d = Infinity;
   cs.forEach((c, i) => { const e = Math.abs(c.offsetLeft - cs[0].offsetLeft - x); if (e < d) { d = e; k = i; } });

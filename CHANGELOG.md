@@ -32,6 +32,13 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 - The site carries framy's mark: in the browser tab, on an iPhone's home
   screen, and before the name in the header.
 
+### Changed
+
+- On a phone, files are added in the row under the prompt, for pictures as
+  for video, and the plus in the row over the prompt is gone: in video it
+  stood beside the slots' own pluses. The settings there are an icon only,
+  with the number of frames beside it when there are several.
+
 ### Fixed
 
 - On a phone 320 px wide the sign-in button no longer breaks onto two lines

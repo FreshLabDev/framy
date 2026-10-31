@@ -175,7 +175,7 @@ The video editors and the upscaler (`runway/aleph-2`, `flux-video-edit`, `flux-v
 
 ## Composer
 
-One component for the site and the Mini App. On top, a large prompt line that grows with the text **(owner)**; under it, the attachments; then the model chip, the setting chips and the price next to "Generate". Results appear in a feed below.
+One component for the site and the Mini App. On top, a large prompt line that grows with the text **(owner)**; under it, the attachments; then the model chip, the setting chips and the price next to "Generate". Results appear in a feed below. On a phone the kind, the model and the settings share one row over the prompt, the settings as an icon only, and files are added in the row under the prompt in both kinds, as the slots of a video are; the row over the prompt has no second way to add one **(owner, 31 October)**.
 
 ### Frames
 
