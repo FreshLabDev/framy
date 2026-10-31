@@ -272,11 +272,25 @@ func (f *fakeTelegram) SendMediaGroup(_ context.Context, chatID int64, items []t
 			if i == 0 {
 				caption = v.Caption
 			}
+		case tg.InputMediaVideo:
+			file := "video:" + fileOf(v.Media)
+			if v.Cover != nil {
+				file += "+cover:" + fileOf(v.Cover)
+			}
+			files = append(files, file)
+			if i == 0 {
+				caption = v.Caption
+			}
 		default:
 			files = append(files, "?")
 		}
 	}
-	m, err := f.record(call{method: "sendMediaGroup", chatID: chatID, thread: threadID, text: caption, file: strings.Join(files, ",")})
+	// A cover in the album fails it as fail["cover"] says.
+	var cover string
+	if strings.Contains(strings.Join(files, ","), "+cover:") {
+		cover = "album"
+	}
+	m, err := f.record(call{method: "sendMediaGroup", chatID: chatID, thread: threadID, text: caption, file: strings.Join(files, ","), cover: cover})
 	if err != nil {
 		return nil, err
 	}
@@ -287,7 +301,21 @@ func (f *fakeTelegram) SendMediaGroup(_ context.Context, chatID int64, items []t
 		f.next++
 		out = append(out, tg.Message{MessageID: f.next})
 	}
-	out[0].Photo = []tg.Photo{{FileID: "album-file", FileUniqueID: "album-unique"}}
+	// Each message carries its own file, named after its place.
+	for i, item := range items {
+		id, unique := "album-file", "album-unique"
+		if i > 0 {
+			id, unique = fmt.Sprintf("album-file-%d", i), fmt.Sprintf("album-unique-%d", i)
+		}
+		switch item.(type) {
+		case tg.InputMediaVideo:
+			out[i].Video = &tg.Video{FileID: id, FileUniqueID: unique}
+		case tg.InputMediaDocument:
+			out[i].Document = &tg.Document{FileID: id, FileUniqueID: unique}
+		default:
+			out[i].Photo = []tg.Photo{{FileID: id, FileUniqueID: unique}}
+		}
+	}
 	return out, nil
 }
 

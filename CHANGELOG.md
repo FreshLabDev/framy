@@ -11,6 +11,13 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+### Added
+
+- A press of several frames comes to the DM as one album, in the order of
+  its frames, once its last job ended. The caption gives the prompt once and
+  numbers the frames by model, so three models on one prompt read as a
+  comparison. Videos keep their covers in the album.
+
 ## v0.1.0-alpha.2 - 2026-10-31
 
 The test bot moves onto production's database, so a person has one history
