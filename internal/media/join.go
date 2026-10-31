@@ -34,17 +34,18 @@ var ErrNothingToJoin = errors.New("the next part is a single frame")
 // frame, which is the frame it started from: one MP4 next to them. Both
 // take the larger of the two sizes, the other padded where the shapes
 // differ, and the higher frame rate. A part without sound gets silence
-// when the other has some. A join over MaxJoinedSeconds comes back as a
+// when the other has some. nextAt is where the next part begins in the
+// joined clip, in seconds. A join over MaxJoinedSeconds comes back as a
 // *TooLongError.
-func (c *Converter) Join(ctx context.Context, dir string, upTo float64) (Video, error) {
+func (c *Converter) Join(ctx context.Context, dir string, upTo float64) (v Video, nextAt float64, err error) {
 	first, next := filepath.Join(dir, JoinFirst), filepath.Join(dir, JoinNext)
 	a, err := c.readClip(ctx, first)
 	if err != nil {
-		return Video{}, fmt.Errorf("the clip: %w", err)
+		return Video{}, 0, fmt.Errorf("the clip: %w", err)
 	}
 	b, err := c.readClip(ctx, next)
 	if err != nil {
-		return Video{}, fmt.Errorf("the next part: %w", err)
+		return Video{}, 0, fmt.Errorf("the next part: %w", err)
 	}
 	lenA := a.seconds
 	if upTo > 0 {
@@ -54,10 +55,10 @@ func (c *Converter) Join(ctx context.Context, dir string, upTo float64) (Video, 
 	skip := 1 / frameRate(b)
 	lenB := b.seconds - skip
 	if lenB < MinSeconds {
-		return Video{}, ErrNothingToJoin
+		return Video{}, 0, ErrNothingToJoin
 	}
 	if total := lenA + lenB; total > MaxJoinedSeconds+0.05 {
-		return Video{}, &TooLongError{Seconds: total, Max: MaxJoinedSeconds}
+		return Video{}, 0, &TooLongError{Seconds: total, Max: MaxJoinedSeconds}
 	}
 	w, h := c.joinSize(a, b)
 	fps := math.Min(math.Max(frameRate(a), frameRate(b)), maxFPS)
@@ -89,21 +90,21 @@ func (c *Converter) Join(ctx context.Context, dir string, upTo float64) (Video, 
 	args = append(args, "-map_metadata", "-1", "-map_chapters", "-1", "-movflags", "+faststart", "-f", "mp4", "-y", "file:"+out)
 	if _, err := c.runFor(ctx, c.videoTimeout(), c.ffmpeg(), args); err != nil {
 		if ctx.Err() != nil {
-			return Video{}, err
+			return Video{}, 0, err
 		}
-		return Video{}, fmt.Errorf("%w: %v", ErrUnreadableVideo, err)
+		return Video{}, 0, fmt.Errorf("%w: %v", ErrUnreadableVideo, err)
 	}
 	got, err := c.readClip(ctx, out)
 	if err != nil {
-		return Video{}, fmt.Errorf("the clip framy joined: %w", err)
+		return Video{}, 0, fmt.Errorf("the clip framy joined: %w", err)
 	}
 	st, err := os.Stat(out)
 	if err != nil {
-		return Video{}, err
+		return Video{}, 0, err
 	}
-	v := Video{Path: out, ContentType: "video/mp4", Bytes: st.Size(), Seconds: got.seconds, FPS: got.fps, Audio: got.audio()}
+	v = Video{Path: out, ContentType: "video/mp4", Bytes: st.Size(), Seconds: got.seconds, FPS: got.fps, Audio: got.audio()}
 	v.Width, v.Height = got.shown()
-	return v, nil
+	return v, math.Round(lenA*1000) / 1000, nil
 }
 
 // joinSound is part n's sound for a join, length seconds of it from skip,

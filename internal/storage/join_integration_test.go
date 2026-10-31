@@ -39,15 +39,16 @@ type joined struct {
 	audio         bool
 	thumb         *string
 	contentType   string
+	segments      []float64
 }
 
 func joinedOf(t *testing.T, h *harness, job int64) (joined, bool) {
 	t.Helper()
 	var j joined
 	err := h.pool.QueryRow(context.Background(), `
-		SELECT id, object_key, seconds, width, height, audio, thumb_key, content_type
+		SELECT id, object_key, seconds, width, height, audio, thumb_key, content_type, segments
 		FROM framy.asset WHERE job_id=$1 AND kind='joined'`, job).Scan(
-		&j.id, &j.key, &j.seconds, &j.width, &j.height, &j.audio, &j.thumb, &j.contentType)
+		&j.id, &j.key, &j.seconds, &j.width, &j.height, &j.audio, &j.thumb, &j.contentType, &j.segments)
 	if err != nil {
 		return joined{}, false
 	}
@@ -107,6 +108,9 @@ func TestAContinuationIsJoinedToItsClip(t *testing.T) {
 	if j.thumb == nil && c.CheckThumb(ctx) == nil {
 		t.Error("the joined clip has no thumbnail")
 	}
+	if len(j.segments) != 2 || j.segments[0] != 0 || math.Abs(j.segments[1]-3) > 0.05 {
+		t.Errorf("the parts begin at %v, want 0 and 3", j.segments)
+	}
 	// Kept again, as after a crash: the same row.
 	if err := h.store.Keep(ctx, run, []jobs.Result{{ContentType: "video/mp4", Data: clip(t, "2.5")}}); err != nil {
 		t.Fatal(err)
@@ -115,6 +119,28 @@ func TestAContinuationIsJoinedToItsClip(t *testing.T) {
 	_ = h.pool.QueryRow(ctx, `SELECT count(*) FROM framy.asset WHERE job_id=$1 AND kind='joined'`, next).Scan(&n)
 	if n != 1 {
 		t.Errorf("%d joined clips", n)
+	}
+
+	// Continue again from the joined clip: the next run joins to all of it,
+	// a third part.
+	again, err := h.store.LastFrame(ctx, alice, j.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	third := videoJob(t, h, alice, again.ID)
+	if err := h.store.Keep(ctx, jobs.Job{ID: third, UserID: alice, Settings: run.Settings},
+		[]jobs.Result{{ContentType: "video/mp4", Data: clip(t, "1.5")}}); err != nil {
+		t.Fatal(err)
+	}
+	all, ok := joinedOf(t, h, third)
+	if !ok {
+		t.Fatal("the second continuation is not joined")
+	}
+	if want := j.seconds + 1.5 - 1.0/30; math.Abs(all.seconds-want) > 0.05 {
+		t.Errorf("the clip of three parts is %.3f s, not %.3f", all.seconds, want)
+	}
+	if len(all.segments) != 3 || all.segments[1] != j.segments[1] || math.Abs(all.segments[2]-j.seconds) > 0.05 {
+		t.Errorf("the parts begin at %v, after %v and %.3f s", all.segments, j.segments, j.seconds)
 	}
 
 	// The frame as a reference, not the first frame: nothing to join.

@@ -27,20 +27,22 @@ const (
 // the job's joined file, when the run started from a frame LastFrame took:
 // Continue on a model that starts from a frame (docs/design.md, Actions on
 // a result). The clip goes up to the frame, and the run's video follows
-// without its first frame, which is that frame again. It returns nil when
-// the run went on from no clip.
+// without its first frame, which is that frame again. The joined clip
+// keeps where each part begins: those of a joined clip it went on from,
+// then the run's. It returns nil when the run went on from no clip.
 func (s *Store) join(ctx context.Context, j jobs.Job) error {
 	if !startsFromFrame(j.Settings) {
 		return nil
 	}
 	var clip, part Asset
 	var at *float64
+	var earlier []float64
 	err := s.pool.QueryRow(ctx, `
-		SELECT c.id, c.object_key, f.frame_at
+		SELECT c.id, c.object_key, f.frame_at, c.segments
 		FROM job_input i
 		JOIN asset f ON f.id = i.asset_id AND f.user_id = $2
 		JOIN asset c ON c.id = f.frame_of AND c.user_id = $2
-		WHERE i.job_id = $1 AND i.position = 0`, j.ID, j.UserID).Scan(&clip.ID, &clip.Key, &at)
+		WHERE i.job_id = $1 AND i.position = 0`, j.ID, j.UserID).Scan(&clip.ID, &clip.Key, &at, &earlier)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
@@ -82,10 +84,11 @@ func (s *Store) join(ctx context.Context, j jobs.Job) error {
 	if at != nil {
 		upTo = *at
 	}
-	v, err := s.media.Join(ctx, dir, upTo)
+	v, nextAt, err := s.media.Join(ctx, dir, upTo)
 	if err != nil {
 		return err
 	}
+	segments := partsBefore(earlier, nextAt)
 	a := Asset{
 		UserID: j.UserID, Kind: "joined", JobID: j.ID, Key: joinedKey(s.cfg.Prefix, j),
 		ContentType: v.ContentType, Width: v.Width, Height: v.Height, Seconds: v.Seconds, FPS: v.FPS, Audio: v.Audio,
@@ -98,18 +101,32 @@ func (s *Store) join(ctx context.Context, j jobs.Job) error {
 	// Joined again after a crash, the clip keeps its row: the key is the same.
 	_, err = s.pool.Exec(ctx, `
 		INSERT INTO asset (user_id, kind, job_id, object_key, content_type, bytes, width, height, sha256, seconds, fps, audio,
-		  thumb_key, thumb_width, thumb_height, thumb_bytes)
-		VALUES ($1, 'joined', $2, $3, $4, $5, NULLIF($6, 0), NULLIF($7, 0), $8, NULLIF($9::float8, 0), NULLIF($10::float8, 0), $11, $12, $13, $14, $15)
+		  thumb_key, thumb_width, thumb_height, thumb_bytes, segments)
+		VALUES ($1, 'joined', $2, $3, $4, $5, NULLIF($6, 0), NULLIF($7, 0), $8, NULLIF($9::float8, 0), NULLIF($10::float8, 0), $11, $12, $13, $14, $15, $16)
 		ON CONFLICT (object_key) DO UPDATE SET bytes = EXCLUDED.bytes, sha256 = EXCLUDED.sha256,
 		  width = EXCLUDED.width, height = EXCLUDED.height, seconds = EXCLUDED.seconds, fps = EXCLUDED.fps, audio = EXCLUDED.audio,
+		  segments = EXCLUDED.segments,
 		  thumb_key = COALESCE(EXCLUDED.thumb_key, asset.thumb_key), thumb_width = COALESCE(EXCLUDED.thumb_width, asset.thumb_width),
 		  thumb_height = COALESCE(EXCLUDED.thumb_height, asset.thumb_height), thumb_bytes = COALESCE(EXCLUDED.thumb_bytes, asset.thumb_bytes)`,
 		a.UserID, a.JobID, a.Key, a.ContentType, a.Bytes, a.Width, a.Height, a.SHA256, a.Seconds, a.FPS, a.audio(),
-		thumb, tw, th, tb)
+		thumb, tw, th, tb, segments)
 	if err != nil {
 		return fmt.Errorf("record the joined clip: %w", err)
 	}
 	return nil
+}
+
+// partsBefore is where each part of a joined clip begins: those of the clip
+// it went on from that begin before nextAt (one at 0 for a clip of one
+// part), then nextAt, where the run's video begins.
+func partsBefore(earlier []float64, nextAt float64) []float64 {
+	out := []float64{0}
+	for _, at := range earlier {
+		if at > 0 && at < nextAt {
+			out = append(out, at)
+		}
+	}
+	return append(out, nextAt)
 }
 
 // startsFromFrame: the run's first picture is the first frame of its video.

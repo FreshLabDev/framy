@@ -665,7 +665,8 @@ was written from, and the skeleton of the service.
   parts take the larger size and the higher frame rate, a part without
   sound gets silence, and the new video's first frame, which repeats the
   frame it started from, is dropped. Continuing the joined clip adds to all
-  of it, up to 180 s. A join that fails leaves the run's video as it is.
+  of it, up to 180 s, and `segments` says where each part begins, for the
+  player to mark (migration 027). A join that fails leaves the run's video as it is.
   The frame remembers its clip (migration 026). Omni's own continuation is
   not joined, since its video may already hold the earlier one.
 - `/edit` in a chat. In reply to a video, a GIF, a round video or a video

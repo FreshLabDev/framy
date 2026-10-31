@@ -135,11 +135,15 @@ func TestTheHistoryIsReadFromTheDatabase(t *testing.T) {
 		VALUES ($1, 'joined', $2, 'u/1001/out/joined.mp4', 'video/mp4', 3, 'x', 9.96) RETURNING id`, alice, fox).Scan(&joined); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := pool.Exec(ctx, `UPDATE asset SET segments = '{0, 5.04}' WHERE id = $1`, joined); err != nil {
+		t.Fatal(err)
+	}
 	s, err := d.State(ctx, alice, fox)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(s.Results) != 1 || s.Results[0].ID != out || s.Joined == nil || s.Joined.ID != joined || s.Joined.Seconds != 9.96 {
+	if len(s.Results) != 1 || s.Results[0].ID != out || s.Joined == nil || s.Joined.ID != joined || s.Joined.Seconds != 9.96 ||
+		len(s.Joined.Segments) != 2 || s.Joined.Segments[1] != 5.04 || s.Results[0].Segments != nil {
 		t.Errorf("results %v, joined %+v", s.Results, s.Joined)
 	}
 	if _, err := d.State(ctx, alice, gone); !errors.Is(err, ErrNotFound) {

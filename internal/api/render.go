@@ -103,6 +103,11 @@ type resultJSON struct {
 	Height      int    `json:"height,omitempty"`
 	// Seconds is a clip's length; absent for a picture.
 	Seconds float64 `json:"seconds,omitempty"`
+	// Segments is where each part of a joined clip begins, in seconds from
+	// its start, the first at 0: the clip it went on from, then each run
+	// after it. The player marks them. Absent for any other file, and for a
+	// clip joined before framy kept them.
+	Segments []float64 `json:"segments,omitempty"`
 	// URL is a presigned link, for the owner only. It is the same link for
 	// an hour (docs/design.md, Storage and retention), lives 10 minutes past
 	// that hour, and the browser may keep the file as long. Absent when the
@@ -174,7 +179,7 @@ func filesJSON(files []Result, links map[int64]storage.FileLinks, download bool)
 	for _, r := range files {
 		l := links[r.ID]
 		v := resultJSON{ID: r.ID, ContentType: r.ContentType, Bytes: r.Bytes, Width: r.Width, Height: r.Height,
-			Seconds: r.Seconds, URL: l.URL}
+			Seconds: r.Seconds, Segments: r.Segments, URL: l.URL}
 		if download {
 			v.Download = l.Download
 		}

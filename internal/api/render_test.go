@@ -101,7 +101,7 @@ func TestAContinuationShowsItsJoinedClip(t *testing.T) {
 	r := newRig(t)
 	r.data.set(alice, State{ID: 9, Status: jobs.Done, Kind: catalog.Video,
 		Results: []Result{{ID: 91, ContentType: "video/mp4", Seconds: 5}},
-		Joined:  &Result{ID: 93, ContentType: "video/mp4", Seconds: 9.96, Width: 1280, Height: 720}})
+		Joined:  &Result{ID: 93, ContentType: "video/mp4", Seconds: 9.96, Width: 1280, Height: 720, Segments: []float64{0, 5}}})
 	m := jsonOf(t, r.do(alice, "GET", "/api/jobs/9", nil))
 	if res := m["results"].([]any); len(res) != 1 || res[0].(map[string]any)["id"] != float64(91) {
 		t.Errorf("results %v", res)
@@ -112,6 +112,12 @@ func TestAContinuationShowsItsJoinedClip(t *testing.T) {
 	}
 	if got, _ := j["download"].(string); !strings.HasSuffix(got, "&save=framy-9-joined.mp4") {
 		t.Errorf("the joined clip saves as %q", got)
+	}
+	if seg, _ := j["segments"].([]any); len(seg) != 2 || seg[0] != float64(0) || seg[1] != float64(5) {
+		t.Errorf("the parts begin at %v", j["segments"])
+	}
+	if _, ok := m["results"].([]any)[0].(map[string]any)["segments"]; ok {
+		t.Error("a result shows segments")
 	}
 	r.data.set(alice, State{ID: 10, Status: jobs.Done, Kind: catalog.Video, Results: []Result{{ID: 95, ContentType: "video/mp4"}}})
 	if _, ok := jsonOf(t, r.do(alice, "GET", "/api/jobs/10", nil))["joined"]; ok {

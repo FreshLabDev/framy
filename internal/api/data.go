@@ -100,6 +100,10 @@ type Result struct {
 	Height      int
 	// Seconds is a clip's length, 0 for a picture and where it is not known.
 	Seconds float64
+	// Segments is where each part of a joined clip begins, in seconds from
+	// its start; nil for any other file, and for a clip joined before
+	// framy kept them.
+	Segments []float64
 }
 
 // InputAsset is a file of the person's that a new job would take.
@@ -283,7 +287,7 @@ func (d pgData) files(ctx context.Context, userID int64, states []State) error {
 	}
 	rows, err = d.pool.Query(ctx, `
 		SELECT job_id, id, content_type, bytes, COALESCE(width, 0), COALESCE(height, 0), COALESCE(seconds, 0)::float8,
-		  kind = 'joined'
+		  kind = 'joined', segments
 		FROM asset WHERE job_id = ANY($1) AND user_id = $2 AND kind IN ('result', 'joined')
 		ORDER BY job_id, id`, ids, userID)
 	if err != nil {
@@ -299,7 +303,7 @@ func (d pgData) files(ctx context.Context, userID int64, states []State) error {
 			joined bool
 			Result
 		}
-		return x, r.Scan(&x.job, &x.ID, &x.ContentType, &x.Bytes, &x.Width, &x.Height, &x.Seconds, &x.joined)
+		return x, r.Scan(&x.job, &x.ID, &x.ContentType, &x.Bytes, &x.Width, &x.Height, &x.Seconds, &x.joined, &x.Segments)
 	})
 	if err != nil {
 		return fmt.Errorf("read the results of jobs: %w", err)

@@ -52,9 +52,12 @@ func TestJoin(t *testing.T) {
 	ctx := context.Background()
 	// 2 s of the test pattern with a tone, then 1 s of red at a larger size,
 	// with no sound and another frame rate.
-	v, err := c.Join(ctx, joinDir(t, h264(t, "320x180", "2"), redClip(t, "640x360", "1")), 0)
+	v, at, err := c.Join(ctx, joinDir(t, h264(t, "320x180", "2"), redClip(t, "640x360", "1")), 0)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if at != 2 {
+		t.Errorf("the next part begins at %.3f s, not after the whole clip, 2 s", at)
 	}
 	if v.Width != 640 || v.Height != 360 || v.ContentType != "video/mp4" || !v.Audio {
 		t.Errorf("joined: %+v", v)
@@ -82,9 +85,12 @@ func TestJoin(t *testing.T) {
 func TestJoinStopsAtTheFrame(t *testing.T) {
 	c := videoConverter(t)
 	// The frame was taken at 1 s, as before a fade: the clip goes up to it.
-	v, err := c.Join(context.Background(), joinDir(t, h264(t, "320x180", "2"), redClip(t, "320x180", "1")), 1)
+	v, at, err := c.Join(context.Background(), joinDir(t, h264(t, "320x180", "2"), redClip(t, "320x180", "1")), 1)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if want := 1.033; at != want {
+		t.Errorf("the next part begins at %.3f s, not after the frame, %.3f s", at, want)
 	}
 	if want := 1 + 1.0/30 + 1 - 1.0/24; math.Abs(v.Seconds-want) > 0.1 {
 		t.Errorf("the joined clip is %.3f s, not %.3f", v.Seconds, want)
@@ -95,7 +101,7 @@ func TestJoinWithoutSound(t *testing.T) {
 	c := videoConverter(t)
 	// A square part after a wide clip of the same area keeps the first
 	// clip's size, the square padded.
-	v, err := c.Join(context.Background(), joinDir(t, redClip(t, "320x180", "1"), redClip(t, "240x240", "1")), 0)
+	v, _, err := c.Join(context.Background(), joinDir(t, redClip(t, "320x180", "1"), redClip(t, "240x240", "1")), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +114,7 @@ func TestJoinRefusesALongClip(t *testing.T) {
 	c := videoConverter(t)
 	long := makeClip(t, "-f", "lavfi", "-i", "color=c=blue:s=32x32:r=1:d=179",
 		"-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-f", "mp4")
-	_, err := c.Join(context.Background(), joinDir(t, long, redClip(t, "32x32", "2")), 0)
+	_, _, err := c.Join(context.Background(), joinDir(t, long, redClip(t, "32x32", "2")), 0)
 	var tooLong *TooLongError
 	if !errors.As(err, &tooLong) || tooLong.Max != MaxJoinedSeconds {
 		t.Fatalf("a join over %d s: %v", MaxJoinedSeconds, err)
@@ -116,7 +122,7 @@ func TestJoinRefusesALongClip(t *testing.T) {
 	// A next part of a single frame has nothing to add.
 	one := makeClip(t, "-f", "lavfi", "-i", "color=c=red:s=32x32:r=24:d=0.04",
 		"-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-f", "mp4")
-	if _, err := c.Join(context.Background(), joinDir(t, redClip(t, "32x32", "1"), one), 0); !errors.Is(err, ErrNothingToJoin) {
+	if _, _, err := c.Join(context.Background(), joinDir(t, redClip(t, "32x32", "1"), one), 0); !errors.Is(err, ErrNothingToJoin) {
 		t.Errorf("a single frame after the clip: %v", err)
 	}
 }
