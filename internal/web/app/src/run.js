@@ -40,8 +40,11 @@ export function forget() {
 }
 
 export async function refreshMe() {
+  const v = S.meV;
   try {
     const me = await api("/api/me");
+    // A setting changed meanwhile, and its answer is the newer account.
+    if (S.meV !== v) return;
     const was = S.me?.currency;
     S.me = me; S.signed = true;
     if (was && was !== me.currency) clearPrices();

@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"strings"
 	"sync"
@@ -35,6 +36,9 @@ type fakePrefs struct {
 	active    string            // what a deletion finds still going: "queued", "running" or ""
 	storeFail int               // deletions the storage fails first
 	deleted   bool
+	// slowMe: GET /api/me answers this late with the account as it was, and
+	// a PATCH sent with it is kept only after the GET has read it.
+	slowMe time.Duration
 }
 
 func (f *fakePrefs) me() map[string]any {
@@ -46,7 +50,7 @@ func (f *fakePrefs) me() map[string]any {
 	}
 	return map[string]any{
 		"user_id": 1, "name": "Ada", "language": f.language, "language_chosen": f.langPick, "currency": f.currency, "currency_chosen": true, "connections": list,
-		"default_models": f.defaults, "deliver_to_telegram": f.deliver,
+		"default_models": maps.Clone(f.defaults), "deliver_to_telegram": f.deliver,
 		"free": map[string]any{
 			"images": map[string]any{"used": 5, "limit": 5, "left": 0, "window_seconds": 86400, "frees_at": time.Now().Add(3 * time.Hour).UTC()},
 			"videos": map[string]any{"used": 0, "limit": 1, "left": 1, "window_seconds": 604800},
@@ -72,14 +76,24 @@ func (f *fakePrefs) mount(srv *Server) {
 	}
 	srv.HandleFunc("GET /api/me", func(w http.ResponseWriter, _ *http.Request) {
 		f.mu.Lock()
-		defer f.mu.Unlock()
-		if signIn(w) {
-			writeTestJSON(w, http.StatusOK, f.me())
+		if !signIn(w) {
+			f.mu.Unlock()
+			return
 		}
+		me, late := f.me(), f.slowMe
+		f.mu.Unlock()
+		time.Sleep(late)
+		writeTestJSON(w, http.StatusOK, me)
 	})
 	srv.HandleFunc("PATCH /api/me", func(w http.ResponseWriter, r *http.Request) {
 		var b map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&b)
+		f.mu.Lock()
+		late := f.slowMe
+		f.mu.Unlock()
+		if late > 0 {
+			time.Sleep(50 * time.Millisecond)
+		}
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		f.patches = append(f.patches, b)
@@ -530,7 +544,10 @@ func TestBrowserPrefsDefaults(t *testing.T) {
 	}
 
 	// Change: the picker of pictures, without the settings under it; a pick
-	// comes back to them, and the composer is on it too.
+	// comes back to them, and the composer is on it too. The settings read
+	// the account again as they open, and that answer, older than the pick,
+	// comes after it.
+	f.with(func() { f.slowMe = 400 * time.Millisecond })
 	s = prefs(t, ctx, name+`
 	btn(document.querySelector('#prefsBody [data-k="p-def-image"]'), "Change").click();
 	await until(() => vis(document.querySelector("#picker")) && document.querySelector("#pkrows .frow"));
@@ -544,12 +561,13 @@ func TestBrowserPrefsDefaults(t *testing.T) {
 	const fam = row.querySelector(".nm").textContent;
 	row.querySelector(".fhit").click();
 	await until(() => !sheet().hidden && defRow("image").btns.length === 2);
-	await wait(500);
+	await wait(800);
 	const image = defRow("image");
 	btn(sheet(), "Done").click();
 	await until(() => sheet().hidden);
 	await wait(400);
 	return { title, under, fam, image, inline, svgs, picker: document.querySelector("#picker").hidden, composer: name() };`)
+	f.with(func() { f.slowMe = 0 })
 	var picked string
 	f.with(func() {
 		if len(f.patches) == 1 {

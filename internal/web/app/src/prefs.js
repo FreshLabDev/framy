@@ -115,6 +115,7 @@ function keyErr(p, code, saving) {
   }
 }
 function putConn(c) {
+  S.meV++;
   if (S.me) S.me.connections = [...(S.me.connections || []).filter((x) => x.provider !== c.provider), c];
 }
 
@@ -161,6 +162,7 @@ async function disconnect(p) {
     if (e.code === "sign_in") return lost();
     if (e.code !== "not_found") { toast(keyErr(p, e.code)); return; }
   }
+  S.meV++;
   if (S.me) S.me.connections = (S.me.connections || []).filter((x) => x.provider !== p);
   update(() => { Object.assign(k, { revoked: true, err: null, said: null, edit: false, draft: "" }); });
   meChanged();
@@ -281,6 +283,13 @@ function freeRow(kind) {
 }
 
 /* The models the composer opens on, and the DM: PATCH /api/me. */
+// The settings open with a read of the account, which may answer after a
+// change made meanwhile: a read begun before a change's answer is dropped
+// (S.meV, refreshMe).
+async function patchMe(body) {
+  S.meV++;
+  try { return await api("/api/me", { method: "PATCH", body }); } finally { S.meV++; }
+}
 function defRow(kind) {
   const own = ownDefault(kind), m = C.byId[own || autoModel(kind)];
   if (!m) return null;
@@ -297,7 +306,7 @@ async function setDefault(kind, id) {
   S.me.default_models = { ...was, [kind]: id || undefined };
   if (id && C.byId[id]) { S.model[kind] = id; const f = C.famOf[id]; if (f) S.lastVar[f.idx] = id; }
   if (prefsOpen()) update(); else openPrefs();
-  try { S.me = await api("/api/me", { method: "PATCH", body: { default_models: { [kind]: id } } }); }
+  try { S.me = await patchMe({ default_models: { [kind]: id } }); }
   catch (e) {
     if (e.code === "sign_in") return lost();
     S.me.default_models = was;
@@ -316,7 +325,7 @@ async function setDeliver(on) {
   if (!S.me) return;
   S.me.deliver_to_telegram = on;
   update();
-  try { S.me = await api("/api/me", { method: "PATCH", body: { deliver_to_telegram: on } }); }
+  try { S.me = await patchMe({ deliver_to_telegram: on }); }
   catch (e) {
     if (e.code === "sign_in") return lost();
     S.me.deliver_to_telegram = !on;
@@ -331,7 +340,7 @@ async function setCurrency(c) {
   const was = S.me.currency;
   S.me.currency = c;
   renderPrefs();
-  try { S.me = await api("/api/me", { method: "PATCH", body: { currency: c } }); }
+  try { S.me = await patchMe({ currency: c }); }
   catch (e) {
     if (e.code === "sign_in") return lost();
     S.me.currency = was;
@@ -345,7 +354,7 @@ async function setCurrency(c) {
 // draft kept and the settings open, where the person was.
 async function setLanguage(code) {
   let me;
-  try { me = await api("/api/me", { method: "PATCH", body: { language: code } }); }
+  try { me = await patchMe({ language: code }); }
   catch (e) {
     if (e.code === "sign_in") return lost();
     toast(e.code === "network" ? t("err.network") : t("prefs.not_saved"));
