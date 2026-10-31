@@ -281,7 +281,8 @@ was written from, and the skeleton of the service.
   without it. Fast mode is the site's own switch: on, the run goes to the
   model's fast mode (Wan 3.0 Prime for Wan 3.0). The model picker shows
   recommendations, the families by maker or by price with the cheapest way
-  to run each, and a detail card.
+  to run each, and a detail card. Every maker in the catalog has its mark;
+  HeyGen's, Sourceful's and TBC's come from the makers' own sites.
   Create starts the run and the stage follows it live over the event stream
   (polling every 5 seconds when too many streams are open) until the result
   shows. On a phone the composer is a dock at the bottom and the settings

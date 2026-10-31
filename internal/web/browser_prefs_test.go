@@ -557,6 +557,8 @@ func TestBrowserPrefsDefaults(t *testing.T) {
 	const marks = [...document.querySelectorAll("#picker .lg > i")].map((i) => i.style.getPropertyValue("--m"));
 	const inline = marks.length > 10 && marks.every((m) => m.startsWith('url("data:image/svg+xml;base64,'));
 	const svgs = performance.getEntriesByType("resource").filter((r) => r.name.endsWith(".svg")).length;
+	// Every maker of the catalog has a mark, none is left with letters.
+	const letters = [...document.querySelectorAll("#picker .lg")].filter((l) => !l.querySelector("i")).map((l) => l.title);
 	const row = [...document.querySelectorAll("#pkrows .frow")].find((r) => r.getAttribute("aria-current") !== "true" && !r.classList.contains("dim"));
 	const fam = row.querySelector(".nm").textContent;
 	row.querySelector(".fhit").click();
@@ -566,7 +568,7 @@ func TestBrowserPrefsDefaults(t *testing.T) {
 	btn(sheet(), "Done").click();
 	await until(() => sheet().hidden);
 	await wait(400);
-	return { title, under, fam, image, inline, svgs, picker: document.querySelector("#picker").hidden, composer: name() };`)
+	return { title, under, fam, image, inline, svgs, letters, picker: document.querySelector("#picker").hidden, composer: name() };`)
 	f.with(func() { f.slowMe = 0 })
 	var picked string
 	f.with(func() {
@@ -579,6 +581,7 @@ func TestBrowserPrefsDefaults(t *testing.T) {
 	})
 	image, _ := s["image"].(map[string]any)
 	if s["title"] != "Default model for pictures" || s["under"] != false || s["picker"] != true || s["inline"] != true || s["svgs"] != float64(0) ||
+		fmt.Sprint(s["letters"]) != "[]" ||
 		fmt.Sprint(image["btns"]) != "[Reset Change]" || !strings.HasPrefix(fmt.Sprint(image["sub"]), fmt.Sprint(s["fam"])) ||
 		strings.Contains(fmt.Sprint(image["sub"]), "framy's choice") || s["composer"] != image["sub"] {
 		t.Errorf("pick a default: %v (sent %q)", s, picked)
@@ -594,6 +597,9 @@ func TestBrowserPrefsDefaults(t *testing.T) {
 	await until(() => vis(document.querySelector("#picker")));
 	await wait(400);
 	const title = document.querySelector("#pickTitle").textContent;
+	const lgs = [...document.querySelectorAll("#picker .lg")];
+	const letters = lgs.filter((l) => !l.querySelector("i")).map((l) => l.title);
+	const marked = [...new Set(lgs.filter((l) => l.querySelector("i")).map((l) => l.title))].filter((m) => m === "HeyGen" || m === "TBC").sort();
 	document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
 	await until(() => !sheet().hidden);
 	await wait(400);
@@ -604,8 +610,9 @@ func TestBrowserPrefsDefaults(t *testing.T) {
 	sheet().querySelector('[data-k="p-tg"] .tog').click();
 	await until(() => sheet().querySelector('[data-k="p-tg"] .tog').getAttribute("aria-checked") === "false");
 	await wait(300);
-	return { title, back, image: defRow("image").sub, tg: note("p-tg") };`)
+	return { title, letters, marked, back, image: defRow("image").sub, tg: note("p-tg") };`)
 	if s["title"] != "Default model for videos" || fmt.Sprint(s["back"]) != "map[picker:true scrim:false video:HeyGen Video, framy's choice]" ||
+		fmt.Sprint(s["letters"]) != "[]" || fmt.Sprint(s["marked"]) != "[HeyGen TBC]" ||
 		s["image"] != "MAI-Image 2.6 Flash, framy's choice" || s["tg"] != "Send results to the chatWhat you make on the site stays on the site" {
 		t.Errorf("back, reset, switch: %v", s)
 	}

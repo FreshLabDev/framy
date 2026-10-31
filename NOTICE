@@ -12,4 +12,6 @@ internal/anim/fonts/OFL.txt.
 The site in internal/web/app serves the same fonts, with the licenses in
 internal/web/app/fonts/, and the makers' marks of LobeHub's lobe-icons (MIT
 License, Copyright (c) 2023 LobeHub), with the license and a note on the
-trademarks in internal/web/app/logos/LICENSE.
+trademarks in internal/web/app/logos/LICENSE. The marks of HeyGen, Sourceful
+and The Biological Computing Co. come from their own sites, as listed in the
+same file; they are their owners' trademarks.

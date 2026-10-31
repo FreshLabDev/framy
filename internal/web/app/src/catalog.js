@@ -44,8 +44,9 @@ export const vname = (m) => { const f = C.famOf[m.id]; return f && f.vars.length
 export const famText = (f) => (f.name + " " + f.maker + " " + f.vars.map((v) => v.m.name + " " + v.label).join(" ")).toLowerCase();
 
 /* Marks: a model's own where it has one, else its maker's, else a monogram. */
-const MAKER_LOGO = { "Alibaba": "alibaba", "Black Forest Labs": "bfl", "ByteDance": "bytedance", "Google": "google", "Kling": "kling", "Krea": "krea",
-  "Microsoft AI": "microsoft", "MiniMax": "minimax", "OpenAI": "openai", "Qwen": "qwen", "Recraft": "recraft", "Runway": "runway", "Tencent": "tencent", "SpaceXSI": "xai" };
+const MAKER_LOGO = { "Alibaba": "alibaba", "Black Forest Labs": "bfl", "ByteDance": "bytedance", "Google": "google", "HeyGen": "heygen", "Kling": "kling", "Krea": "krea",
+  "Microsoft AI": "microsoft", "MiniMax": "minimax", "OpenAI": "openai", "Qwen": "qwen", "Recraft": "recraft", "Runway": "runway", "Sourceful": "sourceful",
+  "TBC": "tbc", "Tencent": "tencent", "SpaceXSI": "xai" };
 const FAMILY_LOGO = { "nano-banana": "nanobanana", "flux": "flux", "grok-image": "grok", "grok-video": "grok", "hailuo": "hailuo", "happyhorse": "happyhorse", "qwen-image": "qwen", "gemini-omni": "gemini", "seedream": "doubao", "seedance": "jimeng" };
 const PROVIDER_LOGO = { openrouter: "openrouter", openai: "openai", gemini: "aistudio" };
 export function famLogo(f) {

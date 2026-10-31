@@ -2,6 +2,19 @@ The marks in this folder come from lobe-icons (https://github.com/lobehub/lobe-i
 drawn as one-colour SVG. They are the trademarks of their owners and name the
 maker or the provider of a model; framy is not affiliated with any of them.
 
+Three marks lobe-icons does not have were taken from the makers' own sites,
+their paths unchanged but scaled into the same 24 x 24 box and filled with
+one colour. They are not covered by the MIT License below:
+
+- heygen.svg: the symbol of heygen-full-black-logo.svg in HeyGen's brand kit,
+  https://dynamic.heygen.ai/Heygen%20Brand-kit/heygen-brandkit.zip, linked
+  from https://www.heygen.com/brand-kit (downloaded 31 October 2026).
+- sourceful.svg: the round mark of the Sourceful logo at the top of
+  https://sourceful.com/ (31 October 2026).
+- tbc.svg: the mark of The Biological Computing Co. logo at the top of
+  https://www.tbc.co/, the same as in its lockup with the company's name
+  (31 October 2026).
+
 MIT License
 
 Copyright (c) 2023 LobeHub
