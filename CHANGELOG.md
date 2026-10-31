@@ -282,12 +282,7 @@ was written from, and the skeleton of the service.
   model's fast mode (Wan 3.0 Prime for Wan 3.0). The model picker shows
   recommendations, the families by maker or by price with the cheapest way
   to run each, and a detail card. Every maker in the catalog has its mark;
-  HeyGen's, Sourceful's and TBC's come from the makers' own sites. A price
-  in another currency than USD keeps its dollars in a tooltip with the day of
-  its rate, as the person's language writes it: "NBU rate of 10/31/2026" for
-  UAH, EUR and PLN, "rate of" alone for BYN, whose rate is made from two
-  sources. The composer, the picker, the stage, the library and `/r/<id>`
-  show it, a run at the rate it was priced with.
+  HeyGen's, Sourceful's and TBC's come from the makers' own sites.
   Create starts the run and the stage follows it live over the event stream
   (polling every 5 seconds when too many streams are open) until the result
   shows. On a phone the composer is a dock at the bottom and the settings

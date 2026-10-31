@@ -33,9 +33,6 @@ import (
 )
 
 // fakeAPI is the site with the routes the page calls before anyone signs in.
-// quoteRate is the currency fakeQuote prices in and the day of its rate; none is dollars.
-var quoteRate struct{ currency, day string }
-
 func fakeAPI(t *testing.T) *httptest.Server { t.Helper(); return fakeSite(t, nil) }
 
 // fakeSite is the site with the catalog and the prices; signed, when there is
@@ -75,8 +72,7 @@ func fakeSite(t *testing.T, signed func(*Server)) *httptest.Server {
 }
 
 // fakeQuote prices every run by a hash of what it asks, so each choice has its
-// own price and the same choice always the same one. In dollars, or in
-// quoteRate's currency at the rate of its day when a test sets it.
+// own price and the same choice always the same one.
 func fakeQuote(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Items []struct {
@@ -93,7 +89,6 @@ func fakeQuote(w http.ResponseWriter, r *http.Request) {
 		USD      float64 `json:"usd"`
 		MaxUSD   float64 `json:"max_usd"`
 		Currency string  `json:"currency"`
-		RateDate string  `json:"rate_date,omitempty"`
 		Label    string  `json:"label"`
 	}
 	type item struct {
@@ -105,20 +100,14 @@ func fakeQuote(w http.ResponseWriter, r *http.Request) {
 		Currency string `json:"currency"`
 		Items    []item `json:"items"`
 	}{Currency: "USD"}
-	if quoteRate.currency != "" {
-		out.Currency = quoteRate.currency
-	}
 	for _, it := range in.Items {
 		h := fnv.New32a()
 		b, _ := json.Marshal(it.Settings)
 		_, _ = h.Write([]byte(it.Offer))
 		_, _ = h.Write(b)
 		usd := 0.01 + float64(h.Sum32()%400)/1000
-		e := estimate{Kind: "about", USD: usd, MaxUSD: usd, Currency: "USD", Label: fmt.Sprintf("$%.3f", usd)}
-		if quoteRate.currency != "" {
-			e.Currency, e.RateDate, e.Label = quoteRate.currency, quoteRate.day, fmt.Sprintf("%.2f %s", usd*42, quoteRate.currency)
-		}
-		out.Items = append(out.Items, item{Offer: it.Offer, Settings: it.Settings, Estimate: e})
+		out.Items = append(out.Items, item{Offer: it.Offer, Settings: it.Settings,
+			Estimate: estimate{Kind: "about", USD: usd, MaxUSD: usd, Currency: "USD", Label: fmt.Sprintf("$%.3f", usd)}})
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)

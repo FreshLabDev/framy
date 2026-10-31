@@ -3,7 +3,7 @@
 // A price element names its run (data-q) and is filled in place when the
 // answer comes, so a new price never rebuilds the form around it.
 import { h } from "./dom.js";
-import { t, fmtDay } from "./i18n.js";
+import { t } from "./i18n.js";
 import { api } from "./api.js";
 
 const cache = new Map(); // key -> {estimate, refusal, settings}
@@ -62,22 +62,7 @@ function num(a) {
   return s;
 }
 export const usd = (u) => "$" + num(u);
-// The dollars behind a figure in another currency, with the day of its rate.
-// UAH, EUR and PLN are the NBU's rates of that day; BYN is made of the NBU's
-// and currency-api's dollar rates, so it names no source.
-const NBU = new Set(["UAH", "EUR", "PLN"]);
-export function usdTip(u, currency, day) {
-  if (!currency || currency === "USD" || !(u >= 0)) return null;
-  const d = fmtDay(day);
-  return d ? t(NBU.has(currency) ? "price.rate_nbu" : "price.rate", { usd: usd(u), date: d }) : usd(u);
-}
-export const priceTip = (e) => (e && e.kind !== "unknown" ? usdTip(e.kind === "up_to" ? e.max_usd : e.usd, e.currency, e.rate_date) : null);
-// A run's figure: its cost, which is at the run's own rate (the day of its
-// estimate), or else its estimate.
-export const jobTip = (j) => (j?.cost?.label
-  ? usdTip(j.cost.usd, j.cost.currency, j.cost.currency === j.estimate?.currency ? j.estimate?.rate_date : "")
-  : priceTip(j?.estimate));
-const hint = priceTip;
+const hint = (e) => (e && e.currency && e.currency !== "USD" && e.kind !== "unknown" ? usd(e.kind === "up_to" ? e.max_usd : e.usd) : null);
 
 // A price element for one run: filled now if known, else when the answer comes.
 export function priceEl(it, o = {}) {

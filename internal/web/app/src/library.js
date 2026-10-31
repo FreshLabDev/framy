@@ -11,7 +11,7 @@ import { api, isFinal } from "./api.js";
 import { C, vname, famLogo, lg, show, SICON, SHOWN, factEl, ratioNum, ratioOfSize } from "./catalog.js";
 import { S } from "./state.js";
 import { failure } from "./errors.js";
-import { known, priceEl, priceText, onPrices, jobTip } from "./price.js";
+import { known, priceEl, priceText, onPrices } from "./price.js";
 import { thumbMedia } from "./clips.js";
 import { openSheet, closeSheets, toast, ask } from "./ui.js";
 import { view, B, ticking, renderStage, refit } from "./stage.js";
@@ -262,8 +262,7 @@ function tile(j) {
     onclick: (e) => { if (!S.mini && (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) return; e.preventDefault(); openView(L.jobs.find((x) => x.id === j.id) || j, true); } },
   cover(j), h("p", { class: "p" }, j.prompt || t("kind." + j.kind)),
   h("span", { class: "m" }, f ? lg(famLogo(f), f.maker, "s") : null,
-    h("span", { title: j.status === "done" && !(j.free && !j.cost?.label) ? jobTip(j) : null },
-      [m ? vname(m) : nameOf(j.model), said(j), j.surface === "guest" ? t("lib.guest") : ""].filter(Boolean).join(" · "))));
+    h("span", {}, [m ? vname(m) : nameOf(j.model), said(j), j.surface === "guest" ? t("lib.guest") : ""].filter(Boolean).join(" · "))));
   a._sig = sig;
   TILES.set(j.id, a);
   return a;
@@ -574,9 +573,7 @@ function fill() {
   nav();
   const v = view(run, { res: V.i, again: againBtn });
   const cost = j.cost?.label ? j.cost.label : v.zero ? zeroOf(j.estimate?.label) : j.free ? t("bar.free") : j.estimate && !v.fail ? priceText(j.estimate) : "";
-  const tip = cost && !v.zero && !(j.free && !j.cost?.label) ? jobTip(j) : null;
-  const name = m ? vname(m) : nameOf(j.model);
-  const line = h("p", { class: "jline" }, name, name && cost ? " · " : "", cost ? h("span", { title: tip }, cost) : null);
+  const line = h("p", { class: "jline" }, [m ? vname(m) : nameOf(j.model), cost].filter(Boolean).join(" · "));
   const [text, note] = v.why || [];
   const why = text || note ? h("div", { class: "jwhy" }, h("p", {}, text, text && note ? " " : "", note ? h("span", { class: "note" }, note) : null)) : null;
   const acts = h("div", { class: "jacts acts" }, v.acts.filter(Boolean), isFinal(j.status) ? B("trash", t("view.delete"), del, "sq") : null);

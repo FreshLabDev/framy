@@ -6,7 +6,6 @@ package web
 
 import (
 	"bytes"
-	"cmp"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -38,8 +37,6 @@ type fakeLibrary struct {
 	lists   []string         // the query of every GET /api/jobs
 	created []map[string]any // the bodies of POST /api/jobs
 	deleted []int64
-	lang    string // the person's language; English when empty
-	spent   bool   // no free pictures left, so a picture is paid by the key
 }
 
 const libTotal = 70
@@ -121,15 +118,11 @@ func (f *fakeLibrary) find(id int64) (int, map[string]any) {
 
 func (f *fakeLibrary) mount(srv *Server) {
 	srv.HandleFunc("GET /api/me", func(w http.ResponseWriter, _ *http.Request) {
-		left := 3
-		if f.spent {
-			left = 0
-		}
 		writeTestJSON(w, http.StatusOK, map[string]any{
-			"user_id": 1, "name": "Ada", "language": cmp.Or(f.lang, "en"), "currency": cmp.Or(quoteRate.currency, "USD"),
+			"user_id": 1, "name": "Ada", "language": "en", "currency": "USD",
 			"connections": []map[string]any{{"id": "c1", "provider": "openrouter", "last4": "abcd", "status": "ok"}},
 			"free": map[string]any{
-				"images": map[string]any{"used": 5 - left, "limit": 5, "left": left, "window_seconds": 86400},
+				"images": map[string]any{"used": 2, "limit": 5, "left": 3, "window_seconds": 86400},
 				"videos": map[string]any{"used": 0, "limit": 1, "left": 1, "window_seconds": 604800},
 			},
 		})
@@ -340,56 +333,6 @@ func TestBrowserLibrary(t *testing.T) {
 	return { ...there, backPath: location.pathname, backLib: vis(document.querySelector("#library")) };`)
 	if got["path"] != "/" || got["create"] != true || got["lib"] != false || got["backPath"] != "/library" || got["backLib"] != true {
 		t.Errorf("tabs: %v", got)
-	}
-	noErrors(t, ctx)
-}
-
-// TestBrowserRateDate checks the dollars under a figure in another currency:
-// with the day of its rate as the person's language writes it, naming the NBU
-// for UAH, EUR and PLN only. On the viewer, the tiles, the composer and the
-// picker.
-func TestBrowserRateDate(t *testing.T) {
-	quoteRate.currency, quoteRate.day = "UAH", "2026-10-31"
-	t.Cleanup(func() { quoteRate.currency, quoteRate.day = "", "" })
-	f := newFakeLibrary()
-	f.lang, f.spent = "ru", true
-	// 66 in hryvnias at the rate of the 30th; 64 in Belarusian roubles, whose rate names no bank.
-	f.jobs[4]["cost"] = map[string]any{"usd": 0.04, "amount": 1.68, "currency": "UAH", "label": "1,68 ₴"}
-	f.jobs[4]["estimate"] = map[string]any{"kind": "about", "usd": 0.04, "max_usd": 0.04, "currency": "UAH", "rate_date": "2026-10-30", "label": "1,68 ₴"}
-	f.jobs[6]["cost"] = map[string]any{"usd": 0.04, "amount": 0.14, "currency": "BYN", "label": "0,14 Br"}
-	f.jobs[6]["estimate"] = map[string]any{"kind": "about", "usd": 0.04, "max_usd": 0.04, "currency": "BYN", "rate_date": "2026-10-29", "label": "0,14 Br"}
-	ts := fakeSite(t, f.mount)
-	ctx := browser(t, ts.URL+"/r/66", 1440, 900, false)
-	got := js[map[string]any](t, ctx, libHelpers+`
-	await until(() => vis(document.querySelector("#viewer")) && document.querySelector("#viewer .jline span"));
-	const r = { viewer: document.querySelector("#viewer .jline span").title };
-	document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-	await wait(600);
-	await settled();
-	const tip = (id) => document.querySelector('#library .li[href="/r/' + id + '"] .m > span:last-child')?.getAttribute("title") ?? null;
-	r.uah = tip(66); r.byn = tip(64); r.usd = tip(63);
-	return r;`)
-	want := map[string]any{"viewer": "$0.04 · курс НБУ на 30.10.2026", "uah": "$0.04 · курс НБУ на 30.10.2026", "byn": "$0.04 · курс на 29.10.2026", "usd": nil}
-	if fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Errorf("runs: %v", got)
-	}
-	if err := chromedp.Do(ctx, chromedp.Navigate(ts.URL+"/")); err != nil {
-		t.Fatal(err)
-	}
-	ready(t, ctx)
-	got = js[map[string]any](t, ctx, libHelpers+`
-	await until(() => document.querySelector("#pnum")?.textContent && !document.querySelector("#pnum").textContent.includes("…"));
-	const r = { bar: document.querySelector("#pnum").getAttribute("title") };
-	document.querySelector("#how .mhead").click();
-	await until(() => vis(document.querySelector("#picker")) && document.querySelectorAll("#picker .usd[title]").length);
-	r.picker = [...new Set([...document.querySelectorAll("#picker .usd[title]")].map((e) => e.title.replace(/^\$[0-9.]+/, "$")))];
-	return r;`)
-	// The free pictures are spent, so the bar shows the key's price and its dollars.
-	if b, _ := got["bar"].(string); !regexp.MustCompile(`^\$[0-9.]+ · курс НБУ на 31\.10\.2026$`).MatchString(b) {
-		t.Errorf("bar: %q", b)
-	}
-	if fmt.Sprint(got["picker"]) != "[$ · курс НБУ на 31.10.2026]" {
-		t.Errorf("picker: %v", got["picker"])
 	}
 	noErrors(t, ctx)
 }
