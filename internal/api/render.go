@@ -99,13 +99,26 @@ type resultJSON struct {
 	Height      int    `json:"height,omitempty"`
 	// Seconds is a clip's length; absent for a picture.
 	Seconds float64 `json:"seconds,omitempty"`
-	// URL is a presigned link, for the owner only, good for minutes. Absent
-	// when the file is gone or framy keeps none.
+	// URL is a presigned link, for the owner only. It is the same link for
+	// an hour (docs/design.md, Storage and retention), lives 10 minutes past
+	// that hour, and the browser may keep the file as long. Absent when the
+	// file is gone or framy keeps none.
 	URL string `json:"url,omitempty"`
 	// Download is a link like URL whose answer saves the file, as
 	// framy-<job>-<n>.<ext>, n counting the job's results from 1. Results
 	// only; absent where URL is.
 	Download string `json:"download,omitempty"`
+	// Thumb is a result's thumbnail for a grid: a WebP at most 480 px on the
+	// long side, of a video its poster frame, linked as URL is. Absent until
+	// it is made, which for a result kept before thumbnails is within a few
+	// minutes, and for one framy could not read never.
+	Thumb *thumbJSON `json:"thumb,omitempty"`
+}
+
+type thumbJSON struct {
+	URL    string `json:"url"`
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
 }
 
 // render makes the client's view of a state. lang writes the amounts; the
@@ -155,6 +168,9 @@ func filesJSON(files []Result, links map[int64]storage.FileLinks, download bool)
 			Seconds: r.Seconds, URL: l.URL}
 		if download {
 			v.Download = l.Download
+		}
+		if t := l.Thumb; t != nil {
+			v.Thumb = &thumbJSON{URL: t.URL, Width: t.Width, Height: t.Height}
 		}
 		out = append(out, v)
 	}

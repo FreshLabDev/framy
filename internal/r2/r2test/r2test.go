@@ -165,6 +165,9 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		if d := r.URL.Query().Get("response-content-disposition"); d != "" {
 			w.Header().Set("Content-Disposition", d)
 		}
+		if cc := r.URL.Query().Get("response-cache-control"); cc != "" {
+			w.Header().Set("Cache-Control", cc)
+		}
 		w.WriteHeader(http.StatusOK)
 		if r.Method == http.MethodGet {
 			_, _ = w.Write(o.Data)

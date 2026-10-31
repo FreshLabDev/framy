@@ -208,8 +208,12 @@ func (c *Converter) Normalize(ctx context.Context, dir string) (Image, error) {
 // filters fit the picture into the long side and, for Display P3, convert
 // the colours to sRGB and drop the profile, so nothing converts them twice.
 // The rotation from EXIF comes before them, by ffmpeg's autorotate.
-func (c *Converter) filters(p3 bool) string {
-	n := strconv.Itoa(c.longSide())
+func (c *Converter) filters(p3 bool) string { return fit(c.longSide(), p3) }
+
+// fit brings the long side down to side, never up, and turns Display P3
+// into sRGB.
+func fit(side int, p3 bool) string {
+	n := strconv.Itoa(side)
 	f := "scale=w='min(" + n + ",iw)':h='min(" + n + ",ih)':force_original_aspect_ratio=decrease:flags=lanczos"
 	if p3 {
 		f += ":in_primaries=smpte432:in_transfer=iec61966-2-1:out_primaries=bt709:out_transfer=iec61966-2-1" +

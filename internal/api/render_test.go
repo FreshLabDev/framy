@@ -93,6 +93,22 @@ func TestResultsSaveAsFilesOfTheJob(t *testing.T) {
 	}
 }
 
+// A result with a thumbnail shows it with its size; one without has no
+// field, and the client shows the file itself.
+func TestAResultShowsItsThumbnail(t *testing.T) {
+	r := newRig(t)
+	r.data.set(alice, State{ID: 9, Status: jobs.Done, Kind: catalog.Video,
+		Results: []Result{{ID: 90, ContentType: "image/png"}, {ID: 91, ContentType: "video/mp4"}}})
+	res := jsonOf(t, r.do(alice, "GET", "/api/jobs/9", nil))["results"].([]any)
+	if _, ok := res[0].(map[string]any)["thumb"]; ok {
+		t.Errorf("a result without a thumbnail: %v", res[0])
+	}
+	th, _ := res[1].(map[string]any)["thumb"].(map[string]any)
+	if th["url"] != "https://files.example/obj-91.thumb?sig=secret" || th["width"] != float64(480) || th["height"] != float64(270) {
+		t.Errorf("the thumbnail: %v", th)
+	}
+}
+
 func TestADownloadNameHasTheExtensionOfItsType(t *testing.T) {
 	for ct, want := range map[string]string{
 		"image/jpeg": "framy-3-1.jpg", "image/png": "framy-3-1.png", "video/quicktime": "framy-3-1.mov", "application/x-what": "framy-3-1.bin",

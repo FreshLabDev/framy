@@ -545,7 +545,8 @@ func withAllowance(a *fakeAllowance) func(*rigOptions) {
 	}
 }
 
-// fakeLinks links every file; a named one's download link carries its name.
+// fakeLinks links every file; a named one's download link carries its name,
+// and a file with an odd id has a thumbnail.
 type fakeLinks struct{}
 
 func (fakeLinks) LinkAll(_ context.Context, _ int64, ids []int64, names map[int64]string) (map[int64]storage.FileLinks, error) {
@@ -554,6 +555,9 @@ func (fakeLinks) LinkAll(_ context.Context, _ int64, ids []int64, names map[int6
 		l := storage.FileLinks{URL: "https://files.example/obj-" + strconv.FormatInt(id, 10) + "?sig=secret"}
 		if n := names[id]; n != "" {
 			l.Download = l.URL + "&save=" + n
+		}
+		if id%2 == 1 {
+			l.Thumb = &storage.ThumbLink{URL: "https://files.example/obj-" + strconv.FormatInt(id, 10) + ".thumb?sig=secret", Width: 480, Height: 270}
 		}
 		out[id] = l
 	}

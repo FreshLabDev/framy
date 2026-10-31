@@ -650,6 +650,19 @@ was written from, and the skeleton of the service.
   builds on tg `dev` (5e0a6c2) for `answerGuestQuery` and the text preview.
   Guest Mode has to be turned on in BotFather, and the live test (T9) is
   still to run.
+- A result has a thumbnail for the site's grids: a WebP at most 480 px on
+  the long side, of a video its poster frame, kept next to the result in R2
+  and shown in the API as `thumb: {url, width, height}`. framy makes it when
+  it keeps the result; a result kept before thumbnails gets one in the
+  background, 20 a minute, newest first, and a file it cannot read is tried
+  three times and then left without. Deleting a result deletes its
+  thumbnail, and the thumbnails count towards what the person keeps
+  (migration 024). The image's ffmpeg has the WebP encoder; without it
+  framy makes no thumbnails and keeps the results as before.
+- A link to a person's file is the same for a whole hour: it is signed at
+  the start of the hour, lives 10 minutes past it, and its answer carries
+  `Cache-Control: private, max-age=4200`, so the browser shows a file it has
+  seen from its cache instead of fetching it on every page.
 - CI on every push and weekly: modules, gofmt, build, vet, race tests,
   database tests on PostgreSQL 17, govulncheck, the image build, the photo
   and storage tests inside the image, on the ffmpeg it ships, and the local

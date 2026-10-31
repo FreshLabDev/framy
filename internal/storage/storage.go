@@ -49,13 +49,20 @@ const (
 	// DefaultInputTTL is how long a provider may fetch an input: one call,
 	// with room for a slow queue. Each submit presigns anew.
 	DefaultInputTTL = 15 * time.Minute
-	// DefaultLinkTTL is how long the owner's link to a file lives.
+	// DefaultLinkTTL is how long the owner's link to a file lives at the
+	// least: from the end of the window it was made in.
 	DefaultLinkTTL = 10 * time.Minute
+	// DefaultLinkWindow: the owner's links are signed at the start of the
+	// window they are made in, so a file keeps one link through the window
+	// and the browser takes it from its cache.
+	DefaultLinkWindow = time.Hour
 	// DefaultAlertStep: the operator chat hears each time the bucket passes
 	// another 10 GB, the first being where R2's free storage ends.
 	DefaultAlertStep = 10_000_000_000
 	// DefaultFetchTimeout bounds the download of one result.
 	DefaultFetchTimeout = 5 * time.Minute
+	// maxThumbTries is how many times FillThumbs tries a result's thumbnail.
+	maxThumbTries = 3
 	// UploadTTL is how long an upload waits for a job to take it. The site
 	// uploads on Generate and the chat right before its draft, so an upload
 	// older than this that no job took is left from a failure.
@@ -76,6 +83,7 @@ type Bucket interface {
 	Head(ctx context.Context, key string) (r2.Object, error)
 	Delete(ctx context.Context, key string) error
 	PresignGet(key string, ttl time.Duration, disposition string) (string, error)
+	PresignGetAt(key string, at time.Time, ttl time.Duration, disposition, cacheControl string) (string, error)
 	PresignPut(key string, ttl time.Duration) (string, error)
 }
 
@@ -101,8 +109,14 @@ type Config struct {
 	MaxVideo    int64
 	IncomingTTL time.Duration
 	InputTTL    time.Duration
-	LinkTTL     time.Duration
-	AlertStep   int64
+	// LinkTTL and LinkWindow: a link to an owner's file is signed at the
+	// start of the LinkWindow it is made in and lives LinkWindow plus
+	// LinkTTL, so it has LinkTTL left at the least.
+	LinkTTL    time.Duration
+	LinkWindow time.Duration
+	AlertStep  int64
+	// Now is the clock of the links, for tests.
+	Now func() time.Time
 }
 
 // Store keeps the files.
@@ -115,6 +129,10 @@ type Store struct {
 	notify func(ctx context.Context, text string) error
 	log    *slog.Logger
 	cfg    Config
+
+	// thumbErr says why results get no thumbnails: an ffmpeg without WebP.
+	thumbOnce sync.Once
+	thumbErr  error
 }
 
 // New checks cfg and fills its defaults.
@@ -131,7 +149,11 @@ func New(cfg Config) (*Store, error) {
 	setDefault(&cfg.IncomingTTL, DefaultIncomingTTL)
 	setDefault(&cfg.InputTTL, DefaultInputTTL)
 	setDefault(&cfg.LinkTTL, DefaultLinkTTL)
+	setDefault(&cfg.LinkWindow, DefaultLinkWindow)
 	setDefault(&cfg.AlertStep, DefaultAlertStep)
+	if cfg.Now == nil {
+		cfg.Now = time.Now
+	}
 	return &Store{
 		pool: cfg.Pool, bucket: cfg.Bucket, media: cfg.Media, work: cfg.Work, fetch: cfg.Fetch,
 		notify: cfg.Notify, log: cfg.Log, cfg: cfg,
@@ -162,6 +184,25 @@ type Asset struct {
 	Audio     bool
 	SHA256    string
 	CreatedAt time.Time
+	// Thumb is a result's thumbnail, nil until it has one.
+	Thumb *Thumb
+}
+
+// Thumb is the smaller copy of a result the site's library shows: a WebP at
+// most media.ThumbLongSide on the long side, of a video its poster frame.
+// It lies next to the result in the bucket (thumbKey).
+type Thumb struct {
+	Key           string
+	Width, Height int
+	Bytes         int64
+}
+
+// columns are the thumbnail's values for the asset row: NULL without one.
+func (t *Thumb) columns() (key *string, width, height *int, bytes *int64) {
+	if t == nil {
+		return nil, nil, nil, nil
+	}
+	return &t.Key, &t.Width, &t.Height, &t.Bytes
 }
 
 // audio is a clip's sound for its row: NULL for a picture, and for a video
@@ -306,6 +347,7 @@ func (s *Store) keep(ctx context.Context, j jobs.Job, i int, r jobs.Result) erro
 		if err := s.bucket.Put(ctx, a.Key, a.ContentType, bytes.NewReader(r.Data), a.Bytes, a.SHA256); err != nil {
 			return err
 		}
+		a.Thumb = s.keepThumb(ctx, a, func(dst string) error { return os.WriteFile(dst, r.Data, 0o600) })
 	case r.URL != "":
 		dir, done, err := s.work.Dir("result")
 		if err != nil {
@@ -335,20 +377,148 @@ func (s *Store) keep(ctx context.Context, j jobs.Job, i int, r jobs.Result) erro
 		if err := s.putFile(ctx, &a, path); err != nil {
 			return err
 		}
+		a.Thumb = s.keepThumb(ctx, a, func(dst string) error { return linkOrCopy(path, dst) })
 	default:
 		return errors.New("the result has neither bytes nor a link")
 	}
+	thumb, tw, th, tb := a.Thumb.columns()
+	// Kept again after a crash without a thumbnail, a result keeps the one
+	// it had: the key is the same.
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO asset (user_id, kind, job_id, object_key, content_type, bytes, width, height, sha256, seconds, fps, audio)
-		VALUES ($1, 'result', $2, $3, $4, $5, NULLIF($6, 0), NULLIF($7, 0), $8, NULLIF($9, 0), NULLIF($10, 0), $11)
+		INSERT INTO asset (user_id, kind, job_id, object_key, content_type, bytes, width, height, sha256, seconds, fps, audio,
+		  thumb_key, thumb_width, thumb_height, thumb_bytes)
+		VALUES ($1, 'result', $2, $3, $4, $5, NULLIF($6, 0), NULLIF($7, 0), $8, NULLIF($9, 0), NULLIF($10, 0), $11, $12, $13, $14, $15)
 		ON CONFLICT (object_key) DO UPDATE SET bytes = EXCLUDED.bytes, sha256 = EXCLUDED.sha256,
 		  content_type = EXCLUDED.content_type, width = EXCLUDED.width, height = EXCLUDED.height,
-		  seconds = EXCLUDED.seconds, fps = EXCLUDED.fps, audio = EXCLUDED.audio`,
-		a.UserID, a.JobID, a.Key, a.ContentType, a.Bytes, a.Width, a.Height, a.SHA256, a.Seconds, a.FPS, a.audio())
+		  seconds = EXCLUDED.seconds, fps = EXCLUDED.fps, audio = EXCLUDED.audio,
+		  thumb_key = COALESCE(EXCLUDED.thumb_key, asset.thumb_key), thumb_width = COALESCE(EXCLUDED.thumb_width, asset.thumb_width),
+		  thumb_height = COALESCE(EXCLUDED.thumb_height, asset.thumb_height), thumb_bytes = COALESCE(EXCLUDED.thumb_bytes, asset.thumb_bytes)`,
+		a.UserID, a.JobID, a.Key, a.ContentType, a.Bytes, a.Width, a.Height, a.SHA256, a.Seconds, a.FPS, a.audio(),
+		thumb, tw, th, tb)
 	if err != nil {
 		return fmt.Errorf("record the result: %w", err)
 	}
 	return nil
+}
+
+// thumbs tells whether this ffmpeg writes thumbnails, asking it once.
+func (s *Store) thumbs(ctx context.Context) bool {
+	s.thumbOnce.Do(func() {
+		if s.thumbErr = s.media.CheckThumb(context.WithoutCancel(ctx)); s.thumbErr != nil {
+			s.log.Warn("results get no thumbnails", "error", s.thumbErr)
+		}
+	})
+	return s.thumbErr == nil
+}
+
+// keepThumb makes the thumbnail of the result a as it is kept. A failure
+// never holds the result back: it is kept without one, and FillThumbs tries
+// again.
+func (s *Store) keepThumb(ctx context.Context, a Asset, fill func(dst string) error) *Thumb {
+	if !s.thumbs(ctx) {
+		return nil
+	}
+	t, err := s.makeThumb(ctx, a, fill)
+	if err != nil {
+		if ctx.Err() == nil {
+			s.log.Warn("a result is kept without a thumbnail for now", "key", a.Key, "error", err)
+		}
+		return nil
+	}
+	return t
+}
+
+// makeThumb makes the thumbnail of the result a, of a video from its poster
+// frame, and puts it next to the result. fill writes the result's file to
+// the path it is given.
+func (s *Store) makeThumb(ctx context.Context, a Asset, fill func(dst string) error) (*Thumb, error) {
+	dir, done, err := s.work.Dir("thumb")
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+	src := filepath.Join(dir, media.In)
+	if err := fill(src); err != nil {
+		return nil, err
+	}
+	if strings.HasPrefix(a.ContentType, "video/") {
+		if src, err = s.media.Poster(ctx, dir); err != nil {
+			return nil, err
+		}
+	}
+	out := filepath.Join(dir, "thumb.webp")
+	w, h, err := s.media.Thumb(ctx, src, out)
+	if err != nil {
+		return nil, err
+	}
+	t := Asset{Key: thumbKey(a.Key), ContentType: "image/webp"}
+	if err := s.putFile(ctx, &t, out); err != nil {
+		return nil, err
+	}
+	return &Thumb{Key: t.Key, Width: w, Height: h, Bytes: t.Bytes}, nil
+}
+
+// thumbKey is where the thumbnail of the object under key goes: next to it,
+// u/<person>/out/<job>-<n>.thumb.webp for a result.
+func thumbKey(key string) string {
+	return strings.TrimSuffix(key, filepath.Ext(key)) + ".thumb.webp"
+}
+
+// FillThumbs makes the thumbnails results lack: those kept before framy made
+// them, and those whose thumbnail failed, each tried maxThumbTries times.
+// The newest go first, as the library shows them. It makes up to limit and
+// returns how many it made.
+func (s *Store) FillThumbs(ctx context.Context, limit int) (int, error) {
+	if !s.thumbs(ctx) {
+		return 0, nil
+	}
+	made := 0
+	for range limit {
+		found, ok, err := s.fillThumb(ctx)
+		if err != nil || !found {
+			return made, err
+		}
+		if ok {
+			made++
+		}
+	}
+	return made, nil
+}
+
+// fillThumb makes the thumbnail of one result that lacks it, and reports
+// false when none does. The row is locked while the thumbnail is made, so a
+// delete of the result waits for it and then takes the thumbnail too.
+func (s *Store) fillThumb(ctx context.Context) (found, made bool, err error) {
+	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		var a Asset
+		err := tx.QueryRow(ctx, `
+			SELECT id, object_key, content_type FROM asset
+			WHERE kind = 'result' AND thumb_key IS NULL AND thumb_tries < $1
+			ORDER BY thumb_tries, id DESC
+			LIMIT 1
+			FOR UPDATE SKIP LOCKED`, maxThumbTries).Scan(&a.ID, &a.Key, &a.ContentType)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		found = true
+		t, err := s.makeThumb(ctx, a, func(dst string) error { return s.fetchObject(ctx, a.Key, dst, s.cfg.MaxResult) })
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			s.log.Warn("no thumbnail for a result", "asset", a.ID, "error", err)
+			_, err := tx.Exec(ctx, `UPDATE asset SET thumb_tries = thumb_tries + 1 WHERE id = $1`, a.ID)
+			return err
+		}
+		_, err = tx.Exec(ctx, `UPDATE asset SET thumb_key = $2, thumb_width = $3, thumb_height = $4, thumb_bytes = $5 WHERE id = $1`,
+			a.ID, t.Key, t.Width, t.Height, t.Bytes)
+		made = err == nil
+		return err
+	})
+	return found, made, err
 }
 
 // download fetches a provider's link into dir under the result limit.
@@ -422,7 +592,8 @@ func (s *Store) checkType(contentType string) error {
 // that was to take it fails before it is paid.
 func (s *Store) Delete(ctx context.Context, userID, assetID int64) error {
 	var key string
-	err := s.pool.QueryRow(ctx, `SELECT object_key FROM asset WHERE id=$1 AND user_id=$2`, assetID, userID).Scan(&key)
+	var thumb *string
+	err := s.pool.QueryRow(ctx, `SELECT object_key, thumb_key FROM asset WHERE id=$1 AND user_id=$2`, assetID, userID).Scan(&key, &thumb)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
@@ -432,8 +603,34 @@ func (s *Store) Delete(ctx context.Context, userID, assetID int64) error {
 	if err := s.bucket.Delete(ctx, key); err != nil {
 		return err
 	}
-	_, err = s.pool.Exec(ctx, `DELETE FROM asset WHERE id=$1 AND user_id=$2`, assetID, userID)
-	return err
+	if thumb != nil {
+		if err := s.bucket.Delete(ctx, *thumb); err != nil {
+			return err
+		}
+	}
+	var after *string
+	err = s.pool.QueryRow(ctx, `DELETE FROM asset WHERE id=$1 AND user_id=$2 RETURNING thumb_key`, assetID, userID).Scan(&after)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	s.dropLateThumb(ctx, thumb, after)
+	return nil
+}
+
+// dropLateThumb deletes a thumbnail FillThumbs made while its result was
+// being deleted: the row named it only as it went, after the delete waited
+// for the row's lock. A failure leaves an object no row names, and is
+// logged.
+func (s *Store) dropLateThumb(ctx context.Context, before, after *string) {
+	if after == nil || (before != nil && *before == *after) {
+		return
+	}
+	if err := s.bucket.Delete(context.WithoutCancel(ctx), *after); err != nil {
+		s.log.Error("a thumbnail outlived its result", "key", *after, "error", err)
+	}
 }
 
 // SweepUploads deletes the uploads no job took within age, the object and
@@ -568,21 +765,26 @@ func (s *Store) DeleteAll(ctx context.Context, userID int64, before time.Time) (
 	n := 0
 	for {
 		rows, err := s.pool.Query(ctx, `
-			SELECT id, object_key FROM asset WHERE user_id = $1 AND created_at <= $2
+			SELECT id, object_key, thumb_key FROM asset WHERE user_id = $1 AND created_at <= $2
 			ORDER BY id LIMIT 256`, userID, before)
 		if err != nil {
 			return n, err
 		}
 		type file struct {
-			id  int64
-			key string
+			id    int64
+			key   string
+			thumb *string
 		}
 		files, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (file, error) {
 			var f file
-			return f, r.Scan(&f.id, &f.key)
+			return f, r.Scan(&f.id, &f.key, &f.thumb)
 		})
 		if err != nil || len(files) == 0 {
 			return n, err
+		}
+		thumbs := make(map[int64]*string, len(files))
+		for _, f := range files {
+			thumbs[f.id] = f.thumb
 		}
 		errs := make([]error, len(files))
 		next := make(chan int)
@@ -591,6 +793,9 @@ func (s *Store) DeleteAll(ctx context.Context, userID int64, before time.Time) (
 			wg.Go(func() {
 				for i := range next {
 					errs[i] = s.bucket.Delete(ctx, files[i].key)
+					if errs[i] == nil && files[i].thumb != nil {
+						errs[i] = s.bucket.Delete(ctx, *files[i].thumb)
+					}
 				}
 			})
 		}
@@ -611,8 +816,23 @@ func (s *Store) DeleteAll(ctx context.Context, userID int64, before time.Time) (
 			ids = append(ids, f.id)
 		}
 		if len(ids) > 0 {
-			if _, err := s.pool.Exec(ctx, `DELETE FROM asset WHERE id = ANY($1) AND user_id = $2`, ids, userID); err != nil {
+			rows, err := s.pool.Query(ctx, `DELETE FROM asset WHERE id = ANY($1) AND user_id = $2 RETURNING id, thumb_key`, ids, userID)
+			if err != nil {
 				return n, err
+			}
+			type gone struct {
+				id    int64
+				thumb *string
+			}
+			deleted, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (gone, error) {
+				var g gone
+				return g, r.Scan(&g.id, &g.thumb)
+			})
+			if err != nil {
+				return n, err
+			}
+			for _, g := range deleted {
+				s.dropLateThumb(ctx, thumbs[g.id], g.thumb)
 			}
 			n += len(ids)
 		}
@@ -687,13 +907,32 @@ func (s *Store) Link(ctx context.Context, userID, assetID int64, filename string
 	if err != nil {
 		return "", err
 	}
-	return s.bucket.PresignGet(key, s.cfg.LinkTTL, disposition(filename))
+	return s.view(key, disposition(filename))
+}
+
+// view is a presigned link to key for the owner. It is signed at the start
+// of the window it is made in, so every view in the window gets the same
+// link, and it tells the browser to keep the file for as long as the link
+// lives: the library opened again comes from the browser's cache. The
+// cache is the person's own browser ("private").
+func (s *Store) view(key, disposition string) (string, error) {
+	ttl := s.cfg.LinkWindow + s.cfg.LinkTTL
+	at := s.cfg.Now().Truncate(s.cfg.LinkWindow)
+	return s.bucket.PresignGetAt(key, at, ttl, disposition, fmt.Sprintf("private, max-age=%d", int64(ttl/time.Second)))
 }
 
 // FileLinks are the presigned links to one file: URL opens it, and
 // Download, when the file was given a name, saves it under that name.
+// Thumb is a result's thumbnail, nil until it has one.
 type FileLinks struct {
 	URL, Download string
+	Thumb         *ThumbLink
+}
+
+// ThumbLink is the link to a thumbnail, with its size.
+type ThumbLink struct {
+	URL           string
+	Width, Height int
 }
 
 // LinkAll is the presigned links to each of ids that is a file of the
@@ -706,7 +945,9 @@ func (s *Store) LinkAll(ctx context.Context, userID int64, ids []int64, names ma
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	rows, err := s.pool.Query(ctx, `SELECT id, object_key FROM asset WHERE id = ANY($1) AND user_id = $2`, ids, userID)
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, object_key, thumb_key, COALESCE(thumb_width, 0), COALESCE(thumb_height, 0)
+		FROM asset WHERE id = ANY($1) AND user_id = $2`, ids, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -715,17 +956,26 @@ func (s *Store) LinkAll(ctx context.Context, userID int64, ids []int64, names ma
 	for rows.Next() {
 		var id int64
 		var key string
-		if err := rows.Scan(&id, &key); err != nil {
+		var thumb *string
+		var tw, th int
+		if err := rows.Scan(&id, &key, &thumb, &tw, &th); err != nil {
 			return nil, err
 		}
 		var l FileLinks
-		if l.URL, err = s.bucket.PresignGet(key, s.cfg.LinkTTL, ""); err != nil {
+		if l.URL, err = s.view(key, ""); err != nil {
 			return nil, err
 		}
 		if name := names[id]; name != "" {
-			if l.Download, err = s.bucket.PresignGet(key, s.cfg.LinkTTL, disposition(name)); err != nil {
+			if l.Download, err = s.view(key, disposition(name)); err != nil {
 				return nil, err
 			}
+		}
+		if thumb != nil {
+			t := ThumbLink{Width: tw, Height: th}
+			if t.URL, err = s.view(*thumb, ""); err != nil {
+				return nil, err
+			}
+			l.Thumb = &t
 		}
 		out[id] = l
 	}
@@ -741,7 +991,7 @@ type Usage struct {
 // Usage sums the person's files, for the settings.
 func (s *Store) Usage(ctx context.Context, userID int64) (Usage, error) {
 	var u Usage
-	err := s.pool.QueryRow(ctx, `SELECT count(*), COALESCE(sum(bytes), 0)::bigint FROM asset WHERE user_id=$1`, userID).Scan(&u.Files, &u.Bytes)
+	err := s.pool.QueryRow(ctx, `SELECT count(*), COALESCE(sum(bytes + COALESCE(thumb_bytes, 0)), 0)::bigint FROM asset WHERE user_id=$1`, userID).Scan(&u.Files, &u.Bytes)
 	return u, err
 }
 
@@ -753,7 +1003,7 @@ func (s *Store) checkBucket(ctx context.Context) {
 	var total int64
 	var step int
 	if err := s.pool.QueryRow(ctx, `
-		SELECT COALESCE((SELECT sum(bytes) FROM asset), 0)::bigint, bucket_alert_step FROM runtime_state`).Scan(&total, &step); err != nil {
+		SELECT COALESCE((SELECT sum(bytes + COALESCE(thumb_bytes, 0)) FROM asset), 0)::bigint, bucket_alert_step FROM runtime_state`).Scan(&total, &step); err != nil {
 		s.log.Error("bucket usage", "error", err)
 		return
 	}

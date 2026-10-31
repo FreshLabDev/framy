@@ -182,6 +182,47 @@ func TestPresignedLinks(t *testing.T) {
 	}
 }
 
+func TestALinkSignedAtAMomentIsTheSameEachTime(t *testing.T) {
+	srv := r2test.New(t)
+	c := srv.Client(t)
+	data := []byte("a result")
+	if err := put(t, c, "u/1/out/7-0.jpg", data); err != nil {
+		t.Fatal(err)
+	}
+	at := time.Now().Add(-50 * time.Minute)
+	const cache = "private, max-age=4200"
+	first, err := c.PresignGetAt("u/1/out/7-0.jpg", at, 70*time.Minute, "", cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, _ := c.PresignGetAt("u/1/out/7-0.jpg", at, 70*time.Minute, "", cache)
+	if first != again {
+		t.Error("two links of one moment differ")
+	}
+	if later, _ := c.PresignGetAt("u/1/out/7-0.jpg", at.Add(time.Hour), 70*time.Minute, "", cache); later == first {
+		t.Error("a link of the next window is the same")
+	}
+	resp, err := http.Get(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 200 || !bytes.Equal(got, data) || resp.Header.Get("Cache-Control") != cache {
+		t.Errorf("%d %q, Cache-Control %q", resp.StatusCode, got, resp.Header.Get("Cache-Control"))
+	}
+	// It lives from the moment it was signed at, not from now.
+	srv.SetNow(func() time.Time { return at.Add(70*time.Minute + time.Second) })
+	if resp, err := http.Get(first); err != nil || resp.StatusCode != http.StatusForbidden {
+		t.Errorf("past its life: %v %v", resp.StatusCode, err)
+	}
+	srv.SetNow(time.Now)
+	// One that would be dead already is not made.
+	if _, err := c.PresignGetAt("k", time.Now().Add(-2*time.Hour), time.Hour, "", ""); err == nil {
+		t.Error("a link that died before it was made")
+	}
+}
+
 func TestConfigIsChecked(t *testing.T) {
 	good := r2.Config{Endpoint: "https://acc.r2.cloudflarestorage.com", Bucket: "framy", AccessKeyID: "a", SecretAccessKey: "s"}
 	if _, err := r2.New(good); err != nil {

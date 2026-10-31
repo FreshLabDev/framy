@@ -175,24 +175,40 @@ func (c *Client) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 // Content-Disposition of the answer: "attachment; filename=…" makes a
 // browser or Telegram's downloadFile save it.
 func (c *Client) PresignGet(key string, ttl time.Duration, disposition string) (string, error) {
+	return c.PresignGetAt(key, c.now(), ttl, disposition, "")
+}
+
+// PresignGetAt is PresignGet signed as of at, which may be in the past: the
+// same arguments give the same URL, so a browser that fetched it once takes
+// it from its cache. cacheControl, when set, comes back as the answer's
+// Cache-Control, which tells the browser how long it may.
+func (c *Client) PresignGetAt(key string, at time.Time, ttl time.Duration, disposition, cacheControl string) (string, error) {
 	u := c.object(key)
+	q := url.Values{}
 	if disposition != "" {
-		u.RawQuery = url.Values{"response-content-disposition": {disposition}}.Encode()
+		q.Set("response-content-disposition", disposition)
 	}
-	return c.presign(http.MethodGet, u, ttl)
+	if cacheControl != "" {
+		q.Set("response-cache-control", cacheControl)
+	}
+	u.RawQuery = q.Encode()
+	if at.Add(ttl).Before(c.now()) {
+		return "", fmt.Errorf("r2: a link signed at %s for %s has expired", at.UTC().Format(time.RFC3339), ttl)
+	}
+	return c.presignAt(http.MethodGet, u, at, ttl)
 }
 
 // PresignPut lets the holder upload to key for ttl, as the site does with a
 // video, straight into the bucket.
 func (c *Client) PresignPut(key string, ttl time.Duration) (string, error) {
-	return c.presign(http.MethodPut, c.object(key), ttl)
+	return c.presignAt(http.MethodPut, c.object(key), c.now(), ttl)
 }
 
-func (c *Client) presign(method string, u *url.URL, ttl time.Duration) (string, error) {
+func (c *Client) presignAt(method string, u *url.URL, at time.Time, ttl time.Duration) (string, error) {
 	if ttl < time.Second || ttl > MaxPresign {
 		return "", fmt.Errorf("r2: a presigned URL lives from a second to %s, not %s", MaxPresign, ttl)
 	}
-	return c.signer.presign(method, u, c.now(), ttl), nil
+	return c.signer.presign(method, u, at, ttl), nil
 }
 
 // do makes a signed call, again after a 5xx, a 429 or a network error. The

@@ -212,6 +212,18 @@ func TestLivePresigned(t *testing.T) {
 		t.Fatalf("Content-Disposition is not exposed: %q", resp.Header.Get("Access-Control-Expose-Headers"))
 	}
 
+	// The site's links are signed at the start of a window and tell the
+	// browser to keep the answer.
+	const cache = "private, max-age=4200"
+	kept, err := c.PresignGetAt(key, time.Now().Truncate(time.Hour), 70*time.Minute, "", cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp, got := send(t, http.MethodGet, kept, nil, map[string]string{"Origin": siteOrigin}); resp.StatusCode != http.StatusOK ||
+		!bytes.Equal(got, body) || resp.Header.Get("Cache-Control") != cache {
+		t.Fatalf("a link signed at the window's start: %d, Cache-Control %q", resp.StatusCode, resp.Header.Get("Cache-Control"))
+	}
+
 	short, err := c.PresignGet(key, time.Second, "")
 	if err != nil {
 		t.Fatal(err)

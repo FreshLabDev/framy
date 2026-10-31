@@ -348,6 +348,7 @@ func run(log *slog.Logger) error {
 	workers.Go(func() { sweepWork(ctx, work, log) })
 	if files != nil {
 		workers.Go(func() { sweepUploads(ctx, files, log) })
+		workers.Go(func() { fillThumbs(ctx, files, log) })
 	}
 	if keyWatch != nil {
 		workers.Go(func() { keyWatch.Run(ctx) })
@@ -522,6 +523,25 @@ func sweepUploads(ctx context.Context, files *storage.Store, log *slog.Logger) {
 			log.Error("sweep uploads no job took", "swept", n, "error", err)
 		} else if n > 0 {
 			log.Info("swept uploads no job took", "count", n)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
+}
+
+// fillThumbs makes the thumbnails results lack, kept before framy made them
+// or whose thumbnail failed: at start and every minute, a few at a time.
+func fillThumbs(ctx context.Context, files *storage.Store, log *slog.Logger) {
+	tick := time.NewTicker(time.Minute)
+	defer tick.Stop()
+	for {
+		if n, err := files.FillThumbs(ctx, 20); err != nil && ctx.Err() == nil {
+			log.Error("fill thumbnails", "made", n, "error", err)
+		} else if n > 0 {
+			log.Info("made thumbnails results lacked", "count", n)
 		}
 		select {
 		case <-ctx.Done():
