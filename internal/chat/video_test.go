@@ -178,7 +178,7 @@ func TestPastTheFreeVideoWithoutAKeyTheReasonIsTheAnswer(t *testing.T) {
 	if err := h.command(videoReply("/edit rain"), CommandVideo, "rain"); err != nil {
 		t.Fatal(err)
 	}
-	want := i18n.T("en", "edit.limit", "limit", "1", "wait", "2 d 2 h")
+	want := i18n.T("en", "edit.limit_at", "limit", "1", "at", timeHTML(clock.Add(50*time.Hour)))
 	if got := h.tg.methods("sendMessage"); len(got) != 1 || got[0].text != want {
 		t.Fatalf("answer = %+v, want %q", got, want)
 	}
@@ -194,7 +194,7 @@ func TestTheQueueHasTheLastWordOnTheFreeVideo(t *testing.T) {
 		refuse error
 		want   string
 	}{
-		{&free.LimitError{Kind: catalog.Video, Limit: 1, FreesAt: clock.Add(3 * time.Hour)}, i18n.T("en", "edit.limit", "limit", "1", "wait", "3 h 0 min")},
+		{&free.LimitError{Kind: catalog.Video, Limit: 1, FreesAt: clock.Add(3 * time.Hour)}, i18n.T("en", "edit.limit_at", "limit", "1", "at", timeHTML(clock.Add(3*time.Hour)))},
 		{&free.ClosedError{}, i18n.T("en", "edit.closed")},
 	} {
 		h := videoHarness(t)

@@ -194,8 +194,9 @@ was written from, and the skeleton of the service.
   lack of money pauses the tier for 15 minutes. The operator chat is told
   once a day per fuse. A refusal is a typed error that says when the slot
   frees up or until when the tier is closed, for the bot and the site to
-  word. The bot says how long until the next free image, in hours and
-  minutes.
+  word. A message from the bot says the date and the time of the next free
+  image or video, which Telegram shows in the reader's own time zone; an
+  alert under a button, which takes no formatting, says how long until it.
 - Provider keys that people paste in: OpenAI, Gemini and OpenRouter. A key is
   checked with the provider when it is saved (the list of models, which costs
   nothing) and kept only encrypted: a new data key for every record,

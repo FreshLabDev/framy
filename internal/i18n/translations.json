@@ -611,6 +611,24 @@
     "ja": "無料の動画を使い切りました。任意の 7 日間で {limit} 本です。次の無料枠は {wait}後です。今すぐ続けるには、サイトで自分の OpenRouter キーを接続してください。",
     "ar": "انتهى الفيديو المجاني: {limit} خلال أي 7 أيام. الفيديو المجاني التالي بعد {wait}. للمتابعة الآن، اربط مفتاح OpenRouter الخاص بك على الموقع."
   },
+  "edit.limit_at": {
+    "en": "The free video is used up: {limit} in any 7 days. The next free one: {at}. To go on now, connect your own OpenRouter key on the site.",
+    "ru": "Бесплатное видео закончилось: {limit} за любые 7 дней. Следующее бесплатное: {at}. Чтобы продолжить сейчас, подключи на сайте свой ключ OpenRouter.",
+    "uk": "Безкоштовне відео закінчилося: {limit} за будь-які 7 днів. Наступне безкоштовне: {at}. Щоб продовжити зараз, підключи на сайті свій ключ OpenRouter.",
+    "es": "El vídeo gratis se ha acabado: {limit} en cualquier periodo de 7 días. El próximo gratis: {at}. Para seguir ahora, conecta tu propia clave de OpenRouter en el sitio.",
+    "fr": "La vidéo gratuite est épuisée : {limit} sur toute période de 7 jours. La prochaine gratuite : {at}. Pour continuer maintenant, connecte ta propre clé OpenRouter sur le site.",
+    "de": "Das kostenlose Video ist aufgebraucht: {limit} in beliebigen 7 Tagen. Das nächste kostenlose: {at}. Verbinde auf der Website deinen eigenen OpenRouter-Schlüssel, um jetzt weiterzumachen.",
+    "it": "Il video gratis è finito: {limit} in qualsiasi arco di 7 giorni. Il prossimo gratis: {at}. Per continuare subito, collega la tua chiave OpenRouter sul sito.",
+    "pl": "Darmowe wideo się skończyło: {limit} w dowolnych 7 dniach. Następne darmowe: {at}. Aby kontynuować teraz, połącz na stronie własny klucz OpenRouter.",
+    "cs": "Video zdarma došlo: {limit} za libovolných 7 dní. Další zdarma: {at}. Pokud chceš pokračovat hned, připoj na webu vlastní klíč OpenRouter.",
+    "tr": "Ücretsiz video bitti: herhangi bir 7 günde {limit} adet. Bir sonraki ücretsiz: {at}. Hemen devam etmek için sitede kendi OpenRouter anahtarını bağla.",
+    "sv": "Gratisvideon är slut: {limit} inom valfria 7 dagar. Nästa gratis: {at}. Koppla din egen OpenRouter-nyckel på webbplatsen för att fortsätta nu.",
+    "be": "Бясплатнае відэа скончылася: {limit} за любыя 7 дзён. Наступнае бясплатнае: {at}. Каб працягнуць зараз, падключы на сайце свой ключ OpenRouter.",
+    "ca": "El vídeo de franc s’ha acabat: {limit} en qualsevol període de 7 dies. El següent de franc: {at}. Per continuar ara, connecta la teva clau d’OpenRouter al web.",
+    "zh": "免费视频已用完：任意 7 天内共 {limit} 个。下一个免费视频：{at}。要现在继续，请在网站上连接你自己的 OpenRouter 密钥。",
+    "ja": "無料の動画を使い切りました。任意の 7 日間で {limit} 本です。次の無料枠：{at}。今すぐ続けるには、サイトで自分の OpenRouter キーを接続してください。",
+    "ar": "انتهى الفيديو المجاني: {limit} خلال أي 7 أيام. الفيديو المجاني التالي: {at}. للمتابعة الآن، اربط مفتاح OpenRouter الخاص بك على الموقع."
+  },
   "edit.no_video": {
     "en": "<code>/edit</code> changes a video: send it in reply to one, or as the caption of your own.",
     "ru": "<code>/edit</code> меняет видео: отправь команду в ответ на видео или подписью к своему.",
@@ -2662,6 +2680,24 @@
     "zh": "免费图片已用完：任意 24 小时内共 {limit} 张。{wait}后可再免费生成一张。要现在继续，请在网站上连接你自己的 OpenRouter 密钥。",
     "ja": "無料の画像を使い切りました。任意の 24 時間で {limit} 枚です。次の無料枠は {wait}後です。今すぐ続けるには、サイトで自分の OpenRouter キーを接続してください。",
     "ar": "انتهت الصور المجانية: {limit} خلال أي 24 ساعة. الصورة المجانية التالية بعد {wait}. للمتابعة الآن، اربط مفتاح OpenRouter الخاص بك على الموقع."
+  },
+  "run.limit_at": {
+    "en": "Free images are used up: {limit} in any 24 hours. The next free one: {at}. To go on now, connect your own OpenRouter key on the site.",
+    "ru": "Бесплатные картинки закончились: {limit} за любые 24 часа. Следующая бесплатная: {at}. Чтобы продолжить сейчас, подключи на сайте свой ключ OpenRouter.",
+    "uk": "Безкоштовні зображення закінчилися: {limit} за будь-які 24 години. Наступне безкоштовне: {at}. Щоб продовжити зараз, підключи на сайті свій ключ OpenRouter.",
+    "es": "Las imágenes gratis se han acabado: {limit} en cualquier periodo de 24 horas. La próxima gratis: {at}. Para seguir ahora, conecta tu propia clave de OpenRouter en el sitio.",
+    "fr": "Les images gratuites sont épuisées : {limit} sur toute période de 24 heures. La prochaine gratuite : {at}. Pour continuer maintenant, connecte ta propre clé OpenRouter sur le site.",
+    "de": "Die kostenlosen Bilder sind aufgebraucht: {limit} in beliebigen 24 Stunden. Das nächste kostenlose: {at}. Verbinde auf der Website deinen eigenen OpenRouter-Schlüssel, um jetzt weiterzumachen.",
+    "it": "Le immagini gratis sono finite: {limit} in qualsiasi arco di 24 ore. La prossima gratis: {at}. Per continuare subito, collega la tua chiave OpenRouter sul sito.",
+    "pl": "Darmowe obrazy się skończyły: {limit} w dowolnych 24 godzinach. Następny darmowy: {at}. Aby kontynuować teraz, połącz na stronie własny klucz OpenRouter.",
+    "cs": "Obrázky zdarma došly: {limit} za libovolných 24 hodin. Další zdarma: {at}. Pokud chceš pokračovat hned, připoj na webu vlastní klíč OpenRouter.",
+    "tr": "Ücretsiz görseller bitti: herhangi bir 24 saatte {limit} adet. Bir sonraki ücretsiz: {at}. Hemen devam etmek için sitede kendi OpenRouter anahtarını bağla.",
+    "sv": "Gratisbilderna är slut: {limit} inom valfria 24 timmar. Nästa gratis: {at}. Koppla din egen OpenRouter-nyckel på webbplatsen för att fortsätta nu.",
+    "be": "Бясплатныя выявы скончыліся: {limit} за любыя 24 гадзіны. Наступная бясплатная: {at}. Каб працягнуць зараз, падключы на сайце свой ключ OpenRouter.",
+    "ca": "Les imatges de franc s’han acabat: {limit} en qualsevol període de 24 hores. La següent de franc: {at}. Per continuar ara, connecta la teva clau d’OpenRouter al web.",
+    "zh": "免费图片已用完：任意 24 小时内共 {limit} 张。下一张免费图片：{at}。要现在继续，请在网站上连接你自己的 OpenRouter 密钥。",
+    "ja": "無料の画像を使い切りました。任意の 24 時間で {limit} 枚です。次の無料枠：{at}。今すぐ続けるには、サイトで自分の OpenRouter キーを接続してください。",
+    "ar": "انتهت الصور المجانية: {limit} خلال أي 24 ساعة. الصورة المجانية التالية: {at}. للمتابعة الآن، اربط مفتاح OpenRouter الخاص بك على الموقع."
   },
   "run.model": {
     "en": "Model",

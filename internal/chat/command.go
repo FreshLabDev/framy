@@ -313,7 +313,7 @@ func (f *Flow) draft(ctx context.Context, m *tg.Message, src found, prompt, key,
 		return d, "", err
 	}
 	d.pay = payFree
-	if refusal, err := f.queueDraft(ctx, lang, newJob(m, key, prompt, inputs, &d), &d); refusal != "" || err != nil || d.id == 0 {
+	if refusal, err := f.queueDraft(ctx, lang, newJob(m, key, prompt, inputs, &d), &d, false); refusal != "" || err != nil || d.id == 0 {
 		return draft{}, refusal, err
 	}
 	if d.pay == payFree {
@@ -351,7 +351,7 @@ func (f *Flow) draftMotion(ctx context.Context, m *tg.Message, src found, prompt
 	if d.quote, err = f.quote(ctx, user, lang); err != nil {
 		return draft{}, "", err
 	}
-	if refusal, err := f.queueDraft(ctx, lang, newJob(m, key, prompt, inputs, &d), &d); refusal != "" || err != nil || d.id == 0 {
+	if refusal, err := f.queueDraft(ctx, lang, newJob(m, key, prompt, inputs, &d), &d, false); refusal != "" || err != nil || d.id == 0 {
 		return draft{}, refusal, err
 	}
 	if d.pay == payFree {
@@ -450,9 +450,10 @@ func newJob(m *tg.Message, key, prompt string, inputs []int64, d *draft) jobs.Ne
 
 // queueDraft makes the job and puts its id in d. Past the free tier the
 // person's own key runs the same model, at the price the preview shows;
-// without one the reason is the answer. A zero id with no refusal is a job
-// the same command made already.
-func (f *Flow) queueDraft(ctx context.Context, lang string, n jobs.New, d *draft) (string, error) {
+// without one the reason is the answer, worded for an alert when alert is
+// true and for a message otherwise. A zero id with no refusal is a job the
+// same command made already.
+func (f *Flow) queueDraft(ctx context.Context, lang string, n jobs.New, d *draft, alert bool) (string, error) {
 	id, created, err := f.cfg.Queue.Draft(ctx, n)
 	var (
 		limit  *free.LimitError
@@ -464,8 +465,11 @@ func (f *Flow) queueDraft(ctx context.Context, lang string, n jobs.New, d *draft
 			return "", kerr
 		}
 		if !has {
-			if limit != nil {
+			switch {
+			case limit != nil && alert:
 				return f.limitText(lang, limit), nil
+			case limit != nil:
+				return f.limitMessage(lang, limit), nil
 			}
 			return closedText(lang, n.Offer.Kind), nil
 		}
@@ -513,7 +517,7 @@ func (f *Flow) draftVideo(ctx context.Context, m *tg.Message, c clip, prompt, ke
 			return draft{}, "", err
 		}
 		if !has {
-			return draft{}, f.limitText(lang, &free.LimitError{
+			return draft{}, f.limitMessage(lang, &free.LimitError{
 				Kind: catalog.Video, Limit: u.Videos.Limit, Window: u.Videos.Window, FreesAt: u.Videos.FreesAt,
 			}), nil
 		}
@@ -569,7 +573,7 @@ func (f *Flow) draftVideo(ctx context.Context, m *tg.Message, c clip, prompt, ke
 	if d.quote, err = f.quote(ctx, user, lang); err != nil {
 		return draft{}, "", err
 	}
-	if refusal, err := f.queueDraft(ctx, lang, newJob(m, key, prompt, []int64{a.ID}, &d), &d); refusal != "" || err != nil || d.id == 0 {
+	if refusal, err := f.queueDraft(ctx, lang, newJob(m, key, prompt, []int64{a.ID}, &d), &d, false); refusal != "" || err != nil || d.id == 0 {
 		return draft{}, refusal, err
 	}
 	if d.pay == payFree {

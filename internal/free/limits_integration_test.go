@@ -6,6 +6,7 @@ package free
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -463,5 +464,47 @@ func TestTheFreeEditTakesAClipOfUpToFiveSeconds(t *testing.T) {
 	// 5 s cut from a longer clip comes out a frame over, and goes.
 	if _, created, err := h.q.Enqueue(ctx, edit(cut)); err != nil || !created {
 		t.Fatalf("a part of 5 s: %v, created %v", err, created)
+	}
+}
+
+// The free edit and the free video are one allowance: whichever came first,
+// the other is refused until a week after it (#36).
+func TestTheFreeEditAndTheFreeVideoShareTheWeek(t *testing.T) {
+	h := newHarness(t, 100)
+	ctx := context.Background()
+	clip := func(user int64) jobs.New {
+		var id int64
+		if err := h.pool.QueryRow(ctx, `
+			INSERT INTO framy.asset (user_id, kind, object_key, content_type, bytes, sha256, seconds)
+			VALUES ($1, 'upload', $2 || gen_random_uuid(), 'video/mp4', 10, 'x', 5) RETURNING id`, user, fmt.Sprintf("u/%d/in/", user)).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		n := newJob(user, VideoEdit, 0.15)
+		n.Inputs = []int64{id}
+		return n
+	}
+	weekAfter := func(job int64) time.Time {
+		var queuedAt time.Time
+		if err := h.pool.QueryRow(ctx, `SELECT queued_at FROM job WHERE id = $1`, job).Scan(&queuedAt); err != nil {
+			t.Fatal(err)
+		}
+		return queuedAt.Add(VideoWindow)
+	}
+
+	// An edit first: the generation after it is refused.
+	edited, created, err := h.q.Enqueue(ctx, clip(alice))
+	if err != nil || !created {
+		t.Fatalf("the free edit: %v, created %v", err, created)
+	}
+	_, created, err = h.enqueue(alice, VideoHeyGen, 0.18)
+	if limit := asLimit(t, err); created || limit.Kind != catalog.Video || !limit.FreesAt.Equal(weekAfter(edited)) {
+		t.Fatalf("a video after the edit: %+v, created %v; want it free %s", limit, created, weekAfter(edited))
+	}
+
+	// A generation first: the edit after it is refused.
+	made := h.mustEnqueue(bob, VideoGrok, 0.15)
+	_, created, err = h.q.Enqueue(ctx, clip(bob))
+	if limit := asLimit(t, err); created || limit.Kind != catalog.Video || !limit.FreesAt.Equal(weekAfter(made)) {
+		t.Fatalf("an edit after the video: %+v, created %v; want it free %s", limit, created, weekAfter(made))
 	}
 }

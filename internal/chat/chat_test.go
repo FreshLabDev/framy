@@ -3,6 +3,7 @@ package chat
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -172,7 +173,10 @@ func TestPastTheFreeTierWithoutAKeyTheReasonIsTheAnswer(t *testing.T) {
 		t.Fatal("a preview went out")
 	}
 	got := h.tg.methods("sendMessage")
-	if len(got) != 1 || got[0].text != i18n.T("en", "run.limit", "limit", "5", "wait", "2 h 15 min") || got[0].messageID != 10 {
+	// The message says when, in the reader's own time zone, rounded up to the minute.
+	at := h.now.Add(2*time.Hour + 15*time.Minute)
+	tag := fmt.Sprintf(`<tg-time unix="%d" format="dt">%s</tg-time>`, at.Unix(), at.UTC().Format("2006-01-02 15:04 UTC"))
+	if len(got) != 1 || got[0].text != i18n.T("en", "run.limit_at", "limit", "5", "at", tag) || got[0].messageID != 10 {
 		t.Fatalf("answer = %+v", got)
 	}
 }

@@ -456,13 +456,37 @@ var errTooBig = errors.New("the file is over the download limit")
 func t(lang, key string, pairs ...string) string { return i18n.T(i18n.Resolve(lang), key, pairs...) }
 
 // limitText says the free allowance of the run's kind is used up and how
-// long until the next free run.
+// long until the next free run, for an alert, which takes no formatting.
 func (f *Flow) limitText(lang string, e *free.LimitError) string {
-	key := "run.limit"
-	if e.Kind == catalog.Video {
-		key = "edit.limit"
+	return t(lang, limitKey(e), "limit", strconv.Itoa(e.Limit), "wait", waitText(lang, e.FreesAt.Sub(f.now())))
+}
+
+// limitMessage is limitText for a message: the date and the time of the next
+// free run, which Telegram shows in the reader's own time zone, in place of
+// the wait.
+func (f *Flow) limitMessage(lang string, e *free.LimitError) string {
+	if e.FreesAt.IsZero() {
+		return f.limitText(lang, e)
 	}
-	return t(lang, key, "limit", strconv.Itoa(e.Limit), "wait", waitText(lang, e.FreesAt.Sub(f.now())))
+	return t(lang, limitKey(e)+"_at", "limit", strconv.Itoa(e.Limit), "at", timeHTML(e.FreesAt))
+}
+
+func limitKey(e *free.LimitError) string {
+	if e.Kind == catalog.Video {
+		return "edit.limit"
+	}
+	return "run.limit"
+}
+
+// timeHTML is at as a date_time entity: the date and the time in the
+// reader's own time zone and format, and in UTC on a client too old for it.
+// It is rounded up to the minute, as waitText rounds, so it never shows a
+// free run before it is there.
+func timeHTML(at time.Time) string {
+	if m := at.Truncate(time.Minute); m.Before(at) {
+		at = m.Add(time.Minute)
+	}
+	return fmt.Sprintf(`<tg-time unix="%d" format="dt">%s</tg-time>`, at.Unix(), at.UTC().Format("2006-01-02 15:04 UTC"))
 }
 
 // closedText says the free tier is paused for runs of the kind.

@@ -344,7 +344,7 @@ func TestWhatAGuestMessageCannotStartIsSaidOnce(t *testing.T) {
 
 	h = guestHarness(t)
 	h.queue.refuse = &free.LimitError{Kind: catalog.Image, Limit: 5, Window: free.ImageWindow, FreesAt: h.now.Add(2*time.Hour + 14*time.Minute + 30*time.Second)}
-	if err := h.flow.guest(ctx, guestReply("gq-1"), "make it snow"); err != nil || text(h) != i18n.T("en", "run.limit", "limit", "5", "wait", "2 h 15 min") {
+	if err := h.flow.guest(ctx, guestReply("gq-1"), "make it snow"); err != nil || text(h) != i18n.T("en", "run.limit_at", "limit", "5", "at", timeHTML(h.now.Add(2*time.Hour+15*time.Minute))) {
 		t.Errorf("no free left: %v", err)
 	}
 
