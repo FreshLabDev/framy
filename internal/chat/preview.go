@@ -295,15 +295,16 @@ func generatingKeyboard(lang string, jobID int64) *tg.InlineKeyboardMarkup {
 }
 
 // sendPreview draws the preview card in dir and sends the rich preview as
-// a reply to m: the command, or the result a press of press asked for a
-// video of. In a group it goes to the requester alone when Telegram lets
+// a reply to m: the command, or the result or error card whose button,
+// pressed as press, made the draft; open names the section that comes
+// unfolded. In a group it goes to the requester alone when Telegram lets
 // framy: framy is an admin, or the command was ephemeral or the press was,
 // and the answer comes within 15 seconds. Otherwise, or when the ephemeral
 // send is refused, the chat sees it, and its folded lists open for anyone
 // while only the requester's presses act. ephemeral tells which, and the id
 // is of that kind.
-func (f *Flow) sendPreview(ctx context.Context, m *tg.Message, d draft, prompt, lang, dir, press string) (id int64, ephemeral bool, err error) {
-	body, pic, kb, err := f.richState(ctx, m.From.ID, lang, prompt, d.id, d, dir, d.paths, false)
+func (f *Flow) sendPreview(ctx context.Context, m *tg.Message, d draft, prompt, lang, dir, press string, open unfold) (id int64, ephemeral bool, err error) {
+	body, pic, kb, err := f.richState(ctx, m.From.ID, lang, prompt, d.id, d, dir, d.paths, open)
 	if err != nil {
 		return 0, false, err
 	}

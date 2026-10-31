@@ -596,7 +596,7 @@ was written from, and the skeleton of the service.
   OpenRouter key when the allowance is used up or paused. framy keeps every
   run in `chat_run` (migration 014), so a restart picks it up where it was.
   `/edit` is in the group menu for video and answers that video in chats is
-  not open yet. Again and Animate come later.
+  not open yet.
 - A provider's refusal of a real person in a photo or a clip is its own
   error class, `faces`: Seedance on BytePlus answers so through OpenRouter.
   The chat says the model does not take real people and to try another
@@ -728,6 +728,20 @@ was written from, and the skeleton of the service.
   of a new video draft with the same prompt. Its preview replies to the
   result, and in a group only the requester sees it, admin rights or not. A
   double tap makes one draft.
+- Again and Original under a result in chat, and what helps under the error
+  card. Again makes a new draft of a run made in the chat, with its prompt,
+  files, model and settings, as a preview that replies to the result; who
+  pays is asked again, so a free run past its slot shows the price on the
+  person's key before anything runs. Original, under an image that went as a
+  photo, sends the file as the model made it, once, as a document: a photo
+  is Telegram's copy, at most 2560 px and a JPEG. The error card has the
+  site's answers to a failure: Try again, Another model (the same draft with
+  the list of models open) and Try without sound after a model refused its
+  own sound. A key out of credits or refused is fixed on the site and gets
+  no button. The list of models said `[web.go.need_key]` under a model that
+  needs a key since the site dropped that line; the chat has its own line
+  now, and a test fails on any key the code names that the translations
+  lack.
 - A direct chat needs no command. Words, alone or with a photo, get the
   question "an image or a video", and the answer starts `/img` or the free
   video with the message as the prompt. Words with a clip go straight to

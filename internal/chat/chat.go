@@ -194,9 +194,11 @@ type Flow struct {
 	files sync.Map // anim key → file_id
 	// ticks are when a running job last told its chat something.
 	ticks sync.Map // job id → *ticker
-	// animated is when Animate last made a draft of a result, so a second
-	// tap makes no second one.
-	animated sync.Map // job id → time.Time
+	// made is when a button of a result or an error card last made a draft,
+	// so a second tap makes no second one.
+	made sync.Map // "<job>:<action>" → time.Time
+	// originals are the results whose file went out, once each.
+	originals sync.Map // job id → struct{}
 	// asks are the plain messages of a DM waiting for their answer, by the
 	// question; dmAlbums the albums of a DM being collected.
 	asks     sync.Map // askKey → ask
@@ -326,6 +328,15 @@ const (
 	// actAnimate, on an image result, makes the image the start frame of a
 	// video.
 	actAnimate = "a"
+	// actAgain, on a result, makes a new draft of the run; actOriginal, on
+	// an image that went as a photo, sends the file as the model made it.
+	actAgain    = "g"
+	actOriginal = "o"
+	// On the error card: actRetry makes a new draft of the run, actOther
+	// the same with the model list open, and actQuiet one without sound.
+	actRetry = "r"
+	actOther = "c"
+	actQuiet = "q"
 )
 
 // Owns reports whether callback data is a run's button or an answer to the

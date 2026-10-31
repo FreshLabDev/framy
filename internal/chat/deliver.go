@@ -215,11 +215,11 @@ func (f *Flow) deliver(ctx context.Context, run db.ChatRun) {
 }
 
 // sendImage puts a picture in the chat: a photo, or a document when
-// Telegram would not take it as one, with Animate under it. The loop goes
-// once a reply is sent.
+// Telegram would not take it as one, with Animate, Again and, under a
+// photo, Original. The loop goes once a reply is sent.
 func (f *Flow) sendImage(ctx context.Context, run db.ChatRun, a storage.Asset, caption string) (tg.Message, error) {
 	asPhoto := photoFits(a)
-	kb := resultKeyboard(run.Lang, run.JobID)
+	kb := resultKeyboard(run.Lang, run.JobID, a, fromChat(run), true)
 	if asPhoto && f.now().Sub(run.GenerateAt) <= inPlaceWithin {
 		msg, err := f.withResult(ctx, a, func(file tg.InputFile) (tg.Message, error) {
 			return f.cfg.Telegram.EditMessageMediaMessage(ctx, run.ChatID, run.PreviewMessageID, tg.InputMediaPhoto{Media: file, Caption: caption}, kb)
@@ -255,9 +255,10 @@ func (f *Flow) postImage(ctx context.Context, chatID int64, a storage.Asset, opt
 // result goes through the clip pipeline first, which moves the index to the
 // front and copies the streams when they are fit; a result the pipeline
 // cannot read goes as it came. Its cover is the frame the result card would
-// show, so every client opens on the same picture.
+// show, so every client opens on the same picture. Again is under it.
 func (f *Flow) sendVideo(ctx context.Context, run db.ChatRun, a storage.Asset, caption string) (tg.Message, error) {
-	opts := tg.CaptionOptions{ThreadID: run.ThreadID, ReplyTo: run.CommandMessageID, Caption: caption}
+	opts := tg.CaptionOptions{ThreadID: run.ThreadID, ReplyTo: run.CommandMessageID, Caption: caption,
+		Markup: resultKeyboard(run.Lang, run.JobID, a, fromChat(run), false)}
 	msg, err := f.postVideo(ctx, run.ChatID, a, opts)
 	if err != nil {
 		return tg.Message{}, err
@@ -479,13 +480,15 @@ func reason(run db.ChatRun) string {
 
 // failed turns the loop into the error card. Media cannot turn back into
 // text, so the card is a picture; where its faces lack the letters, the
-// line goes in the caption.
+// line goes in the caption. Under it is what helps (failureKeyboard). When
+// the card cannot be shown, a reply says the line and takes its place.
 func (f *Flow) failed(ctx context.Context, run db.ChatRun, key string) {
 	if guest(run) {
 		f.guestFailed(ctx, run, key)
 		return
 	}
 	text := t(run.Lang, key)
+	kb := failureKeyboard(run)
 	card, err := f.cfg.Renderer.ErrorCard(ctx, text, run.Lang)
 	if err == nil {
 		line := ""
@@ -493,15 +496,19 @@ func (f *Flow) failed(ctx context.Context, run db.ChatRun, key string) {
 			line = text
 		}
 		caption := lines(promptQuote(run.Prompt), line, "<b>"+html.EscapeString(run.Model)+"</b>")
-		_, err = f.edit(ctx, run.ChatID, run.PreviewMessageID, card, caption, nil)
+		_, err = f.edit(ctx, run.ChatID, run.PreviewMessageID, card, caption, kb)
 	}
 	if err != nil {
 		f.log.Warn("error card not shown; replying", "job", run.JobID, "error", err)
-		if _, rerr := f.cfg.Telegram.SendReply(ctx, run.ChatID, run.CommandMessageID, run.ThreadID, text, nil); rerr != nil {
+		sent, rerr := f.cfg.Telegram.SendReply(ctx, run.ChatID, run.CommandMessageID, run.ThreadID, text, kb)
+		if rerr != nil {
 			f.log.Error("failure not told", "job", run.JobID, "error", rerr)
 			return
 		}
 		f.deleteMessage(ctx, run.ChatID, run.PreviewMessageID)
+		if err := f.cfg.Store.SetChatRunPreview(ctx, run.JobID, sent.MessageID, false); err != nil {
+			f.log.Warn("failure reply not recorded", "job", run.JobID, "error", err)
+		}
 	}
 	if _, err := f.cfg.Store.FinishChatRun(ctx, run.JobID, db.StageFailed, db.ChatResult{}); err != nil {
 		f.log.Error("run not finished", "job", run.JobID, "error", err)

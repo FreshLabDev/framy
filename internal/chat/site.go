@@ -143,7 +143,7 @@ func (f *Flow) sendSiteResult(ctx context.Context, r db.SiteResult) {
 	case video:
 		msg, err = f.postVideo(ctx, r.UserID, assets[0], opts)
 	case len(assets) == 1:
-		opts.Markup = resultKeyboard(lang, r.JobID)
+		opts.Markup = resultKeyboard(lang, r.JobID, assets[0], false, true)
 		msg, err = f.postImage(ctx, r.UserID, assets[0], opts)
 	default:
 		msg, err = f.postAlbum(ctx, r.UserID, assets, opts.Caption)

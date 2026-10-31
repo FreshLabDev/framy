@@ -81,6 +81,10 @@ func (f *Flow) press(ctx context.Context, cq *tg.CallbackQuery) error {
 		return f.otherLength(ctx, cq, run, on, action)
 	case action == actAnimate:
 		return f.animate(ctx, cq, run)
+	case action == actAgain, onTheCard(action):
+		return f.again(ctx, cq, run, action)
+	case action == actOriginal:
+		return f.original(ctx, cq, run)
 	}
 	return answer("")
 }
@@ -89,13 +93,18 @@ func (f *Flow) press(ctx context.Context, cq *tg.CallbackQuery) error {
 // forged data must change nothing. Generate, No and Stop every run has, and
 // a model or a setting is picked on a video as on an image. The keyboard's
 // panels are an image's; only a video goes back to an image or takes
-// another length of its clip, and only an image becomes a video or is
-// animated.
+// another length of its clip, and only an image becomes a video, is
+// animated or has its file sent. Every run made in the chat goes again
+// from its result or its error card; a video edit keeps its model.
 func allowed(run db.ChatRun, action string) bool {
 	video := catalog.Kind(run.Kind) == catalog.Video
 	switch action {
 	case actGenerate, actNo, actStop:
 		return true
+	case actAgain, actRetry, actQuiet:
+		return fromChat(run)
+	case actOther:
+		return fromChat(run) && run.ClipFileID == ""
 	case actImage, actKeyClip, actFreeClip:
 		return video
 	}
@@ -120,23 +129,45 @@ const (
 	// were before they were rich messages. Its draft lives out its ten
 	// minutes with the keyboard's panels.
 	onPhoto
+	// onFailure: the error card the loop turned into.
+	onFailure
 )
 
+// onTheResult are the buttons under a result; onTheCard those of the error
+// card.
+func onTheResult(action string) bool {
+	return action == actAnimate || action == actAgain || action == actOriginal
+}
+
+func onTheCard(action string) bool {
+	return action == actRetry || action == actOther || action == actQuiet
+}
+
+// fromChat tells a run made in the chat from a run of the site whose result
+// went to the DM: only the first has a command its draft answered.
+func fromChat(run db.ChatRun) bool { return run.CommandMessageID != 0 || run.CommandEphemeral }
+
 // pressedOn tells which of the run's messages a press came from, if any:
-// a client can send any callback data against any message it sees. Animate
-// is on the result; the rest are on the preview or the panel. Ephemeral
-// messages are numbered apart from the chat's.
+// a client can send any callback data against any message it sees. Animate,
+// Again and Original are on the result, Retry and the like on the error
+// card; the rest are on the preview or the panel. Ephemeral messages are
+// numbered apart from the chat's.
 func pressedOn(cq *tg.CallbackQuery, run db.ChatRun, action string) (place, bool) {
 	if cq.Message == nil {
 		// A guest run's answer is an inline message; it has no result
-		// message of its own to animate.
-		return onPreview, guest(run) && cq.InlineMessageID == run.InlineMessageID && action != actAnimate
+		// message or error card of its own with these buttons.
+		return onPreview, guest(run) && cq.InlineMessageID == run.InlineMessageID && !onTheResult(action) && !onTheCard(action)
 	}
 	if guest(run) || cq.Message.Chat.ID != run.ChatID {
 		return 0, false
 	}
-	if action == actAnimate {
+	if onTheResult(action) {
 		return onResult, run.ResultMessageID != 0 && cq.Message.EphemeralMessageID == 0 && cq.Message.MessageID == run.ResultMessageID
+	}
+	if onTheCard(action) {
+		// The loop, and the card it turned into, is a message the chat sees.
+		return onFailure, run.Stage == db.StageFailed && !run.PreviewEphemeral && run.PreviewMessageID != 0 &&
+			cq.Message.EphemeralMessageID == 0 && cq.Message.MessageID == run.PreviewMessageID
 	}
 	if id := cq.Message.EphemeralMessageID; id != 0 {
 		switch {

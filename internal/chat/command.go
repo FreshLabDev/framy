@@ -247,7 +247,7 @@ func (f *Flow) command(ctx context.Context, m *tg.Message, command, prompt strin
 		// The same command came again while its draft was being made.
 		return nil
 	}
-	preview, ephemeral, err := f.sendPreview(ctx, m, d, prompt, lang, dir, "")
+	preview, ephemeral, err := f.sendPreview(ctx, m, d, prompt, lang, dir, "", foldAll)
 	if err != nil {
 		f.cancel(ctx, d.id)
 		return f.fail(ctx, m, lang, err)

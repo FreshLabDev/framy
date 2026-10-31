@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode"
@@ -235,6 +236,66 @@ func TestNoEmDashInGoStrings(t *testing.T) {
 				}
 				if (tok == token.STRING || tok == token.CHAR) && strings.Contains(lit, emDash) {
 					t.Errorf("%s: a string has an em dash: %s", fset.Position(pos), lit)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// A key the Go code names must be in the file: the site's lines live there
+// too, and a line the site stops using must not leave a panel of the bot
+// showing "[web.go.need_key]". A string that looks like a key (a prefix the
+// file uses, a dot, and lowercase words) is taken for one, unless it is the
+// name of a file.
+func TestEveryKeyTheCodeNamesExists(t *testing.T) {
+	prefixes := map[string]bool{}
+	for _, key := range Keys() {
+		prefixes[strings.SplitN(key, ".", 2)[0]] = true
+	}
+	files := map[string]bool{".mp4": true, ".png": true, ".jpg": true, ".jpeg": true, ".webp": true, ".gif": true, ".json": true}
+	looksLikeKey := func(s string) bool {
+		head, rest, ok := strings.Cut(s, ".")
+		if !ok || !prefixes[head] || rest == "" || strings.HasSuffix(rest, ".") || files[filepath.Ext(s)] {
+			return false
+		}
+		for _, r := range rest {
+			if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_' || r == '.') {
+				return false
+			}
+		}
+		return true
+	}
+	for _, dir := range []string{"../../internal", "../../cmd"} {
+		err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return err
+			}
+			src, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			fset := token.NewFileSet()
+			file := fset.AddFile(path, -1, len(src))
+			var s scanner.Scanner
+			s.Init(file, src, nil, 0)
+			for {
+				pos, tok, lit := s.Scan()
+				if tok == token.EOF {
+					break
+				}
+				if tok != token.STRING {
+					continue
+				}
+				v, err := strconv.Unquote(lit)
+				if err != nil || !looksLikeKey(v) {
+					continue
+				}
+				if _, ok := translations[v]; !ok {
+					t.Errorf("%s: %q is no key of translations.json", fset.Position(pos), v)
 				}
 			}
 			return nil

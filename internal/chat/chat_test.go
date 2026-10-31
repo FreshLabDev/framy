@@ -4,6 +4,7 @@ package chat
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -442,10 +443,11 @@ func TestAQuickResultReplacesTheLoop(t *testing.T) {
 	if len(edits) != 1 || edits[0].file != "photo upload:framy.png" {
 		t.Fatalf("edits = %+v", edits)
 	}
-	// Under the image: Animate.
-	if kb := edits[0].markup; kb == nil || len(kb.InlineKeyboard) != 1 || len(kb.InlineKeyboard[0]) != 1 ||
-		kb.InlineKeyboard[0][0].CallbackData != callback(id, actAnimate) || kb.InlineKeyboard[0][0].Text != i18n.T("en", "result.animate") {
-		t.Fatalf("the result's buttons: %+v", edits[0].markup)
+	// Under the image: Animate and Again, and Original under them.
+	if got := buttons(edits[0].markup); !reflect.DeepEqual(got, [][]string{
+		{callback(id, actAnimate), callback(id, actAgain)}, {callback(id, actOriginal)},
+	}) || edits[0].markup.InlineKeyboard[0][0].Text != i18n.T("en", "result.animate") {
+		t.Fatalf("the result's buttons: %v", got)
 	}
 	if !strings.Contains(edits[0].text, "a fox") || !strings.Contains(edits[0].text, "MAI Image 2.6 Flash") {
 		t.Fatalf("caption = %q", edits[0].text)
@@ -494,24 +496,29 @@ func TestAHugeResultIsADocument(t *testing.T) {
 }
 
 func TestAFailedRunShowsTheCard(t *testing.T) {
+	retry, other := []string{actRetry}, []string{actOther}
 	for _, tc := range []struct {
 		status jobs.Status
 		class  jobs.Class
 		free   bool
 		want   string
+		// acts are the buttons under the card.
+		acts []string
 	}{
-		{jobs.Failed, jobs.Moderation, true, "err.moderation"},
+		{jobs.Failed, jobs.Moderation, true, "err.moderation", other},
 		// A real person in an input: another model may take it.
-		{jobs.Failed, jobs.Faces, false, "err.faces"},
-		// The model's own sound: the same run without it may pass.
-		{jobs.Failed, jobs.Sound, false, "err.sound"},
-		{jobs.Failed, jobs.Money, false, "err.money"},
-		{jobs.Failed, jobs.Money, true, "err.failed"},
-		{jobs.Failed, jobs.Key, false, "err.key"},
+		{jobs.Failed, jobs.Faces, false, "err.faces", other},
+		// The model's own sound: the same run without it may pass. This
+		// run had no sound to turn off.
+		{jobs.Failed, jobs.Sound, false, "err.sound", retry},
+		// The person's key needs the site.
+		{jobs.Failed, jobs.Money, false, "err.money", nil},
+		{jobs.Failed, jobs.Money, true, "err.failed", retry},
+		{jobs.Failed, jobs.Key, false, "err.key", nil},
 		// A free run is paid by framy's key, not the person's.
-		{jobs.Failed, jobs.Key, true, "err.failed"},
-		{jobs.Expired, "", true, "err.timeout"},
-		{jobs.Failed, jobs.Internal, true, "err.failed"},
+		{jobs.Failed, jobs.Key, true, "err.failed", retry},
+		{jobs.Expired, "", true, "err.timeout", []string{actRetry, actOther}},
+		{jobs.Failed, jobs.Internal, true, "err.failed", []string{actRetry, actOther}},
 	} {
 		h := newHarness(t)
 		id := h.generating(t)
@@ -525,8 +532,35 @@ func TestAFailedRunShowsTheCard(t *testing.T) {
 		edits := h.tg.methods("editMessageMedia")
 		if len(edits) != 1 || edits[0].file != "photo upload:framy.png" || h.store.stage(id) != db.StageFailed {
 			t.Errorf("%s/%s: edits %+v, stage %s", tc.status, tc.class, edits, h.store.stage(id))
+			continue
+		}
+		var want [][]string
+		if tc.acts != nil {
+			want = [][]string{{}}
+			for _, a := range tc.acts {
+				want[0] = append(want[0], callback(id, a))
+			}
+		}
+		if got := buttons(edits[0].markup); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s/%s: buttons %v, want %v", tc.status, tc.class, got, want)
 		}
 	}
+}
+
+// buttons is the data of a keyboard's buttons, row by row; nil for none.
+func buttons(kb *tg.InlineKeyboardMarkup) [][]string {
+	if kb == nil {
+		return nil
+	}
+	var out [][]string
+	for _, row := range kb.InlineKeyboard {
+		var r []string
+		for _, b := range row {
+			r = append(r, b.CallbackData)
+		}
+		out = append(out, r)
+	}
+	return out
 }
 
 func TestACardWithoutTheLettersPutsTheLineInTheCaption(t *testing.T) {

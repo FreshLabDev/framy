@@ -104,7 +104,7 @@ func TestTheListIsTheSitesPicker(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := h.tg.methods("sendRichMessage")[0].text
-	free, key := i18n.T("en", "card.free"), i18n.T("en", "web.go.need_key", "provider", "OpenAI")
+	free, key := i18n.T("en", "card.free"), i18n.T("en", "run.need_key", "provider", "OpenAI")
 	want := []string{
 		"FLUX 3 Image Klein · " + free,
 		"SeedEdit 4",
@@ -141,7 +141,7 @@ func TestTheListIsTheSitesPicker(t *testing.T) {
 	}
 	got := buttonsOf(h.tg.methods("sendRichMessage")[0].text)
 	needs := i18n.T("en", "web.misfit.needs_photo")
-	if got[1] != "-SeedEdit 4 · "+needs || got[len(got)-1] != "-Recraft V4.1 · "+i18n.T("en", "web.go.need_key", "provider", "OpenRouter") {
+	if got[1] != "-SeedEdit 4 · "+needs || got[len(got)-1] != "-Recraft V4.1 · "+i18n.T("en", "run.need_key", "provider", "OpenRouter") {
 		t.Fatalf("buttons = %q", got)
 	}
 }

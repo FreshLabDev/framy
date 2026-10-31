@@ -149,7 +149,7 @@ func (f *fakeTelegram) SendVideo(_ context.Context, chatID int64, v tg.InputFile
 		f.onVideo(o)
 	}
 	c := call{method: "sendVideo", chatID: chatID, messageID: o.ReplyTo, thread: o.ThreadID, text: o.Caption, file: fileOf(v),
-		video: videoOf(o.Width, o.Height, o.Duration, o.SupportsStreaming)}
+		markup: o.Markup, video: videoOf(o.Width, o.Height, o.Duration, o.SupportsStreaming)}
 	if o.Cover != nil {
 		c.cover = fileOf(o.Cover)
 	}

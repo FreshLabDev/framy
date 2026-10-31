@@ -4,6 +4,7 @@ package chat
 import (
 	"context"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,15 +22,47 @@ import (
 // requester alone, which the press lets framy do within 15 seconds, admin
 // or not.
 
-// animateAgain is how soon another Animate on the same result makes
-// nothing: a double tap is one press.
-const animateAgain = 5 * time.Second
+// tapAgain is how soon another press of the same button that makes a
+// draft makes nothing: a double tap is one press.
+const tapAgain = 5 * time.Second
 
-// resultKeyboard is the button under an image result.
-func resultKeyboard(lang string, jobID int64) *tg.InlineKeyboardMarkup {
-	return &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{{
-		button(t(lang, "result.animate"), callback(jobID, actAnimate), ""),
-	}}}
+// tapped tells whether the button made a draft a moment ago.
+func (f *Flow) tapped(jobID int64, action string) bool {
+	at, ok := f.made.Load(strconv.FormatInt(jobID, 10) + ":" + action)
+	return ok && f.now().Sub(at.(time.Time)) < tapAgain
+}
+
+// madeBy notes that the button made a draft.
+func (f *Flow) madeBy(jobID int64, action string) {
+	f.made.Store(strconv.FormatInt(jobID, 10)+":"+action, f.now())
+}
+
+// resultKeyboard are the buttons under a result a: Animate under an image,
+// Again under a run made in the chat (again), and Original under an image
+// that went as a photo while its file has not gone out yet (original). A
+// result with none has no keyboard.
+func resultKeyboard(lang string, jobID int64, a storage.Asset, again, original bool) *tg.InlineKeyboardMarkup {
+	image := strings.HasPrefix(a.ContentType, "image/")
+	var top, more []tg.InlineKeyboardButton
+	if image {
+		top = append(top, button(t(lang, "result.animate"), callback(jobID, actAnimate), ""))
+	}
+	if again {
+		top = append(top, button(t(lang, "web.act.again"), callback(jobID, actAgain), ""))
+	}
+	if image && original && photoFits(a) {
+		more = append(more, button(t(lang, "result.original"), callback(jobID, actOriginal), ""))
+	}
+	var rows [][]tg.InlineKeyboardButton
+	for _, row := range [][]tg.InlineKeyboardButton{top, more} {
+		if len(row) > 0 {
+			rows = append(rows, row)
+		}
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	return &tg.InlineKeyboardMarkup{InlineKeyboard: rows}
 }
 
 // animate makes the run's image result the start frame of a new video run.
@@ -38,7 +71,7 @@ func (f *Flow) animate(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun
 	if run.Stage != db.StageDone {
 		return answer("")
 	}
-	if at, ok := f.animated.Load(run.JobID); ok && f.now().Sub(at.(time.Time)) < animateAgain {
+	if f.tapped(run.JobID, actAnimate) {
 		return answer("")
 	}
 	results, err := f.cfg.Files.Results(ctx, run.JobID)
@@ -79,7 +112,7 @@ func (f *Flow) animate(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun
 	case d.id == 0:
 		return answer("")
 	}
-	f.animated.Store(run.JobID, f.now())
+	f.madeBy(run.JobID, actAnimate)
 	if d.pay == payFree {
 		u, err := f.cfg.Allowance.Usage(ctx, run.UserID)
 		if err != nil {
@@ -102,7 +135,7 @@ func (f *Flow) animate(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun
 		return fail(err)
 	}
 	d.paths = []string{path}
-	preview, ephemeral, err := f.sendPreview(ctx, m, d, run.Prompt, run.Lang, dir, cq.ID)
+	preview, ephemeral, err := f.sendPreview(ctx, m, d, run.Prompt, run.Lang, dir, cq.ID, foldAll)
 	if err != nil {
 		return fail(err)
 	}

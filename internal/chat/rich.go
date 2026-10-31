@@ -225,7 +225,7 @@ func pickOf(lang, prompt string, d draft, m catalog.Model, have map[string]bool,
 	}
 	return entry{
 		choice: choice{model: m, offer: fit[0]},
-		why:    t(lang, "web.go.need_key", "provider", providerName(fit[0].Provider)), locked: true,
+		why:    t(lang, "run.need_key", "provider", providerName(fit[0].Provider)), locked: true,
 	}
 }
 
@@ -415,11 +415,20 @@ func richQuote(prompt string) string {
 	return open + strings.ReplaceAll(html.EscapeString(prompt), "\n", "<br>") + "</blockquote>"
 }
 
+// unfold is the section of the preview that comes open: the settings after
+// one was picked, the models after Another model on an error card.
+type unfold int
+
+const (
+	foldAll unfold = iota
+	openSettings
+	openModels
+)
+
 // richPreview is the preview's rich HTML: the card, the prompt, the note
 // on what was taken, the price where the card could not draw it, and the
-// model and the settings, folded. open unfolds the settings, after one was
-// picked.
-func richPreview(lang, prompt string, jobID int64, d draft, l listing, labelDrawn, open bool) string {
+// model and the settings, folded but for the one open names.
+func richPreview(lang, prompt string, jobID int64, d draft, l listing, labelDrawn bool, open unfold) string {
 	var b strings.Builder
 	b.WriteString(`<img src="tg://photo?id=` + cardID + `"/>`)
 	b.WriteString(richQuote(prompt))
@@ -429,8 +438,8 @@ func richPreview(lang, prompt string, jobID int64, d draft, l listing, labelDraw
 	if !labelDrawn {
 		b.WriteString("<p>" + priceLine(lang, d.pay, d.offer.Provider, d.usage, d.estimate, d.quote) + "</p>")
 	}
-	b.WriteString(richModels(lang, jobID, l))
-	b.WriteString(richSettings(lang, jobID, d, open))
+	b.WriteString(richModels(lang, jobID, l, open == openModels))
+	b.WriteString(richSettings(lang, jobID, d, open == openSettings))
 	return b.String()
 }
 
@@ -463,12 +472,12 @@ func summary(label, value string) string {
 // richModels is the list of models: each maker under its name, each model
 // a button of its own with what it costs the run, or why the run cannot
 // take it.
-func richModels(lang string, jobID int64, l listing) string {
+func richModels(lang string, jobID int64, l listing, open bool) string {
 	if len(l.groups) == 0 {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("<details>" + summary(t(lang, "run.model"), l.current))
+	b.WriteString(details(open) + summary(t(lang, "run.model"), l.current))
 	for _, g := range l.groups {
 		var buttons []string
 		for _, p := range g.picks {
@@ -537,11 +546,15 @@ func richSettings(lang string, jobID int64, d draft, open bool) string {
 		}
 		rows.WriteString(richRows(buttons, per))
 	}
-	attr := ""
+	return details(open) + summary(t(lang, "run.settings"), strings.Join(now, " · ")) + rows.String() + "</details>"
+}
+
+// details opens a section of the preview, unfolded when open is true.
+func details(open bool) string {
 	if open {
-		attr = " open"
+		return "<details open>"
 	}
-	return "<details" + attr + ">" + summary(t(lang, "run.settings"), strings.Join(now, " · ")) + rows.String() + "</details>"
+	return "<details>"
 }
 
 // richKeyboard: Generate, with what the run costs on the person's key, and
@@ -608,7 +621,7 @@ func (f *Flow) sendRich(ctx context.Context, chatID int64, body string, pic anim
 
 // richState is the preview of s as a rich message: its HTML with the card
 // drawn in dir from the pictures at paths, and its keyboard.
-func (f *Flow) richState(ctx context.Context, user int64, lang, prompt string, jobID int64, d draft, dir string, paths []string, open bool) (body string, pic anim.Media, kb *tg.InlineKeyboardMarkup, err error) {
+func (f *Flow) richState(ctx context.Context, user int64, lang, prompt string, jobID int64, d draft, dir string, paths []string, open unfold) (body string, pic anim.Media, kb *tg.InlineKeyboardMarkup, err error) {
 	l, err := f.listing(ctx, user, lang, prompt, d)
 	if err != nil {
 		return "", anim.Media{}, nil, err
@@ -623,7 +636,11 @@ func (f *Flow) richState(ctx context.Context, user int64, lang, prompt string, j
 // drawRich draws the card of s again and puts the rich preview in place of
 // the one the run has, in the chat or the requester's own.
 func (f *Flow) drawRich(ctx context.Context, run db.ChatRun, v view, s state, dir string, paths []string) error {
-	body, pic, kb, err := f.richState(ctx, run.UserID, run.Lang, run.Prompt, run.JobID, s.draft, dir, paths, v == viewSettings)
+	open := foldAll
+	if v == viewSettings {
+		open = openSettings
+	}
+	body, pic, kb, err := f.richState(ctx, run.UserID, run.Lang, run.Prompt, run.JobID, s.draft, dir, paths, open)
 	if err != nil {
 		return err
 	}
