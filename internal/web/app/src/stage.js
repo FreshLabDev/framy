@@ -8,7 +8,7 @@ import { C, vname, famLogo, lg, ratioNum, ratioOfSize, PNAME } from "./catalog.j
 import { S, M, payOf, settings, sourceRatio, connection } from "./state.js";
 import { isFinal } from "./api.js";
 import { failure, waiting, left, BILLING } from "./errors.js";
-import { priceText } from "./price.js";
+import { priceText, jobTip } from "./price.js";
 import { halftone } from "./halftone.js";
 import { openPrefs } from "./prefs.js";
 import { again, editPrompt, otherModel, cancel, byKey, keyFor, takePrice, drop, pickPart, copyPrompt, continueFrom, fromLastFrame, canShare, share } from "./run.js";
@@ -198,7 +198,8 @@ function renderRun(st, run) {
   else if (v.done) halftone(box, "reveal", { n: run.n });
   const cost = j?.cost?.label ? j.cost.label : v.zero ? zeroOf(j?.estimate?.label || run.priceLabel)
     : j?.free || (run.pay === "free" && !v.fail) ? t("bar.free") : run.shownLabel && !v.fail ? run.shownLabel : "";
-  const line = h("p", { class: "jline", "data-k": "j-line" }, [m ? vname(m) : "", cost].filter(Boolean).join(" · "),
+  const tip = j && cost && (j.cost?.label || cost === run.shownLabel) ? jobTip(j) : null;
+  const line = h("p", { class: "jline", "data-k": "j-line" }, m ? vname(m) : "", m && cost ? " · " : "", cost ? h("span", { title: tip }, cost) : null,
     going && run.net === "poll" ? h("span", { class: "jtag", title: t("net.poll_tip") }, t("net.poll")) : null);
   const [text, note] = v.why || [];
   const why = text || note

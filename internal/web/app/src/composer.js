@@ -8,7 +8,7 @@ import { C, PNAME, vname, famLogo, lg, provMark, freePlan, pays, offerOf, facts,
   label, show, ordered, ratioNum, ratioOfSize, sizeK, resScore, needsVideo } from "./catalog.js";
 import { S, M, images, clip, payOf, usable, keyOk, connection, freeLeft, freeLimit, freesAt, freePer, settings, route, runItem, altItem, next, sourceRatio, quoteNow,
   maxSecs, needsCut, contFits } from "./state.js";
-import { priceEl, priceText, known, need, onPrices, usd } from "./price.js";
+import { priceEl, priceText, priceTip, known, need, onPrices } from "./price.js";
 import { renderStage, stageFrom, refit, runOver } from "./stage.js";
 import { openPicker } from "./picker.js";
 import { openSheet, closeSheets } from "./ui.js";
@@ -447,7 +447,8 @@ export function renderBar() {
   const val = free ? 0 : unknown ? 1e9 : e.usd;
   const el = $("#pnum");
   el.classList.toggle("usd", !free && !unknown);
-  if (!free && !unknown && e.currency && e.currency !== "USD") el.title = usd(e.kind === "up_to" ? e.max_usd : e.usd); else el.removeAttribute("title");
+  const tip = !free && !unknown ? priceTip(e) : null;
+  if (tip) el.title = tip; else el.removeAttribute("title");
   if (el.dataset.t !== text) roll(el, text, lastVal == null ? 1 : val >= lastVal ? 1 : -1);
   lastVal = val;
   const cap = $("#pcap"), was = cap.textContent;
