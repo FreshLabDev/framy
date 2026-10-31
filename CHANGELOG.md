@@ -11,6 +11,19 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+## v0.1.0-alpha.2 - 2026-10-31
+
+The test bot moves onto production's database, so a person has one history
+on both sites, and each bot still works only its own jobs and chats. The
+backend for several results from one press comes with it. Deploy production
+first; the test bot's stack follows (Breaking).
+
+### Known Limitations
+
+- The `framy` schema still has no backups (#28).
+- The site does not send several results from one press yet: the API is
+  there, the composer that uses it comes next.
+
 ### Changed
 
 - The test bot and production share one database: the `framy` schema in
