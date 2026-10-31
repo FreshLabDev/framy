@@ -258,9 +258,9 @@ func TestAnEditedAlbumMessageIsNotedAndNothingElse(t *testing.T) {
 	}
 }
 
-// A message that looks like a key is deleted and nothing of it is kept, the
-// photo's ids included. The same in the group is left alone: only a DM is
-// guarded.
+// A message that looks like a key, sent or edited so, is deleted and nothing
+// of it is kept, the photo's ids included. The same in the group is left
+// alone: only a DM is guarded.
 func TestAKeyMessageInADMIsNotNoted(t *testing.T) {
 	b, store, client := newBot()
 	ctx := context.Background()
@@ -273,7 +273,7 @@ func TestAKeyMessageInADMIsNotNoted(t *testing.T) {
 	if len(store.items) != 0 {
 		t.Errorf("a key's message was noted: %+v", store.items)
 	}
-	if len(client.calls) != 2 || client.calls[0].method != "deleteMessage" {
+	if len(client.calls) != 4 || client.calls[0].method != "deleteMessage" || client.calls[2].method != "deleteMessage" || client.calls[2].id != 42 {
 		t.Errorf("calls = %+v", client.calls)
 	}
 	group := photoMessage(groupChat, 43, "g")

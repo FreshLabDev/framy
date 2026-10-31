@@ -205,8 +205,9 @@ was written from, and the skeleton of the service.
   shows. A run on OpenRouter, OpenAI or Gemini pays from the person's own
   connection and never falls back to framy's key.
 - A key pasted into a direct chat is deleted at once and the bot says that
-  keys go in the settings, in all sixteen languages. If Telegram refuses the
-  delete, the bot says the message stayed.
+  keys go in the settings, in all sixteen languages. A key pasted in by
+  editing a message already sent is deleted the same way. If Telegram
+  refuses the delete, the bot says the message stayed.
 - Storage in Cloudflare R2. A photo a person brings goes through one ffmpeg
   subprocess: its format is read from its bytes (JPEG, PNG, WebP, HEIC,
   AVIF), its size from its header, so anything above 64 MP is refused before

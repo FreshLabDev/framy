@@ -173,6 +173,39 @@ func TestOnlyAKeyInADMIsDeleted(t *testing.T) {
 	}
 }
 
+// A key pasted into a direct message by editing it is deleted as a new one
+// is, and the edit is still not touched or taken for a command. An edit in a
+// group, or with no key, is left alone.
+func TestAKeyEditedIntoADMIsDeleted(t *testing.T) {
+	b, store, client := newBot()
+	store.userLang[7] = "uk"
+	before := keysInChat(t)
+	edited := message(dmChat, 7, "/start "+openRouterKey)
+	b.handle(context.Background(), tg.Update{UpdateID: 1, EditedMessage: edited})
+	if len(client.calls) != 2 {
+		t.Fatalf("calls = %+v", client.calls)
+	}
+	if del := client.calls[0]; del.method != "deleteMessage" || del.chatID != 7 || del.id != 10 {
+		t.Errorf("the first call was %+v, not the delete of message 10", del)
+	}
+	if answer := client.calls[1]; answer.method != "sendMessage" || answer.text != i18n.T("uk", "msg.key_deleted") {
+		t.Errorf("answered %+v", answer)
+	}
+	if got := keysInChat(t); got != before+1 {
+		t.Errorf("framy_keys_in_chat_total went from %d to %d", before, got)
+	}
+	if len(store.touches) != 0 {
+		t.Errorf("the edit was touched: %+v", store.touches)
+	}
+
+	client.calls = nil
+	b.handle(context.Background(), tg.Update{UpdateID: 2, EditedMessage: message(groupChat, 7, openAIKey)})
+	b.handle(context.Background(), tg.Update{UpdateID: 3, EditedMessage: message(dmChat, 7, "a red fox, now in the snow")})
+	if len(client.calls) != 0 {
+		t.Errorf("calls = %+v", client.calls)
+	}
+}
+
 // The path an update takes: touched like any other, then guarded.
 func TestAKeyInAnUpdateIsDeletedAfterTheTouch(t *testing.T) {
 	b, store, client := newBot()

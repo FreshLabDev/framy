@@ -13,8 +13,8 @@ import (
 )
 
 // keyInChat deletes a direct message that looks like a provider key the
-// moment it arrives and answers where keys go: the settings of the site or
-// the Mini App. Nothing from the message is kept, logged or counted but the
+// moment it arrives, or is edited to hold one, and answers where keys go: the
+// settings of the site or the Mini App. Nothing from the message is kept, logged or counted but the
 // fact that one came. It reports whether the message was one.
 //
 // The person is told to treat the key as exposed: it has been through

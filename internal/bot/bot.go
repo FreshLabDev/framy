@@ -289,9 +289,14 @@ func (b *Bot) handle(ctx context.Context, u tg.Update) {
 	case u.Message != nil:
 		b.noteAlbumItem(ctx, u.Message)
 	case u.EditedMessage != nil:
-		// An edit can swap the file of an item, and nothing else about it is
-		// handled: no touch, no command.
+		// An edit can swap the file of an item, or paste a key into a direct
+		// message already sent, which is then deleted as a new one would be.
+		// Nothing else about an edit is handled: no touch, no command.
 		b.noteAlbumItem(ctx, u.EditedMessage)
+		if _, err := b.keyInChat(ctx, u.EditedMessage); err != nil {
+			metrics.UpdatesFailed.Inc()
+			b.log.Error("update failed", "update_id", u.UpdateID, "error", err)
+		}
 		return
 	}
 	var (
