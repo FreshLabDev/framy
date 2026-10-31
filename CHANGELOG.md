@@ -308,7 +308,9 @@ was written from, and the skeleton of the service.
   A model that takes no real people (Seedance) or no children (Veo, Gemini
   Omni) says so in the picker's card and under the files before the run,
   and when the provider refuses a file for a person in it, the stage says
-  "A person in the clip" or "in the photo" and offers another model. A run
+  "A person in the clip" or "in the photo" and offers another model. A
+  refused sound (`sound`) says "Sound refused", costs nothing, and offers
+  Try without sound, the same run with the sound off. A run
   framy did not send (`invalid_request`) and a setting the server refused
   before any job (`unknown_setting`) say "Not sent" and to reload the page.
   A job that

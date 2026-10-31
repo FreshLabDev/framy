@@ -11,7 +11,7 @@ import { failure, waiting, left, BILLING } from "./errors.js";
 import { priceText } from "./price.js";
 import { halftone } from "./halftone.js";
 import { openPrefs } from "./prefs.js";
-import { again, editPrompt, otherModel, cancel, byKey, keyFor, takePrice, drop, pickPart, copyPrompt, continueFrom, fromLastFrame, canShare, share } from "./run.js";
+import { again, quiet, editPrompt, otherModel, cancel, byKey, keyFor, takePrice, drop, pickPart, copyPrompt, continueFrom, fromLastFrame, canShare, share } from "./run.js";
 
 // The shape of a run: its ratio, or the photo's for "auto", else square.
 function ratioOf(set, m) {
@@ -114,7 +114,7 @@ export const failEl = (label, said) => h("div", { class: "c fail" }, h("b", {}, 
 // A price of 0 in the person's currency, from a label of the run's own price.
 const zeroOf = (label) => (label || "$0").replace(/\d[\d.,]*/, "0");
 // The figure of each reason a run gave nothing; the rest show a cross.
-const FAILFIG = { moderation: "ban", refused: "ban", faces: "ban", money: "coin", key: "key", timeout: "clock", draft_expired: "clock", rate_limited: "hush", unavailable: "hush", interrupted: "link", cancelled: "line" };
+const FAILFIG = { moderation: "ban", refused: "ban", faces: "ban", sound: "ban", money: "coin", key: "key", timeout: "clock", draft_expired: "clock", rate_limited: "hush", unavailable: "hush", interrupted: "link", cancelled: "line" };
 const REFFIG = { price_changed: "coin", not_free: "coin", free_limit: "clock", free_closed: "clock", no_connection: "key", connection_invalid: "key", sign_in: "key",
   network: "link", shutting_down: "link", http_429: "hush", busy: "hush", wrong_inputs: "bang", unknown_input: "bang", unknown_offer: "bang", cannot_continue: "bang",
   not_a_video: "cross", unsupported_type: "cross", unreadable: "cross", frame_too_large: "cross", too_large: "cross", picture_too_large: "cross", storage_unavailable: "cross" };
@@ -137,6 +137,7 @@ function failActs(run, f, o = {}) {
     else if (a === "topup") out.push(topup(f.provider));
     else if (a === "rekey") out.push(keyFix(f.provider, out.length ? "" : "primary"));
     else if (a === "model") out.push(B("grid", t("act.other_model"), () => otherModel(run), out.length ? "" : "primary"));
+    else if (a === "quiet") out.push(B("mute", t("act.no_sound"), () => quiet(run), out.length ? "" : "primary"));
   }
   if (!f.acts.includes("edit")) out.push(B("edit", t("act.edit"), () => editPrompt(run)));
   return out;

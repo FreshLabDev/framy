@@ -4,7 +4,7 @@
 // buttons fit. The English message of a job is shown only where it is the
 // provider's own reason.
 import { t, fmtTime, fmtIn, fmtSecs, fmtNum } from "./i18n.js";
-import { C, PNAME, vname } from "./catalog.js";
+import { C, PNAME, vname, hasAudio } from "./catalog.js";
 import { priceText } from "./price.js";
 
 // The provider may have charged for these: the request reached it.
@@ -68,6 +68,8 @@ export function failure(j) {
       ? { cls, label: t("fail.free_off_l"), text: t("fail.free_key"), note: t("fail.free_kept"), acts: ["bykey"] }
       : { cls, label: t("fail.key_l"), text: t("fail.key", { provider: P }), ...none, acts: ["rekey"], provider: p };
     case "refused": return { cls, label: t("fail.refused_l"), text: t("fail.refused", { provider: P }), ...none, said, acts: ["edit"] };
+    // The model refused the sound it made (copyright); nothing was charged.
+    case "sound": return { cls, label: t("fail.sound_l"), text: t("fail.sound"), ...none, acts: m && hasAudio(m) ? ["quiet", "edit"] : again };
     case "rate_limited": case "unavailable": return { cls, label: t("fail.no_answer_l"), text: "", ...none, note: (free ? back + " " : "") + t("fail.later"), acts: again };
     case "timeout": return { cls, label: t("fail.timeout_l"), text: "", note: may, acts: again };
     case "provider": return { cls, label: t("fail.provider_l"), text: "", note: may, said, acts: again };

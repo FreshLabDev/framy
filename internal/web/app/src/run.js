@@ -228,6 +228,17 @@ export function again(run = S.run) {
   act(() => { restore(run); render(); });
   start(copyOf(run), run.retryKey || newKey());
 }
+// The model refused the sound it made: the same run without sound. Its price
+// is the one known for it, else the one shown with sound, which is never lower.
+export function quiet(run = S.run) {
+  const m = C.byId[run.model];
+  if (S.busy || !m) return;
+  leave(run);
+  const set = { ...run.settings, generate_audio: false };
+  act(() => { restore(run); S.wanted.generate_audio = false; render(); });
+  const e = run.pay === "free" ? null : known(runItem(m, run.pay, set))?.estimate;
+  start(copyOf(run, { settings: set, ...(e ? { shown: shownOf(e), shownLabel: priceText(e), priceLabel: e.label || "" } : {}) }));
+}
 // The price went up: the person agreed to the new one.
 export function takePrice(run = S.run) {
   const e = run.why?.estimate;

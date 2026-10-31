@@ -702,3 +702,40 @@ func TestBrowserVideoSettings(t *testing.T) {
 	}
 	noErrors(t, ctx)
 }
+
+// TestBrowserRunSound checks a run whose sound the model refused: framy's
+// words, nothing charged, and Try without sound, which sends the same run
+// again with the sound off.
+func TestBrowserRunSound(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const sent = [], fetch0 = window.fetch;
+	window.fetch = (u, o) => { if (String(u).endsWith("/api/jobs") && o?.method === "POST") sent.push(JSON.parse(o.body)); return fetch0(u, o); };
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(700);
+	document.querySelector("#how .mhead").click();
+	await wait(700);
+	const q = document.querySelector("#pksearch");
+	q.value = "Seedance";
+	q.dispatchEvent(new Event("input", { bubbles: true }));
+	await wait(800);
+	const row = document.querySelector("#pkrows .frow");
+	([...row.querySelectorAll(".pill:not(.old)")].find((b) => b.textContent.trim() === "2.0 Mini") || row.querySelector(".fhit")).click();
+	await wait(900);
+	const s = await press("fail:sound", (s) => s.failed);
+	[...document.querySelectorAll("#stage .jacts > button")].find((b) => b.textContent.trim() === "Try without sound")?.click();
+	for (let i = 0; i < 40 && sent.length < 2; i++) await wait(100);
+	s.sound = sent.map((b) => b.settings.generate_audio);
+	s.offers = sent.map((b) => b.offer);
+	return s;`)
+	if acts := fmt.Sprint(s["acts"]); s["label"] != "Sound refused" || s["why"] != "The model's sound may break copyright." || s["said"] != "" ||
+		!strings.HasPrefix(acts, "[Try without sound Edit the prompt") || !strings.HasSuffix(s["line"].(string), " · $0") {
+		t.Errorf("sound: %v", s)
+	}
+	if fmt.Sprint(s["sound"]) != "[true false]" || fmt.Sprint(s["offers"]) != "[openrouter:bytedance/seedance-2.0-mini openrouter:bytedance/seedance-2.0-mini]" {
+		t.Errorf("without sound: sent %v %v", s["sound"], s["offers"])
+	}
+	noErrors(t, ctx)
+}
