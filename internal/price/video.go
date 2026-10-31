@@ -185,11 +185,34 @@ func (c *calc) inMode(mode string) bool {
 	case modeImage:
 		return r.Frames > 0
 	case modeReference:
-		return len(r.Images) > 0
+		// HeyGen bills a reference clip at its reference rate, as job 47 on
+		// the test bot showed.
+		return len(r.Images) > 0 || c.clipSeconds() > 0
 	case modeContinue, modeVideoInput:
 		return r.Video != nil
 	}
 	return false
+}
+
+// clipSeconds is how long the run's reference clips are together, on a
+// model that takes clips as references rather than as a source to edit.
+// Each is rounded up to a hundredth of a second: the provider measures the
+// clip itself, and a clip ffprobe reads as 14.948 s was billed as 14.95 s on
+// Wan 3.0 and 14.949 s on HeyGen.
+func (c *calc) clipSeconds() float64 {
+	r := c.m.Traits.References
+	if r == nil || r.Video == 0 || c.m.Traits.SourceVideo != nil || c.req.Video == nil {
+		return 0
+	}
+	clips := c.req.Clips
+	if len(clips) == 0 {
+		clips = []float64{c.req.Video.Seconds}
+	}
+	var sum float64
+	for _, s := range clips {
+		sum += math.Ceil(s*100-1e-6) / 100
+	}
+	return sum
 }
 
 // skus prices a video route by OpenRouter's SKUs: one SKU per thing billed,
@@ -299,8 +322,16 @@ func (c *calc) skuQuantity(s sku) (lo, hi float64, ok bool) {
 		lo, hi, ok := c.seconds()
 		if !ok {
 			c.outputUnknown("the length of the video")
+			return lo, hi, ok
 		}
-		return lo, hi, ok
+		// A reference clip's seconds are billed beside the output's, at
+		// the same rate: Wan 3.0 and HeyGen through OpenRouter (jobs 44 and
+		// 47 on the test bot), and MiniMax for Hailuo 3.
+		if s := c.clipSeconds(); s > 0 {
+			c.about()
+			lo, hi = lo+s, hi+s
+		}
+		return lo, hi, true
 	case perVideoToken:
 		// Seedance: width × height × 24 × seconds / 1024, the formula on
 		// OpenRouter's model pages.
@@ -309,17 +340,16 @@ func (c *calc) skuQuantity(s sku) (lo, hi float64, ok bool) {
 			c.outputUnknown("the length of the video")
 			return 0, 0, false
 		}
+		// BytePlus counts a reference clip's seconds beside the output's,
+		// at the output's size. OpenRouter's bill of it is not checked on
+		// Seedance, but it bills them on Wan 3.0 and HeyGen.
+		if s := c.clipSeconds(); s > 0 {
+			c.about()
+			sLo, sHi = sLo+s, sHi+s
+		}
 		w, h := c.videoSize()
 		per := float64(w*h) * 24 / 1024
-		lo, hi = per*sLo, per*sHi
-		if v := c.req.Video; v != nil {
-			// BytePlus bills a source video's seconds beside the output's;
-			// whether OpenRouter does is not checked yet, so the price is a
-			// floor and its top counts them.
-			hi += per * v.Seconds
-			c.floor = "the seconds of the source video may be billed as well"
-		}
-		return lo, hi, true
+		return per * sLo, per * sHi, true
 	case perMegapixelSecond:
 		v := c.req.Video
 		if v == nil {

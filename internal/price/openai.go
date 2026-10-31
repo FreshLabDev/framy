@@ -24,6 +24,40 @@ func openAITokens(w, h, b int) int {
 	return int(math.Ceil(d * (2_000_000 + float64(w*h)) / 4_000_000))
 }
 
+// openAIInputTokens is how many tokens GPT Image 2 and 2.5 take for an input
+// image of w×h: one a 32 px patch, at most budget. OpenAI does not publish
+// the count; this is the one worked out on OpenAI's forum ("OpenAI must
+// document the input image pricing of gpt-image-2", April 2026), and a run
+// on the test bot matched it: a 1280×853 photo took 1,080 tokens.
+func openAIInputTokens(w, h, budget int) int {
+	const patch = 32
+	fw, fh := float64(w), float64(h)
+	// An edit magnifies a small image to a long side of 1024, at most twice.
+	k := min(2, max(1, 1024/max(fw, fh)))
+	fw, fh = math.Floor(fw*k+1e-9), math.Floor(fh*k+1e-9)
+	// A canvas longer than 3:1 is counted as 3:1.
+	pw, ph := ceilEps(fw/patch), ceilEps(fh/patch)
+	switch {
+	case pw > 3*ph:
+		fh = ceilEps(pw/3) * patch
+	case ph > 3*pw:
+		fw = ceilEps(ph/3) * patch
+	}
+	pw, ph = ceilEps(fw/patch), ceilEps(fh/patch)
+	if pw*ph <= float64(budget) {
+		return int(pw * ph)
+	}
+	// Over the budget the canvas shrinks to fit it, then a little more, so
+	// that whole patches cover it.
+	r := math.Sqrt(patch * patch * float64(budget) / (fw * fh))
+	x, y := fw*r/patch, fh*r/patch
+	r *= min(math.Floor(x+1e-9)/x, math.Floor(y+1e-9)/y)
+	return int(ceilEps(fw*r/patch) * ceilEps(fh*r/patch))
+}
+
+// ceilEps rounds up, leaving a float that missed a whole number by a hair.
+func ceilEps(x float64) float64 { return math.Ceil(x - 1e-9) }
+
 // openAISize is the size of an OpenAI image: the chosen size on the direct
 // API; on OpenRouter, which takes an aspect ratio, 1024×1024 for a square and
 // a long side of 1536 otherwise, as 1536×1024 and OpenRouter's own 1536×864

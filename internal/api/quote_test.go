@@ -110,6 +110,20 @@ func TestAQuoteSaysWhichSettingTheOfferLacks(t *testing.T) {
 	}
 }
 
+// Every clip a run takes is priced, a kept one and those still in the
+// browser: HeyGen bills their seconds beside the output's.
+func TestAQuoteCountsEveryClip(t *testing.T) {
+	r := quoteRig(t)
+	r.data.addAsset(alice, InputAsset{ID: 52, ContentType: "video/mp4", Width: 1280, Height: 720, Seconds: 2.5})
+	_, m := quoteOf(t, r, alice, `{"items":[{"offer":"`+heygenOff+`","settings":{"resolution":"480p","duration":5},"inputs":[52],
+		"files":[{"content_type":"video/mp4","width":1280,"height":720,"seconds":3},{"content_type":"video/mp4","width":1280,"height":720,"seconds":4.001}]}]}`)
+	e, _ := items(t, m)[0]["estimate"].(map[string]any)
+	// (5 + 2.5 + 3 + 4.01) s at $0.02, less 50%.
+	if usd, _ := e["usd"].(float64); math.Abs(usd-14.51*0.02*0.5) > 1e-9 || e["kind"] != "about" {
+		t.Errorf("estimate %v", e)
+	}
+}
+
 func quoteOf(t *testing.T, r *rig, user int64, body string, hdr ...string) (int, map[string]any) {
 	t.Helper()
 	resp := r.do(user, http.MethodPost, "/api/quote", strings.NewReader(body), append([]string{"Content-Type", "application/json"}, hdr...)...)

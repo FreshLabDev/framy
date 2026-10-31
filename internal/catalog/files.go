@@ -455,11 +455,14 @@ func (h *PriceHints) validate() error {
 	if h == nil {
 		return nil
 	}
-	if len(h.Tokens) == 0 && len(h.OpenAITokens) == 0 && h.InputTokensPerMP == 0 && len(h.Variants) == 0 && len(h.Skip) == 0 && h.From == "" && h.FreeImages == 0 {
+	if len(h.Tokens) == 0 && len(h.OpenAITokens) == 0 && h.OpenAIInputPatches == 0 && h.InputTokensPerMP == 0 && len(h.Variants) == 0 && len(h.Skip) == 0 && h.From == "" && h.FreeImages == 0 {
 		return errors.New("price says nothing")
 	}
 	if h.FreeImages < 0 {
 		return errors.New("price.free_images cannot be negative")
+	}
+	if h.OpenAIInputPatches < 0 {
+		return errors.New("price.openai_input_patches cannot be negative")
 	}
 	if h.InputTokensPerMP < 0 || math.IsNaN(h.InputTokensPerMP) || math.IsInf(h.InputTokensPerMP, 0) {
 		return errors.New("price.input_tokens_per_mp must be above zero")

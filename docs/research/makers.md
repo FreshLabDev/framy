@@ -22,7 +22,7 @@ The catalog follows one rule meanwhile: a count of reference images, videos or s
 | Wan 3.0 document and web link inputs | one file and one link per run (confirmed) | no | product videos from a page or a brief |
 | Wan 3.0 21:9, `adaptive` ratio, `duration: -1` | yes (confirmed) | no | cinematic format; output that follows the input clip |
 | Wan 3.0 `prompt_extend`, `watermark` | yes | no (pass-through list empty) | turn prompt rewriting off for exact prompts |
-| Wan 3.0 billing of input video | input seconds plus output seconds (confirmed) | unverified | the estimate with a video attached; a 15 s reference leaves 15 s of output, since input plus output is at most 30 s |
+| Wan 3.0 billing of input video | input seconds plus output seconds (confirmed) | the same: job 44 on the test bot, a 14.948 s clip and 5 s of 480p, cost (5 + 14.95) × $0.05 less 15% (confirmed 30 October 2026) | the estimate with a video attached; a 15 s reference leaves 15 s of output, since input plus output is at most 30 s |
 | Wan 2.7 duration | up to 15 s for text and image to video | 10 s; routed through Atlas Cloud | longer clips |
 | Wan 2.7 reference video, continuation clip, driving audio | yes | unverified: only through Atlas pass-through names (`videos`, `video`, `audio`) with no documented shape | |
 | `wan2.7-videoedit` | yes | not offered | a second editor |
@@ -91,7 +91,7 @@ Dates: Veo 3.1 preview ids closed on the Gemini API on 22 October 2026, with Omn
 | HeyGen Video 16 to 30 s and `auto` length | since October 2026 | no: 5 to 15 s | longer clips |
 | 1080p | yes, at 3 times the 768p rate | no: 480p, 768p, 2K | |
 | `aspect_ratio: adaptive` | default for reference to video | no | |
-| reference videos and sounds | 3 videos sharing 15 s, 32 MB, mp4 or webm; 3 sounds; 15 files in all (confirmed) | unverified: OpenRouter's HeyGen guide documents images only | they guide motion and style; set in the overlay, a run confirms |
+| reference videos and sounds | 3 videos sharing 15 s, 32 MB, mp4 or webm; 3 sounds; 15 files in all (confirmed) | a reference video works and is billed: job 47 on the test bot, a 14.948 s clip and 5 s of 480p, cost (5 + 14.949) × the reference rate $0.07, less 50% (30 October 2026); sounds unverified | they guide motion and style; set in the overlay, a run confirms |
 | Avatar IV audio, 4:5, 5:4, webm | yes | audio unverified, the rest no | the talking head stays hidden until the composer takes a voice |
 
 At 2K, text to video and reference to video take only 16:9 and 9:16. The first two reference images are free on OpenRouter's page ("after first 2"); framy's estimate counts them free (`price.free_images` in the overlay), unverified by a run. OpenRouter's 50% off mirrors HeyGen's launch price, which HeyGen says lasts to the end of October.
@@ -252,6 +252,6 @@ The audit priced each; none was run.
 | Does Omni run through framy's adapter from words and from a start frame, and is a refusal read right? (`TestLiveOmni`, issue #33) | two 720p videos and a refused prompt | $0.60 to $2.02 |
 | Does Omni keep to `response_format.duration`? | one 3 s video at 720p | about $0.30 |
 | How many tokens a second does Omni bill at 360p and 1080p? Gateways list 1,931 and 8,688 (17,376 at 4K); Google publishes only 720p | one video at each, the model picks 3 to 10 s | $0.56 to $1.86 |
-| Does OpenRouter bill a Seedance source video's seconds beside the output's, as BytePlus does? framy shows "from" the output's price until then | Seedance 2.0 Mini, a 2 s clip, 4 s of 480p out, compared with `usage.cost` | about $0.12 |
+| Does OpenRouter bill a Seedance reference clip's seconds beside the output's, as BytePlus does? framy counts them, as OpenRouter does for Wan 3.0 and HeyGen | Seedance 2.0 Mini, a 2 s clip, 4 s of 480p out, compared with `usage.cost` | about $0.12 |
 | Does Image Search bring Search Suggestions, and in what shape? (`TestLiveProbes`) | one image on Nano Banana 2.1 at 1K | about $0.034 |
 | Do the Nano Banana models take `media_resolution`, and does the input token count drop? | two runs with one reference, `low` and `high` | about $0.07 |

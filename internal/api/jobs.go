@@ -390,11 +390,12 @@ func (a *API) quote(r *http.Request, user int64, lang string) (fx.Quote, error) 
 // priceRequest is the estimate's input. The first pictures are frames, as
 // many as frame_images names, and the rest references, as the adapter sends
 // them. The source video is the one the run continues, or else the first
-// clip it takes.
+// clip it takes; every clip's length counts where a model bills the clips.
 func priceRequest(m catalog.Model, prompt string, settings map[string]any, inputs []InputAsset, continues *InputAsset) price.Request {
 	req := price.Request{Settings: settings, Prompt: prompt}
 	if continues != nil {
 		req.Video = &price.Video{Seconds: continues.Seconds, Width: continues.Width, Height: continues.Height}
+		req.Clips = append(req.Clips, continues.Seconds)
 	}
 	frames := frameCount(settings)
 	for _, in := range inputs {
@@ -403,6 +404,7 @@ func priceRequest(m catalog.Model, prompt string, settings map[string]any, input
 			if req.Video == nil {
 				req.Video = &price.Video{Seconds: in.Seconds, Width: in.Width, Height: in.Height}
 			}
+			req.Clips = append(req.Clips, in.Seconds)
 		case !strings.HasPrefix(in.ContentType, "image/"):
 		case req.Frames < frames:
 			req.Frames++

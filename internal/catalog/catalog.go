@@ -247,6 +247,10 @@ type PriceHints struct {
 	// OpenAITokens is the base of OpenAI's image token formula by quality,
 	// from the official calculator.
 	OpenAITokens map[string]int `json:"openai_tokens,omitempty" yaml:"openai_tokens"`
+	// OpenAIInputPatches is the most 32 px patches an input image of GPT
+	// Image 2 and 2.5 takes, one token each, as counted on OpenAI's forum
+	// (internal/price, openAIInputTokens). It wins over InputTokensPerMP.
+	OpenAIInputPatches int `json:"openai_input_patches,omitempty" yaml:"openai_input_patches"`
 	// InputTokensPerMP is how many tokens an input image takes per
 	// megapixel, for a model that counts them by the image's size. It wins
 	// over Tokens[input_image] when the sizes are known.

@@ -46,7 +46,7 @@ func worse(a, b Kind) Kind {
 // Image is the size of an input image after framy's input pipeline.
 type Image struct{ Width, Height int }
 
-// Video is an attached source video, as ffprobe reads it.
+// Video is an attached video, as ffprobe reads it.
 type Video struct {
 	Seconds       float64
 	Width, Height int
@@ -62,7 +62,11 @@ type Request struct {
 	Images []Image
 	// Frames is how many images go as the first and the last frame.
 	Frames int
-	Video  *Video
+	// Video is the source video, or the first clip the run takes.
+	Video *Video
+	// Clips are the seconds of every clip the run takes, the first one
+	// included. Empty means Video is the only one.
+	Clips []float64
 }
 
 // Line is one priced part of a run: the billable or the SKU, its rate and
@@ -147,8 +151,6 @@ type calc struct {
 	kind    Kind
 	unknown []string
 	lines   []Line
-	// floor says why the likely total is only the least the run costs.
-	floor string
 }
 
 func route(m catalog.Model, of catalog.Offer, r catalog.Route, req Request) Estimate {
@@ -161,9 +163,6 @@ func route(m catalog.Model, of catalog.Offer, r catalog.Route, req Request) Esti
 	e := Estimate{Offer: of.ID, Route: r.Provider, USD: c.lo, MaxUSD: math.Max(c.hi, c.lo), Kind: c.kind, Unknown: c.unknown, Lines: c.lines}
 	if c.hints.From != "" && e.Kind != Unknown {
 		e.Kind, e.Note = From, c.hints.From
-	}
-	if c.floor != "" && e.Kind != Unknown {
-		e.Kind, e.Note = From, c.floor
 	}
 	if len(e.Unknown) > 0 && e.Kind == Exact {
 		e.Kind = About

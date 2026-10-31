@@ -114,6 +114,9 @@ func TestEstimates(t *testing.T) {
 		// 2048x1152 one about 2,470; the overlay sets 1,100 a megapixel.
 		{"mai flash editing a square photo", "openrouter:microsoft/mai-image-2.6-flash", Request{Settings: set{"aspect_ratio": "1:1"}, Images: images(1)}, 1024*1.9e-5 + 1154*2.5e-6, 0, About},
 		{"mai flash editing a wide photo", "openrouter:microsoft/mai-image-2.6-flash", Request{Settings: set{"aspect_ratio": "1:1"}, Images: []Image{{Width: 2048, Height: 1152}}}, 1024*1.9e-5 + 2596*2.5e-6, 0, About},
+		// Job 40 on the test bot: a 1280×853 photo took 1,080 tokens at $8 a
+		// million, beside 158 of a low 1536×1024 output.
+		{"gpt image flare editing a photo", "openrouter:openai/gpt-image-2.5-flare", Request{Settings: set{"aspect_ratio": "3:2", "quality": "low"}, Images: []Image{{Width: 1280, Height: 853}}}, 158*3e-5 + 1080*8e-6, 0, About},
 
 		{"flux 3 at 1K", "openrouter:black-forest-labs/flux-3-image", Request{Settings: set{"resolution": "1K"}}, 0.048, 0, Exact},
 		{"flux 3 at 4K", "openrouter:black-forest-labs/flux-3-image", Request{Settings: set{"resolution": "4K"}}, 0.607, 0, Exact},
@@ -133,15 +136,14 @@ func TestEstimates(t *testing.T) {
 		{"seedance 2.0 at 1080p", "openrouter:bytedance/seedance-2.0", Request{Settings: set{"resolution": "1080p", "aspect_ratio": "16:9", "duration": 5}}, 1920 * 1080 * 24 * 5 / 1024 * 7.7e-6, 0, Exact},
 		{"seedance 2.0 at 4K", "openrouter:bytedance/seedance-2.0", Request{Settings: set{"resolution": "4K", "aspect_ratio": "16:9", "duration": 5}}, 3840 * 2160 * 24 * 5 / 1024 * 4e-6, 0, Exact},
 		{"seedance 2.5 square at 480p keeps the area", "openrouter:bytedance/seedance-2.5", Request{Settings: set{"resolution": "480p", "aspect_ratio": "1:1", "duration": 5}}, 640 * 640 * 24 * 5 / 1024 * 1.07e-5, 0, Exact},
-		// BytePlus bills the source video's seconds too; until OpenRouter is
-		// checked, a clip makes the price a floor whose top counts them.
-		{"seedance 2.5 editing a video", "openrouter:bytedance/seedance-2.5", Request{Settings: set{"resolution": "720p", "aspect_ratio": "16:9", "duration": 5}, Video: clip}, 1280 * 720 * 24 * 5 / 1024 * 6.4e-6, 1280 * 720 * 24 * 10 / 1024 * 6.4e-6, From},
+		// BytePlus bills a reference clip's seconds too, at the output's size.
+		{"seedance 2.5 editing a video", "openrouter:bytedance/seedance-2.5", Request{Settings: set{"resolution": "720p", "aspect_ratio": "16:9", "duration": 5}, Video: clip}, 1280 * 720 * 24 * 10 / 1024 * 6.4e-6, 0, About},
 		// Without sound is Seedance's plain rate, so it costs what with sound
 		// does: with a clip, the rate with a video input.
-		{"seedance mini silent with a clip", "openrouter:bytedance/seedance-2.0-mini", Request{Settings: set{"resolution": "720p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": false}, Video: clip}, 1280 * 720 * 24 * 5 / 1024 * 2.1e-6, 1280 * 720 * 24 * 10 / 1024 * 2.1e-6, From},
-		{"seedance mini with sound and a clip", "openrouter:bytedance/seedance-2.0-mini", Request{Settings: set{"resolution": "720p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": true}, Video: clip}, 1280 * 720 * 24 * 5 / 1024 * 2.1e-6, 1280 * 720 * 24 * 10 / 1024 * 2.1e-6, From},
+		{"seedance mini silent with a clip", "openrouter:bytedance/seedance-2.0-mini", Request{Settings: set{"resolution": "720p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": false}, Video: clip}, 1280 * 720 * 24 * 10 / 1024 * 2.1e-6, 0, About},
+		{"seedance mini with sound and a clip", "openrouter:bytedance/seedance-2.0-mini", Request{Settings: set{"resolution": "720p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": true}, Video: clip}, 1280 * 720 * 24 * 10 / 1024 * 2.1e-6, 0, About},
 		{"seedance mini silent from text", "openrouter:bytedance/seedance-2.0-mini", Request{Settings: set{"resolution": "720p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": false}}, 1280 * 720 * 24 * 5 / 1024 * 3.5e-6, 0, Exact},
-		{"seedance 2.0 silent at 1080p with a clip", "openrouter:bytedance/seedance-2.0", Request{Settings: set{"resolution": "1080p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": false}, Video: clip}, 1920 * 1080 * 24 * 5 / 1024 * 4.7e-6, 1920 * 1080 * 24 * 10 / 1024 * 4.7e-6, From},
+		{"seedance 2.0 silent at 1080p with a clip", "openrouter:bytedance/seedance-2.0", Request{Settings: set{"resolution": "1080p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": false}, Video: clip}, 1920 * 1080 * 24 * 10 / 1024 * 4.7e-6, 0, About},
 		{"seedance 1.5 without sound", "openrouter:bytedance/seedance-1-5-pro", Request{Settings: set{"resolution": "720p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": false}}, 1280 * 720 * 24 * 5 / 1024 * 1.2e-6, 0, Exact},
 		{"veo fast 720p with sound", "openrouter:google/veo-3.1-fast", Request{Settings: set{"resolution": "720p", "duration": 8, "generate_audio": true}}, 0.80, 0, Exact},
 		{"veo fast 1080p without sound", "openrouter:google/veo-3.1-fast", Request{Settings: set{"resolution": "1080p", "duration": 8, "generate_audio": false}}, 0.80, 0, Exact},
@@ -161,6 +163,14 @@ func TestEstimates(t *testing.T) {
 		// The first five reference images are free.
 		{"hailuo 3 with a reference", "openrouter:minimax/hailuo-3", Request{Settings: set{"duration": 5}, Images: images(1)}, 0.65, 0, Exact},
 		{"hailuo 3 with seven references", "openrouter:minimax/hailuo-3", Request{Settings: set{"duration": 5}, Images: images(7)}, 0.73, 0, Exact},
+		// A reference clip's seconds are billed at the output's rate, rounded
+		// up to a hundredth: job 44 on the test bot, a 14.948 s clip and 5 s
+		// of 480p on Wan 3.0, cost (5 + 14.95) × $0.05 less 15%.
+		{"wan 3.0 with a reference clip", "openrouter:alibaba/wan-3.0", Request{Settings: set{"resolution": "480p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": true}, Video: &Video{Seconds: 14.948, Width: 1920, Height: 1080}}, 19.95 * 0.05, 0, About},
+		{"wan 3.0 with two clips", "openrouter:alibaba/wan-3.0", Request{Settings: set{"resolution": "720p", "aspect_ratio": "16:9", "duration": 5}, Video: clip, Clips: []float64{3, 4.001}}, 12.01 * 0.1, 0, About},
+		// HeyGen with a clip takes its reference rate for both: job 47.
+		{"heygen with a reference clip", "openrouter:heygen/heygen-video-1", Request{Settings: set{"resolution": "480p", "aspect_ratio": "16:9", "duration": 5}, Video: &Video{Seconds: 14.948, Width: 1920, Height: 1080}}, 19.95 * 0.07, 0, About},
+		{"hailuo 3 with a reference clip", "openrouter:minimax/hailuo-3", Request{Settings: set{"duration": 5}, Video: &Video{Seconds: 2, Width: 1280, Height: 720}}, 7 * 0.13, 0, About},
 		{"flux 3 video at 1080p", "openrouter:black-forest-labs/flux-3-video", Request{Settings: set{"resolution": "1080p", "duration": 5}}, 1.45, 0, Exact},
 		{"flux 3 video continuing a clip", "openrouter:black-forest-labs/flux-3-video", Request{Settings: set{"resolution": "1080p", "duration": 5}, Video: clip}, 2.65, 0, Exact},
 
@@ -187,17 +197,69 @@ func TestEstimates(t *testing.T) {
 	}
 }
 
-// Seedance with a clip is a floor until OpenRouter's bill of the clip's
-// seconds is checked, and says why; from words alone it stays exact.
-func TestSeedanceWithAClipSaysWhyItIsAFloor(t *testing.T) {
+// Seedance with a clip counts the clip's seconds and says it is about; from
+// words alone it stays exact.
+func TestSeedanceWithAClipCountsItsSeconds(t *testing.T) {
 	m, of := offer(t, "openrouter:bytedance/seedance-2.0-mini")
 	settings := set{"resolution": "720p", "aspect_ratio": "16:9", "duration": 5}
 	e := Of(m, of, Request{Settings: settings, Video: &Video{Seconds: 15, Width: 1280, Height: 720}})
-	if e.Kind != From || !strings.Contains(e.Note, "source video") {
-		t.Errorf("with a clip: %s, note %q", e.Kind, e.Note)
+	if e.Kind != About || e.Note != "" || !near(e.USD, 1280*720*24*20/1024*2.1e-6) {
+		t.Errorf("with a clip: $%f, %s, note %q", e.USD, e.Kind, e.Note)
 	}
 	if e := Of(m, of, Request{Settings: settings}); e.Kind != Exact || e.Note != "" {
 		t.Errorf("from words: %s, note %q", e.Kind, e.Note)
+	}
+}
+
+// A clip an editor works on is its source, not a reference: its seconds are
+// the output's, not billed again.
+func TestASourceVideoIsNotBilledTwice(t *testing.T) {
+	m, of := offer(t, "openrouter:black-forest-labs/flux-video-edit")
+	if e := Of(m, of, Request{Video: &Video{Seconds: 5, Width: 1280, Height: 720}, Clips: []float64{5}}); !near(e.USD, 0.15) {
+		t.Errorf("$%f", e.USD)
+	}
+}
+
+// The three runs on the test bot that the estimate got wrong, with the
+// discounts of that day: the estimate now covers each and is close to it.
+func TestTheTestBotsRuns(t *testing.T) {
+	for _, tc := range []struct {
+		name, offer string
+		discount    float64
+		req         Request
+		actual      float64
+		within      float64
+	}{
+		{"job 44", "openrouter:alibaba/wan-3.0", 0.15, Request{Settings: set{"resolution": "480p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": true}, Video: &Video{Seconds: 14.948, Width: 1920, Height: 1080}}, 0.847875, 0.001},
+		{"job 47", "openrouter:heygen/heygen-video-1", 0.5, Request{Settings: set{"resolution": "480p", "aspect_ratio": "16:9", "duration": 5}, Video: &Video{Seconds: 14.948, Width: 1920, Height: 1080}}, 0.698215, 0.001},
+		// No ratio was sent, so OpenAI made 1536×1024 where framy counts a
+		// square, which costs more.
+		{"job 40", "openrouter:openai/gpt-image-2.5-flare", 0, Request{Settings: set{"n": 1, "quality": "low"}, Prompt: strings.Repeat("я", 32), Images: []Image{{Width: 1280, Height: 853}}}, 0.01351, 0.1},
+	} {
+		m, of := offer(t, tc.offer)
+		of.Routes = slices.Clone(of.Routes)
+		for i := range of.Routes {
+			of.Routes[i].Discount = tc.discount
+		}
+		e := Of(m, of, tc.req)
+		if e.USD < tc.actual-1e-9 || e.USD > tc.actual*(1+tc.within) {
+			t.Errorf("%s: estimate $%f, billed $%f\nlines %+v\nunknown %v", tc.name, e.USD, tc.actual, e.Lines, e.Unknown)
+		}
+	}
+}
+
+// The counts of the forum post that worked the formula out, and job 40.
+func TestOpenAIInputTokens(t *testing.T) {
+	for _, tc := range []struct{ w, h, want int }{
+		{256, 256, 256}, {384, 384, 576}, {512, 512, 1024}, {768, 768, 1024},
+		{1023, 512, 512}, {1024, 512, 512}, {1025, 512, 528}, {1536, 512, 768},
+		{1537, 512, 833}, {2048, 512, 1408}, {2049, 512, 1430}, {1536, 768, 1152},
+		{1536, 1536, 1521}, {2048, 1024, 1458}, {2048, 2048, 1521}, {4096, 2048, 1458},
+		{1280, 853, 1080}, {853, 1280, 1080},
+	} {
+		if got := openAIInputTokens(tc.w, tc.h, 1536); got != tc.want {
+			t.Errorf("%d×%d: %d tokens, want %d", tc.w, tc.h, got, tc.want)
+		}
 	}
 }
 

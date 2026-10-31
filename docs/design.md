@@ -316,9 +316,9 @@ The composer shows the price before the run. `internal/price` works it out from 
 | Kind | Shown as | When |
 |:--|:--|:--|
 | `exact` | the price | the rates and the quantities are known: tables by size and quality (FLUX.3, Seedream, Krea, Qwen, Recraft, Grok, Riverflow 2), video seconds by resolution and sound, Seedance's video tokens |
-| `about` | "about" | a formula or a rounding decides: OpenAI's and Gemini's tokens, FLUX.2's megapixels, the prompt's tokens, routes at different prices, two video rates that both fit and differ |
+| `about` | "about" | a formula or a rounding decides: OpenAI's and Gemini's tokens, FLUX.2's megapixels, the prompt's tokens, routes at different prices, two video rates that both fit and differ, the seconds of a reference clip as the provider measures it |
 | `up_to` | "up to" the most | a setting is not chosen yet, or the model picks it: Omni's 3 to 10 s, FLUX Video Upscale's factor, Seedream Pro's high resolution |
-| `from` | "from" the least | the provider sets the price after the run: Riverflow 2.5; a part of the bill is not checked: Seedance with a source video |
+| `from` | "from" the least | the provider sets the price after the run: Riverflow 2.5 |
 | `unknown` | "known after the run" | nothing says how many output tokens a run makes: Omni at 1080p |
 
 **Discounts.** OpenRouter takes a share off the listed price of some models, shown on the model's page as the listed price struck through: on 28 October 15% off `alibaba/wan-3.0` and 50% off `heygen/heygen-video-1`, and none on any image model. The sync keeps the discount on the route, matching an upstream by its tag, which is the provider slug of the Images API; a video model's one route takes the smallest of its upstreams'. The estimate takes the discount off the total and keeps the listed figures (`list_usd`, `list_max_usd`) for the price shown struck through; its lines stay at the listed rates. A discount that could not be read this hour is none, and one outside 0–1 is ignored, so a broken answer only makes a price dearer. OpenRouter bills the discounted price, as its page says: checked on 30 October (check 13).
@@ -328,6 +328,7 @@ An estimate never rounds in framy's favour, and an approximate one says so. An o
 Where OpenRouter's rates are not enough, a model's `price` in `catalog/overlay.yaml` fills in:
 - `tokens`: tokens per output image by resolution (Gemini, MAI, Tencent HY Image by Tencent's price table), per input image, per second of video (Omni);
 - `openai_tokens`: the base of OpenAI's formula by quality;
+- `openai_input_patches`: GPT Image 2 and 2.5 count an input image in 32 px patches, a token each, at most this many (1,536). OpenAI does not publish the count; the one worked out on OpenAI's forum, with a small image magnified to a long side of 1024 and a canvas over 3:1 counted as 3:1, matched a run on the test bot (a 1280×853 photo, 1,080 tokens);
 - `input_tokens_per_mp`: tokens an input image takes per megapixel, for a model that counts them by size (MAI, about 1,050 measured, 1,100 set);
 - `variants`: the settings a dearer rate is for, such as Krea's style references, so it is not taken otherwise;
 - `skip`: a billable framy never sends, with the reason, such as Riverflow 2's fonts;
@@ -340,7 +341,8 @@ Of the video SKUs that fit a run, the most specific wins. When two fit equally, 
 
 Input images add their own price: per reference at Grok, Seedream Pro, Qwen 3 and K3 Edit, as tokens at OpenAI and Gemini, where the tokens follow the Input detail level. An attached video changes the price too:
 - a model that keeps the source's length (`source_video.keeps_length`) is priced by that length, so the estimate is exact;
-- Seedance switches to its `with_video_input` rate, FLUX 3 Video to its continuation rate. BytePlus bills a source video's seconds beside the output's; whether OpenRouter does is not checked, so Seedance with a source is "from" the output's price, and `max_usd` counts the source's seconds at the output's size;
+- a model that takes clips as references (`references.video`, no `source_video`) bills every clip's seconds beside the output's, at the output's rate: Wan 3.0 (job 44 on the test bot, a 14.948 s clip and 5 s of 480p, $0.848) and HeyGen, whose reference rate then applies to both (job 47, $0.698); Hailuo 3 as MiniMax bills it. Each clip is rounded up to a hundredth of a second, since the provider measures it itself, and the estimate is "about";
+- Seedance switches to its `with_video_input` rate and counts a clip's seconds beside the output's at the output's size, as BytePlus does. OpenRouter's bill of that is not checked on Seedance, but it passes the clips' seconds on for Wan and HeyGen. FLUX 3 Video switches to its continuation rate;
 - Aleph 2 costs at least $0.56 a run.
 
 After the run framy records the actual cost:

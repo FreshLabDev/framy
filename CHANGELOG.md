@@ -84,9 +84,17 @@ was written from, and the skeleton of the service.
   edit's estimate includes its photos. Of two video SKUs that fit a run
   equally, one whose rate a broader SKU already has is left out, so Seedance
   with a clip and no sound is no longer dearer than with sound, and Kling
-  with sound is exact. Seedance with a clip shows "from" the output's price:
-  BytePlus bills the clip's seconds too, OpenRouter's bill is not checked
-  yet, and the top of the estimate counts them.
+  with sound is exact. A model that takes clips as references bills every
+  clip's seconds beside the output's, so the estimate counts them all,
+  each rounded up to a hundredth of a second: Wan 3.0 and Hailuo 3 at the
+  output's rate, HeyGen at its reference rate, Seedance as video tokens at
+  the output's size. Two runs on the test bot showed it: Wan 3.0 with a
+  15 s clip cost $0.85 against an estimate of $0.21, HeyGen $0.70 against
+  $0.05; both estimates now come within a hundredth of a cent. GPT Image 2
+  and 2.5 count an input image in 32 px patches, at most 1,536, as worked
+  out on OpenAI's forum, so an edit's estimate includes its photos: a
+  1280×853 photo took 1,080 tokens on the test bot, which the estimate had
+  left out.
 - OpenRouter's discounts come off the price. The sync reads them from
   `/api/v1/models/{id}/endpoints`, the only place that carries them, and the
   estimate takes them off the total and keeps the listed price beside it, so

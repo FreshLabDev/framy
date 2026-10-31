@@ -247,8 +247,8 @@ func (c *calc) quantity(billable, unit string) (lo, hi float64, ok bool) {
 // the model has a rate per megapixel and every size is known. Frames of a
 // video have no size here, so they fall back to the count per image.
 func (c *calc) inputTokensBySize() (float64, bool) {
-	per := c.hints.InputTokensPerMP
-	if per <= 0 || c.req.Frames > 0 {
+	per, patches := c.hints.InputTokensPerMP, c.hints.OpenAIInputPatches
+	if per <= 0 && patches <= 0 || c.req.Frames > 0 {
 		return 0, false
 	}
 	var t float64
@@ -256,7 +256,11 @@ func (c *calc) inputTokensBySize() (float64, bool) {
 		if im.Width <= 0 || im.Height <= 0 {
 			return 0, false
 		}
-		t += math.Ceil(float64(im.Width*im.Height) / 1e6 * per)
+		if patches > 0 {
+			t += float64(openAIInputTokens(im.Width, im.Height, patches))
+		} else {
+			t += math.Ceil(float64(im.Width*im.Height) / 1e6 * per)
+		}
 	}
 	return t, true
 }

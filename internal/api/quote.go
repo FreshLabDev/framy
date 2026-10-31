@@ -303,6 +303,7 @@ func addFiles(req *price.Request, m catalog.Model, files []fileMeta) {
 			if req.Video == nil {
 				req.Video = &price.Video{Seconds: f.Seconds, Width: f.Width, Height: f.Height}
 			}
+			req.Clips = append(req.Clips, f.Seconds)
 		}
 	}
 }

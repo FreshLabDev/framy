@@ -78,6 +78,9 @@ models:
 
   # price.openai_tokens is the base of the token formula in OpenAI's own
   # calculator, by quality (docs/research/images.md, section 3.1).
+  # price.openai_input_patches: an input image takes a token a 32 px patch,
+  # at most 1,536, by the count worked out on OpenAI's forum; a 1280×853
+  # photo took 1,080 on the test bot.
   openai/gpt-image-2.5-sunburst:
     family: {id: gpt-image, gen: "2.5", tier: sunburst, label: 2.5 Sunburst}
     offers: [openai:gpt-image-2.5-sunburst]
@@ -87,6 +90,7 @@ models:
     exclude: {quality: [auto], aspect_ratio: [auto]}
     price:
       openai_tokens: {low: 16, medium: 24, high: 48, xhigh: 64, max: 96}
+      openai_input_patches: 1536
 
   openai/gpt-image-2.5-flare:
     family: {id: gpt-image, gen: "2.5", tier: flare, label: 2.5 Flare}
@@ -96,6 +100,7 @@ models:
     exclude: {quality: [auto], aspect_ratio: [auto]}
     price:
       openai_tokens: {low: 16, medium: 24, high: 48, xhigh: 64, max: 96}
+      openai_input_patches: 1536
 
   openai/gpt-image-2:
     family: {id: gpt-image, gen: "2", tier: std, label: "2"}
@@ -103,6 +108,7 @@ models:
     exclude: {quality: [auto], aspect_ratio: [auto]}
     price:
       openai_tokens: {low: 16, medium: 48, high: 96}
+      openai_input_patches: 1536
 
   # price.tokens of the Gemini models is Google's count of tokens per image,
   # by resolution (docs/research/images.md, section 4.1).
