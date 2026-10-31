@@ -118,6 +118,9 @@ type Store interface {
 	// and CatalogSyncedAt when the last sync saved it.
 	Catalog(ctx context.Context) ([]catalog.Model, error)
 	CatalogSyncedAt(ctx context.Context) (time.Time, error)
+	// TypicalSeconds is how long a run of each offer typically takes, for
+	// an offer with enough runs to say.
+	TypicalSeconds(ctx context.Context) (map[string]int, error)
 }
 
 // Allowance is the free allowance: *free.Allowance. Usage reads a person's

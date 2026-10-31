@@ -240,6 +240,10 @@ func TestSeedanceBills(t *testing.T) {
 	if e := Of(m, of, Request{Settings: set{"resolution": "480p", "aspect_ratio": "9:21", "duration": 4}}); e.Kind != About {
 		t.Errorf("at 9:21: %s", e.Kind)
 	}
+	// A reference sound: no bill with one seen, so the same tokens, "about".
+	if e := Of(m, of, Request{Settings: settings, Sounds: 1}); e.Kind != About || math.Abs(e.USD-40594*3.5e-6) > 1e-9 || len(e.Unknown) != 1 {
+		t.Errorf("with a sound: $%.7f, %s, unknown %v", e.USD, e.Kind, e.Unknown)
+	}
 }
 
 // A clip an editor works on is its source, not a reference: its seconds are

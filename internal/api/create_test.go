@@ -551,6 +551,39 @@ func TestTheFilesOfARunAreChecked(t *testing.T) {
 	}
 }
 
+// A kept sound goes as a reference where the offer takes sounds, priced as
+// "about"; one of no known length, or to a model without sounds, is refused
+// before the queue.
+func TestASoundGoesAsAReference(t *testing.T) {
+	r := jobRig(t)
+	r.conns.list = []keys.Connection{{Provider: catalog.OpenRouter, Status: keys.Valid}}
+	r.store.offers[heygenOff] = heygen()
+	r.data.addAsset(alice, InputAsset{ID: 70, ContentType: "audio/wav", Bytes: 1 << 20, Seconds: 4})
+	r.data.addAsset(alice, InputAsset{ID: 71, ContentType: "audio/mpeg", Bytes: 1 << 20})
+
+	resp := r.post(alice, "/api/jobs", nextKey(), body(heygenOff, "key", `"inputs":[70]`, `"settings":{"resolution":"480p","duration":5}`))
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("a sound to heygen: %d %v", resp.StatusCode, jsonOf(t, resp))
+	}
+	if est := r.queue.last().Estimate; est == nil || est.Kind != price.About {
+		t.Errorf("the estimate: %+v", est)
+	}
+	calls := r.queue.calls()
+	for name, tc := range map[string]struct{ offer, extra, want string }{
+		"of no known length": {heygenOff, `"inputs":[71]`, "not known"},
+		"to an image model":  {testOffer, `"inputs":[70]`, "no sounds"},
+	} {
+		resp := r.post(alice, "/api/jobs", nextKey(), body(tc.offer, "key", tc.extra))
+		m := jsonOf(t, resp)
+		if resp.StatusCode != http.StatusUnprocessableEntity || m["error"] != "wrong_inputs" || !strings.Contains(fmt.Sprint(m["message"]), tc.want) {
+			t.Errorf("%s: %d %v", name, resp.StatusCode, m)
+		}
+	}
+	if r.queue.calls() != calls {
+		t.Errorf("a refused run reached the queue")
+	}
+}
+
 // A setting the offer has no parameter for is refused with its name before
 // the queue, on a key and on the allowance alike: fast on Wan 3.0 once made
 // a job that only the adapter refused.

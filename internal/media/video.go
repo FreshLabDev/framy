@@ -332,7 +332,7 @@ func (c *Converter) probeVideo(ctx context.Context, head []byte, in string) (cli
 		}
 	}
 	if k.videoIndex < 0 {
-		return clip{}, fmt.Errorf("%w: no video in the file", ErrUnsupportedVideo)
+		return clip{}, errNoVideo
 	}
 	if d := number(out.Format.Duration); d > 0 {
 		k.seconds = d

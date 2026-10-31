@@ -23,6 +23,7 @@ type catalogCache struct {
 	mu       sync.Mutex
 	models   []catalog.Model
 	byOffer  map[string]int // offer id -> index in models
+	typical  map[string]int // offer id -> typical seconds of a run
 	syncedAt time.Time
 	readAt   time.Time
 }
@@ -46,14 +47,26 @@ func (c *catalogCache) get(ctx context.Context, store Store, now time.Time) ([]c
 	if models == nil {
 		models = []catalog.Model{}
 	}
+	typical, err := store.TypicalSeconds(ctx)
+	if err != nil {
+		return nil, nil, time.Time{}, err
+	}
 	by := map[string]int{}
 	for i, m := range models {
 		for _, of := range m.Offers {
 			by[of.ID] = i
 		}
 	}
-	c.models, c.byOffer, c.syncedAt, c.readAt = models, by, synced, now
+	c.models, c.byOffer, c.typical, c.syncedAt, c.readAt = models, by, typical, synced, now
 	return models, by, synced, nil
+}
+
+// typicalSeconds is how long a run of each offer typically takes, as the
+// last get read it.
+func (c *catalogCache) typicalSeconds() map[string]int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.typical
 }
 
 // offer finds an offer that is on and shown, with its model.
@@ -141,6 +154,9 @@ type catalogOfferJSON struct {
 	// Inputs is how many pictures, videos and sounds one run takes, and how
 	// long a clip may be.
 	Inputs catalog.Inputs `json:"inputs"`
+	// TypicalSeconds is how long a run typically takes, from Generate to the
+	// result; absent until the offer has enough runs to say.
+	TypicalSeconds int `json:"typical_seconds,omitempty"`
 }
 
 // freeJSON is the free allowance: how many runs of each kind a window
@@ -179,6 +195,7 @@ func (a *API) catalogRoute(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, err)
 		return
 	}
+	typical := a.catalog.typicalSeconds()
 	user, signedIn := a.cfg.Person(r)
 	if !signedIn {
 		user = 0
@@ -209,7 +226,7 @@ func (a *API) catalogRoute(w http.ResponseWriter, r *http.Request) {
 			oj := catalogOfferJSON{
 				ID: of.ID, Provider: of.Provider, ProviderModelID: of.ProviderModelID,
 				InputModalities: nonNilStrings(of.InputModalities), Params: of.Params, Defaults: catalog.Defaults(of, 0),
-				Discount: sharedDiscount(of.Routes), Inputs: catalog.InputsOf(m, of),
+				Discount: sharedDiscount(of.Routes), Inputs: catalog.InputsOf(m, of), TypicalSeconds: typical[of.ID],
 			}
 			if oj.Params == nil {
 				oj.Params = map[string]catalog.Param{}

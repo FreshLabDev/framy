@@ -124,6 +124,34 @@ func TestAQuoteCountsEveryClip(t *testing.T) {
 	}
 }
 
+// A sound goes as a reference where the offer takes sounds, kept or still
+// in the browser. No bill with one has been seen, so the price is "about";
+// a model without sounds refuses it.
+func TestAQuoteTakesASound(t *testing.T) {
+	r := quoteRig(t)
+	r.data.addAsset(alice, InputAsset{ID: 53, ContentType: "audio/wav", Bytes: 1 << 20, Seconds: 4})
+	_, m := quoteOf(t, r, alice, `{"items":[
+		{"offer":"`+heygenOff+`","settings":{"resolution":"480p","duration":5},"inputs":[53],"files":[{"content_type":"audio/mpeg","bytes":200000,"seconds":6}]},
+		{"offer":"`+testOffer+`","files":[{"content_type":"audio/mpeg","seconds":6}]}
+	]}`)
+	got := items(t, m)
+	if r := got[0]["refusal"]; r != nil {
+		t.Errorf("two sounds to heygen: %v", r)
+	}
+	e, _ := got[0]["estimate"].(map[string]any)
+	// The sounds add nothing that framy knows of: 5 s at $0.02, less 50%.
+	if usd, _ := e["usd"].(float64); math.Abs(usd-5*0.02*0.5) > 1e-9 || e["kind"] != "about" {
+		t.Errorf("estimate %v", e)
+	}
+	if r, _ := got[1]["refusal"].(map[string]any); r["error"] != "wrong_inputs" || !strings.Contains(r["message"].(string), "no sounds") {
+		t.Errorf("a sound to an image model: %v", got[1])
+	}
+	_, bad := quoteOf(t, r, 0, `{"items":[{"offer":"`+heygenOff+`","files":[{"content_type":"text/plain"}]}]}`)
+	if bad["error"] != "bad_request" {
+		t.Errorf("a text file: %v", bad)
+	}
+}
+
 func quoteOf(t *testing.T, r *rig, user int64, body string, hdr ...string) (int, map[string]any) {
 	t.Helper()
 	resp := r.do(user, http.MethodPost, "/api/quote", strings.NewReader(body), append([]string{"Content-Type", "application/json"}, hdr...)...)
@@ -157,6 +185,7 @@ func near(a, b float64) bool { return math.Abs(a-b) < 1e-9 }
 func TestTheCatalogIsForAnyone(t *testing.T) {
 	r := quoteRig(t)
 	r.store.syncedAt = time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
+	r.store.typical = map[string]int{heygenOff: 74}
 	m := r.store.offers[refsOffer]
 	m.Traits = catalog.Traits{
 		Effort:     &catalog.Effort{Parameter: "quality", Values: []string{"low", "high"}},
@@ -197,6 +226,13 @@ func TestTheCatalogIsForAnyone(t *testing.T) {
 	}
 	if _, ok := of["routes"]; ok {
 		t.Errorf("routes went out: %v", of)
+	}
+	// How long a run typically takes, only for an offer with runs to say.
+	if of["typical_seconds"] != 74.0 {
+		t.Errorf("heygen typical = %v", of["typical_seconds"])
+	}
+	if _, ok := refs["offers"].([]any)[0].(map[string]any)["typical_seconds"]; ok {
+		t.Errorf("an offer without runs has a typical time: %v", refs["offers"])
 	}
 	// What one run takes: frames or references, never both.
 	in, _ := json.Marshal(of["inputs"])

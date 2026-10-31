@@ -676,6 +676,16 @@ was written from, and the skeleton of the service.
   made on the site goes to the DM as the joined clip, not as the new part
   alone; the chat run keeps which file its message is (migration 028), so
   Send to Telegram does not send the new part as the joined clip.
+- Sounds as references. `POST /api/videos/uploads` and `POST /api/videos`
+  take a sound the way they take a clip: an MP3, WAV, Ogg, FLAC, AAC, or an
+  M4A or WebM with no picture. An MP3 is kept as it came without its tags,
+  anything else and any cut part as a 16-bit WAV at 48 kHz, in stereo at
+  most. A run and a quote take a sound where the model's `inputs.audio`
+  does, and refuse one of unknown length. No rate names a reference sound
+  and no bill with one has been seen, so such a price is "about".
+- `typical_seconds` of an offer in `GET /api/catalog`: the median time from
+  queued to done of its runs that went well in the last 30 days, rounded
+  up, once there are at least 5, for the wait on the site.
 - `/edit` in a chat. In reply to a video, a GIF, a round video or a video
   document, or as the caption of one's own video, it edits the clip on FLUX
   Video Edit: the week's free video first, then the person's OpenRouter key.

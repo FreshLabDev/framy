@@ -67,6 +67,9 @@ type Request struct {
 	// Clips are the seconds of every clip the run takes, the first one
 	// included. Empty means Video is the only one.
 	Clips []float64
+	// Sounds is how many reference sounds the run takes. No rate names
+	// them and no bill with one has been seen, so they make it "about".
+	Sounds int
 }
 
 // Line is one priced part of a run: the billable or the SKU, its rate and
@@ -160,6 +163,9 @@ func route(m catalog.Model, of catalog.Offer, r catalog.Route, req Request) Esti
 	}
 	c.prices(r.Prices)
 	c.skus(r.SKUs)
+	if req.Sounds > 0 {
+		c.cannot("the reference sounds")
+	}
 	e := Estimate{Offer: of.ID, Route: r.Provider, USD: c.lo, MaxUSD: math.Max(c.hi, c.lo), Kind: c.kind, Unknown: c.unknown, Lines: c.lines}
 	if c.hints.From != "" && e.Kind != Unknown {
 		e.Kind, e.Note = From, c.hints.From

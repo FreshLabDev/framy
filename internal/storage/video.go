@@ -110,7 +110,7 @@ func (s *Store) TakeVideo(ctx context.Context, userID int64, token string, cut *
 		}
 		return Asset{}, err
 	}
-	a, err := s.keepVideo(ctx, userID, dir, cut)
+	a, err := s.keepClip(ctx, userID, dir, cut, true)
 	if err != nil {
 		if errors.Is(err, media.ErrUnsupportedVideo) || errors.Is(err, media.ErrUnreadableVideo) || errors.Is(err, media.ErrVideoTooLarge) {
 			s.dropIncoming(ctx, key)
@@ -130,9 +130,10 @@ func (s *Store) dropIncoming(ctx context.Context, key string) {
 }
 
 // CutVideo makes the part cut of a clip of the person's, an upload or a
-// result, a new upload: a result longer than an editor takes goes to it so.
+// result, a new upload: a result longer than an editor takes goes to it so,
+// and a sound longer than a model takes.
 func (s *Store) CutVideo(ctx context.Context, userID, assetID int64, cut media.Cut) (Asset, error) {
-	src, err := s.video(ctx, userID, assetID)
+	src, err := s.clip(ctx, userID, assetID, true)
 	if err != nil {
 		return Asset{}, err
 	}
@@ -144,7 +145,7 @@ func (s *Store) CutVideo(ctx context.Context, userID, assetID int64, cut media.C
 	if err := s.fetchObject(ctx, src.Key, filepath.Join(dir, media.In), s.cfg.MaxResult); err != nil {
 		return Asset{}, err
 	}
-	return s.keepVideo(ctx, userID, dir, &cut)
+	return s.keepClip(ctx, userID, dir, &cut, true)
 }
 
 // KeepVideo keeps the clip at path, or the part cut of it, as an upload of
@@ -159,7 +160,7 @@ func (s *Store) KeepVideo(ctx context.Context, userID int64, path string, cut *m
 	if err := linkOrCopy(path, filepath.Join(dir, media.In)); err != nil {
 		return Asset{}, err
 	}
-	return s.keepVideo(ctx, userID, dir, cut)
+	return s.keepClip(ctx, userID, dir, cut, false)
 }
 
 // linkOrCopy puts the file at src at dst: a hard link where both are on one
@@ -224,6 +225,11 @@ func (s *Store) LastFrame(ctx context.Context, userID, assetID int64) (Asset, er
 // video is a clip of the person's: ErrNotFound for a file that is not
 // theirs, ErrNotVideo for a picture.
 func (s *Store) video(ctx context.Context, userID, assetID int64) (Asset, error) {
+	return s.clip(ctx, userID, assetID, false)
+}
+
+// clip is video's, and with sounds a sound of the person's too.
+func (s *Store) clip(ctx context.Context, userID, assetID int64, sounds bool) (Asset, error) {
 	a := Asset{ID: assetID, UserID: userID}
 	err := s.pool.QueryRow(ctx, `SELECT kind, object_key, content_type FROM asset WHERE id=$1 AND user_id=$2`,
 		assetID, userID).Scan(&a.Kind, &a.Key, &a.ContentType)
@@ -232,7 +238,7 @@ func (s *Store) video(ctx context.Context, userID, assetID int64) (Asset, error)
 		return Asset{}, ErrNotFound
 	case err != nil:
 		return Asset{}, err
-	case !strings.HasPrefix(a.ContentType, "video/"):
+	case !strings.HasPrefix(a.ContentType, "video/") && !(sounds && strings.HasPrefix(a.ContentType, "audio/")):
 		return Asset{}, ErrNotVideo
 	}
 	return a, nil
@@ -265,10 +271,14 @@ func (s *Store) fetchObject(ctx context.Context, key, path string, limit int64) 
 	return nil
 }
 
-// keepVideo puts the clip at dir/In through the pipeline and keeps it as an
-// upload, the object before the row.
-func (s *Store) keepVideo(ctx context.Context, userID int64, dir string, cut *media.Cut) (Asset, error) {
-	v, err := s.media.NormalizeVideo(ctx, dir, cut)
+// keepClip puts the clip at dir/In through the pipeline, a sound too when
+// sounds, and keeps it as an upload, the object before the row.
+func (s *Store) keepClip(ctx context.Context, userID int64, dir string, cut *media.Cut, sounds bool) (Asset, error) {
+	normalize := s.media.NormalizeVideo
+	if sounds {
+		normalize = s.media.NormalizeClip
+	}
+	v, err := normalize(ctx, dir, cut)
 	if err != nil {
 		return Asset{}, err
 	}

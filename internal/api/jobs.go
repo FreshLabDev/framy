@@ -405,6 +405,8 @@ func priceRequest(m catalog.Model, prompt string, settings map[string]any, input
 				req.Video = &price.Video{Seconds: in.Seconds, Width: in.Width, Height: in.Height}
 			}
 			req.Clips = append(req.Clips, in.Seconds)
+		case strings.HasPrefix(in.ContentType, "audio/"):
+			req.Sounds++
 		case !strings.HasPrefix(in.ContentType, "image/"):
 		case req.Frames < frames:
 			req.Frames++
@@ -415,12 +417,13 @@ func priceRequest(m catalog.Model, prompt string, settings map[string]any, input
 	return req
 }
 
-// checkLengths refuses a kept clip whose length framy does not know: its
-// limits cannot be checked, nor its price. Every clip kept since framy read
-// lengths has one; an older one gets one by being cut (POST /api/videos).
+// checkLengths refuses a kept clip or sound whose length framy does not
+// know: its limits cannot be checked, nor its price. Every clip kept since
+// framy read lengths has one, and every sound; an older clip gets one by
+// being cut (POST /api/videos).
 func checkLengths(inputs []InputAsset) *apiError {
 	for i, in := range inputs {
-		if strings.HasPrefix(in.ContentType, "video/") && in.Seconds <= 0 {
+		if (strings.HasPrefix(in.ContentType, "video/") || strings.HasPrefix(in.ContentType, "audio/")) && in.Seconds <= 0 {
 			return newError(http.StatusUnprocessableEntity, codeWrongInputs,
 				fmt.Sprintf("the length of input %d is not known; cut it to the part to use first", i+1)).with("input", in.ID)
 		}

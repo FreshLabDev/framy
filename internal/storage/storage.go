@@ -1081,6 +1081,7 @@ func resultKey(prefix string, j jobs.Job, i int, contentType string) string {
 var exts = map[string]string{
 	"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/avif": ".avif", "image/heif": ".heic",
 	"image/gif": ".gif", "video/mp4": ".mp4", "video/webm": ".webm", "video/quicktime": ".mov",
+	"audio/mpeg": ".mp3", "audio/wav": ".wav",
 }
 
 // Ext is the file extension of a content type framy keeps, with its dot:

@@ -304,6 +304,8 @@ func addFiles(req *price.Request, m catalog.Model, files []fileMeta) {
 				req.Video = &price.Video{Seconds: f.Seconds, Width: f.Width, Height: f.Height}
 			}
 			req.Clips = append(req.Clips, f.Seconds)
+		case strings.HasPrefix(f.ContentType, "audio/"):
+			req.Sounds++
 		}
 	}
 }
@@ -357,10 +359,10 @@ func decodeQuote(r *http.Request) (quoteRequest, *apiError) {
 		}
 		for j, f := range it.Files {
 			field := fmt.Sprintf("%sfiles[%d]", prefix, j)
-			image, video := strings.HasPrefix(f.ContentType, "image/"), strings.HasPrefix(f.ContentType, "video/")
+			image, video, sound := strings.HasPrefix(f.ContentType, "image/"), strings.HasPrefix(f.ContentType, "video/"), strings.HasPrefix(f.ContentType, "audio/")
 			switch {
-			case !image && !video:
-				return req, badRequest(field+".content_type", "a file is an image/… or a video/…")
+			case !image && !video && !sound:
+				return req, badRequest(field+".content_type", "a file is an image/…, a video/… or an audio/…")
 			case f.Width < 0 || f.Height < 0 || f.Width > maxSide || f.Height > maxSide:
 				return req, badRequest(field, fmt.Sprintf("a picture side is 0 to %d px", maxSide))
 			case f.Bytes < 0 || badNumber(f.Seconds) || badNumber(f.FPS) || f.Seconds > maxSeconds:

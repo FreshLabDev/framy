@@ -177,6 +177,40 @@ func (s *Store) CatalogSyncedAt(ctx context.Context) (time.Time, error) {
 	return *at, nil
 }
 
+// TypicalRuns is how many runs of an offer in TypicalWindow it takes to say
+// how long one typically takes.
+const (
+	TypicalRuns   = 5
+	TypicalWindow = 30 * 24 * time.Hour
+)
+
+// TypicalSeconds is how long a run of each offer typically takes, from the
+// press of Generate to the result: the median of its runs that ended done in
+// TypicalWindow, for an offer with at least TypicalRuns of them, in whole
+// seconds rounded up. The site shows it beside the time a run has waited.
+func (s *Store) TypicalSeconds(ctx context.Context) (map[string]int, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT offer_id, ceil(percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM finished_at - queued_at)))::int
+		FROM job
+		WHERE status = 'done' AND queued_at IS NOT NULL AND finished_at > now() - make_interval(secs => $1)
+		GROUP BY offer_id
+		HAVING count(*) >= $2`, TypicalWindow.Seconds(), TypicalRuns)
+	if err != nil {
+		return nil, fmt.Errorf("typical seconds: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var offer string
+		var secs int
+		if err := rows.Scan(&offer, &secs); err != nil {
+			return nil, fmt.Errorf("typical seconds: %w", err)
+		}
+		out[offer] = max(secs, 1)
+	}
+	return out, rows.Err()
+}
+
 // Catalog returns what the picker shows: models that are on and not hidden,
 // featured first, each with its offers that are on and not hidden.
 func (s *Store) Catalog(ctx context.Context) ([]catalog.Model, error) {

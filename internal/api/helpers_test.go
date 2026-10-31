@@ -307,6 +307,8 @@ type fakeStore struct {
 	catalogReads int
 	catalogErr   error
 	syncedAt     time.Time
+	// typical is how long a run of each offer typically takes.
+	typical map[string]int
 	// cleared are the people whose language framy withdrew.
 	cleared []int64
 	// settings are kept as the store keeps them; spent is what each
@@ -432,6 +434,8 @@ func (s *fakeStore) Catalog(context.Context) ([]catalog.Model, error) {
 }
 
 func (s *fakeStore) CatalogSyncedAt(context.Context) (time.Time, error) { return s.syncedAt, nil }
+
+func (s *fakeStore) TypicalSeconds(context.Context) (map[string]int, error) { return s.typical, nil }
 
 // image is an offer of an image model priced $0.04 an image, which takes
 // up to four reference images.

@@ -289,3 +289,54 @@ func TestAClipFromAChatIsKept(t *testing.T) {
 	}
 	h.workIsEmpty(t)
 }
+
+// sound is an M4A of secs seconds of a tone, as a phone records one.
+func sound(t *testing.T, secs string) []byte {
+	t.Helper()
+	out := filepath.Join(t.TempDir(), "sound.m4a")
+	cmd := exec.Command("ffmpeg", "-hide_banner", "-v", "error", "-nostdin",
+		"-f", "lavfi", "-i", "sine=f=440:d="+secs, "-c:a", "aac", "-metadata", "title=a private name", "-f", "ipod", "-y", out)
+	if b, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("making the sound: %v: %s", err, b)
+	}
+	b, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// A sound put by link is kept as a WAV with its length, for a video model's
+// references; a part of it can be cut, and it has no last frame.
+func TestASoundPutByLinkIsKeptForTheReferences(t *testing.T) {
+	h := newHarness(t, storage.Config{Media: videoConverter(t)})
+	ctx := context.Background()
+	up, err := h.store.VideoUpload(alice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	put(t, up.URL, sound(t, "4"))
+	a, err := h.store.TakeVideo(ctx, alice, up.Token, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Kind != "upload" || a.ContentType != "audio/wav" || a.Width != 0 || math.Abs(a.Seconds-4) > 0.1 || !a.Audio ||
+		!strings.HasSuffix(a.Key, ".wav") {
+		t.Fatalf("%+v", a)
+	}
+	o, ok := h.bucket.Get(a.Key)
+	if !ok || bytes.Contains(o.Data, []byte("a private name")) || o.ContentType != "audio/wav" {
+		t.Errorf("kept %v, with its tags or as %q", ok, o.ContentType)
+	}
+	if keys := h.incoming(t); len(keys) != 0 {
+		t.Errorf("incoming after the take: %v", keys)
+	}
+	part, err := h.store.CutVideo(ctx, alice, a.ID, media.Cut{Start: 1, Seconds: 2})
+	if err != nil || part.ContentType != "audio/wav" || math.Abs(part.Seconds-2) > 0.05 {
+		t.Fatalf("the part %+v %v", part, err)
+	}
+	if _, err := h.store.LastFrame(ctx, alice, a.ID); !errors.Is(err, storage.ErrNotVideo) {
+		t.Errorf("the last frame of a sound: %v", err)
+	}
+	h.workIsEmpty(t)
+}

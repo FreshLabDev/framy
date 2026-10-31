@@ -239,7 +239,7 @@ func (a *API) videoFailed(r *http.Request, err error) *apiError {
 	case errors.Is(err, storage.ErrTooBig):
 		return newError(http.StatusRequestEntityTooLarge, codeTooLarge, "the clip is too big")
 	case errors.Is(err, media.ErrUnsupportedVideo):
-		return newError(http.StatusUnsupportedMediaType, codeUnsupportedType, "send an MP4, MOV, WebM or MKV clip")
+		return newError(http.StatusUnsupportedMediaType, codeUnsupportedType, "send an MP4, MOV, WebM or MKV clip, or an MP3, WAV, M4A, Ogg, FLAC or AAC sound")
 	case errors.Is(err, media.ErrUnreadableVideo):
 		return newError(http.StatusUnprocessableEntity, codeUnreadable, "the clip cannot be read")
 	case errors.Is(err, media.ErrVideoTooLarge):
