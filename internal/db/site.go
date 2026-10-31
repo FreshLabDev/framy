@@ -15,16 +15,21 @@ const (
 	DeliverySent    = "sent"
 	DeliveryClosed  = "closed"
 	DeliveryFailed  = "failed"
+	// DeliveryOff: the person turned the DM off in the settings
+	// (migrations/025_settings.sql).
+	DeliveryOff = "off"
 )
 
 // SiteResult is a job made on the site whose result the person's DM has not
-// been sent. Model is the model's name, as ChatRun has it.
+// been sent. Model is the model's name, as ChatRun has it. Deliver is the
+// person's setting: false when they turned the DM off.
 type SiteResult struct {
-	JobID  int64
-	UserID int64
-	Prompt string
-	Kind   string
-	Model  string
+	JobID   int64
+	UserID  int64
+	Prompt  string
+	Kind    string
+	Model   string
+	Deliver bool
 }
 
 // SiteResults are the site's jobs that ended done after since and that no
@@ -32,10 +37,11 @@ type SiteResult struct {
 // left out.
 func (s *Store) SiteResults(ctx context.Context, since time.Time, limit int) ([]SiteResult, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT j.id, j.user_id, j.prompt, j.kind, COALESCE(m.name, o.name, j.model_id)
+		SELECT j.id, j.user_id, j.prompt, j.kind, COALESCE(m.name, o.name, j.model_id), COALESCE(p.deliver_to_telegram, true)
 		FROM job j
 		LEFT JOIN catalog_offer o ON o.id = j.offer_id
 		LEFT JOIN catalog_model m ON m.id = j.model_id
+		LEFT JOIN profile p ON p.user_id = j.user_id
 		WHERE j.surface = 'site' AND j.status = 'done' AND j.deleted_at IS NULL AND j.finished_at > $1
 		  AND NOT EXISTS (SELECT 1 FROM site_delivery d WHERE d.job_id = j.id)
 		ORDER BY j.finished_at, j.id
@@ -45,7 +51,7 @@ func (s *Store) SiteResults(ctx context.Context, since time.Time, limit int) ([]
 	}
 	out, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (SiteResult, error) {
 		var r SiteResult
-		err := row.Scan(&r.JobID, &r.UserID, &r.Prompt, &r.Kind, &r.Model)
+		err := row.Scan(&r.JobID, &r.UserID, &r.Prompt, &r.Kind, &r.Model, &r.Deliver)
 		return r, err
 	})
 	if err != nil {
@@ -75,9 +81,9 @@ func (s *Store) ReleaseSiteResult(ctx context.Context, jobID int64) error {
 }
 
 // EndSiteResult records that the claimed result will not be sent: state is
-// DeliveryClosed or DeliveryFailed.
+// DeliveryClosed, DeliveryFailed or DeliveryOff.
 func (s *Store) EndSiteResult(ctx context.Context, jobID int64, state string) error {
-	if state != DeliveryClosed && state != DeliveryFailed {
+	if state != DeliveryClosed && state != DeliveryFailed && state != DeliveryOff {
 		return fmt.Errorf("end the site result of job %d: %q is not an end", jobID, state)
 	}
 	_, err := s.pool.Exec(ctx, `

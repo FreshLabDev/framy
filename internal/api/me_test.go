@@ -26,7 +26,8 @@ func TestMeIsTheSignedInPerson(t *testing.T) {
 	}
 	want := map[string]any{
 		"user_id": float64(alice), "name": "Olesya Kovalenko", "photo_url": "https://t.me/i/userpic/320/olesya.jpg",
-		"language": "uk", "currency": "EUR", "currency_chosen": true, "signed_in_at": "2026-10-27T09:30:00Z",
+		"language": "uk", "language_chosen": false, "currency": "EUR", "currency_chosen": true, "signed_in_at": "2026-10-27T09:30:00Z",
+		"deliver_to_telegram": true,
 	}
 	for k, v := range want {
 		if m[k] != v {
@@ -42,7 +43,11 @@ func TestMeIsTheSignedInPerson(t *testing.T) {
 	if st, ok := m["storage"].(map[string]any); !ok || st["files"] != float64(0) || st["bytes"] != float64(0) {
 		t.Errorf("storage = %v", m["storage"])
 	}
-	if len(m) != len(want)+2 {
+	// No default model yet: an empty object, the composer's own pick.
+	if d, ok := m["default_models"].(map[string]any); !ok || len(d) != 0 {
+		t.Errorf("default_models = %v", m["default_models"])
+	}
+	if len(m) != len(want)+3 {
 		t.Errorf("fields %v", m)
 	}
 	if cc := resp.Header.Get("Cache-Control"); cc != "no-store" {
@@ -95,16 +100,30 @@ func TestMeHasTheConnectionsAndTheAllowance(t *testing.T) {
 		Videos: free.Meter{Used: 1, Limit: 1, Window: 7 * 24 * time.Hour, FreesAt: frees},
 	}}
 	r := newRig(t, withAllowance(allow))
-	r.conns.list = []keys.Connection{{ID: "c1", Provider: "openrouter", Last4: "a1b2", Status: keys.Valid}}
+	r.conns.list = []keys.Connection{{ID: "c1", Provider: "openrouter", Last4: "a1b2", Status: keys.Valid}, {ID: "c2", Provider: "openai", Last4: "c3d4", Status: keys.Valid}}
+	r.store.chosen[alice] = "UAH"
+	r.store.spent[alice] = map[string]db.Spent{"openrouter": {USD: 1.25, Last30DaysUSD: 0.5}}
 
 	m := jsonOf(t, r.do(alice, "GET", "/api/me", nil))
 	conns, _ := m["connections"].([]any)
-	if len(conns) != 1 {
+	if len(conns) != 2 {
 		t.Fatalf("connections = %v", m["connections"])
 	}
 	c := conns[0].(map[string]any)
 	if c["provider"] != "openrouter" || c["last4"] != "a1b2" || c["status"] != "valid" || c["id"] != "c1" {
 		t.Errorf("connection = %v", c)
+	}
+	// What the runs on the key cost, in the person's currency; a key with no
+	// run yet cost nothing.
+	spent, month := c["spent"].(map[string]any), c["spent_30d"].(map[string]any)
+	if spent["usd"] != 1.25 || spent["amount"] != 1.25*41.5 || spent["currency"] != "UAH" || month["usd"] != 0.5 || month["amount"] != 0.5*41.5 {
+		t.Errorf("spent = %v, spent_30d = %v", spent, month)
+	}
+	if l, _ := spent["label"].(string); l == "" {
+		t.Errorf("spent has no label: %v", spent)
+	}
+	if none := conns[1].(map[string]any)["spent"].(map[string]any); none["usd"] != 0.0 || none["currency"] != "UAH" {
+		t.Errorf("a key with no run: %v", none)
 	}
 	if _, leaked := c["user_id"]; leaked {
 		t.Errorf("the connection names its owner: %v", c)

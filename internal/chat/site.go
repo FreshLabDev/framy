@@ -89,6 +89,12 @@ func (f *Flow) sendSiteResult(ctx context.Context, r db.SiteResult) {
 			f.log.Warn("site result not ended", "job", r.JobID, "state", state, "error", err)
 		}
 	}
+	if !r.Deliver {
+		// The person turned the DM off; the result stays on the site, and is
+		// not sent when they turn it on again.
+		end(db.DeliveryOff)
+		return
+	}
 	assets, err := f.cfg.Files.Results(ctx, r.JobID)
 	if err != nil {
 		release("site results unread", err)

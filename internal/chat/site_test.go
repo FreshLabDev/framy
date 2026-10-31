@@ -27,7 +27,7 @@ func siteResult(t *testing.T, h *harness, kind string, results ...storage.Asset)
 		t.Fatal(err)
 	}
 	h.store.jobs[siteJob] = &fakeJob{n: jobs.New{UserID: 7, Surface: jobs.Site, Prompt: "a fox", Offer: offer, Free: true}, status: jobs.Done}
-	h.store.site = append(h.store.site, db.SiteResult{JobID: siteJob, UserID: 7, Prompt: "a fox", Kind: kind, Model: "MAI-Image-2.6 Flash"})
+	h.store.site = append(h.store.site, db.SiteResult{JobID: siteJob, UserID: 7, Prompt: "a fox", Kind: kind, Model: "MAI-Image-2.6 Flash", Deliver: true})
 	h.store.userLang[7] = "en"
 	h.files.results[siteJob] = results
 	if h.files.assets == nil {
@@ -170,6 +170,23 @@ func TestASiteResultIsNotSentWhereTheBotMayNotWrite(t *testing.T) {
 		if len(h.tg.calls) != 0 {
 			t.Fatalf("%s: asked again: %+v", err.Description, h.tg.calls)
 		}
+	}
+}
+
+// A person who turned the DM off in the settings gets nothing, and the
+// result is not sent later either.
+func TestASiteResultIsNotSentWhenTheDMIsOff(t *testing.T) {
+	h := newHarness(t)
+	siteResult(t, h, "image", picture)
+	h.store.site[0].Deliver = false
+	h.flow.sendSite(context.Background())
+	if h.store.delivery(siteJob) != db.DeliveryOff || len(h.tg.calls) != 0 || h.store.runs[siteJob] != nil {
+		t.Fatalf("delivery %q, calls %+v", h.store.delivery(siteJob), h.tg.calls)
+	}
+	h.store.site[0].Deliver = true
+	h.flow.sendSite(context.Background())
+	if len(h.tg.calls) != 0 {
+		t.Fatalf("sent after the DM was turned on: %+v", h.tg.calls)
 	}
 }
 

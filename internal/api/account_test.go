@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/FreshLabDev/framy/internal/catalog"
+	"github.com/FreshLabDev/framy/internal/db"
 	"github.com/FreshLabDev/framy/internal/jobs"
 	"github.com/FreshLabDev/framy/internal/keys"
 )
@@ -128,6 +129,76 @@ func TestTheSettingsChangeTheCurrencyAndTheLanguage(t *testing.T) {
 		if status, m := r.send(alice, http.MethodPatch, "/api/me", body); status != http.StatusBadRequest {
 			t.Errorf("%s: %d %v", body, status, m)
 		}
+	}
+}
+
+// The language picked on the site is said to be picked; withdrawn, it is
+// "Automatic" again, whatever language core still resolves.
+func TestTheSettingsSayWhetherTheLanguageWasPicked(t *testing.T) {
+	r := newRig(t)
+	if _, m := r.send(alice, http.MethodPatch, "/api/me", `{"language":"uk"}`); m["language_chosen"] != true {
+		t.Fatalf("%v", m)
+	}
+	if _, m := r.send(alice, http.MethodPatch, "/api/me", `{"currency":"EUR"}`); m["language_chosen"] != true {
+		t.Errorf("a field left out moved the language: %v", m)
+	}
+	if _, m := r.send(alice, http.MethodPatch, "/api/me", `{"language":""}`); m["language_chosen"] != false {
+		t.Errorf("%v", m)
+	}
+}
+
+func TestTheSettingsKeepTheDefaultModelsAndTheDM(t *testing.T) {
+	r := newRig(t)
+	r.store.offers["openrouter:test-image"] = image("openrouter:test-image", "openrouter")
+	r.store.offers["openrouter:test-video"] = video("openrouter:test-video", "openrouter")
+
+	status, m := r.send(alice, http.MethodPatch, "/api/me", `{"default_models":{"image":"test-image"}}`)
+	if d, _ := m["default_models"].(map[string]any); status != http.StatusOK || d["image"] != "test-image" || d["video"] != nil {
+		t.Fatalf("%d %v", status, m)
+	}
+	status, m = r.send(alice, http.MethodPatch, "/api/me", `{"default_models":{"video":"test-video"},"deliver_to_telegram":false}`)
+	if d, _ := m["default_models"].(map[string]any); status != http.StatusOK || d["image"] != "test-image" || d["video"] != "test-video" || m["deliver_to_telegram"] != false {
+		t.Fatalf("%d %v", status, m)
+	}
+	// An empty id goes back to framy's default; the other kind stays.
+	status, m = r.send(alice, http.MethodPatch, "/api/me", `{"default_models":{"image":""}}`)
+	if d, _ := m["default_models"].(map[string]any); status != http.StatusOK || d["image"] != nil || d["video"] != "test-video" || m["deliver_to_telegram"] != false {
+		t.Fatalf("%d %v", status, m)
+	}
+	if m := jsonOf(t, r.do(alice, "GET", "/api/me", nil)); m["deliver_to_telegram"] != false {
+		t.Errorf("GET forgot the DM: %v", m)
+	}
+	if st := r.store.settings[bob]; st != (db.Settings{}) {
+		t.Errorf("bob's settings moved: %+v", st)
+	}
+
+	// Not a model of that kind, not a model at all, not a bool: refused, and
+	// nothing of the request is kept.
+	for _, body := range []string{
+		`{"default_models":{"image":"test-video"}}`,
+		`{"default_models":{"video":"test-image"}}`,
+		`{"currency":"EUR","default_models":{"image":"openrouter:test-image"}}`,
+		`{"default_models":{"audio":"test-image"}}`,
+		`{"deliver_to_telegram":"no"}`,
+	} {
+		status, m := r.send(alice, http.MethodPatch, "/api/me", body)
+		if status != http.StatusBadRequest {
+			t.Errorf("%s: %d %v", body, status, m)
+		}
+	}
+	if m := jsonOf(t, r.do(alice, "GET", "/api/me", nil)); m["currency_chosen"] != false {
+		t.Errorf("a refused request kept its currency: %v", m)
+	}
+
+	// An unread catalog is framy's fault, not a refusal of the model.
+	down := newRig(t)
+	down.store.catalogErr = errors.New("connection reset")
+	if status, m := down.send(alice, http.MethodPatch, "/api/me", `{"default_models":{"image":"test-image"}}`); status != http.StatusInternalServerError {
+		t.Errorf("catalog down: %d %v", status, m)
+	}
+	// Sending the default back needs no catalog.
+	if status, m := down.send(alice, http.MethodPatch, "/api/me", `{"default_models":{"image":""}}`); status != http.StatusOK {
+		t.Errorf("catalog down, empty id: %d %v", status, m)
 	}
 }
 

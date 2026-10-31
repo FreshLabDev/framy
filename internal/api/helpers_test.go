@@ -309,11 +309,16 @@ type fakeStore struct {
 	syncedAt     time.Time
 	// cleared are the people whose language framy withdrew.
 	cleared []int64
+	// settings are kept as the store keeps them; spent is what each
+	// person's runs cost, by provider.
+	settings map[int64]db.Settings
+	spent    map[int64]map[string]db.Spent
 }
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
 		offers: map[string]catalog.Model{}, chosen: map[int64]string{}, lang: map[int64]string{}, cards: map[int64]db.Card{},
+		settings: map[int64]db.Settings{}, spent: map[int64]map[string]db.Spent{},
 		rates: map[string]float64{fx.UAH: 41.5, fx.EUR: 0.86, fx.PLN: 3.65, fx.BYN: 3.3},
 	}
 }
@@ -358,13 +363,54 @@ func (s *fakeStore) SetCurrency(_ context.Context, userID int64, code string) er
 
 func (s *fakeStore) SetUserLang(_ context.Context, userID int64, lang string) error {
 	s.lang[userID] = lang
+	st := s.settingsOf(userID)
+	st.LanguagePicked = true
+	s.settings[userID] = st
 	return nil
 }
 
 func (s *fakeStore) ClearUserLang(_ context.Context, userID int64) error {
 	delete(s.lang, userID)
 	s.cleared = append(s.cleared, userID)
+	st := s.settingsOf(userID)
+	st.LanguagePicked = false
+	s.settings[userID] = st
 	return nil
+}
+
+// settingsOf is the person's settings, the store's defaults when they have
+// none.
+func (s *fakeStore) settingsOf(userID int64) db.Settings {
+	if st, ok := s.settings[userID]; ok {
+		return st
+	}
+	return db.Settings{Deliver: true}
+}
+
+func (s *fakeStore) Settings(_ context.Context, userID int64) (db.Settings, error) {
+	return s.settingsOf(userID), nil
+}
+
+func (s *fakeStore) SetDefaultModel(_ context.Context, userID int64, kind catalog.Kind, modelID string) error {
+	st := s.settingsOf(userID)
+	if kind == catalog.Video {
+		st.DefaultVideo = modelID
+	} else {
+		st.DefaultImage = modelID
+	}
+	s.settings[userID] = st
+	return nil
+}
+
+func (s *fakeStore) SetDelivery(_ context.Context, userID int64, on bool) error {
+	st := s.settingsOf(userID)
+	st.Deliver = on
+	s.settings[userID] = st
+	return nil
+}
+
+func (s *fakeStore) Spent(_ context.Context, userID int64) (map[string]db.Spent, error) {
+	return s.spent[userID], nil
 }
 
 func (s *fakeStore) Card(_ context.Context, userID int64) (db.Card, error) {
@@ -398,6 +444,16 @@ func image(id, provider string) catalog.Model {
 		Routes: []catalog.Route{{Prices: []catalog.Price{{Billable: "output_image", Unit: "image", CostUSD: 0.04}}}},
 	}
 	return catalog.Model{ID: of.ModelID, Kind: catalog.Image, Name: "Test", Offers: []catalog.Offer{of}}
+}
+
+// video is an offer of a video model priced $0.10 a second.
+func video(id, provider string) catalog.Model {
+	of := catalog.Offer{
+		ID: id, ModelID: strings.TrimPrefix(id, provider+":"), Provider: provider, ProviderModelID: strings.TrimPrefix(id, provider+":"),
+		Kind: catalog.Video, Name: "Test video", InputModalities: []string{"text"},
+		Routes: []catalog.Route{{Prices: []catalog.Price{{Billable: "output_video", Unit: "second", CostUSD: 0.1}}}},
+	}
+	return catalog.Model{ID: of.ModelID, Kind: catalog.Video, Name: "Test video", Offers: []catalog.Offer{of}}
 }
 
 type fakeUploads struct {

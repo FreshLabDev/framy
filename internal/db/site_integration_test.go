@@ -48,7 +48,7 @@ func TestASiteResultIsSentOnce(t *testing.T) {
 		return got
 	}
 	got := listed()
-	if len(got) != 1 || got[0] != (SiteResult{JobID: job, UserID: 4401, Prompt: "a fox", Kind: "image", Model: "Chat image"}) {
+	if len(got) != 1 || got[0] != (SiteResult{JobID: job, UserID: 4401, Prompt: "a fox", Kind: "image", Model: "Chat image", Deliver: true}) {
 		t.Fatalf("site results = %+v", got)
 	}
 

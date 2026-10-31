@@ -4,6 +4,8 @@ package db
 import (
 	"context"
 	"fmt"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // The interface language belongs to core, not to framy: a language picked in
@@ -35,15 +37,37 @@ func (s *Store) ChatLang(ctx context.Context, chatID int64) (string, error) {
 }
 
 // SetUserLang records a language the person picked by hand. Manual outranks
-// every automatic source in core, for every bot of the family.
+// every automatic source in core, for every bot of the family. framy notes
+// its claim in profile (language_picked), since it may not read core's
+// observations.
 func (s *Store) SetUserLang(ctx context.Context, userID int64, lang string) error {
-	return s.setLang(ctx, "user", userID, lang)
+	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SELECT core.set_language($1, 'user'::core.pref_scope, $2, $3, 'manual')`,
+			Bot, userID, lang); err != nil {
+			return fmt.Errorf("set user language of %d: %w", userID, err)
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO profile (user_id, language_picked) VALUES ($1, true)
+			ON CONFLICT (user_id) DO UPDATE SET language_picked = true, updated_at = now()`, userID); err != nil {
+			return fmt.Errorf("note the language pick of %d: %w", userID, err)
+		}
+		return nil
+	})
 }
 
 // ClearUserLang withdraws framy's claim, so the next source in core decides.
 // A sibling's manual pick survives it and then wins.
 func (s *Store) ClearUserLang(ctx context.Context, userID int64) error {
-	return s.clearLang(ctx, "user", userID)
+	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SELECT core.clear_language($1, 'user'::core.pref_scope, $2)`, Bot, userID); err != nil {
+			return fmt.Errorf("clear user language of %d: %w", userID, err)
+		}
+		if _, err := tx.Exec(ctx, `UPDATE profile SET language_picked = false, updated_at = now()
+			WHERE user_id = $1 AND language_picked`, userID); err != nil {
+			return fmt.Errorf("note the language of %d is not picked: %w", userID, err)
+		}
+		return nil
+	})
 }
 
 // SetChatLang records the language a group admin picked.

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/FreshLabDev/framy/internal/db"
 	"github.com/FreshLabDev/framy/internal/free"
 	"github.com/FreshLabDev/framy/internal/keys"
 )
@@ -18,7 +19,10 @@ type meJSON struct {
 	Name     string `json:"name"`
 	PhotoURL string `json:"photo_url"`
 	// Language is the one the site should speak: core's, else the browser's.
-	Language string `json:"language"`
+	// LanguageChosen says it is the person's own pick in framy; false is
+	// "Automatic", even when another bot of the family has a pick.
+	Language       string `json:"language"`
+	LanguageChosen bool   `json:"language_chosen"`
 	// Currency is the one prices are shown in, by the rules of the estimate;
 	// CurrencyChosen says it is the person's own pick, not a guess from the
 	// country or the language.
@@ -27,15 +31,36 @@ type meJSON struct {
 	// SignedInAt is the sign-in that gave the name and the photo.
 	SignedInAt *time.Time `json:"signed_in_at,omitempty"`
 	// Connections are the person's keys, by provider, with the last four
-	// characters of each and what the provider last said of it. Never the
-	// key.
-	Connections []keys.Connection `json:"connections"`
+	// characters of each, what the provider last said of it and what framy's
+	// runs on it cost. Never the key.
+	Connections []connectionJSON `json:"connections"`
+	// DefaultModels are the models the composer opens on, by kind; a kind
+	// without one is absent. A model may since have left the catalog.
+	DefaultModels defaultModelsJSON `json:"default_models"`
+	// DeliverToTelegram: the site's results go to the person's DM, where
+	// the bot may write.
+	DeliverToTelegram bool `json:"deliver_to_telegram"`
 	// Free is what is left of the free allowance; absent when framy runs
 	// without one.
 	Free *usageJSON `json:"free,omitempty"`
 	// Storage is how many files framy keeps for the person and their bytes,
 	// for the settings; absent when framy keeps no files.
 	Storage *storageJSON `json:"storage,omitempty"`
+}
+
+// connectionJSON is a connection with what framy's runs on the key cost, by
+// the provider's bill, since the key was saved: Spent in all and Spent30Days
+// over the last 30 days, in the person's currency at today's rate. Runs
+// outside framy on the same key are not in them.
+type connectionJSON struct {
+	keys.Connection
+	Spent       moneyJSON `json:"spent"`
+	Spent30Days moneyJSON `json:"spent_30d"`
+}
+
+type defaultModelsJSON struct {
+	Image string `json:"image,omitempty"`
+	Video string `json:"video,omitempty"`
 }
 
 type storageJSON struct {
@@ -99,12 +124,28 @@ func (a *API) me(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, err)
 		return
 	}
-	if conns == nil {
-		conns = []keys.Connection{}
+	settings, err := a.cfg.Store.Settings(ctx, user)
+	if err != nil {
+		a.internal(w, r, err)
+		return
+	}
+	var spent map[string]db.Spent
+	if len(conns) > 0 {
+		if spent, err = a.cfg.Store.Spent(ctx, user); err != nil {
+			a.internal(w, r, err)
+			return
+		}
 	}
 	out := meJSON{
-		UserID: user, Name: card.Name, PhotoURL: card.PhotoURL, Language: lang,
-		Currency: q.Code, CurrencyChosen: chosen != "" && q.Code == chosen, Connections: conns,
+		UserID: user, Name: card.Name, PhotoURL: card.PhotoURL, Language: lang, LanguageChosen: settings.LanguagePicked,
+		Currency: q.Code, CurrencyChosen: chosen != "" && q.Code == chosen, Connections: make([]connectionJSON, 0, len(conns)),
+		DefaultModels:     defaultModelsJSON{Image: settings.DefaultImage, Video: settings.DefaultVideo},
+		DeliverToTelegram: settings.Deliver,
+	}
+	for _, c := range conns {
+		sp := spent[c.Provider]
+		out.Connections = append(out.Connections, connectionJSON{Connection: c,
+			Spent: money(sp.USD, q.Code, q.PerUSD, lang), Spent30Days: money(sp.Last30DaysUSD, q.Code, q.PerUSD, lang)})
 	}
 	if !card.At.IsZero() {
 		at := card.At.UTC()

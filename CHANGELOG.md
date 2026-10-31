@@ -689,6 +689,14 @@ was written from, and the skeleton of the service.
   thumbnail, and the thumbnails count towards what the person keeps
   (migration 024). The image's ffmpeg has the WebP encoder; without it
   framy makes no thumbnails and keeps the results as before.
+- More of the site's settings. `GET /api/me` tells whether the language is
+  the person's own pick (`language_chosen`), what framy's paid runs on each
+  key cost since it was saved, in all and over the last 30 days, in the
+  person's currency, the default image and video models and whether results
+  made on the site go to the DM. `PATCH /api/me` sets the default models,
+  checked against the catalog, and turns that DM on or off; a result that
+  ends while it is off is not sent later. Migration 025 adds the columns to
+  `profile` and the `off` end of a site delivery.
 - A link to a person's file is the same for a whole hour: it is signed at
   the start of the hour, lives 10 minutes past it, and its answer carries
   `Cache-Control: private, max-age=4200`, so the browser shows a file it has

@@ -102,6 +102,15 @@ type Store interface {
 	// ClearUserLang withdraws framy's pick.
 	SetUserLang(ctx context.Context, userID int64, lang string) error
 	ClearUserLang(ctx context.Context, userID int64) error
+	// Settings are the rest of the person's settings: whether framy picked
+	// the language, the composer's models, the DM. SetDefaultModel and
+	// SetDelivery change them.
+	Settings(ctx context.Context, userID int64) (db.Settings, error)
+	SetDefaultModel(ctx context.Context, userID int64, kind catalog.Kind, modelID string) error
+	SetDelivery(ctx context.Context, userID int64, on bool) error
+	// Spent is what the person's runs cost on each of their keys, by
+	// provider.
+	Spent(ctx context.Context, userID int64) (map[string]db.Spent, error)
 	// Card is the name and photo of the person's last sign-in; a zero Card
 	// when there is none.
 	Card(ctx context.Context, userID int64) (db.Card, error)

@@ -172,16 +172,23 @@ func (a *API) checkConnectionRoute(w http.ResponseWriter, r *http.Request) {
 
 // settingsRequest is the body of PATCH /api/me. A field left out stays as it
 // is; an empty one goes back to the default: the currency of the country or
-// the language, and the language core resolves from the other bots or from
-// Telegram.
+// the language, the language core resolves from the other bots or from
+// Telegram, and framy's default model. DefaultModels takes a model id of the
+// catalog for each kind given.
 type settingsRequest struct {
-	Currency *string `json:"currency"`
-	Language *string `json:"language"`
+	Currency      *string `json:"currency"`
+	Language      *string `json:"language"`
+	DefaultModels *struct {
+		Image *string `json:"image"`
+		Video *string `json:"video"`
+	} `json:"default_models"`
+	DeliverToTelegram *bool `json:"deliver_to_telegram"`
 }
 
-// settings answers PATCH /api/me: the person's currency and language, and
-// the answer is /api/me as it is after. The language is the family's: core
-// keeps it for every bot, as picking it in any of them does.
+// settings answers PATCH /api/me: the person's currency, language, default
+// models and DM, and the answer is /api/me as it is after. The language is
+// the family's: core keeps it for every bot, as picking it in any of them
+// does. Every field is checked before any is kept.
 func (a *API) settings(w http.ResponseWriter, r *http.Request) {
 	user, ok := a.person(w, r)
 	if !ok {
@@ -201,6 +208,26 @@ func (a *API) settings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
+	defaults := map[catalog.Kind]*string{}
+	if d := req.DefaultModels; d != nil {
+		defaults[catalog.Image], defaults[catalog.Video] = d.Image, d.Video
+	}
+	for _, kind := range []catalog.Kind{catalog.Image, catalog.Video} {
+		id := defaults[kind]
+		if id == nil || *id == "" {
+			continue
+		}
+		ok, err := a.isModel(ctx, kind, *id)
+		if err != nil {
+			a.internal(w, r, err)
+			return
+		}
+		if !ok {
+			field := "default_models." + string(kind)
+			badRequest(field, field+" is the id of a "+string(kind)+" model of the catalog, or empty for framy's default").write(w)
+			return
+		}
+	}
 	if req.Currency != nil {
 		if err := a.cfg.Store.SetCurrency(ctx, user, *req.Currency); err != nil {
 			a.internal(w, r, err)
@@ -219,7 +246,30 @@ func (a *API) settings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	for _, kind := range []catalog.Kind{catalog.Image, catalog.Video} {
+		if id := defaults[kind]; id != nil {
+			if err := a.cfg.Store.SetDefaultModel(ctx, user, kind, *id); err != nil {
+				a.internal(w, r, err)
+				return
+			}
+		}
+	}
+	if req.DeliverToTelegram != nil {
+		if err := a.cfg.Store.SetDelivery(ctx, user, *req.DeliverToTelegram); err != nil {
+			a.internal(w, r, err)
+			return
+		}
+	}
 	a.me(w, r)
+}
+
+// isModel says id is a model of that kind the picker shows now.
+func (a *API) isModel(ctx context.Context, kind catalog.Kind, id string) (bool, error) {
+	models, _, _, err := a.catalog.get(ctx, a.cfg.Store, a.now())
+	if err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(models, func(m catalog.Model) bool { return m.ID == id && m.Kind == kind }), nil
 }
 
 // ---- deleting the account ----
