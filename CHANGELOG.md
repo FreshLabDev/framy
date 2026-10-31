@@ -321,7 +321,8 @@ was written from, and the skeleton of the service.
   step, such as "Create for" the new price. The page tells when it lost and
   regained its connection, and marks a run it reads every 5 seconds instead
   of the stream. A result has Again, Edit the prompt, Continue for a video
-  (on the same model where it goes on, else from its last frame) and a copy
+  (on the same model where it goes on, else from its last frame, which the
+  composer marks with Continue's icon and prices with the frame in it) and a copy
   button for the prompt. In the Mini App it also has Share, which opens
   Telegram's chat picker with the result; one Telegram will not take says
   to download it instead.

@@ -11,7 +11,9 @@ const waiting = new Map(); // key -> item
 const listeners = new Set();
 let timer = 0, inflight = 0;
 
-export const keyOf = (it) => JSON.stringify([it.offer, it.pay || "", it.settings || {}, it.files || [], it.prompt ? it.prompt.length : 0]);
+// Everything the server prices by is in the key: a price for a run without its
+// files must not stand for one with them (files framy keeps go as inputs).
+export const keyOf = (it) => JSON.stringify([it.offer, it.pay || "", it.settings || {}, it.files || [], it.inputs || [], it.continues || 0, it.prompt ? it.prompt.length : 0]);
 export const known = (it) => cache.get(keyOf(it));
 export const onPrices = (fn) => listeners.add(fn);
 export const clearPrices = () => cache.clear();

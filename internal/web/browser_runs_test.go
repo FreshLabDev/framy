@@ -106,6 +106,11 @@ func (f *fakeRuns) mount(srv *Server) {
 		}
 		writeTestJSON(w, http.StatusOK, map[string]any{"id": "prep-" + r.PathValue("id"), "expires_at": time.Now().Add(24 * time.Hour).UTC()})
 	})
+	// The last frame of any clip: a picture framy keeps, by id.
+	srv.HandleFunc("POST /api/files/{id}/last-frame", func(w http.ResponseWriter, _ *http.Request) {
+		writeTestJSON(w, http.StatusOK, map[string]any{"id": 72, "content_type": "image/jpeg", "bytes": 30000, "width": 832, "height": 480})
+	})
+	srv.HandleFunc("GET /test/clip.mp4", func(w http.ResponseWriter, _ *http.Request) { w.Header().Set("Content-Type", "video/mp4") })
 	srv.HandleFunc("GET /test/result.png", func(w http.ResponseWriter, _ *http.Request) {
 		img := image.NewRGBA(image.Rect(0, 0, 64, 64))
 		for i := range img.Pix {
@@ -193,6 +198,11 @@ func (f *fakeRuns) create(w http.ResponseWriter, r *http.Request) {
 			"retry_at": time.Now().Add(30 * time.Second).UTC()}))
 	case p == "running":
 		steps = append(steps, at("running", nil))
+	case p == "done:video":
+		url := "http://" + r.Host + "/test/clip.mp4"
+		steps = append(steps, at("running", map[string]any{"kind": "video"}), at("done", map[string]any{"kind": "video",
+			"cost":    map[string]any{"usd": 0.04, "amount": 0.04, "currency": "USD", "label": "$0.040"},
+			"results": []map[string]any{{"id": 9, "content_type": "video/mp4", "url": url, "download": url + "?download=1", "width": 832, "height": 480, "seconds": 5}}}))
 	case p == "slow":
 		for range 14 {
 			steps = append(steps, at("running", nil))
@@ -736,6 +746,47 @@ func TestBrowserRunSound(t *testing.T) {
 	}
 	if fmt.Sprint(s["sound"]) != "[true false]" || fmt.Sprint(s["offers"]) != "[openrouter:bytedance/seedance-2.0-mini openrouter:bytedance/seedance-2.0-mini]" {
 		t.Errorf("without sound: sent %v %v", s["sound"], s["offers"])
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserLastFrame checks Continue from a model that cannot go on from a
+// video: the clip's last frame comes to the composer marked with Continue's
+// icon and no words, and its price is asked again with that frame, never
+// taken from the run without it.
+func TestBrowserLastFrame(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const quotes = [], fetch0 = window.fetch;
+	window.fetch = (u, o) => { if (String(u).endsWith("/api/quote")) quotes.push(JSON.parse(o.body)); return fetch0(u, o); };
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(700);
+	const p = document.querySelector("#prompt");
+	p.value = "done:video"; p.dispatchEvent(new Event("input"));
+	await wait(600);
+	document.querySelector("#go").click();
+	let cont = null;
+	for (let i = 0; i < 100 && !cont; i++) { await wait(100); cont = document.querySelector("#stage .jacts button[aria-label=Continue]"); }
+	const before = quotes.length;
+	cont?.click();
+	let th = null;
+	for (let i = 0; i < 50 && !th; i++) { await wait(100); th = document.querySelector("#files .thumb[data-k=flf72]"); }
+	await wait(600);
+	const tag = th?.querySelector(".tag");
+	// The composer's own run (its pay is set; the prices beside a choice have none),
+	// priced before Continue without the frame and asked again with it.
+	const pre = quotes.slice(0, before).flatMap((q) => q.items), post = quotes.slice(before).flatMap((q) => q.items);
+	const asked = post.filter((it) => it.pay && (it.inputs || []).includes(72) && pre.some((b) => b.offer === it.offer && b.pay === it.pay && !(b.inputs || []).length));
+	const brief = (it) => it.offer.split("/").pop() + "|" + it.pay + "|" + (it.inputs || []).join(",");
+	return { cont: !!cont, thumb: !!th, icon: !!tag?.querySelector("svg"), words: tag?.textContent ?? null, asked: asked.length,
+	  pre: [...new Set(pre.map(brief))].join(" "), post: [...new Set(post.map(brief))].join(" ") };`)
+	if s["cont"] != true || s["thumb"] != true || s["icon"] != true || s["words"] != "" {
+		t.Errorf("last frame: %v", s)
+	}
+	if n, _ := s["asked"].(float64); n < 1 {
+		t.Errorf("the price with the last frame was not asked: %v", s)
 	}
 	noErrors(t, ctx)
 }
