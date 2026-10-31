@@ -29,6 +29,14 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 - The library shows a press as one card with its pictures together. Its
   viewer goes between the frames, and Again and Edit the prompt bring every
   frame back, a job of several results as that many frames.
+- The site carries framy's mark: in the browser tab, on an iPhone's home
+  screen, and before the name in the header.
+
+### Fixed
+
+- On a phone 320 px wide the sign-in button no longer breaks onto two lines
+  past its edges: the header shows the mark without the name there, and a
+  sign-in line too long for the button ends in an ellipsis.
 
 ## v0.1.0-alpha.2 - 2026-10-31
 

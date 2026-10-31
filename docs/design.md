@@ -782,6 +782,7 @@ Temporary domain `framy.ws04.cc`. Mobile first; on a wide screen the composer an
 - References come by drag and drop, a paste from the clipboard, or a file picker.
 - Progress arrives over SSE.
 - **Look (owner):** the Asterfield design system, and original rather than the usual generator layout of a chat box over a grid of pictures. One field colour and white; DIN Condensed for figures and DIN Alternate for labels, with Sofia Sans standing in on the web; stripes and gaps in the 7 : 4 proportion; square corners; no shadows, gradients or rounded panels. framy's field colour is the avatar's (see Avatar).
+- **framy's mark (owner, 31 October):** two mountains and a sun, the flat version of the bot's avatar (`brand/framy/framy-favicon.svg`, copied to `internal/web/app/icon/`). It is the tab icon, with a 32 px PNG beside the SVG and a 180 px one for the home screen of an iPhone, and it stands before the name in the header, its mountains on the line of the letters, in the skeleton as in the page. On a screen under 360 px with the sign-in button the header shows the mark alone, so the button stays on one line; a sign-in line too long for the button ends in an ellipsis.
 - The interface comes in the family's 16 languages, with `i18n` taken from maply.
 
 ## Content and other people's photos

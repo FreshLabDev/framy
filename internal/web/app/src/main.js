@@ -15,6 +15,7 @@ import { signIn, refreshMe, generate, netState } from "./run.js";
 import { mountCutter, openCut } from "./clips.js";
 import { mountPrefs, openPrefs, renderPrefs, prefsOpen, oauthResult, oauthBack } from "./prefs.js";
 import { mountLibrary, mountViewer, mountFull, fullOpen, closeFull, tabs, go, route, libMe } from "./library.js";
+import { MARK } from "assets:lists";
 
 const B = window.framy;
 
@@ -33,11 +34,11 @@ function account() {
     const av = me.photo_url ? h("img", { class: "av", src: me.photo_url, alt: "", referrerpolicy: "no-referrer" }) : h("span", { class: "av" }, (me.name || "?").slice(0, 1).toUpperCase());
     return h("button", { type: "button", class: "me", id: "meBtn", onclick: () => openPrefs(), "aria-label": t("prefs.title"), "aria-haspopup": "dialog" }, av, h("span", { class: "t" }, t("prefs.title")));
   }
-  return S.mini ? null : h("button", { type: "button", class: "signin", onclick: signIn }, ic("send"), t("auth.signin"));
+  return S.mini ? null : h("button", { type: "button", class: "signin", onclick: signIn }, ic("send"), h("span", {}, t("auth.signin")));
 }
 function renderTop() {
   const top = $("#top");
-  top.replaceChildren(...[h("div", { class: "logo" }, "framy"), tabs(), h("span", { class: "sp" }), account()].filter(Boolean));
+  top.replaceChildren(...[h("div", { class: "logo" }, h("img", { src: MARK, alt: "" }), h("span", {}, "framy")), tabs(), h("span", { class: "sp" }), account()].filter(Boolean));
   placeSegs(top);
 }
 

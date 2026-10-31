@@ -51,10 +51,13 @@ p {margin: 0;}
 .mirror > * {background: transparent !important; color: var(--field) !important; opacity: 1 !important;}
 .mirror small, .mirror .n, .mirror .k2 {color: var(--line) !important;}
 .top {display: flex; align-items: center; gap: 12px; height: 68px;}
-.logo {font: 700 34px/1 var(--display); margin-right: 8px;}
+.logo {display: flex; align-items: baseline; gap: 8px; font: 700 34px/1 var(--display); margin-right: 8px;}
+.logo img {width: 32px; height: 32px;}
 .me {height: 40px; padding: 0 12px 0 6px; display: flex; align-items: center; gap: 8px; background: var(--deep); font-weight: 600;}
 .me .av {width: 28px; height: 28px; display: grid; place-items: center; background: var(--ink); color: var(--field); font-weight: 700;}
-.signin {height: 40px; padding: 0 14px; display: flex; align-items: center; gap: 8px; background: var(--ink); color: var(--field); font-weight: 700;}
+.signin {height: 40px; min-width: 0; padding: 0 14px; display: flex; align-items: center; gap: 8px; background: var(--ink); color: var(--field); font-weight: 700;}
+.signin > span {white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+@media (max-width: 359px) {.top:has(.signin) .logo span {display: none;}}
 @media (max-width: 520px) {
   .me .t {display: none;}
 }
