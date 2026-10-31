@@ -161,11 +161,12 @@ jobs:
               framy:ci -test.v -test.count=1
           done
       - name: Validate Compose
-        # The test bot's stack too; the production manifest,
-        # deploy/ws04/compose.yaml, joins when that stack is written.
+        # The local stack, the test bot's and production's.
         run: |
           cp .env.example .env
           mkdir -p secrets && touch secrets/bot-token
           docker compose config >/dev/null
-          printf 'FRAMY_IMAGE=framy:ci\nFRAMY_TEST_DB_PASSWORD=x\n' > deploy/ws04-test/.env
+          printf 'FRAMY_IMAGE=framy:ci\nFRAMY_CORE_PASSWORD=x\n' > deploy/ws04-test/.env
           docker compose -f deploy/ws04-test/compose.yaml config >/dev/null
+          printf 'FRAMY_IMAGE=framy:ci\nFRAMY_CORE_PASSWORD=x\nR2_ACCOUNT_ID=x\nTRUSTED_PROXIES=172.20.0.0/16\nBOT_API_TOKEN=1:x\n' > deploy/ws04/.env
+          docker compose -f deploy/ws04/compose.yaml config >/dev/null

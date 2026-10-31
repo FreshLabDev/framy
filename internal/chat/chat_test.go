@@ -696,3 +696,27 @@ func TestTheWaitIsInHoursAndMinutes(t *testing.T) {
 		}
 	}
 }
+
+// One person's DM with each bot has the same chat id and message ids counted
+// apart, so a stack other than production keys its jobs with its name, and
+// production keeps its keys (docs/design.md, Stacks).
+func TestTheTestBotKeysItsJobsApart(t *testing.T) {
+	h := newHarness(t)
+	h.flow.cfg.Stack = "test"
+	if err := h.command(command("/img a fox"), CommandImage, "a fox"); err != nil {
+		t.Fatal(err)
+	}
+	if job := h.store.jobs[1]; job == nil || job.n.DedupeKey != "tg:test:-100:10" {
+		t.Fatalf("job = %+v", job)
+	}
+	for _, c := range []struct{ stack, key, want string }{
+		{"", "tg:7:10", "tg:7:10"},
+		{"", "tg:cb:42", "tg:cb:42"},
+		{"test", "tg:cb:42", "tg:test:cb:42"},
+		{"test", "tg:g:q1", "tg:test:g:q1"},
+	} {
+		if got := stackKey(c.stack, c.key); got != c.want {
+			t.Errorf("stackKey(%q, %q) = %q, want %q", c.stack, c.key, got, c.want)
+		}
+	}
+}

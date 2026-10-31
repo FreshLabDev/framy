@@ -13,7 +13,7 @@ func setBase(t *testing.T) {
 	t.Helper()
 	for _, k := range []string{"TELEGRAM_BOT_TOKEN", "TELEGRAM_BOT_TOKEN_FILE", "DATABASE_URL", "DATABASE_URL_FILE", "TELEGRAM_API_BASE", "AUTO_MIGRATE", "HTTP_ADDR", "METRICS_ADDR", "LOG_LEVEL", "OPENROUTER_API_BASE", "CATALOG_SYNC_INTERVAL", "FX_SYNC", "JOBS_STOP_GRACE", "OPENROUTER_API_KEY", "OPENROUTER_API_KEY_FILE",
 		"R2_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID_FILE", "R2_SECRET_ACCESS_KEY", "R2_SECRET_ACCESS_KEY_FILE", "R2_ENDPOINT", "R2_ACCOUNT_ID", "R2_BUCKET", "R2_PREFIX",
-		"WORK_DIR", "FFMPEG", "FFPROBE", "OPERATOR_CHAT_ID", "BOT_API_FILES_DIR"} {
+		"WORK_DIR", "FFMPEG", "FFPROBE", "OPERATOR_CHAT_ID", "BOT_API_FILES_DIR", "FRAMY_STACK"} {
 		t.Setenv(k, "")
 	}
 	t.Setenv("TELEGRAM_BOT_TOKEN", "123:abc")
@@ -30,7 +30,7 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.TelegramAPIBase != DefaultTelegramAPIBase || cfg.HTTPAddr != ":8080" || cfg.MetricsAddr != ":9090" || !cfg.AutoMigrate || cfg.LogLevel != "info" ||
 		cfg.OpenRouterAPIBase != DefaultOpenRouterAPIBase || cfg.CatalogEvery != time.Hour || cfg.JobsStopGrace != 210*time.Second ||
 		cfg.OpenRouterKey != "" || cfg.R2.Enabled() || cfg.R2.Bucket != "framy" || cfg.FFmpeg != "ffmpeg" || cfg.FFprobe != "ffprobe" ||
-		cfg.WorkDir != filepath.Join(os.TempDir(), "framy") || cfg.OperatorChatID != 0 || !cfg.FXSync {
+		cfg.WorkDir != filepath.Join(os.TempDir(), "framy") || cfg.OperatorChatID != 0 || !cfg.FXSync || !cfg.Primary() {
 		t.Fatalf("defaults = %+v", cfg)
 	}
 }
@@ -262,5 +262,25 @@ func TestTelegramsOwnServerNeedsNoFiles(t *testing.T) {
 	}
 	if cfg.BotAPIFilesDir != "" {
 		t.Fatalf("BotAPIFilesDir = %q", cfg.BotAPIFilesDir)
+	}
+}
+
+func TestStack(t *testing.T) {
+	setBase(t)
+	t.Setenv("FRAMY_STACK", "test")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Stack != "test" || cfg.Primary() {
+		t.Fatalf("stack = %q, primary = %v", cfg.Stack, cfg.Primary())
+	}
+	// A River queue's name takes lowercase letters, digits and one
+	// separator between words; the stack goes before it with "_".
+	for _, bad := range []string{"Test", "test_1", "1test", "te-st", "a23456789abcdefgh"} {
+		t.Setenv("FRAMY_STACK", bad)
+		if _, err := Load(); err == nil {
+			t.Errorf("FRAMY_STACK=%q loaded", bad)
+		}
 	}
 }

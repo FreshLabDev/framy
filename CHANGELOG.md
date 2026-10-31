@@ -11,6 +11,43 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+### Changed
+
+- The test bot and production share one database: the `framy` schema in
+  core-postgres. A person sees the same history, settings and connected keys
+  on framy.ws04.cc and framy-test.ws04.cc, and the free tier's daily budget
+  is counted once over both bots instead of once on each.
+- Each bot works only its own jobs and tells only its own chats. A job runs
+  on the bot whose chat or site started it, and a result made on a site goes
+  to the DM from that site's bot. Inline mode, replies to a result, albums
+  and Send to Telegram use only what the bot itself sent or saw, since a
+  Telegram file id works only for the bot that got it.
+- The catalog sync, the currency rates, the sweep of uploads no job took,
+  the thumbnails and the operator chat run on production only. The test bot
+  shows production's catalog, so a catalog change reaches it with the
+  release that takes it to production.
+
+### Added
+
+- `FRAMY_STACK` names the bot when two share one schema: empty for
+  production, `test` for the test bot. A stack other than production puts its
+  name before its River queues and its Telegram dedupe keys.
+
+### Breaking
+
+- Migration `029_stack.sql` marks jobs, chat runs and album items with their
+  bot and changes the album cache's key. v0.1.0-alpha.1 cannot write the
+  album cache after it, so a rollback past this release loses albums sent
+  until the next deploy.
+- Deploy production first. The test bot's stack then moves onto
+  core-postgres: `FRAMY_STACK=test`, `DATABASE_URL` as `framy_core`, the
+  network `core_net`, production's KEK in `secrets/kek`, no `R2_PREFIX`
+  (`deploy/ws04-test/compose.yaml`). Its own PostgreSQL goes; its data is not
+  moved, and the volume stays.
+- The test bot runs `dev` and applies its migrations to production's schema
+  before production does, so every migration from now on is additive
+  (AGENTS.md, Migrations).
+
 ### Fixed
 
 - Switching an empty composer from Image to Video no longer flashes the

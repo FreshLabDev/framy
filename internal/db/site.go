@@ -32,9 +32,9 @@ type SiteResult struct {
 	Deliver bool
 }
 
-// SiteResults are the site's jobs that ended done after since and that no
-// sender has taken, oldest first, at most limit of them. A deleted job is
-// left out.
+// SiteResults are the jobs this stack's site made that ended done after
+// since and that no sender has taken, oldest first, at most limit of them. A
+// deleted job is left out.
 func (s *Store) SiteResults(ctx context.Context, since time.Time, limit int) ([]SiteResult, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT j.id, j.user_id, j.prompt, j.kind, COALESCE(m.name, o.name, j.model_id), COALESCE(p.deliver_to_telegram, true)
@@ -42,10 +42,10 @@ func (s *Store) SiteResults(ctx context.Context, since time.Time, limit int) ([]
 		LEFT JOIN catalog_offer o ON o.id = j.offer_id
 		LEFT JOIN catalog_model m ON m.id = j.model_id
 		LEFT JOIN profile p ON p.user_id = j.user_id
-		WHERE j.surface = 'site' AND j.status = 'done' AND j.deleted_at IS NULL AND j.finished_at > $1
+		WHERE j.surface = 'site' AND j.status = 'done' AND j.deleted_at IS NULL AND j.finished_at > $1 AND j.stack = $3
 		  AND NOT EXISTS (SELECT 1 FROM site_delivery d WHERE d.job_id = j.id)
 		ORDER BY j.finished_at, j.id
-		LIMIT $2`, since, limit)
+		LIMIT $2`, since, limit, s.stack)
 	if err != nil {
 		return nil, fmt.Errorf("site results: %w", err)
 	}
@@ -107,10 +107,10 @@ func (s *Store) SentSiteResult(ctx context.Context, run ChatRun, res ChatResult)
 		}
 		_, err := tx.Exec(ctx, `
 			INSERT INTO chat_run (job_id, chat_id, command_message_id, lang, stage,
-			                      result_message_id, result_file_id, result_file_unique_id, result_file_type, result_asset_id)
-			VALUES ($1, $2, 0, $3, 'done', $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8::bigint, 0))
+			                      result_message_id, result_file_id, result_file_unique_id, result_file_type, result_asset_id, stack)
+			VALUES ($1, $2, 0, $3, 'done', $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8::bigint, 0), $9)
 			ON CONFLICT (job_id) DO NOTHING`,
-			run.JobID, run.ChatID, run.Lang, res.MessageID, res.FileID, res.FileUniqueID, res.FileType, res.AssetID)
+			run.JobID, run.ChatID, run.Lang, res.MessageID, res.FileID, res.FileUniqueID, res.FileType, res.AssetID, s.stack)
 		return err
 	})
 	if err != nil {

@@ -133,12 +133,23 @@ func mediaOf(photos []tg.Photo, doc *tg.Document, an *tg.Animation, video *tg.Vi
 // message are the same in every copy of the update. An ephemeral command has
 // no message id, and Telegram gives its ephemeral id to another message once
 // it is gone, so the date goes with it.
-func dedupeKey(m *tg.Message) string {
+func dedupeKey(stack string, m *tg.Message) string {
 	chat := "tg:" + strconv.FormatInt(m.Chat.ID, 10) + ":"
 	if ephemeralCommand(m) {
-		return chat + "e" + strconv.FormatInt(m.EphemeralMessageID, 10) + ":" + strconv.FormatInt(m.Date, 10)
+		return stackKey(stack, chat+"e"+strconv.FormatInt(m.EphemeralMessageID, 10)+":"+strconv.FormatInt(m.Date, 10))
 	}
-	return chat + strconv.FormatInt(m.MessageID, 10)
+	return stackKey(stack, chat+strconv.FormatInt(m.MessageID, 10))
+}
+
+// stackKey is a Telegram dedupe key on stack (docs/design.md, Stacks): two
+// bots count their message ids apart, and one person's DM with each has the
+// same chat id. A stack other than production puts its name after "tg:";
+// production keeps the keys it always made.
+func stackKey(stack, key string) string {
+	if stack == "" {
+		return key
+	}
+	return "tg:" + stack + ":" + strings.TrimPrefix(key, "tg:")
 }
 
 // ephemeralCommand: the command is an ephemeral message, which only framy
@@ -200,7 +211,7 @@ func (f *Flow) command(ctx context.Context, m *tg.Message, command, prompt strin
 		}
 		return f.reply(ctx, m, t(lang, "run.empty"))
 	}
-	key := dedupeKey(m)
+	key := dedupeKey(f.cfg.Stack, m)
 	if _, seen, err := f.cfg.Store.JobByKey(ctx, key); err != nil {
 		return err
 	} else if seen {

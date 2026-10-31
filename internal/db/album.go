@@ -34,37 +34,37 @@ type AlbumItem struct {
 	CreatedAt    time.Time // when framy first saw it; set by the database
 }
 
-// NoteAlbumItem saves an item. The same message noted again, as a replayed
+// NoteAlbumItem saves an item, as this stack's bot saw it. The same message noted again, as a replayed
 // update or an edit that swapped the file, writes over its row and keeps the
 // time framy first saw it, so a replay changes nothing and the 48 hours run
 // from the first sight.
 func (s *Store) NoteAlbumItem(ctx context.Context, it AlbumItem) error {
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO album_item
-		  (chat_id, media_group_id, message_id, user_id, kind, file_id, file_unique_id, width, height, file_size, sent_at)
-		VALUES ($1, $2, $3, NULLIF($4::bigint, 0), $5, $6, $7, NULLIF($8::int, 0), NULLIF($9::int, 0), NULLIF($10::bigint, 0), $11)
-		ON CONFLICT (chat_id, message_id) DO UPDATE SET
+		  (chat_id, media_group_id, message_id, user_id, kind, file_id, file_unique_id, width, height, file_size, sent_at, stack)
+		VALUES ($1, $2, $3, NULLIF($4::bigint, 0), $5, $6, $7, NULLIF($8::int, 0), NULLIF($9::int, 0), NULLIF($10::bigint, 0), $11, $12)
+		ON CONFLICT (stack, chat_id, message_id) DO UPDATE SET
 		  media_group_id = EXCLUDED.media_group_id, user_id = EXCLUDED.user_id, kind = EXCLUDED.kind,
 		  file_id = EXCLUDED.file_id, file_unique_id = EXCLUDED.file_unique_id,
 		  width = EXCLUDED.width, height = EXCLUDED.height, file_size = EXCLUDED.file_size,
 		  sent_at = EXCLUDED.sent_at`,
 		it.ChatID, it.MediaGroupID, it.MessageID, it.UserID, it.Kind, it.FileID, it.FileUniqueID,
-		it.Width, it.Height, it.FileSize, it.SentAt)
+		it.Width, it.Height, it.FileSize, it.SentAt, s.stack)
 	if err != nil {
 		return fmt.Errorf("note album item %d in %d: %w", it.MessageID, it.ChatID, err)
 	}
 	return nil
 }
 
-// AlbumItems returns what framy saw of an album, in the order it was sent.
-// The group id is unique inside its chat only.
+// AlbumItems returns what this stack's bot saw of an album, in the order it
+// was sent. The group id is unique inside its chat only.
 func (s *Store) AlbumItems(ctx context.Context, chatID int64, mediaGroupID string) ([]AlbumItem, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT chat_id, media_group_id, message_id, COALESCE(user_id, 0), kind, file_id, file_unique_id,
 		       COALESCE(width, 0), COALESCE(height, 0), COALESCE(file_size, 0), sent_at, created_at
 		FROM album_item
-		WHERE chat_id = $1 AND media_group_id = $2
-		ORDER BY message_id`, chatID, mediaGroupID)
+		WHERE stack = $3 AND chat_id = $1 AND media_group_id = $2
+		ORDER BY message_id`, chatID, mediaGroupID, s.stack)
 	if err != nil {
 		return nil, fmt.Errorf("album %s in %d: %w", mediaGroupID, chatID, err)
 	}

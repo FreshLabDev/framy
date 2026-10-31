@@ -176,6 +176,10 @@ type Config struct {
 	// a guest run and of a shared result. Telegram takes only https; with
 	// anything else it is empty.
 	AppURL string
+	// Stack is the bot this flow is (config.Config.Stack). It goes into the
+	// key of a job a message starts: the DM of one person with two bots has
+	// the same chat id, and each counts its message ids from one.
+	Stack string
 }
 
 // Flow runs /img and /edit in chats, and a plain message in a DM, and sends

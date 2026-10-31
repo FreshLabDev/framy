@@ -26,10 +26,10 @@ type ShareSource struct {
 	Prompt      string
 	// Model is the model's name, as ChatRun has it.
 	Model string
-	// FileID and FileType are the file the result went out as in a chat:
-	// only for the asset that message carries, the job's first result, since
-	// a chat run keeps the first message of an album, or the joined clip a
-	// site result went to the DM as.
+	// FileID and FileType are the file the result went out as in a chat of
+	// this stack's bot: only for the asset that message carries, the job's
+	// first result, since a chat run keeps the first message of an album, or
+	// the joined clip a site result went to the DM as.
 	FileID   string
 	FileType string
 }
@@ -43,14 +43,14 @@ func (s *Store) ShareSource(ctx context.Context, userID, assetID int64) (ShareSo
 		SELECT a.id, j.id, a.object_key, a.content_type, a.bytes, COALESCE(a.width, 0), COALESCE(a.height, 0),
 		       COALESCE(a.seconds, 0), j.prompt, COALESCE(m.name, o.name, j.model_id),
 		       COALESCE(a.id = COALESCE(r.result_asset_id, (SELECT min(f.id) FROM asset f WHERE f.job_id = j.id AND f.kind = 'result')), false),
-		       COALESCE(r.result_file_id, ''), COALESCE(r.result_file_type, '')
+		       COALESCE(CASE WHEN r.stack = $3 THEN r.result_file_id END, ''), COALESCE(r.result_file_type, '')
 		FROM asset a
 		JOIN job j ON j.id = a.job_id
 		LEFT JOIN chat_run r ON r.job_id = j.id
 		LEFT JOIN catalog_offer o ON o.id = j.offer_id
 		LEFT JOIN catalog_model m ON m.id = j.model_id
 		WHERE a.id = $2 AND a.user_id = $1 AND a.kind IN ('result', 'joined') AND j.user_id = $1
-		  AND j.status = 'done' AND j.deleted_at IS NULL`, userID, assetID).Scan(
+		  AND j.status = 'done' AND j.deleted_at IS NULL`, userID, assetID, s.stack).Scan(
 		&src.AssetID, &src.JobID, &src.Key, &src.ContentType, &src.Bytes, &src.Width, &src.Height,
 		&src.Seconds, &src.Prompt, &src.Model, &first, &src.FileID, &src.FileType)
 	if errors.Is(err, pgx.ErrNoRows) {

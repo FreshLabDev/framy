@@ -99,7 +99,10 @@ type Config struct {
 	// Prefix goes before every object key: "test/" for a test bot that
 	// shares the bucket, empty for production.
 	Prefix string
-	// Notify tells the operator chat; nil logs instead.
+	// Notify tells the operator chat. Nil leaves the bucket's steps alone,
+	// for production to tell (docs/design.md, Stacks): the step is shared,
+	// and a process that took it with nobody to tell would keep it from
+	// the one that has someone.
 	Notify    func(ctx context.Context, text string) error
 	Log       *slog.Logger
 	MaxUpload int64
@@ -1023,6 +1026,9 @@ func (s *Store) Usage(ctx context.Context, userID int64) (Usage, error) {
 // Two writes crossing it at once tell it once: the step is swapped, not
 // set. It never fails the write that called it.
 func (s *Store) checkBucket(ctx context.Context) {
+	if s.notify == nil {
+		return
+	}
 	ctx = context.WithoutCancel(ctx)
 	var total int64
 	var step int
@@ -1044,9 +1050,6 @@ func (s *Store) checkBucket(ctx context.Context) {
 	text := fmt.Sprintf("framy: the R2 bucket holds %.1f GB, past %d GB. Storage beyond the free 10 GB is billed at $0.015 per GB a month.",
 		float64(total)/1e9, int64(now)*s.cfg.AlertStep/1e9)
 	s.log.Warn("bucket usage", "bytes", total, "step", now)
-	if s.notify == nil {
-		return
-	}
 	if err := s.notify(ctx, text); err != nil {
 		s.log.Error("tell the operator chat", "error", err)
 		// The next write tries again.

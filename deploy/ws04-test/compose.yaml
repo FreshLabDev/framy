@@ -1,9 +1,18 @@
 # SPDX-License-Identifier: Apache-2.0
 # The test bot @framytest_bot on ws04, in /opt/stacks/framy-test.
 #
-# Its own PostgreSQL, seeded with the core stand-in (initdb/00-core-init.sql
-# is deploy/core-init.sql), so it never sees production data. It shares the
-# R2 bucket under the prefix test/, and talks to the cloud Bot API.
+# It shares production's database: the framy schema in core-postgres, as the
+# role framy_core, over core_net (docs/design.md, Stacks). FRAMY_STACK=test
+# keeps its River queues, chat runs, album cache and getUpdates offset apart
+# from production's; the catalog, the rates, the sweep of uploads and the
+# operator chat are production's. A person has one history on both sites.
+# The test bot runs dev, so it applies dev's migrations to production's
+# schema first: they have to be additive (AGENTS.md, Migrations).
+#
+# Its old database, the volume framy-test_pgdata, is kept and no longer used.
+#
+# It shares the R2 bucket and the object keys with production (no R2_PREFIX):
+# both read every person's files. It talks to the cloud Bot API.
 #
 # Until there is a release to pin, the image is built on the host from a
 # commit of dev:
@@ -12,13 +21,15 @@
 #     --build-arg COMMIT=<commit> <checkout>
 # and FRAMY_IMAGE in .env names it.
 #
-# .env holds FRAMY_IMAGE, FRAMY_TEST_DB_PASSWORD, R2_ACCOUNT_ID and
-# TRUSTED_PROXIES. The files in secrets/ belong to uid 10001, the image's
-# user, mode 0400: bot-token, kek, r2-access-key-id, r2-secret-access-key,
-# openrouter-key, hook-path-secret (head -c 32 /dev/urandom | base64), and
-# telegram-login-client-id and telegram-login-client-secret: the OpenID
-# Connect client of @framytest_bot in BotFather (Login Widget, with the
-# redirect URI https://framy-test.ws04.cc/auth/callback and RS256), and
+# .env holds FRAMY_IMAGE, FRAMY_CORE_PASSWORD (the same as production's and
+# core's), R2_ACCOUNT_ID and TRUSTED_PROXIES. The files in secrets/ belong to
+# uid 10001, the image's user, mode 0400: bot-token, kek (a copy of
+# production's: the keys people connect are stored once for both),
+# r2-access-key-id, r2-secret-access-key, openrouter-key, hook-path-secret
+# (head -c 32 /dev/urandom | base64), and telegram-login-client-id and
+# telegram-login-client-secret: the OpenID Connect client of @framytest_bot
+# in BotFather (Login Widget, with the redirect URI
+# https://framy-test.ws04.cc/auth/callback and RS256), and
 # openrouter-webhook-secret: the webhook signing secret of the OpenRouter
 # workspace that openrouter-key belongs to (Workspace settings, Webhooks).
 #
@@ -27,34 +38,11 @@
 # TRUSTED_PROXIES is that network's range, where cloudflared connects from.
 # No port is published to the host.
 #
-# openrouter-key is framy's own key, the same one the production stack pays
-# the free allowance with. Each stack counts its own daily budget, so stop
-# this one when it is not in use, or the key pays the free tier twice.
+# openrouter-key is framy's own key, the same one production pays the free
+# allowance with, and the daily budget is counted once over both bots.
 name: framy-test
 
 services:
-  postgres:
-    image: postgres:17-alpine
-    container_name: framy-test-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: framy
-      POSTGRES_PASSWORD: ${FRAMY_TEST_DB_PASSWORD:?FRAMY_TEST_DB_PASSWORD is required}
-      POSTGRES_DB: framy
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ./initdb:/docker-entrypoint-initdb.d:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U framy -d framy"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
   bot:
     image: ${FRAMY_IMAGE:?FRAMY_IMAGE is required}
     pull_policy: never
@@ -71,13 +59,16 @@ services:
       - path: .env
         required: true
     environment:
-      DATABASE_URL: postgres://framy:${FRAMY_TEST_DB_PASSWORD}@postgres:5432/framy?sslmode=disable
+      FRAMY_STACK: test
+      # Never PgBouncer: River's listener needs a real session.
+      DATABASE_URL: "postgres://framy_core:${FRAMY_CORE_PASSWORD:?FRAMY_CORE_PASSWORD must be set}@core-postgres:5432/core?sslmode=disable"
       HTTP_ADDR: :8080
       METRICS_ADDR: :9090
       TELEGRAM_BOT_TOKEN_FILE: /run/secrets/bot-token
       FRAMY_KEK_FILE: /run/secrets/kek
       R2_BUCKET: framy
-      R2_PREFIX: test/
+      # Empty even if .env says otherwise: one schema, one set of keys.
+      R2_PREFIX: ""
       R2_ACCESS_KEY_ID_FILE: /run/secrets/r2-access-key-id
       R2_SECRET_ACCESS_KEY_FILE: /run/secrets/r2-secret-access-key
       OPENROUTER_API_KEY_FILE: /run/secrets/openrouter-key
@@ -92,10 +83,7 @@ services:
       - ./secrets:/run/secrets:ro
       - work:/var/lib/framy/work
       - anim:/var/lib/framy/anim
-    networks: [default, management]
-    depends_on:
-      postgres:
-        condition: service_healthy
+    networks: [core_net, management]
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz >/dev/null 2>&1 || exit 1"]
       interval: 15s
@@ -109,10 +97,12 @@ services:
         max-file: "3"
 
 volumes:
-  pgdata:
   work:
   anim:
 
 networks:
+  core_net:
+    external: true
+    name: core_net
   management:
     external: true

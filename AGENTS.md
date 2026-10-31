@@ -204,6 +204,14 @@ screen, a command or a table, check how the siblings do it.
 - Add new SQL migrations under `migrations/` with the next numeric prefix.
 - Migrations must be safe to run once and tracked by `schema_migrations`.
 - Do not edit a migration after it may have been applied.
+- The test bot shares production's schema and runs `dev`, so a migration
+  reaches production before its code does (docs/design.md, Stacks). Keep it
+  additive: new tables, columns that are NULL or have a default, indexes. No
+  rename, drop, changed type or key, or NOT NULL without a default while the
+  released binary still uses the old form.
+- Anything only one bot can act on (a chat, a message id, a `file_id`, a
+  River queue, the getUpdates offset) carries the stack and is read by it.
+  Upkeep of shared tables runs on production only (`config.Config.Primary`).
 - Grants for `framy_core` belong to the `core` repository, in the same
   migration that revokes `PUBLIC`.
 

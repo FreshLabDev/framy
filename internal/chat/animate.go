@@ -101,7 +101,7 @@ func (f *Flow) animate(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun
 		return err
 	}
 	// The press is the update: a replayed one makes no second draft.
-	key := "tg:cb:" + cq.ID
+	key := stackKey(f.cfg.Stack, "tg:cb:"+cq.ID)
 	refusal, err := f.queueDraft(ctx, run.Lang, newJob(m, key, run.Prompt, []int64{frame.ID}, &d), &d, true)
 	switch {
 	case err != nil:

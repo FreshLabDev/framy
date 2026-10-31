@@ -998,6 +998,19 @@ Main tables of the `framy` schema, created by a core migration with its own `fra
 
 The free allowance is counted from `job`, not stored separately.
 
+## Stacks
+
+Production (@framyin_bot, framy.ws04.cc) and the test bot (framy-test.ws04.cc) share the `framy` schema in `core-postgres` from v0.1.0-alpha.2 (owner, 31 October 2026): one history per person on both sites, one free budget, one catalog, one key per provider. `FRAMY_STACK` says which process is which: empty for production, `test` for the test bot. Migration 029 keeps apart what only one bot can act on:
+
+- **Queues.** A stack other than production puts its name before each River queue (`test_openrouter_image`, `test_default`) and works only those. `job.stack` is the stack that made the job, and its run waits for that stack: while the test bot is stopped, its jobs stay queued. A person's limit of runs at once counts both, and a job that ends on one wakes the next one waiting on the other.
+- **Telegram.** Message ids are counted per chat and per bot, a person's DM with each bot has the same chat id, and a `file_id` works only for the bot that got it. `chat_run.stack` and `album_item.stack` name the bot. A process follows, delivers, answers inline and reads albums only from its own; Send to Telegram reuses a stored `file_id` only from its own bot and uploads the file otherwise. A Telegram dedupe key of a stack other than production has its name after `tg:`.
+- **getUpdates.** Production keeps its offset in `runtime_state`, where every release has read it; any other stack in `stack_state`.
+- **Site results.** A result made on a site goes to the DM from that site's bot, by `job.stack`.
+
+Production alone keeps what both would share: the catalog sync, the currency rates, the sweep of uploads no job took, the thumbnails and the operator chat (the bucket's steps, the free tier's fuses). Two releases would write their own catalog over each other every hour, so a catalog change on `dev` reaches the test bot with the release that takes it to production. River elects one leader for the schema, and the leader's sweep of drafts and stale jobs serves both stacks.
+
+The test bot runs `dev`, so its migrations reach production's schema before production's binary knows them. A migration must leave the released binary working: new tables, columns that are NULL or have a default, indexes. A rename, a drop, a changed type or key, or a new NOT NULL without a default waits until production runs a release that no longer needs the old form, and so does an upgrade of River that brings migrations of its own. Migration 029 itself changed `album_item`'s key, so v0.1.0-alpha.2 went to production before the test bot moved onto the schema, and production cannot roll back to v0.1.0-alpha.1 without losing the album cache's writes.
+
 ## Avatar
 
 Proposal: a viewfinder of four corner brackets with a round dot in the middle, the point a camera focuses on, built from rectangles and a circle, so the `brand/` rules 4–7 hold. The first proposal had a four-pointed spark inside, which reads as Gemini's logo, and was dropped on 27 October.

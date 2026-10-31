@@ -76,7 +76,10 @@ func run(log *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	store, err := connect(ctx, cfg.DatabaseURL, log)
+	if !cfg.Primary() {
+		log.Info("stack", "name", cfg.Stack, "upkeep", "production's")
+	}
+	store, err := connect(ctx, cfg.DatabaseURL, cfg.Stack, log)
 	if err != nil {
 		return err
 	}
@@ -143,6 +146,7 @@ func run(log *slog.Logger) error {
 		return err
 	}
 	jobsCfg := jobs.Config{
+		Stack: cfg.Stack,
 		Providers: map[string]jobs.Provider{
 			catalog.OpenRouter: people.Track(openrouter.New(openrouter.Config{
 				Base:      cfg.OpenRouterAPIBase,
@@ -333,7 +337,10 @@ func run(log *slog.Logger) error {
 			}
 		})
 	}
-	if cfg.CatalogEvery > 0 {
+	// The catalog, the rates, the uploads no job took and the thumbnails
+	// are shared by every stack on the schema: production keeps them, so
+	// two releases never write their own versions over each other.
+	if cfg.CatalogEvery > 0 && cfg.Primary() {
 		syncer := &catalog.Syncer{
 			Source: &catalog.OpenRouterSource{
 				Base:      cfg.OpenRouterAPIBase,
@@ -350,7 +357,7 @@ func run(log *slog.Logger) error {
 		}
 		workers.Go(func() { syncer.Run(ctx) })
 	}
-	if cfg.FXSync {
+	if cfg.FXSync && cfg.Primary() {
 		rates := &fx.Syncer{
 			Source: &fx.Client{HTTP: &http.Client{Timeout: 20 * time.Second}, UserAgent: userAgent},
 			Store:  store,
@@ -359,7 +366,7 @@ func run(log *slog.Logger) error {
 		workers.Go(func() { rates.Run(ctx) })
 	}
 	workers.Go(func() { sweepWork(ctx, work, log) })
-	if files != nil {
+	if files != nil && cfg.Primary() {
 		workers.Go(func() { sweepUploads(ctx, files, log) })
 		workers.Go(func() { fillThumbs(ctx, files, log) })
 	}
@@ -422,11 +429,11 @@ func run(log *slog.Logger) error {
 // connect retries the first PostgreSQL connection. Container DNS inside the
 // shared core_net is not always resolvable the instant the process starts, and
 // exiting there turns a two-second blip into a restart loop.
-func connect(ctx context.Context, url string, log *slog.Logger) (*db.Store, error) {
+func connect(ctx context.Context, url, stack string, log *slog.Logger) (*db.Store, error) {
 	const maxAttempts = 8
 	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		store, err := db.Connect(ctx, url)
+		store, err := db.Connect(ctx, url, db.WithStack(stack))
 		if err == nil {
 			return store, nil
 		}
@@ -481,7 +488,7 @@ func openStorage(ctx context.Context, cfg config.Config, store *db.Store, client
 		return nil, work, fmt.Errorf("ffmpeg cannot encode clips: %w", err)
 	}
 	var notify func(context.Context, string) error
-	if cfg.OperatorChatID != 0 {
+	if cfg.OperatorChatID != 0 && cfg.Primary() {
 		notify = func(ctx context.Context, text string) error {
 			_, err := client.SendPlainText(ctx, cfg.OperatorChatID, text)
 			return err
@@ -523,6 +530,7 @@ func openFlow(ctx context.Context, cfg config.Config, client *tg.Client, store *
 	return chat.New(chat.Config{
 		Telegram: client, Store: store, Queue: queue, Files: files, Allowance: allowance, Keys: people,
 		Renderer: renderer, Clips: clips, Work: work, Log: log.With("component", "chat"), AppURL: cfg.SiteURL,
+		Stack: cfg.Stack,
 	})
 }
 
@@ -616,7 +624,7 @@ func openAllowance(cfg config.Config, store *db.Store, client *tg.Client, userAg
 		}, free.DefaultKeyEvery, log)
 		fc.Key = watch
 	}
-	if cfg.OperatorChatID != 0 {
+	if cfg.OperatorChatID != 0 && cfg.Primary() {
 		fc.Notify = func(ctx context.Context, text string) error {
 			_, err := client.SendPlainText(ctx, cfg.OperatorChatID, text)
 			return err

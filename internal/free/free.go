@@ -74,7 +74,9 @@ type Config struct {
 	// and by runs that failed for lack of money.
 	Key Gauge
 	// Notify tells the operator chat the first time each fuse closes the
-	// tier on a day; nil only logs it.
+	// tier on a day. Nil only logs it, once a day in this process, and
+	// leaves the day in runtime_state to production (docs/design.md,
+	// Stacks), which has someone to tell.
 	Notify func(ctx context.Context, text string) error
 	Log    *slog.Logger
 	// Now is the clock; time.Now when nil.
@@ -376,8 +378,13 @@ func (a *Allowance) releaseNotice(f Fuse) {
 // announce tells the operator chat once a day per fuse, across restarts and
 // across processes: the day is swapped in runtime_state, not set, so two
 // refusals at once tell it once. A notice that failed is tried again by the
-// next refusal.
+// next refusal. A process with nobody to tell only logs.
 func (a *Allowance) announce(c *ClosedError) {
+	if a.notify == nil {
+		metrics.FreeClosed.Inc(string(c.Fuse))
+		a.log.Warn("the free tier is closed", "fuse", c.Fuse, "until", c.Until, "why", c.Why)
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), announceTimeout)
 	defer cancel()
 	day := a.today()
@@ -393,9 +400,6 @@ func (a *Allowance) announce(c *ClosedError) {
 	}
 	metrics.FreeClosed.Inc(string(c.Fuse))
 	a.log.Warn("the free tier is closed", "fuse", c.Fuse, "until", c.Until, "why", c.Why)
-	if a.notify == nil {
-		return
-	}
 	if err := a.notify(ctx, "framy: "+c.Error()); err != nil {
 		a.log.Error("tell the operator chat", "error", err)
 		_, _ = a.pool.Exec(ctx, `UPDATE runtime_state SET `+col+` = NULL WHERE `+col+` = $1::date`, day)

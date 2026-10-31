@@ -17,8 +17,8 @@ type InlineResult struct {
 	FileType string
 }
 
-// InlineResults are person user's results that went out as a photo or a
-// video, newest first: at most limit of them, older than job before when it
+// InlineResults are person user's results that went out from this stack's
+// bot as a photo or a video, newest first: at most limit of them, older than job before when it
 // is not zero, and with search in the prompt, case aside, when it is not
 // empty. A deleted job is left out.
 func (s *Store) InlineResults(ctx context.Context, user int64, search string, before int64, limit int) ([]InlineResult, error) {
@@ -31,9 +31,9 @@ func (s *Store) InlineResults(ctx context.Context, user int64, search string, be
 		WHERE j.user_id = $1 AND j.deleted_at IS NULL AND j.queued_at IS NOT NULL
 		  AND ($3::bigint = 0 OR j.id < $3)
 		  AND ($2::text = '' OR strpos(lower(j.prompt), lower($2)) > 0)
-		  AND r.stage = 'done' AND r.result_file_id IS NOT NULL AND r.result_file_type IN ('photo', 'video')
+		  AND r.stage = 'done' AND r.result_file_id IS NOT NULL AND r.result_file_type IN ('photo', 'video') AND r.stack = $5
 		ORDER BY j.id DESC
-		LIMIT $4`, user, search, before, limit)
+		LIMIT $4`, user, search, before, limit, s.stack)
 	if err != nil {
 		return nil, fmt.Errorf("inline results: %w", err)
 	}

@@ -180,6 +180,10 @@ Set `FRAMY_IMAGE` to the previous digest and deploy again. That is the whole
 rollback — the images are still on the host, and nothing is rebuilt. Then publish
 a patch that fixes what went wrong; never retag or delete the bad release.
 
+Migrations stay applied. The release notes say when one keeps the previous
+release from working: v0.1.0-alpha.2 changed the album cache's key, and
+v0.1.0-alpha.1 on top of it cannot write that cache.
+
 ### What this stack needs to exist
 
 | | |
@@ -190,6 +194,7 @@ a patch that fixes what went wrong; never retag or delete the bad release.
 | Networks | `core_net` (core-postgres), `management` (the Cloudflare Tunnel for `framy.ws04.cc`), `telegram_bot_api_net` (the self-hosted `telegram-bot-api`) |
 | Storage | R2 buckets `framy` (inputs and results) and `framy-backups`; `work/` and `anim/` beside the manifest; the bot's own media directory of `telegram-bot-api`, mounted at the server's path |
 | Database | core migration `019_framy.sql` applied, `FRAMY_CORE_PASSWORD` in core's `.env` and framy's |
+| Test bot | `framy-test` (`deploy/ws04-test/compose.yaml`) on the same schema with `FRAMY_STACK=test`, the same KEK and the same R2 bucket; it applies the migrations of `dev` before production does, so they are additive (docs/design.md, Stacks) |
 | Ports | `8080` for the tunnel, never published to the host; `9090` for `/metrics`, reachable on the Docker networks only and never routed by the tunnel |
 | Proxies | `TRUSTED_PROXIES` in `.env`: the subnet of the Cloudflare Tunnel network. Without it the rate limits see cloudflared's address instead of the visitor, and the log says so once |
 | Outbound | HTTPS to `openrouter.ai` for the hourly catalog sync, which needs no key |
