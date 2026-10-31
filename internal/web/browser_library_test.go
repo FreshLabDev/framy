@@ -11,6 +11,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"math"
 	"net/http"
 	"regexp"
 	"slices"
@@ -89,6 +90,17 @@ func newFakeLibrary() *fakeLibrary {
 			}
 			j["results"] = []any{res}
 			j["cost"] = map[string]any{"usd": 0.04, "amount": 0.04, "currency": "USD", "label": "$0.040"}
+		}
+		switch i {
+		case 5: // 65, a free video
+			j["free"] = true
+		case 6: // 64, made in the direct chat
+			j["surface"] = "dm"
+		case 9: // 61, made by guest mode
+			j["surface"] = "guest"
+		case 10: // 60, two pictures
+			j["results"] = append(j["results"].([]any), map[string]any{"id": 3060, "content_type": "image/png", "bytes": 4000, "width": 1024, "height": 1024,
+				"url": "/test/result.png?b", "download": "/test/result.png?download=2", "thumb": map[string]any{"url": "/test/result.png?b", "width": 480, "height": 480}})
 		}
 		f.jobs = append(f.jobs, j)
 	}
@@ -246,11 +258,16 @@ func TestBrowserLibrary(t *testing.T) {
 	  covers: tiles().slice(4).every((e) => !!e.querySelector(".cover img")),
 	  run: run.querySelector(".cover.none b")?.textContent, fail: fail.querySelector(".m")?.textContent,
 	  video: tiles()[5].querySelector(".badge")?.textContent, price: tiles()[4].querySelector(".m").textContent,
+	  guest: tiles()[9].querySelector(".m").textContent, two: tiles()[10].querySelector(".badge.n")?.textContent,
+	  cv: getComputedStyle(tiles()[0]).contentVisibility,
 	  overflow: document.documentElement.scrollWidth - innerWidth,
 	};`)
 	if got["create"] != false || got["tab"] != "library" || got["n"].(float64) != 30 || got["covers"] != true || got["run"] != "Making it" ||
 		got["fail"] != "Veo 3.1 Fast · No money on the key" || got["video"] != "6 s" || !strings.HasSuffix(got["price"].(string), "$0.040") || got["overflow"].(float64) > 0 {
 		t.Errorf("library: %v", got)
+	}
+	if got["guest"] != "FLUX 3 · $0.040 · guest mode" || got["two"] != "×2" || got["cv"] != "auto" {
+		t.Errorf("tiles: %v", got)
 	}
 	if d := got["days"].([]any); len(d) != 3 || d[0] != "Today" || d[1] != "Yesterday" {
 		t.Errorf("days: %v", d)
@@ -353,12 +370,34 @@ func TestBrowserViewer(t *testing.T) {
 	got = js[map[string]any](t, ctx, libHelpers+`
 	tiles()[6].click();
 	await wait(600);
-	const r = { path: location.pathname, open: vis(document.querySelector("#viewer")) };
+	const r = { path: location.pathname, open: vis(document.querySelector("#viewer")), where: document.querySelector("#viewer .vwhen").innerText.split("\n").pop() };
 	history.back();
 	await wait(700);
 	return { ...r, back: location.pathname, closed: document.querySelector("#viewer").hidden };`)
-	if got["path"] != "/r/64" || got["open"] != true || got["back"] != "/library" || got["closed"] != true {
+	if got["path"] != "/r/64" || got["open"] != true || got["where"] != "Made in the chat with framy" || got["back"] != "/library" || got["closed"] != true {
 		t.Errorf("open and back: %v", got)
+	}
+
+	// Two pictures on the whole screen: the arrows go between them, Escape goes back to the viewer, then to the library.
+	got = js[map[string]any](t, ctx, libHelpers+`
+	const esc = () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+	const right = () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+	tiles()[10].click(); await wait(600);
+	document.querySelector("#viewer .vexp").click(); await wait(400);
+	const f = document.querySelector("#full");
+	const r = { full: vis(f), cnt: f.querySelector(".cnt").textContent, dl: f.querySelector(".jacts a.primary")?.getAttribute("href"), again: !!f.querySelector("[data-again]") };
+	right(); await wait(900);
+	r.cnt2 = f.querySelector(".cnt").textContent; r.dl2 = f.querySelector(".jacts a.primary")?.getAttribute("href"); r.path = location.pathname;
+	r.overflow = document.documentElement.scrollWidth - innerWidth;
+	esc(); await wait(400);
+	r.closed = f.hidden; r.viewer = vis(document.querySelector("#viewer")); r.path2 = location.pathname;
+	esc(); await wait(700);
+	r.viewer2 = vis(document.querySelector("#viewer")); r.path3 = location.pathname;
+	return r;`)
+	if got["full"] != true || got["cnt"] != "1 of 2" || got["dl"] != "/test/result.png?download=1" || got["again"] != true || got["cnt2"] != "2 of 2" ||
+		got["dl2"] != "/test/result.png?download=2" || got["path"] != "/r/60" || got["overflow"].(float64) > 0 || got["closed"] != true || got["viewer"] != true ||
+		got["path2"] != "/r/60" || got["viewer2"] != false || got["path3"] != "/library" {
+		t.Errorf("whole screen: %v", got)
 	}
 
 	// Deleting: one framy cannot delete just now stays, one it can goes, and the viewer goes on to the next.
@@ -366,7 +405,7 @@ func TestBrowserViewer(t *testing.T) {
 	const del = async () => {
 	  document.querySelector("#viewer .jacts button[aria-label=Delete]").click();
 	  await wait(400);
-	  const q = document.querySelector("#ask h2")?.textContent;
+	  const q = document.querySelector("#ask h2")?.textContent + " " + document.querySelector("#ask p")?.textContent;
 	  document.querySelector("#ask .yes").click();
 	  await wait(600);
 	  return q;
@@ -374,10 +413,12 @@ func TestBrowserViewer(t *testing.T) {
 	tiles()[6].click(); await wait(600);
 	const q = await del(), toast1 = document.querySelector(".toast")?.textContent, still = ids().includes(64);
 	document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true })); await wait(400);
-	await del();
+	const q2 = await del();
 	const toast2 = document.querySelector(".toast")?.textContent;
-	return { q, toast1, still, toast2, gone: !ids().includes(65), at: location.pathname, open: vis(document.querySelector("#viewer")) };`)
-	if got["q"] != "Delete this run?" || got["toast1"] != "It was not deleted. Try again in a minute." || got["still"] != true ||
+	return { q, q2, toast1, still, toast2, gone: !ids().includes(65), at: location.pathname, open: vis(document.querySelector("#viewer")) };`)
+	const delText = "Delete this run? The result and its files go from framy for good, on the site and in Telegram. What the bot already sent to chats stays there."
+	if got["q"] != delText || got["q2"] != delText+" The free run does not come back." ||
+		got["toast1"] != "The files were not deleted. The run is still here, try again." || got["still"] != true ||
 		got["toast2"] != "Deleted" || got["gone"] != true || got["at"] != "/r/64" || got["open"] != true {
 		t.Errorf("delete: %v", got)
 	}
@@ -499,14 +540,110 @@ func TestBrowserLibraryMini(t *testing.T) {
 	r.main1 = __tg.params?.is_visible; r.back1 = __tg.back; r.path = location.pathname;
 	tiles()[6].click(); await wait(600);
 	r.viewer = vis(document.querySelector("#viewer")); r.path2 = location.pathname;
+	document.querySelector("#viewer .vexp").click(); await wait(400);
+	r.full = vis(document.querySelector("#full")); r.cnt = document.querySelector("#full .cnt").textContent;
+	__tg.backClick(); await wait(400);
+	r.fullClosed = document.querySelector("#full").hidden; r.viewerKept = vis(document.querySelector("#viewer"));
 	__tg.backClick(); await wait(600);
 	r.closed = document.querySelector("#viewer").hidden; r.lib = vis(document.querySelector("#library")); r.back3 = __tg.back;
 	__tg.backClick(); await wait(600);
 	r.create = vis(document.querySelector("#create")); r.main2 = __tg.params?.is_visible; r.back2 = __tg.back;
 	return r;`)
 	if got["main0"] != true || got["back0"] != false || got["main1"] != false || got["back1"] != true || got["path"] != "/" ||
-		got["viewer"] != true || got["path2"] != "/" || got["closed"] != true || got["lib"] != true || got["create"] != true || got["main2"] != true || got["back2"] != false {
+		got["viewer"] != true || got["path2"] != "/" || got["full"] != true || got["cnt"] != "Image" || got["fullClosed"] != true || got["viewerKept"] != true ||
+		got["closed"] != true || got["lib"] != true || got["create"] != true || got["main2"] != true || got["back2"] != false {
 		t.Errorf("mini app: %v", got)
 	}
 	noErrors(t, ctx)
+}
+
+// TestBrowserLibrarySmooth walks the library as TestBrowserSmooth walks the
+// composer, on the same slowed CPU: the tab, the filter, a search, the next
+// page, the viewer with its arrows, the whole screen and back, on a phone and
+// on a desktop. A step that held the main thread over 50 ms fails it; each
+// step counts its better run of two.
+func TestBrowserLibrarySmooth(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		w, h  int64
+		phone bool
+	}{{"phone", 390, 844, true}, {"desktop", 1440, 900, false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakeLibrary()
+			ts := fakeSite(t, f.mount)
+			ctx := browser(t, ts.URL, tc.w, tc.h, tc.phone)
+			scale := slowCPU(t, ctx)
+			js[any](t, ctx, pageHelpers+`await wait(1500); return 1;`)
+			// One run per call: a run takes longer than js allows a call.
+			var runs []map[string]float64
+			for range 2 {
+				runs = append(runs, js[map[string]float64](t, ctx, libHelpers+`
+	let marks = [];
+	const step = async (name, fn, ms = 900) => {
+	  marks.push([name, performance.now()]);
+	  await new Promise((r) => setTimeout(r));
+	  fn();
+	  await wait(ms);
+	};
+	const key = (k) => () => document.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true }));
+	const kind = (v) => () => document.querySelector("#library [data-seg=lib] [data-v=" + v + "]").click();
+	const type = (v) => () => { const q = document.querySelector("#library .lsearch input"); q.value = v; q.dispatchEvent(new Event("input", { bubbles: true })); };
+	  window.__long = [];
+	  await step("library", () => document.querySelector("#top .tab[data-v=library]").click(), 1500);
+	  await step("videos", kind("video"), 1200);
+	  await step("all", kind("all"), 1200);
+	  await step("search", type("harbor"), 1200);
+	  await step("clear", type(""), 1200);
+	  await step("next page", () => scrollTo(0, document.body.scrollHeight), 1500);
+	  await step("top", () => scrollTo(0, 0), 400);
+	  await step("open", () => tiles()[10].click(), 1000);
+	  await step("next run", key("ArrowRight"));
+	  await step("back a run", key("ArrowLeft"));
+	  await step("whole screen", () => document.querySelector("#viewer .vexp").click());
+	  await step("next result", key("ArrowRight"));
+	  await step("close whole screen", key("Escape"));
+	  await step("close viewer", key("Escape"), 1000);
+	  await step("create", () => document.querySelector("#top .tab[data-v=create]").click(), 1200);
+	  marks.push(["end", performance.now()]);
+	  const run = {};
+	  for (const [name] of marks.slice(0, -1)) run[name] = 0;
+	  for (const [at, ms] of window.__long) {
+	    const m = marks.filter((x) => x[1] <= at).pop();
+	    if (m && m[0] !== "end") run[m[0]] = Math.max(run[m[0]], ms);
+	  }
+	  return run;`))
+			}
+			// A task known to be long, to show the observer works here.
+			if !js[bool](t, ctx, pageHelpers+`window.__long = [];
+	await new Promise((r) => setTimeout(() => { const t = performance.now(); while (performance.now() - t < 120); r(); }));
+	await wait(300);
+	return window.__long.some(([, ms]) => ms >= 100);`) {
+				t.Fatal("the browser reports no long tasks, so the check cannot work")
+			}
+			type task struct {
+				Step string  `json:"step"`
+				MS   float64 `json:"ms"`
+			}
+			var worst []task
+			for name, ms := range runs[0] {
+				best := ms
+				for _, r := range runs[1:] {
+					if v, ok := r[name]; ok {
+						best = min(best, v)
+					}
+				}
+				if best > 0 {
+					worst = append(worst, task{name, math.Round(best * scale)})
+				}
+			}
+			for _, l := range worst {
+				if l.MS > 50 {
+					t.Errorf("steps over 50 ms on the laptop's slow CPU: %v (each run: %v)", worst, runs)
+					break
+				}
+			}
+			t.Logf("long tasks, laptop ms: %v", worst)
+			noErrors(t, ctx)
+		})
+	}
 }

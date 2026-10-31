@@ -5,7 +5,7 @@
 // too: / is the composer, /library the library. The Mini App keeps its
 // address and walks back with Telegram's back button instead.
 import { $, $$, h, ic, isWide, isPhone } from "./dom.js";
-import { anim, morph, opt, placeSegs, leadSeg, OUT } from "./motion.js";
+import { anim, morph, opt, placeSegs, leadSeg, motion, OUT } from "./motion.js";
 import { t, lang, fmtNum, fmtSecs } from "./i18n.js";
 import { api, isFinal } from "./api.js";
 import { C, vname, famLogo, lg, show, SICON, SHOWN, factEl, ratioNum, ratioOfSize } from "./catalog.js";
@@ -48,6 +48,7 @@ export function go(v, how = "push") {
 // route shows what the address names, at load and on back and forward.
 export function route() {
   const p = location.pathname, m = RUN.exec(p);
+  closeFull(true);
   if (m) {
     go("library", "none");
     if (V.id !== +m[1]) openRun(+m[1], !!history.state?.lib);
@@ -70,7 +71,7 @@ export function tabs() {
 
 // A run of the library that goes back to the composer (Again, Edit, Continue)
 // takes the page there first.
-onLeave(() => { if (viewerOpen()) { V.quiet = true; closeSheets(true); } go("create"); });
+onLeave(() => { closeFull(true); if (viewerOpen()) { V.quiet = true; closeSheets(true); } go("create"); });
 
 /* The library. */
 
@@ -260,7 +261,8 @@ function tile(j) {
   const a = h("a", { class: "li", href: "/r/" + j.id, "data-k": "li-" + j.id,
     onclick: (e) => { if (!S.mini && (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) return; e.preventDefault(); openView(L.jobs.find((x) => x.id === j.id) || j, true); } },
   cover(j), h("p", { class: "p" }, j.prompt || t("kind." + j.kind)),
-  h("span", { class: "m" }, f ? lg(famLogo(f), f.maker, "s") : null, h("span", {}, [m ? vname(m) : nameOf(j.model), said(j)].filter(Boolean).join(" · "))));
+  h("span", { class: "m" }, f ? lg(famLogo(f), f.maker, "s") : null,
+    h("span", {}, [m ? vname(m) : nameOf(j.model), said(j), j.surface === "guest" ? t("lib.guest") : ""].filter(Boolean).join(" · "))));
   a._sig = sig;
   TILES.set(j.id, a);
   return a;
@@ -382,6 +384,7 @@ function gone(id) {
   TILES.delete(id);
   swap(() => { L.jobs = L.jobs.filter((x) => x.id !== id); });
   if (V.id !== id) return;
+  closeFull(true);
   if (nx && viewerOpen()) showIn(nx);
   else if (viewerOpen()) closeSheets();
 }
@@ -401,6 +404,7 @@ export function mountViewer() {
 function closed() {
   const quiet = V.quiet;
   V.quiet = false;
+  closeFull(true);
   $("#viewBody").replaceChildren();
   V.id = 0; V.j = null; V.run = null;
   polling();
@@ -499,7 +503,9 @@ function mediaOf(j, v) {
     // The thumbnail stands in while the original loads.
     const ph = !vid && res.thumb?.url ? h("img", { class: "ph", src: res.thumb.url, alt: "" }) : null;
     if (ph) el.addEventListener("load", () => ph.remove(), { once: true });
-    return h("div", { class: "vbox vfit" }, ph, el);
+    if (!vid) el.addEventListener("click", () => openFull(V.i));
+    const big = h("button", { type: "button", class: "vexp", "aria-label": t("full.open"), title: t("full.open"), onclick: () => openFull(V.i) }, ic("expand"));
+    return h("div", { class: "vbox vfit" + (vid ? "" : " zoom") }, ph, el, big);
   }
   const st = v.status || h("div", { class: "c" }, ic(j.kind), h("b", {}, t("lib.gone")));
   return h("div", { class: "jbox vfit" + (v.fail ? " failed" : "") }, h("i"), h("i"), h("i"), h("i"), st);
@@ -534,7 +540,7 @@ function againBtn(label, cls) {
   b.disabled = !ready(it);
   return b;
 }
-onPrices(() => { for (const b of $$("#viewBody [data-again]")) b.disabled = !ready(b._it); });
+onPrices(() => { for (const b of $$("#viewBody [data-again], #full [data-again]")) b.disabled = !ready(b._it); });
 function againNow(it) {
   const got = known(it), run = V.run;
   if (!got || S.busy || !run) return;
@@ -546,10 +552,11 @@ function againNow(it) {
 
 async function del() {
   const j = V.j;
-  if (!j || !(await ask({ title: t("view.del_q"), text: t("view.del_text"), yes: t("view.delete") }))) return;
+  if (!j || !(await ask({ title: t("view.del_q"), text: t("view.del_text") + (j.free ? " " + t("view.del_free") : ""), yes: t("view.delete") }))) return;
   try { await removeJob(j.id); }
   catch (e) {
-    toast(e.code === "job_active" ? t("view.del_active") : e.code === "network" ? t("err.network") : t("view.del_failed"));
+    // storage_unavailable: the files did not go, so the run stays and a second press is safe.
+    toast(e.code === "job_active" ? t("view.del_active") : e.code === "network" ? t("err.network") : e.code === "storage_unavailable" ? t("view.del_storage") : t("view.del_failed"));
     if (e.code === "job_active") api(`/api/jobs/${j.id}`).then((x) => took(x, true), () => {});
     return;
   }
@@ -586,12 +593,94 @@ function picks(j) {
     h("button", { type: "button", "aria-pressed": String(i === V.i), "aria-label": t("view.result", { n: fmtNum(i + 1) }), onclick: () => { if (V.i !== i) { V.i = i; fill(); } } },
       r.thumb?.url || (r.url && !r.content_type?.startsWith("video/")) ? h("img", { src: r.thumb?.url || r.url, alt: "" }) : ic(j.kind))));
 }
+/* The whole screen for a run's results: a swipe or the arrows go between
+   them, Escape or Close goes back to the viewer. */
+
+let FULL = null;
+export const fullOpen = () => !!FULL;
+export function mountFull() {
+  return h("div", { class: "full", id: "full", hidden: true, role: "dialog", "aria-modal": "true", "aria-label": t("full.label") });
+}
+const dirOf = () => (document.dir === "rtl" ? -1 : 1);
+const fullAt = () => (FULL ? Math.round(Math.abs(FULL.strip.scrollLeft) / Math.max(1, FULL.strip.clientWidth)) : 0);
+function fullGo(d) {
+  if (!FULL) return;
+  const k = Math.max(0, Math.min(FULL.rs.length - 1, fullAt() + d));
+  FULL.strip.scrollTo({ left: dirOf() * k * FULL.strip.clientWidth, behavior: motion() ? "smooth" : "auto" });
+}
+function openFull(at = 0) {
+  const j = V.j, rs = (j?.results || []).filter((r) => r.url);
+  if (!rs.length || FULL) return;
+  const box = $("#full"), n = rs.length, rtl = dirOf() < 0;
+  const cells = rs.map((r) => {
+    const vid = r.content_type?.startsWith("video/"), ratio = r.width && r.height ? r.width / r.height : ratioOf(j);
+    const m = vid ? h("video", { src: r.url, poster: r.thumb?.url || null, controls: true, playsinline: true, loop: true, muted: true, preload: "metadata" })
+      : h("img", { src: r.url, alt: j.prompt || "", decoding: "async" });
+    return h("div", { class: "fcell" }, h("div", { class: "fimg", style: { "--r": String(ratio) } }, m));
+  });
+  const strip = h("div", { class: "fstrip" }, cells), cnt = h("span", { class: "cnt", "aria-live": "polite" });
+  const nav = n > 1 ? [h("button", { type: "button", class: "fnav s", "aria-label": t("view.prev"), title: t("view.prev"), onclick: () => fullGo(-1) }, ic(rtl ? "chev" : "chevl")),
+    h("button", { type: "button", class: "fnav e", "aria-label": t("view.next"), title: t("view.next"), onclick: () => fullGo(1) }, ic(rtl ? "chevl" : "chev"))] : [];
+  const dots = n > 1 ? h("div", { class: "dots", "aria-hidden": "true" }, rs.map(() => h("i"))) : null;
+  const acts = h("div", { class: "jacts acts" });
+  FULL = { j, rs, strip, at: -1, back: document.activeElement };
+  // What the strip shows now: the count, the dots, the arrows, the actions of that result, and only its video plays.
+  const upd = () => {
+    if (!FULL) return;
+    const c = fullAt();
+    if (c === FULL.at) return;
+    FULL.at = c;
+    cnt.textContent = n > 1 ? t("view.of", { i: fmtNum(c + 1), n: fmtNum(n) }) : t("kind." + j.kind);
+    if (nav.length) { nav[0].disabled = c === 0; nav[1].disabled = c === n - 1; }
+    dots?.querySelectorAll("i").forEach((e, i) => e.classList.toggle("on", i === c));
+    acts.replaceChildren(...view(V.run, { res: j.results.indexOf(rs[c]), again: againBtn }).acts.filter(Boolean));
+    cells.forEach((cell, i) => { const v = cell.querySelector("video"); if (v && i === c) v.play().catch(() => {}); else v?.pause(); });
+  };
+  let raf = 0;
+  strip.addEventListener("scroll", () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; upd(); }); }, { passive: true });
+  // A press beside the picture closes it where there is a mouse; on a phone it would end a swipe.
+  strip.addEventListener("click", (e) => { if (matchMedia("(hover: hover)").matches && !e.target.closest(".fimg")) closeFull(); });
+  box.replaceChildren(h("div", { class: "fbar" }, cnt, h("button", { type: "button", class: "x", onclick: () => closeFull() }, ic("close"), t("view.close"))),
+    h("div", { class: "fmid" }, strip, nav), h("div", { class: "fbot" }, dots, acts));
+  box.hidden = false;
+  document.documentElement.classList.add("full-on");
+  box.tabIndex = -1;
+  box.focus({ preventScroll: true });
+  strip.scrollLeft = dirOf() * at * strip.clientWidth;
+  upd();
+  anim(box, [{ opacity: 0 }, { opacity: 1 }], { duration: 200 });
+  anim(cells[at]?.firstChild, [{ transform: "scale(.94)", opacity: 0.4 }, { transform: "none", opacity: 1 }], { duration: 320 });
+}
+export function closeFull(quick = false) {
+  const box = $("#full");
+  if (!FULL || !box) return;
+  const back = FULL.back;
+  FULL = null;
+  box.querySelectorAll("video").forEach((v) => v.pause());
+  const done = () => { if (FULL) return; box.hidden = true; box.replaceChildren(); document.documentElement.classList.remove("full-on"); if (!quick) back?.focus?.({ preventScroll: true }); };
+  const a = quick ? null : anim(box, [{ opacity: 1 }, { opacity: 0 }], { duration: 160, fill: "forwards" });
+  if (a) a.finished.then(done, done); else done();
+}
+// Caught before the viewer's own keys: Escape closes only this, the arrows go between results, not runs.
+addEventListener("keydown", (e) => {
+  if (!FULL || !$("#ask").hidden) return;
+  if (e.key === "Escape") { e.stopPropagation(); e.preventDefault(); closeFull(); }
+  else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && !e.target.closest?.("video")) {
+    e.stopPropagation(); e.preventDefault();
+    const d = e.key === "ArrowLeft" ? -1 : 1;
+    fullGo(dirOf() < 0 ? -d : d);
+  }
+}, true);
+addEventListener("resize", () => { if (FULL) FULL.strip.scrollLeft = dirOf() * FULL.at * FULL.strip.clientWidth; });
+
+// Where a run was made, when not on the site.
+const WHERE = new Set(["mini_app", "dm", "group", "guest"]);
 function facts(j) {
   const s = j.settings || {}, out = [];
   for (const n of SHOWN) if (s[n] != null && s[n] !== "") out.push(factEl([SICON[n] || "info", show(n, s[n])]));
   const when = fmtOf("w" + lang, () => new Intl.DateTimeFormat(lang, { dateStyle: "long", timeStyle: "short" })).format(new Date(j.created_at));
-  const where = j.surface && j.surface !== "site" ? t("view.in_tg") : "";
-  return [out.length ? h("div", { class: "facts vfacts" }, out) : null, h("p", { class: "vwhen" }, [when, where].filter(Boolean).join(" · "))];
+  const where = WHERE.has(j.surface) ? t("view.where_" + j.surface) : "";
+  return [out.length ? h("div", { class: "facts vfacts" }, out) : null, h("p", { class: "vwhen" }, when, where ? h("br") : null, where)];
 }
 // The files the run took, the ones framy still keeps.
 function inputs(j) {

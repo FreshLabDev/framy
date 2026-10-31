@@ -632,7 +632,7 @@ main.library {display: grid; gap: 18px; padding: 6px 0 calc(48px + env(safe-area
 @media (min-width: 700px) {
   .libgrid {grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));}
 }
-.li {display: grid; gap: 7px; align-content: start; min-width: 0; color: inherit; text-decoration: none;}
+.li {display: grid; gap: 7px; align-content: start; min-width: 0; color: inherit; text-decoration: none; content-visibility: auto; contain-intrinsic-size: auto 240px;}
 .li .cover {position: relative; aspect-ratio: 1; background: var(--deep); overflow: hidden; display: grid; place-items: center;}
 .li .cover > img {position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover;}
 .li .cover .c {display: grid; justify-items: center; gap: 6px; padding: 0 16px; text-align: center; color: var(--muted); font-size: 13px;}
@@ -681,14 +681,41 @@ main.library {display: grid; gap: 18px; padding: 6px 0 calc(48px + env(safe-area
 .vins .gt {display: flex; flex-wrap: wrap; gap: 6px;}
 .vins .thumb {width: 52px; height: 52px;}
 #viewBody .jprompt > .tx {display: block; overflow: visible; -webkit-line-clamp: none; color: var(--soft);}
-#viewBody .jacts {flex-wrap: wrap;}
-#viewBody .jacts > button:disabled {opacity: .55;}
-#viewBody .jacts > button > .t .usd {font-weight: 600;}
+#viewBody .jacts, #full .jacts {flex-wrap: wrap;}
+#viewBody .jacts > button:disabled, #full .jacts > button:disabled {opacity: .55;}
+#viewBody .jacts > button > .t .usd, #full .jacts > button > .t .usd {font-weight: 600;}
 @media (max-width: 959px) {
   /* Again says its price: it keeps its words on a phone. */
-  #viewBody .jacts > .sq2 {width: auto; padding: 0 14px;}
-  #viewBody .jacts > .sq2 > .t {display: inline;}
+  #viewBody .jacts > .sq2, #full .jacts > .sq2 {width: auto; padding: 0 14px;}
+  #viewBody .jacts > .sq2 > .t, #full .jacts > .sq2 > .t {display: inline;}
 }
+.vbox.zoom > img {cursor: zoom-in;}
+.vexp {position: absolute; right: 0; top: 0; z-index: 1; width: 44px; height: 44px; display: grid; place-items: center; background: rgba(0, 69, 79, .85);}
+.vexp .ic {width: 16px; height: 16px;}
+/* The whole screen for a run's results. */
+html.full-on {overflow: hidden;}
+.full {position: fixed; inset: 0; z-index: 50; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; background: #01262B; outline: none;}
+.full[hidden] {display: none;}
+.full .fbar {display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: max(10px, env(safe-area-inset-top, 0px)) 16px 10px;}
+.full .fbar .cnt {font-weight: 600; color: var(--soft);}
+.full .fbar .x {height: 44px; padding: 0 14px; display: flex; align-items: center; gap: 8px; background: var(--deep); font-weight: 600;}
+.full .fmid {position: relative; min-height: 0; display: grid;}
+.full .fstrip {display: flex; min-height: 0; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; overscroll-behavior: contain;}
+.full .fstrip::-webkit-scrollbar {display: none;}
+.full .fcell {flex: none; width: 100%; height: 100%; display: grid; place-items: center; scroll-snap-align: center;}
+.full .fimg {position: relative; aspect-ratio: var(--r); width: min(100%, calc((100dvh - 190px) * var(--r))); background: var(--deep);}
+.full .fimg > img, .full .fimg > video {position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain;}
+.full .fnav {position: absolute; top: 50%; width: 52px; height: 52px; margin-top: -26px; display: grid; place-items: center; background: rgba(0, 69, 79, .9);}
+.full .fnav.s {inset-inline-start: 16px;}
+.full .fnav.e {inset-inline-end: 16px;}
+.full .fnav:disabled {opacity: 0; pointer-events: none;}
+.full .fnav .ic {width: 18px; height: 18px;}
+@media (hover: none) { .full .fnav {display: none;} }
+.full .fbot {display: grid; gap: 12px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));}
+.full .jacts {justify-content: center;}
+.dots {display: flex; justify-content: center; gap: 6px; height: 6px;}
+.dots > i {width: 6px; height: 6px; background: var(--line);}
+.dots > i.on {width: 20px; background: var(--ink);}
 @media (max-width: 899px) {
   #viewer .x {padding: 0 12px;}
 }

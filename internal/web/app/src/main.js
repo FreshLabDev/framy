@@ -14,7 +14,7 @@ import { closeSheets, onSheets, toast, sheetOpen } from "./ui.js";
 import { signIn, refreshMe, generate, netState } from "./run.js";
 import { mountCutter, openCut } from "./clips.js";
 import { mountPrefs, openPrefs, renderPrefs, prefsOpen, oauthResult, oauthBack } from "./prefs.js";
-import { mountLibrary, mountViewer, tabs, go, route, libMe } from "./library.js";
+import { mountLibrary, mountViewer, mountFull, fullOpen, closeFull, tabs, go, route, libMe } from "./library.js";
 
 const B = window.framy;
 
@@ -57,6 +57,7 @@ function mount() {
     mountCutter(),
     mountPrefs(),
     mountViewer(),
+    mountFull(),
     h("div", { class: "ask", id: "ask", hidden: true, role: "alertdialog", "aria-modal": "true", "aria-labelledby": "askT" }));
   app.addEventListener("click", (e) => { if (e.target.closest("[data-close]")) closeSheets(); });
   $("#tune").addEventListener("closed", tuneClosed);
@@ -103,7 +104,7 @@ function telegram(tg) {
   onSheets(back);
   addEventListener("framy:view", back);
   back();
-  tg.BackButton.onClick(() => (sheetOpen() ? closeSheets() : go("create")));
+  tg.BackButton.onClick(() => (fullOpen() ? closeFull() : sheetOpen() ? closeSheets() : go("create")));
   // Telegram could not send a prepared message; closing the picker is no failure.
   tg.onEvent?.("shareMessageFailed", (e) => { if (e?.error !== "USER_DECLINED") toast(t("share.failed")); });
 }

@@ -361,16 +361,21 @@ was written from, and the skeleton of the service.
   on the site or in Telegram, with its cover, prompt, model and cost; a run
   still going shows its state and is read again every 5 seconds until it
   ends. It filters to images or videos, finds runs by a word of the prompt,
-  and loads the next 30 as the end comes near. The viewer shows the result
-  (each one, for a run that made several), the settings, what it cost, the
-  files it started from, and when and where it was made; the arrow keys go
-  to the next and previous run. Again runs it once more with the photos and
-  clip framy still keeps, at today's price, which shows on the button before
-  the press. Download, Edit the prompt, Continue and, in the Mini App, Share
-  work as on the stage. Delete asks first and says what stays: what the bot
-  already sent to chats, and the free run in the count. A run still going
-  cannot be deleted. In the Mini App, Telegram's back button closes the
-  viewer, then goes back to the composer.
+  and loads the next 30 as the end comes near. A run made by guest mode says
+  so on its tile. The viewer shows the result (each one, for a run that made
+  several), the settings, what it cost, the files it started from, and when
+  and where it was made (the site, the Mini App, the chat with framy, a group
+  or guest mode); the arrow keys go to the next and previous run. A result
+  opens on the whole screen, where a swipe or the arrows go between the
+  results of the run. Again runs it once more with the photos and clip framy
+  still keeps, at today's price, which shows on the button before the press.
+  Download, Edit the prompt, Continue and, in the Mini App, Share work as on
+  the stage. Delete is there once a run has ended; it asks first, says that
+  what the bot already sent to chats stays, and for a free run that the free
+  run does not come back. When framy could not delete the files, the run
+  stays and a second press carries on. In the Mini App, Telegram's back
+  button closes the whole screen, then the viewer, then goes back to the
+  composer.
 - Sign-in, in `internal/auth`. On the site it is Telegram Login, Telegram's
   OpenID Connect with PKCE: framy checks the id token's signature, issuer,
   audience, expiry, nonce and state, and takes the account from the `id`
