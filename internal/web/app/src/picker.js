@@ -86,7 +86,7 @@ const hoverFam = (f, wide, vid) => (e) => {
 };
 let found = [];
 function clearSearch() { listUpdate(() => { query = ""; $("#pksearch").value = ""; renderPicker(); }, { dur: 300, step: 15 }); $("#pksearch").focus(); }
-const focusId = () => (FOR ? FOR.cur : S.model[S.kind]);
+const focusId = () => (FOR ? FOR.cur : M()?.id);
 const lowUsd = (f) => (shown(f).some((v) => freePlan(v.m)) ? 0 : Math.min(...shown(f).map((v) => { const e = lowest(bestItems(v.m)); return !e || e.kind === "unknown" ? Infinity : e.usd; })));
 
 function renderPicker(o = {}) {

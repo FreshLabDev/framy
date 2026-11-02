@@ -116,12 +116,19 @@ func TestBuildHides(t *testing.T) {
 		"google/gemini-2.5-flash-image":         "deprecation",
 		"heygen/avatar-iv":                      "talking head",
 		"kwaivgi/kling-video-o1":                "3.0 Pro",
-		// The maker's shutdown day is within hide_expiring_within_days.
-		"x-ai/grok-imagine-image-quality": "shuts down 2026-11-02",
 	} {
 		if m := modelByID(t, snap, id); !strings.Contains(m.Hidden, why) {
 			t.Errorf("%s hidden = %q, want a reason with %q", id, m.Hidden, why)
 		}
+	}
+	// A model is hidden once the maker's shutdown day is within
+	// hide_expiring_within_days, and not before.
+	if m := modelByID(t, snap, "bytedance/seedance-1-5-pro"); m.Hidden != "" {
+		t.Errorf("seedance 1.5 pro hidden = %q fifteen days before its shutdown", m.Hidden)
+	}
+	later := Build(fixtureUpstream(t), embeddedFiles(t), time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC))
+	if m := modelByID(t, later, "bytedance/seedance-1-5-pro"); !strings.Contains(m.Hidden, "shuts down 2026-11-11") {
+		t.Errorf("seedance 1.5 pro hidden = %q ten days before its shutdown", m.Hidden)
 	}
 	// A Tencent preview is a model of its own; only Google's previews are
 	// duplicates.

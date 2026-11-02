@@ -11,6 +11,135 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+## v0.1.0-alpha.4 - 2026-11-02
+
+Fixes for what the first two days of alpha.3 showed in production's logs:
+a refusal shown as a failure, a group `/start` read after downtime, and a
+closed model in the catalog's overlay. No migrations.
+
+### Fixed
+
+- A picture Azure's moderation blocks for MAI Image is a refusal: the
+  person reads that the model refused the request, not "try again", which
+  would fail the same way. Like any refusal, a free one counts toward the
+  daily free pictures.
+- A `/start` sent in a group while framy was down is no longer an error when
+  framy reads it: Telegram takes an ephemeral answer for 15 seconds only, so
+  framy leaves it and the person sends it again.
+- Grok Imagine Image Quality is out of the catalog's overlay. xAI shut it
+  down on 2 November, and every catalog sync since warned that the overlay
+  named a model no source has.
+
+## v0.1.0-alpha.3 - 2026-10-31
+
+Several results from one press, end to end: the site and the Mini App make
+frames, each with its own model and settings, the library keeps a press as
+one card, and the DM gets it as one album. The site carries framy's mark. No
+migrations: production and the test bot take the same image in any order.
+
+### Known Limitations
+
+- The `framy` schema still has no backups (#28).
+- Switching the library between All, Images and Videos makes the page jump
+  (#51).
+
+### Added
+
+- A press of several frames comes to the DM as one album, in the order of
+  its frames, once its last job ended. The caption gives the prompt once and
+  numbers the frames by model, so three models on one prompt read as a
+  comparison. Videos keep their covers in the album.
+- Frames on the site and in the Mini App. Frame, over the stage on a
+  computer and over the strip of frames on a phone, adds a result with its
+  own model or settings, up to 6 pictures or 4 videos. All sets what every
+  frame shares; a frame picked sets only itself and marks what is its own.
+  On a phone a swipe in the settings goes to the next frame and the strip
+  rolls with it. Create sends the frames as one press, at the price framy
+  sums for the paid ones. The results stand in place of their frames, with
+  their number and, when the models differ, the model, each with its own
+  actions; a frame that failed leaves and the others go on.
+- The library shows a press as one card with its pictures together. Its
+  viewer goes between the frames, and Again and Edit the prompt bring every
+  frame back, a job of several results as that many frames.
+- The site carries framy's mark: in the browser tab, on an iPhone's home
+  screen, and before the name in the header.
+
+### Changed
+
+- On a phone, files are added in the row under the prompt, for pictures as
+  for video, and the plus in the row over the prompt is gone: in video it
+  stood beside the slots' own pluses. The settings there are an icon only,
+  with the number of frames beside it when there are several.
+
+### Fixed
+
+- On a phone 320 px wide the sign-in button no longer breaks onto two lines
+  past its edges: the header shows the mark without the name there, and a
+  sign-in line too long for the button ends in an ellipsis.
+
+## v0.1.0-alpha.2 - 2026-10-31
+
+The test bot moves onto production's database, so a person has one history
+on both sites, and each bot still works only its own jobs and chats. The
+backend for several results from one press comes with it. Deploy production
+first; the test bot's stack follows (Breaking).
+
+### Known Limitations
+
+- The `framy` schema still has no backups (#28).
+- The site does not send several results from one press yet: the API is
+  there, the composer that uses it comes next.
+
+### Changed
+
+- The test bot and production share one database: the `framy` schema in
+  core-postgres. A person sees the same history, settings and connected keys
+  on framy.ws04.cc and framy-test.ws04.cc, and the free tier's daily budget
+  is counted once over both bots instead of once on each.
+- Each bot works only its own jobs and tells only its own chats. A job runs
+  on the bot whose chat or site started it, and a result made on a site goes
+  to the DM from that site's bot. Inline mode, replies to a result, albums
+  and Send to Telegram use only what the bot itself sent or saw, since a
+  Telegram file id works only for the bot that got it.
+- The catalog sync, the currency rates, the sweep of uploads no job took,
+  the thumbnails and the operator chat run on production only. The test bot
+  shows production's catalog, so a catalog change reaches it with the
+  release that takes it to production.
+
+### Added
+
+- `FRAMY_STACK` names the bot when two share one schema: empty for
+  production, `test` for the test bot. A stack other than production puts its
+  name before its River queues and its Telegram dedupe keys.
+- Several results from one press, each with its own model and settings
+  (`POST /api/batches`). framy decides how many requests that is: frames
+  that are the same run go together, as many as the model makes at once,
+  so five pictures where a model makes four at once are two requests, four
+  and one. A press is queued whole or not at all, and the history keeps it
+  as one run. A quote with `batch: true` says which frames go together and
+  what the press costs.
+
+### Breaking
+
+- Migration `029_stack.sql` marks jobs, chat runs and album items with their
+  bot and changes the album cache's key. v0.1.0-alpha.1 cannot write the
+  album cache after it, so a rollback past this release loses albums sent
+  until the next deploy.
+- Deploy production first. The test bot's stack then moves onto
+  core-postgres: `FRAMY_STACK=test`, `DATABASE_URL` as `framy_core`, the
+  network `core_net`, production's KEK in `secrets/kek`, no `R2_PREFIX`
+  (`deploy/ws04-test/compose.yaml`). Its own PostgreSQL goes; its data is not
+  moved, and the volume stays.
+- The test bot runs `dev` and applies its migrations to production's schema
+  before production does, so every migration from now on is additive
+  (AGENTS.md, Migrations).
+
+### Fixed
+
+- Switching an empty composer from Image to Video no longer flashes the
+  hint of the row of files at the left edge of the page, one word to a
+  line.
+
 ## v0.1.0-alpha.1 - 2026-10-31
 
 The first alpha of framy: images and videos from AI models on the site

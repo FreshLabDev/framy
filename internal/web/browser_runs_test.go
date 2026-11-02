@@ -12,6 +12,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"io"
 	"net/http"
 	neturl "net/url"
 	"os"
@@ -52,10 +53,11 @@ const fakeWrapped = `refused: openrouter 400: HTTP 400: {"error":{"code":"Invali
 // after two seconds of running), "faces" and "wrapped" are refused by the
 // provider in its own JSON, and "refuse:<code>" is refused before any job.
 type fakeRuns struct {
-	mu     sync.Mutex
-	next   int64
-	jobs   map[int64]*fakeJob
-	shares int // how many results were prepared for sharing
+	mu      sync.Mutex
+	next    int64
+	jobs    map[int64]*fakeJob
+	shares  int              // how many results were prepared for sharing
+	batches []map[string]any // the bodies of POST /api/batches, in order
 }
 
 type fakeJob struct {
@@ -77,6 +79,7 @@ func (f *fakeRuns) mount(srv *Server) {
 		})
 	})
 	srv.HandleFunc("POST /api/jobs", f.create)
+	srv.HandleFunc("POST /api/batches", f.batch)
 	srv.HandleFunc("GET /api/jobs/{id}", func(w http.ResponseWriter, r *http.Request) {
 		j, id := f.job(r)
 		if j == nil {
@@ -236,6 +239,97 @@ func (f *fakeRuns) create(w http.ResponseWriter, r *http.Request) {
 	f.jobs[id] = &fakeJob{steps: steps, shown: 1, stop: make(chan struct{})}
 	f.mu.Unlock()
 	writeTestJSON(w, http.StatusAccepted, withID(steps[0], id))
+}
+
+// batch answers a press of several frames as the server does: the frames
+// with the same offer, payer and settings go as one job, whose results stand
+// on those frames in order. "frames:<a>,<b>,…" gives the jobs, in order, the
+// outcomes done, fail:<class> or running; any other prompt makes them all
+// done, and "refuse:<code>" refuses the press for its second frame.
+func (f *fakeRuns) batch(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	var in struct {
+		Prompt string `json:"prompt"`
+		Frames []struct {
+			Offer    string         `json:"offer"`
+			Pay      string         `json:"pay"`
+			Settings map[string]any `json:"settings"`
+		} `json:"frames"`
+	}
+	var raw map[string]any
+	if err != nil || json.Unmarshal(body, &in) != nil || json.Unmarshal(body, &raw) != nil || len(in.Frames) < 2 {
+		writeTestJSON(w, http.StatusBadRequest, map[string]any{"error": "bad_request"})
+		return
+	}
+	f.mu.Lock()
+	f.batches = append(f.batches, raw)
+	f.mu.Unlock()
+	if code, ok := strings.CutPrefix(in.Prompt, "refuse:"); ok {
+		writeTestJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": code, "message": fakeMessage, "frame": 1})
+		return
+	}
+	var groups [][]int
+	seen := map[string]int{}
+	for i, fr := range in.Frames {
+		b, _ := json.Marshal(fr)
+		if g, ok := seen[string(b)]; ok {
+			groups[g] = append(groups[g], i)
+			continue
+		}
+		seen[string(b)] = len(groups)
+		groups = append(groups, []int{i})
+	}
+	outcomes, mapped := strings.CutPrefix(in.Prompt, "frames:")
+	url := "http://" + r.Host + "/test/result.png"
+	var out []map[string]any
+	for g, frames := range groups {
+		fr := in.Frames[frames[0]]
+		set := map[string]any{}
+		for k, v := range fr.Settings {
+			set[k] = v
+		}
+		if len(frames) > 1 {
+			set["n"] = len(frames)
+		}
+		usd := 0.04 * float64(len(frames))
+		base := map[string]any{"kind": "image", "offer": fr.Offer, "model": strings.SplitN(fr.Offer, ":", 2)[1], "prompt": in.Prompt,
+			"settings": set, "free": fr.Pay == "free", "surface": "site", "batch": "b1", "frames": frames,
+			"estimate": map[string]any{"kind": "about", "usd": usd, "max_usd": usd, "currency": "USD", "label": fmt.Sprintf("$%.3f", usd)}}
+		at := func(status string, more map[string]any) map[string]any {
+			m := map[string]any{"status": status}
+			for k, v := range base {
+				m[k] = v
+			}
+			for k, v := range more {
+				m[k] = v
+			}
+			return m
+		}
+		outcome := "done"
+		if list := strings.Split(outcomes, ","); mapped && g < len(list) {
+			outcome = list[g]
+		}
+		steps := []map[string]any{at("queued", nil), at("running", nil)}
+		switch {
+		case strings.HasPrefix(outcome, "fail:"):
+			steps = append(steps, at("failed", map[string]any{"error": map[string]any{"class": strings.TrimPrefix(outcome, "fail:"), "message": fakeMessage}}))
+		case outcome == "running":
+		default:
+			var results []map[string]any
+			for k := range frames {
+				results = append(results, map[string]any{"id": 100 + 10*g + k, "content_type": "image/png", "url": url, "download": url + "?download=1", "width": 1024, "height": 1024})
+			}
+			steps = append(steps, at("running", nil), at("done", map[string]any{"results": results,
+				"cost": map[string]any{"usd": usd, "amount": usd, "currency": "USD", "label": fmt.Sprintf("$%.3f", usd)}}))
+		}
+		f.mu.Lock()
+		f.next++
+		id := f.next
+		f.jobs[id] = &fakeJob{steps: steps, shown: 1, stop: make(chan struct{})}
+		f.mu.Unlock()
+		out = append(out, withID(steps[0], id))
+	}
+	writeTestJSON(w, http.StatusAccepted, map[string]any{"batch": "b1", "jobs": out})
 }
 
 // events says the job's steps a moment apart, then holds the stream open

@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +22,12 @@ const DefaultTelegramAPIBase = "https://api.telegram.org"
 const DefaultOpenRouterAPIBase = "https://openrouter.ai/api/v1"
 
 type Config struct {
+	// Stack names the bot this process is when two share the framy schema
+	// (FRAMY_STACK; docs/design.md, Stacks): empty for production, "test"
+	// for the test bot. Each stack works its own River queues and tells only
+	// its own bot's chats; the upkeep both would share runs on production
+	// only.
+	Stack            string
 	TelegramBotToken string
 	TelegramAPIBase  string
 	// BotAPIFilesDir is where this process sees the media directory of a Bot
@@ -100,6 +107,14 @@ type R2 struct {
 // Enabled: the token is set.
 func (r R2) Enabled() bool { return r.AccessKeyID != "" }
 
+// stackPattern keeps a stack's name usable in a River queue's name.
+var stackPattern = regexp.MustCompile(`^[a-z][a-z0-9]{0,15}$`)
+
+// Primary: this process is production, which runs the upkeep of the shared
+// tables (the catalog, the rates, the uploads no job took, the thumbnails)
+// and tells the operator chat.
+func (c Config) Primary() bool { return c.Stack == "" }
+
 func Load() (Config, error) {
 	cfg := Config{
 		TelegramAPIBase: strings.TrimRight(valueOrDefault("TELEGRAM_API_BASE", DefaultTelegramAPIBase), "/"),
@@ -108,6 +123,10 @@ func Load() (Config, error) {
 		LogLevel:        valueOrDefault("LOG_LEVEL", "info"),
 
 		OpenRouterAPIBase: strings.TrimRight(valueOrDefault("OPENROUTER_API_BASE", DefaultOpenRouterAPIBase), "/"),
+	}
+	cfg.Stack = valueOrDefault("FRAMY_STACK", "")
+	if cfg.Stack != "" && !stackPattern.MatchString(cfg.Stack) {
+		return Config{}, fmt.Errorf("FRAMY_STACK must be empty for production, or a short name of lowercase letters and digits")
 	}
 	var err error
 	if cfg.TelegramBotToken, err = secret("TELEGRAM_BOT_TOKEN"); err != nil {

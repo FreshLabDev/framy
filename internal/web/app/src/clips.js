@@ -6,7 +6,7 @@
 import { $, h, ic } from "./dom.js";
 import { t, fmtNum } from "./i18n.js";
 import { api, ApiError } from "./api.js";
-import { S, M, payOf, clip, maxSecs, minSecs } from "./state.js";
+import { S, M, clip, cutLimits } from "./state.js";
 import { opt, placeSeg } from "./motion.js";
 import { openSheet, closeSheets } from "./ui.js";
 import { act, render } from "./composer.js";
@@ -200,11 +200,11 @@ export function mountCutter() {
 export function openCut() {
   const c = clip(), m = M();
   if (!c || !m || !c.secs) return;
-  const pay = payOf(m), fps = c.fps || 30, total = Math.max(1, Math.round(c.secs * fps));
+  const lims = cutLimits(), fps = c.fps || 30, total = Math.max(1, Math.round(c.secs * fps));
   // framy cuts on the clip's own frames and rounds the end up to one, and
   // the frame rate is not known here: a part a twentieth of a second under
   // the limit keeps the cut within it at any rate from 20 frames a second.
-  const lim = maxSecs(m, pay), maxF = Math.min(total, lim < c.secs ? Math.floor((lim - 0.05) * fps) : total), minF = Math.max(1, Math.round(Math.max(0.1, minSecs(m, pay)) * fps));
+  const lim = lims.max, maxF = Math.min(total, lim < c.secs ? Math.floor((lim - 0.05) * fps) : total), minF = Math.max(1, Math.round(Math.max(0.1, lims.min) * fps));
   const start = S.cut ? Math.round(S.cut.start * fps) : 0;
   Object.assign(ED, { c, fps, total, maxF, minF, start, end: Math.min(total, S.cut ? start + Math.round(S.cut.seconds * fps) : start + maxF), edge: "start", playing: false });
   if (ED.end - ED.start > maxF) ED.end = ED.start + maxF;

@@ -117,6 +117,23 @@ func (d *fakeData) Continuation(_ context.Context, userID, id int64) (Continuati
 	return c, nil
 }
 
+func (d *fakeData) Batch(_ context.Context, userID, id int64) ([]State, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	first, ok := d.states[id]
+	if !ok || d.owners[id] != userID || first.Batch == "" {
+		return nil, nil
+	}
+	var out []State
+	for jid, s := range d.states {
+		if d.owners[jid] == userID && s.Batch == first.Batch {
+			out = append(out, s)
+		}
+	}
+	slices.SortFunc(out, func(a, b State) int { return int(a.ID - b.ID) })
+	return out, nil
+}
+
 func (d *fakeData) ByKey(_ context.Context, key string) (int64, bool, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -218,12 +235,14 @@ func (d *fakeData) readCount() int {
 
 // fakeQueue makes a job in fakeData for what it is given.
 type fakeQueue struct {
-	mu    sync.Mutex
-	data  *fakeData
-	got   []jobs.New
-	err   error
-	next  int64
-	state State
+	mu   sync.Mutex
+	data *fakeData
+	got  []jobs.New
+	// batches are the presses EnqueueBatch was given.
+	batches [][]jobs.New
+	err     error
+	next    int64
+	state   State
 	// cancelErr fails Cancel; cancelled are the ids it was given.
 	cancelErr error
 	cancelled []int64
@@ -242,9 +261,38 @@ func (q *fakeQueue) Enqueue(_ context.Context, n jobs.New) (int64, bool, error) 
 	if ok {
 		return id, false, nil
 	}
+	return q.make(n), true, nil
+}
+
+// EnqueueBatch makes every job, or none when err is set; a taken first key
+// answers that batch.
+func (q *fakeQueue) EnqueueBatch(_ context.Context, ns []jobs.New) ([]int64, bool, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.got = append(q.got, ns...)
+	q.batches = append(q.batches, ns)
+	if q.err != nil {
+		return nil, false, q.err
+	}
+	q.data.mu.Lock()
+	id, ok := q.data.keys[ns[0].DedupeKey]
+	q.data.mu.Unlock()
+	if ok {
+		return []int64{id}, false, nil
+	}
+	ids := make([]int64, len(ns))
+	for i, n := range ns {
+		ids[i] = q.make(n)
+	}
+	return ids, true, nil
+}
+
+// make stores the job n makes; q.mu is held.
+func (q *fakeQueue) make(n jobs.New) int64 {
 	q.next++
 	s := q.state
 	s.ID, s.Status, s.Kind, s.Offer, s.Free = 100+q.next, jobs.Queued, n.Offer.Kind, n.Offer.ID, n.Free
+	s.Prompt, s.Settings, s.Batch, s.BatchFrames = n.Prompt, n.Settings, n.Batch, n.BatchFrames
 	if n.Estimate != nil {
 		s.EstimateUSD = &n.Estimate.USD
 		s.Estimate = n.Estimate
@@ -256,7 +304,7 @@ func (q *fakeQueue) Enqueue(_ context.Context, n jobs.New) (int64, bool, error) 
 	q.data.mu.Lock()
 	q.data.keys[n.DedupeKey] = s.ID
 	q.data.mu.Unlock()
-	return s.ID, true, nil
+	return s.ID
 }
 
 // Cancel cancels a queued job as the queue does, and answers cancelErr

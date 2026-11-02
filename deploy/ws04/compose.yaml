@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # The production bot @framyin_bot and the site https://framy.ws04.cc on ws04,
-# in /opt/stacks/framy. Joins the shared core_net / core-postgres.
+# in /opt/stacks/framy. Joins the shared core_net / core-postgres. The test
+# bot shares its schema; FRAMY_STACK is unset here, which makes this process
+# production, the one that keeps the shared tables (docs/design.md, Stacks).
 #
 # The image is pulled, never built here: FRAMY_IMAGE names what the release
 # workflow published, by digest (docs/releases.md):

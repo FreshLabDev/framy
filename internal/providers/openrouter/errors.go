@@ -104,8 +104,9 @@ func (e *APIError) Moderated() bool {
 // safetyPhrases are how a provider's own filter words its refusal when
 // OpenRouter passes it on as a bare 400, with no error_type and no reasons.
 // OpenAI, live on 27 October 2026: "Your request was rejected by the safety
-// system."
-var safetyPhrases = []string{"safety system", "moderation_blocked", "safety_violations"}
+// system." Azure's MAI, live on 1 November 2026: "Azure MAI blocked this
+// request through content moderation."
+var safetyPhrases = []string{"safety system", "moderation_blocked", "safety_violations", "content moderation"}
 
 func safetyWords(message string) bool {
 	m := strings.ToLower(message)

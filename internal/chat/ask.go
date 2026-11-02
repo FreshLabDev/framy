@@ -122,7 +122,7 @@ func (f *Flow) plain(ctx context.Context, m *tg.Message) error {
 	case src.group != "" || len(src.photos) > free.VideoHeyGen.MaxInputs:
 		return f.command(ctx, m, CommandImage, prompt)
 	}
-	if _, seen, err := f.cfg.Store.JobByKey(ctx, dedupeKey(m)); err != nil || seen {
+	if _, seen, err := f.cfg.Store.JobByKey(ctx, dedupeKey(f.cfg.Stack, m)); err != nil || seen {
 		// A replayed update of a message already answered.
 		return err
 	}

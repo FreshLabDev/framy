@@ -16,7 +16,7 @@ let timer = 0, inflight = 0;
 export const keyOf = (it) => JSON.stringify([it.offer, it.pay || "", it.settings || {}, it.files || [], it.inputs || [], it.continues || 0, it.prompt ? it.prompt.length : 0]);
 export const known = (it) => cache.get(keyOf(it));
 export const onPrices = (fn) => listeners.add(fn);
-export const clearPrices = () => cache.clear();
+export const clearPrices = () => { cache.clear(); totals.clear(); };
 
 // need() returns what is known now and asks for the rest, in one request a moment later.
 export function need(it) {
@@ -64,6 +64,24 @@ function num(a) {
   return s;
 }
 export const usd = (u) => "$" + num(u);
+// The price of several runs at once: the sum of each, read the loosest way any
+// of them reads (from, then up to, then about). One price that is not known
+// makes the sum unknown. The label is the first one's, with the sum in it.
+const RANK = { exact: 0, about: 1, up_to: 2, from: 3 };
+export function sumOf(es) {
+  if (es.length === 1) return es[0];
+  if (!es.length || es.some((e) => !e || e.kind === "unknown")) return { kind: "unknown" };
+  const kind = es.reduce((k, e) => (RANK[e.kind] > RANK[k] ? e.kind : k), "exact");
+  const add = (f) => es.reduce((a, e) => a + (f(e) || 0), 0), top = (e) => (e.kind === "up_to" ? e.max_usd ?? e.usd : e.usd);
+  const out = { kind, usd: add((e) => e.usd), max_usd: add(top), currency: es[0].currency };
+  const cur = es.every((e) => e.currency === out.currency && e.amount != null);
+  if (cur) { out.amount = add((e) => e.amount); out.max_amount = add((e) => (e.kind === "up_to" ? e.max_amount ?? e.amount : e.amount)); }
+  if (kind === "up_to") out.usd = out.max_usd;
+  const shown = kind === "up_to" ? out.max_amount : out.amount, lab = es.find((e) => e.label)?.label;
+  out.label = cur && lab && /\d/.test(lab) ? lab.replace(/\d+(?:[.,]\d+)?/, (x) => (x.includes(",") ? num(shown).replace(".", ",") : num(shown))) : usd(out.usd);
+  if (!cur) out.currency = "USD";
+  return out;
+}
 const hint = (e) => (e && e.currency && e.currency !== "USD" && e.kind !== "unknown" ? usd(e.kind === "up_to" ? e.max_usd : e.usd) : null);
 
 // A price element for one run: filled now if known, else when the answer comes.
@@ -83,6 +101,24 @@ function paint(el, got, o = el._o || {}) {
   if (tip) el.title = tip; else el.removeAttribute("title");
 }
 export const busy = () => inflight > 0 || waiting.size > 0;
+
+/* The price of a press of several frames: the server sums the frames that are
+   not free ("batch": true) and says which of them go as one job. */
+const totals = new Map(); // key -> {total, jobs}
+const askedT = new Set();
+const totalKey = (items) => items.map(keyOf).join("\n");
+export const knownTotal = (items) => totals.get(totalKey(items));
+export function needTotal(items) {
+  const k = totalKey(items), got = totals.get(k);
+  if (got || askedT.has(k) || !items.length) return got || null;
+  askedT.add(k);
+  api("/api/quote", { method: "POST", body: { items, batch: true } }).then((r) => {
+    totals.set(k, { total: r.total || null, jobs: r.jobs || [] });
+    (r.items || []).forEach((x, i) => { if (items[i]) cache.set(keyOf(items[i]), x); });
+    for (const fn of listeners) fn();
+  }, () => {}).finally(() => askedT.delete(k));
+  return null;
+}
 
 // The lowest of several runs (a family's variants, a model's offers), as "from" when they differ.
 const mins = new Set();

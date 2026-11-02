@@ -556,7 +556,8 @@ func TestBrowserPrefsDefaults(t *testing.T) {
 	// The makers' marks are in the page from the start, never a file still loading.
 	const marks = [...document.querySelectorAll("#picker .lg > i")].map((i) => i.style.getPropertyValue("--m"));
 	const inline = marks.length > 10 && marks.every((m) => m.startsWith('url("data:image/svg+xml;base64,'));
-	const svgs = performance.getEntriesByType("resource").filter((r) => r.name.endsWith(".svg")).length;
+	// The tab icon is framy's own file, which a full Chrome fetches; the makers' marks are inline.
+	const svgs = performance.getEntriesByType("resource").filter((r) => r.name.endsWith(".svg") && !/\/assets\/framy\.[0-9a-f]{12}\.svg$/.test(r.name)).length;
 	// Every maker of the catalog has a mark, none is left with letters.
 	const letters = [...document.querySelectorAll("#picker .lg")].filter((l) => !l.querySelector("i")).map((l) => l.title);
 	const row = [...document.querySelectorAll("#pkrows .frow")].find((r) => r.getAttribute("aria-current") !== "true" && !r.classList.contains("dim"));

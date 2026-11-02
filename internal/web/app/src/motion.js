@@ -160,7 +160,8 @@ export function snap(root, o = {}) {
     news.forEach((el, i) => o.enter?.(el, i, wait));
     if (!o.leave) return;
     for (const [k, p] of old) {
-      if (seen.has(k)) continue;
+      // One that had no box (hidden, as the empty row of files) was never seen and leaves without a trace.
+      if (seen.has(k) || !p.r.width || !p.r.height) continue;
       const g = p.el;
       const pos = { position: "absolute", left: p.r.left - r1.left + root.scrollLeft + "px", top: p.r.top - r1.top + root.scrollTop + "px",
         width: p.r.width + "px", height: p.r.height + "px", margin: "0", pointerEvents: "none" };

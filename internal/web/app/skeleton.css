@@ -7,7 +7,8 @@ body { font: 400 16px/1.45 system-ui, sans-serif; }
 #skel { max-width: 1240px; margin: 0 auto; padding: 0 16px; }
 #skel i { display: block; background: #00454F; }
 .sk-top { display: flex; align-items: center; justify-content: space-between; height: 68px; }
-.sk-top b { font: 700 34px/1 "Arial Narrow", sans-serif; letter-spacing: -.01em; }
+.sk-top b { display: flex; align-items: baseline; gap: 8px; font: 700 34px/1 "Arial Narrow", sans-serif; letter-spacing: -.01em; }
+.sk-top img { width: 32px; height: 32px; }
 .sk-top i { width: 96px; height: 40px; }
 .sk-main { display: grid; gap: 40px; }
 .sk-col { display: grid; gap: 14px; }

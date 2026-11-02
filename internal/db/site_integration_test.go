@@ -5,6 +5,7 @@ package db
 
 import (
 	"context"
+	"reflect"
 	"strconv"
 	"sync/atomic"
 	"testing"
@@ -48,7 +49,7 @@ func TestASiteResultIsSentOnce(t *testing.T) {
 		return got
 	}
 	got := listed()
-	if len(got) != 1 || got[0] != (SiteResult{JobID: job, UserID: 4401, Prompt: "a fox", Kind: "image", Model: "Chat image", Deliver: true}) {
+	if len(got) != 1 || !reflect.DeepEqual(got[0], SiteResult{JobID: job, UserID: 4401, Prompt: "a fox", Kind: "image", Model: "Chat image", Deliver: true}) {
 		t.Fatalf("site results = %+v", got)
 	}
 
@@ -141,5 +142,74 @@ func TestASiteResultThatWillNotGoEnds(t *testing.T) {
 	}
 	if _, err := store.ChatRun(ctx, closed); err != ErrNoRun {
 		t.Fatalf("a run for a result not sent: %v", err)
+	}
+}
+
+// pressJobOf makes a site job of person user part of press batch at frames,
+// in status, ended ago unless it is running.
+func pressJobOf(t *testing.T, store *Store, user int64, batch string, frames []int32, status string, ago time.Duration) int64 {
+	t.Helper()
+	job := siteJobOf(t, store, user, "site", ago, false)
+	_, err := store.pool.Exec(context.Background(), `
+		UPDATE job SET batch = $2, batch_frames = $3, status = $4,
+		       finished_at = CASE WHEN $4 = 'running' THEN NULL ELSE finished_at END
+		WHERE id = $1`, job, batch, frames, status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return job
+}
+
+// A press comes whole, once its last job ended, its jobs next to each
+// other, and the hour is counted from its last end.
+func TestAPressComesWholeAfterItsLastJob(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+	const user = 4411
+	alone := siteJobOf(t, store, user, "site", 2*time.Minute, false)
+	first := pressJobOf(t, store, user, "p-now", []int32{1, 2}, "done", 5*time.Minute)
+	slow := pressJobOf(t, store, user, "p-now", []int32{0}, "running", 0)
+	early := pressJobOf(t, store, user, "p-slow", []int32{0}, "done", 90*time.Minute)
+	late := pressJobOf(t, store, user, "p-slow", []int32{1}, "done", 10*time.Minute)
+	pressJobOf(t, store, user, "p-old", []int32{0}, "done", 100*time.Minute)
+	pressJobOf(t, store, user, "p-old", []int32{1}, "done", 70*time.Minute)
+	kept := pressJobOf(t, store, user, "p-failed", []int32{0}, "done", 3*time.Minute)
+	pressJobOf(t, store, user, "p-failed", []int32{1}, "failed", time.Minute)
+	gone := pressJobOf(t, store, user, "p-deleted", []int32{0}, "done", 4*time.Minute)
+	deleted := pressJobOf(t, store, user, "p-deleted", []int32{1}, "running", 0)
+	if _, err := store.pool.Exec(ctx, `UPDATE job SET deleted_at = now() WHERE id = $1`, deleted); err != nil {
+		t.Fatal(err)
+	}
+
+	listed := func() []int64 {
+		t.Helper()
+		got, err := store.SiteResults(ctx, time.Now().Add(-time.Hour), 20)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ids []int64
+		for _, r := range got {
+			ids = append(ids, r.JobID)
+			if r.Batch == "p-slow" && r.JobID == late && !reflect.DeepEqual(r.Frames, []int32{1}) {
+				t.Fatalf("frames of %d = %v", late, r.Frames)
+			}
+			if r.JobID == alone && (r.Batch != "" || r.Frames != nil) {
+				t.Fatalf("a job made alone = %+v", r)
+			}
+		}
+		return ids
+	}
+	// The press p-now waits for its slow job; p-slow comes whole, by its
+	// last end; p-old ended over an hour ago; a failed or deleted job holds
+	// nothing back, and p-failed comes when its failed job ended.
+	if got, want := listed(), []int64{early, late, gone, alone, kept}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("listed %v, want %v", got, want)
+	}
+
+	if _, err := store.pool.Exec(ctx, `UPDATE job SET status = 'done', finished_at = now() WHERE id = $1`, slow); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := listed(), []int64{early, late, gone, alone, kept, first, slow}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("listed %v, want %v", got, want)
 	}
 }

@@ -91,7 +91,7 @@ func TestAppAssets(t *testing.T) {
 	if len(refs) < 2 {
 		t.Fatalf("the page names %v", refs)
 	}
-	types := map[string]string{".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json"}
+	types := map[string]string{".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png"}
 	for _, ref := range refs {
 		rr := s.get(t, ref)
 		ext := ref[strings.LastIndex(ref, "."):]

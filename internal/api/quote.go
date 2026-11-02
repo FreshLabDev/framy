@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,6 +36,10 @@ const (
 // once, each with its own offer, payer and files.
 type quoteRequest struct {
 	Items []quoteItem `json:"items"`
+	// Batch says the items are the frames of one press of Create (POST
+	// /api/batches): the answer then says which go as one job, and what the
+	// press costs.
+	Batch bool `json:"batch"`
 }
 
 // quoteItem is one run as the composer has it now.
@@ -74,6 +79,12 @@ type quoteJSON struct {
 	Currency string          `json:"currency"`
 	RateDate string          `json:"rate_date,omitempty"`
 	Items    []quoteItemJSON `json:"items"`
+	// Jobs, for a batch, are the items that would go as one job, by their
+	// place in items: [[0,1,2,3],[4]] for five frames of one run at four at
+	// once. Total is the price of the press: the items not on the free
+	// allowance, summed (price.Sum); absent when every item is free.
+	Jobs  [][]int       `json:"jobs,omitempty"`
+	Total *estimateJSON `json:"total,omitempty"`
 }
 
 // quoteItemJSON is the price of one run, in the order of the request.
@@ -156,8 +167,13 @@ func (a *API) quoteRoute(w http.ResponseWriter, r *http.Request) {
 	if q.Code != fx.USD {
 		out.RateDate = q.Date.Format(time.DateOnly)
 	}
-	for _, it := range req.Items {
+	// For a batch: which items are the same run, how many of each one job
+	// makes, and the prices of those that are paid.
+	runKeys, most := make([]string, len(req.Items)), make([]int, len(req.Items))
+	var paid []price.Estimate
+	for i, it := range req.Items {
 		item := quoteItemJSON{Offer: it.Offer}
+		runKeys[i], most[i] = "\x00"+strconv.Itoa(i), 1
 		m, offer, ok := offerIn(models, byOffer, it.Offer)
 		if !ok {
 			item.Refusal = refusalJSON(newError(http.StatusUnprocessableEntity, codeUnknownOffer, "no such offer, or it is not offered now"))
@@ -222,6 +238,16 @@ func (a *API) quoteRoute(w http.ResponseWriter, r *http.Request) {
 		item.Estimate = estimateJSONOf(est.USD, &est, q.Code, q.PerUSD, lang)
 		item.Estimate.RateDate = out.RateDate
 		item.Settings = withoutContinuation(settings)
+		if req.Batch {
+			pay := payKey
+			if isFree {
+				pay = payFree
+			} else {
+				paid = append(paid, est)
+				most[i] = catalog.AtOnce(offer)
+			}
+			runKeys[i] = sameRun(offer.ID, pay, settings, it.Prompt, it.Inputs, it.Files, it.Continues)
+		}
 
 		wrong := checkSettings(m, offer, it.Settings)
 		if wrong == nil {
@@ -259,6 +285,14 @@ func (a *API) quoteRoute(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		out.Items = append(out.Items, item)
+	}
+	if req.Batch {
+		out.Jobs = splitFrames(runKeys, most)
+		if len(paid) > 0 {
+			total := price.Sum(paid...)
+			out.Total = estimateJSONOf(total.USD, &total, q.Code, q.PerUSD, lang)
+			out.Total.RateDate = out.RateDate
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }

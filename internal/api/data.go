@@ -55,6 +55,10 @@ type State struct {
 	Prompt   string
 	Settings map[string]any
 	Surface  string
+	// Batch is the press of Create the job is part of (POST /api/batches),
+	// empty for a job of its own; BatchFrames is the frame of each result.
+	Batch       string
+	BatchFrames []int32
 
 	CreatedAt  time.Time
 	FinishedAt *time.Time
@@ -131,6 +135,9 @@ type data interface {
 	// List is a page of the person's history: the jobs that were queued and
 	// not deleted, newest first.
 	List(ctx context.Context, userID int64, f Filter) ([]State, error)
+	// Batch is the jobs of the batch job id is part of, in order, for its
+	// owner; empty for anyone else and for a job of no batch.
+	Batch(ctx context.Context, userID, id int64) ([]State, error)
 	// ByKey is the job a dedupe key started, if any.
 	ByKey(ctx context.Context, key string) (id int64, ok bool, err error)
 	// Inputs are the person's files among ids, in the order of ids; fewer
@@ -156,7 +163,7 @@ type pgData struct{ pool *pgxpool.Pool }
 const stateColumns = `id, event_seq, status, kind, offer_id, free, error_class, COALESCE(provider_message, error), retry_at,
 	estimate_usd::float8, estimate, actual_usd::float8,
 	currency, fx_rate::float8, fx_date, created_at, finished_at, grounding,
-	model_id, prompt, settings, surface`
+	model_id, prompt, settings, surface, COALESCE(batch, ''), batch_frames`
 
 func scanState(row pgx.Row) (State, error) {
 	var (
@@ -173,7 +180,7 @@ func scanState(row pgx.Row) (State, error) {
 		&s.ID, &s.Seq, &s.Status, &s.Kind, &s.Offer, &s.Free, &errCls, &errText, &s.RetryAt,
 		&s.EstimateUSD, &estim, &s.ActualUSD,
 		&cur, &rate, &s.FXDate, &s.CreatedAt, &s.FinishedAt, &ground,
-		&s.Model, &s.Prompt, &settings, &s.Surface)
+		&s.Model, &s.Prompt, &settings, &s.Surface, &s.Batch, &s.BatchFrames)
 	if err != nil {
 		return State{}, err
 	}
@@ -218,6 +225,25 @@ func (d pgData) State(ctx context.Context, userID, id int64) (State, error) {
 		return State{}, err
 	}
 	return states[0], nil
+}
+
+func (d pgData) Batch(ctx context.Context, userID, id int64) ([]State, error) {
+	rows, err := d.pool.Query(ctx, `
+		SELECT `+stateColumns+` FROM job
+		WHERE user_id = $1 AND deleted_at IS NULL
+		  AND batch = (SELECT batch FROM job WHERE id = $2 AND user_id = $1)
+		ORDER BY id`, userID, id)
+	if err != nil {
+		return nil, fmt.Errorf("read the batch of job %d: %w", id, err)
+	}
+	states, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (State, error) { return scanState(r) })
+	if err != nil {
+		return nil, fmt.Errorf("read the batch of job %d: %w", id, err)
+	}
+	if err := d.files(ctx, userID, states); err != nil {
+		return nil, err
+	}
+	return states, nil
 }
 
 func (d pgData) List(ctx context.Context, userID int64, f Filter) ([]State, error) {

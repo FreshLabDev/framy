@@ -11,12 +11,12 @@ import { api, isFinal, outsOf } from "./api.js";
 import { C, vname, famLogo, lg, show, SICON, SHOWN, factEl, ratioNum, ratioOfSize } from "./catalog.js";
 import { S } from "./state.js";
 import { failure } from "./errors.js";
-import { known, priceEl, priceText, onPrices } from "./price.js";
+import { known, priceEl, priceText, onPrices, sumOf, knownTotal, needTotal } from "./price.js";
 import { thumbMedia } from "./clips.js";
 import { player } from "./player.js";
 import { openSheet, closeSheets, toast, ask } from "./ui.js";
 import { view, B, ticking, renderStage, refit } from "./stage.js";
-import { runOfJob, again, removeJob, signIn, shownOf, onLeave, copyPrompt, refreshMe } from "./run.js";
+import { runOfJob, runOfBatch, frameRun, again, removeJob, signIn, shownOf, onLeave, copyPrompt, refreshMe } from "./run.js";
 
 /* Views and addresses. */
 
@@ -175,7 +175,7 @@ function renderLibrary() {
   else if (!L.loaded || (!list.length && L.busy === "page")) body = [loading()];
   else if (L.err && !list.length) body = [slim(t("lib.failed"), "again", t("act.retry"), () => { swap(() => { L.err = ""; L.loaded = false; }); load(); })];
   else if (!list.length) body = [empty()];
-  else body = [...days(list).map(dayEl), foot(list)];
+  else body = [...days(entries(list)).map(dayEl), foot(list)];
   const tools = S.signed && L.loaded && (L.any || L.kind !== "all" || !!L.q);
   root.replaceChildren(h("div", { class: "libhead", "data-k": "lhead" }, h("h1", {}, t("tab.library")), tools ? kinds() : null, tools ? searchBox() : null), ...body);
   placeSegs(root);
@@ -230,15 +230,30 @@ function dayName(d) {
   const year = d.getFullYear() !== now.getFullYear();
   return fmtOf("d" + lang + year, () => new Intl.DateTimeFormat(lang, { day: "numeric", month: "long", ...(year ? { year: "numeric" } : {}) })).format(d);
 }
+// The runs of the list: a press of several frames is one run, its jobs in the
+// order of their frames (the server never cuts a press across pages).
+function entries(list) {
+  const out = [], at = new Map();
+  for (const j of list) {
+    const g = j.batch && at.get(j.batch);
+    if (g) { g.jobs.push(j); continue; }
+    const e = { jobs: [j], batch: j.batch || "" };
+    if (e.batch) at.set(e.batch, e);
+    out.push(e);
+  }
+  const lo = (j) => Math.min(...(j.frames || [0]));
+  for (const e of out) e.jobs.sort((a, b) => lo(a) - lo(b));
+  return out;
+}
 function days(list) {
   const out = [];
-  for (const j of list) {
-    const d = new Date(j.created_at), k = d.toDateString(), g = out.at(-1);
-    if (g && g.k === k) g.jobs.push(j); else out.push({ k, d, jobs: [j] });
+  for (const e of list) {
+    const d = new Date(e.jobs[0].created_at), k = d.toDateString(), g = out.at(-1);
+    if (g && g.k === k) g.runs.push(e); else out.push({ k, d, runs: [e] });
   }
   return out;
 }
-const dayEl = (g) => h("section", { class: "lday" }, h("h2", { "data-k": "ld-" + g.k }, dayName(g.d)), h("div", { class: "libgrid" }, g.jobs.map(tile)));
+const dayEl = (g) => h("section", { class: "lday" }, h("h2", { "data-k": "ld-" + g.k }, dayName(g.d)), h("div", { class: "libgrid" }, g.runs.map((e) => (e.batch ? pressTile(e.jobs) : tile(e.jobs[0])))));
 
 const nameOf = (id) => String(id || "").split("/").pop();
 const coverOf = (j) => { const r = outsOf(j)[0]; return r ? r.thumb?.url || (j.kind === "video" ? "" : r.url || "") : ""; };
@@ -286,6 +301,46 @@ function cover(j) {
   const wait = j.status === "queued" || j.status === "running", stop = j.status === "cancelled";
   return h("span", { class: "cover none" + (wait ? " wait" : " fail") }, h("i"), h("i"), h("i"), h("i"),
     h("span", { class: "c" }, ic(wait ? "clock" : stop ? "stop" : "warn"), h("b", {}, said(j))));
+}
+// A press of several frames: its results together in one cover, its models
+// (the first by name), and what it cost or where it stands.
+function pressTile(js) {
+  const first = js[0], key = "b:" + first.batch, sig = js.map(sigOf).join("#"), old = TILES.get(key);
+  if (old && old._sig === sig && old.dataset.k && !old.inert) return old;
+  const ids = [...new Set(js.map((j) => j.model))], m = C.byId[ids[0]], f = m && C.famOf[m.id];
+  const name = (m ? vname(m) : nameOf(ids[0])) + (ids.length > 1 ? " +" + fmtNum(ids.length - 1) : "");
+  const a = h("a", { class: "li", href: "/r/" + first.id, "data-k": "li-" + first.id,
+    onclick: (e) => { if (!S.mini && (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) return; e.preventDefault(); openView(L.jobs.find((x) => x.id === first.id) || first, true); } },
+  pressCover(js), h("p", { class: "p" }, first.prompt || t("kind." + first.kind)),
+  h("span", { class: "m" }, f ? lg(famLogo(f), f.maker, "s") : null,
+    h("span", {}, [name, pressSaid(js), first.surface === "guest" ? t("lib.guest") : ""].filter(Boolean).join(" · "))));
+  a._sig = sig;
+  TILES.set(key, a);
+  return a;
+}
+// The results in the order of their frames, four of them in the cover.
+function pressCover(js) {
+  const n = Math.max(...js.flatMap((j) => j.frames || [0])) + 1, pics = [];
+  for (let i = 0; i < n; i++) {
+    const j = js.find((x) => x.frames?.includes(i)), r = j?.status === "done" ? outsOf(j)[j.frames.indexOf(i)] : null;
+    const src = r ? r.thumb?.url || (j.kind === "video" ? "" : r.url || "") : "";
+    if (src) pics.push([j, src]);
+  }
+  if (!pics.length) return cover(js.find((j) => !isFinal(j.status)) || js.find((j) => j.status === "done") || js[0]);
+  const k = Math.min(pics.length, 4), kids = pics.slice(0, 4).map(([j, src]) => {
+    const im = h("img", { src, alt: "", loading: "lazy", decoding: "async" });
+    im.addEventListener("error", () => relink(j.id), { once: true });
+    return im;
+  });
+  if (pics.length > 1) kids.push(h("span", { class: "badge n" }, "×" + fmtNum(pics.length)));
+  return h("span", { class: "cover" + (k > 1 ? " mosaic m" + k : "") }, kids);
+}
+function pressSaid(js) {
+  const going = js.find((j) => !isFinal(j.status));
+  if (going) return said(going);
+  if (!js.some((j) => j.status === "done")) return said(js[0]);
+  const costs = js.map((j) => j.cost).filter((c) => c?.label);
+  return costs.length ? sumOf(costs.map((c) => ({ ...c, kind: "exact" }))).label : js.every((j) => j.free) ? t("bar.free") : "";
 }
 const relinked = new Set();
 async function relink(id) {
@@ -347,7 +402,12 @@ function took(j, quiet = false) {
   let changed = false;
   if (i >= 0) { changed = sigOf(L.jobs[i]) !== sigOf(j); L.jobs[i] = j; }
   else if (L.loaded && !quiet && (!L.jobs.length || j.id > L.jobs[0].id)) { L.jobs.unshift(j); changed = matches(j); if (j.status) L.any = true; }
-  if (V.j?.id === j.id) {
+  if (V.press && j.batch === V.press.batch) {
+    // Any job of the press shown: its picks and the frame shown read it again.
+    const was = V.press.jobs.map(sigOf).join("#");
+    setRun(V.j.id === j.id ? j : L.jobs.find((x) => x.id === V.id) || V.j, V.f);
+    if (was !== V.press.jobs.map(sigOf).join("#")) fill();
+  } else if (V.j?.id === j.id) {
     const was = sigOf(V.j);
     V.j = j; V.run.job = j;
     if (was !== sigOf(j)) fill();
@@ -392,8 +452,24 @@ function gone(id) {
 
 /* The viewer. */
 
-const V = { id: 0, j: null, run: null, i: 0, pushed: false, quiet: false, want: 0 };
+// press and f: a run of several frames, and the frame shown; run is then that
+// frame, j its job and i its result in the job.
+const V = { id: 0, j: null, run: null, i: 0, press: null, f: 0, pushed: false, quiet: false, want: 0 };
 const viewerOpen = () => !!V.id && !$("#viewer").hidden;
+// The run the viewer shows: a job, or a frame of its press (with the jobs of
+// the press the list has read), the frame of j unless f names another.
+function setRun(j, f = null) {
+  V.press = null;
+  if (j.batch) {
+    const sibs = L.jobs.filter((x) => x.batch === j.batch);
+    V.press = runOfBatch(sibs.some((x) => x.id === j.id) ? sibs : [j]);
+    V.f = Math.min(f ?? V.press.jobs.find((x) => x.id === j.id)?.frames[0] ?? 0, V.press.frames.length - 1);
+    V.run = frameRun(V.press, V.f); V.j = V.run.job; V.i = V.run.k;
+  } else { V.run = runOfJob(j); V.j = j; V.i = 0; }
+  V.id = V.j.id;
+}
+const runsShown = () => entries(shown());
+const runAt = (list) => list.findIndex((e) => e.jobs.some((x) => x.id === V.id));
 
 export function mountViewer() {
   const el = h("section", { class: "sheet wide", id: "viewer", hidden: true, role: "dialog", "aria-modal": "true", "aria-labelledby": "viewTitle" },
@@ -407,7 +483,7 @@ function closed() {
   V.quiet = false;
   closeFull(true);
   $("#viewBody").replaceChildren();
-  V.id = 0; V.j = null; V.run = null;
+  V.id = 0; V.j = null; V.run = null; V.press = null;
   polling();
   if (quiet) return;
   // Closed by its own button: the address goes back to the library.
@@ -434,8 +510,8 @@ async function openRun(id, pushed) {
 }
 function openView(j, push, pushed = push) {
   V.want = 0;
-  V.id = j.id; V.j = j; V.run = runOfJob(j); V.i = 0; V.pushed = !S.mini && pushed;
-  if (push) setPath("/r/" + j.id, "push", { lib: 1 });
+  setRun(j); V.pushed = !S.mini && pushed;
+  if (push) setPath("/r/" + V.id, "push", { lib: 1 });
   fill();
   openSheet("#viewer");
   size();
@@ -444,8 +520,8 @@ function openView(j, push, pushed = push) {
 }
 // Another run in the open viewer: the next one, the one before, or the one after a deleted one.
 function showIn(j, d = 0) {
-  V.id = j.id; V.j = j; V.run = runOfJob(j); V.i = 0;
-  setPath("/r/" + j.id, "replace", V.pushed ? { lib: 1 } : null);
+  setRun(j);
+  setPath("/r/" + V.id, "replace", V.pushed ? { lib: 1 } : null);
   fill();
   if (d) anim($("#viewBody").firstChild, [{ opacity: 0, transform: `translateX(${d * 32}px)` }, { opacity: 1, transform: "none" }], { duration: 300 });
   fresh();
@@ -458,15 +534,15 @@ function fresh() {
 }
 
 async function step(d) {
-  const list = shown(), i = list.findIndex((x) => x.id === V.id), k = i + d;
+  const list = runsShown(), i = runAt(list), k = i + d;
   if (i < 0 || k < 0) return;
   if (k >= list.length) {
     if (!L.next) return;
     await load(true);
-    if (shown().length <= k || !viewerOpen()) return;
+    if (runsShown().length <= k || !viewerOpen()) return;
     return step(d);
   }
-  showIn(shown()[k], d);
+  showIn(list[k].jobs[0], d);
 }
 addEventListener("keydown", (e) => {
   if (!viewerOpen() || !$("#ask").hidden || e.metaKey || e.ctrlKey || e.altKey || e.target.closest?.("input, textarea, select, video, .ptrack")) return;
@@ -476,7 +552,7 @@ addEventListener("keydown", (e) => {
 });
 
 function nav() {
-  const el = $("#vnav"), list = shown(), i = list.findIndex((x) => x.id === V.id);
+  const el = $("#vnav"), list = runsShown(), i = runAt(list);
   if (!el) return;
   if (i < 0 || (list.length < 2 && !L.next)) { el.replaceChildren(); return; }
   el.replaceChildren(
@@ -504,8 +580,8 @@ function mediaOf(j, v) {
     // The thumbnail stands in while the original loads.
     const ph = res.thumb?.url ? h("img", { class: "ph", src: res.thumb.url, alt: "" }) : null;
     if (ph) el.addEventListener("load", () => ph.remove(), { once: true });
-    el.addEventListener("click", () => openFull(V.i));
-    const big = h("button", { type: "button", class: "vexp", "aria-label": t("full.open"), title: t("full.open"), onclick: () => openFull(V.i) }, ic("expand"));
+    el.addEventListener("click", () => openFull(fullStart()));
+    const big = h("button", { type: "button", class: "vexp", "aria-label": t("full.open"), title: t("full.open"), onclick: () => openFull(fullStart()) }, ic("expand"));
     return h("div", { class: "vbox vfit zoom" }, ph, el, big);
   }
   const st = v.status || h("div", { class: "c" }, ic(j.kind), h("b", {}, t("lib.gone")));
@@ -532,6 +608,7 @@ function itemOf(j) {
 }
 const ready = (it) => !!known(it) && !S.busy;
 function againBtn(label, cls) {
+  if (V.press) return pressAgain(label, cls);
   const j = V.j;
   if (!C.byId[j.model]) return null;
   const it = itemOf(j), b = B("again", label, () => againNow(it), cls);
@@ -541,7 +618,38 @@ function againBtn(label, cls) {
   b.disabled = !ready(it);
   return b;
 }
-onPrices(() => { for (const b of $$("#viewBody [data-again], #full [data-again]")) b.disabled = !ready(b._it); });
+// A press again: every frame, at the price of its paid frames now, as framy sums them.
+const pressItems = (p) => p.frames.filter((fm) => fm.pay !== "free").map((fm) => {
+  const ids = fm.files.map((f) => f.upload).filter(Boolean), it = { offer: fm.offer, pay: "key", settings: fm.settings, files: [] };
+  if (ids.length) it.inputs = ids;
+  return it;
+});
+const readyAll = (items) => (!items.length || !!knownTotal(items)?.total) && !S.busy;
+function pressAgain(label, cls) {
+  const p = V.press;
+  if (p.frames.some((fm) => !C.byId[fm.model])) return null;
+  const items = pressItems(p), b = B("again", label, () => {
+    if (!readyAll(items)) return;
+    const e = items.length ? knownTotal(items).total : null;
+    p.shown = e ? shownOf(e) : null; p.shownLabel = e ? priceText(e) : ""; p.priceLabel = e?.label || "";
+    again(p);
+  }, cls);
+  b.dataset.again = "";
+  b._items = items;
+  if (items.length) { b._usd = h("span", { class: "usd q" }); b.querySelector(".t").append(" · ", b._usd); needTotal(items); paintAll(b); }
+  b.disabled = !readyAll(items);
+  return b;
+}
+function paintAll(b) {
+  const e = knownTotal(b._items)?.total;
+  b._usd.textContent = e ? priceText(e) : "…";
+  b._usd.classList.toggle("wait", !e);
+}
+onPrices(() => {
+  for (const b of $$("#viewBody [data-again], #full [data-again]")) {
+    if (b._items) { if (b._usd) paintAll(b); b.disabled = !readyAll(b._items); } else b.disabled = !ready(b._it);
+  }
+});
 function againNow(it) {
   const got = known(it), run = V.run;
   if (!got || S.busy || !run) return;
@@ -588,12 +696,33 @@ function fill() {
 }
 // More than one result: small pictures under the big one pick which shows.
 function picks(j) {
+  if (V.press) return framePicks(V.press);
   const rs = j.status === "done" ? outsOf(j) : [];
   if (rs.length < 2) return null;
   return h("div", { class: "vpicks", role: "group", "aria-label": t("stage.label") }, rs.map((r, i) =>
     h("button", { type: "button", "aria-pressed": String(i === V.i), "aria-label": t("view.result", { n: fmtNum(i + 1) }), onclick: () => { if (V.i !== i) { V.i = i; fill(); } } },
       r.thumb?.url || (r.url && !r.content_type?.startsWith("video/")) ? h("img", { src: r.thumb?.url || r.url, alt: "" }) : ic(j.kind))));
 }
+// A press: a small picture for each frame, or what became of it, and the frame shown at its own address.
+function framePicks(p) {
+  if (p.frames.length < 2) return null;
+  return h("div", { class: "vpicks", role: "group", "aria-label": t("stage.label") }, p.frames.map((_, f) => {
+    const sub = frameRun(p, f), j = sub.job, r = j?.status === "done" ? outsOf(j)[sub.k] : null;
+    const src = r ? r.thumb?.url || (r.url && !r.content_type?.startsWith("video/") ? r.url : "") : "";
+    const pick = () => { if (V.f === f) return; setRun(V.j, f); setPath("/r/" + V.id, "replace", V.pushed ? { lib: 1 } : null); fill(); };
+    return h("button", { type: "button", "aria-pressed": String(f === V.f), "aria-label": t("fr.n", { n: fmtNum(f + 1) }), onclick: pick },
+      src ? h("img", { src, alt: "" }) : ic(j && (j.status === "failed" || j.status === "cancelled") ? "warn" : p.kind));
+  }));
+}
+// What the whole screen goes between: the results of the run, or of every frame of the press.
+function fullItems() {
+  if (V.press) return V.press.frames.map((_, f) => {
+    const sub = frameRun(V.press, f), r = sub.job?.status === "done" ? outsOf(sub.job)[sub.k] : null;
+    return r?.url ? { j: sub.job, res: r, run: sub, again: againBtn, f } : null;
+  }).filter(Boolean);
+  return V.j ? outsOf(V.j).filter((r) => r.url).map((res) => ({ j: V.j, res, run: V.run, again: againBtn })) : [];
+}
+const fullStart = () => (V.press ? Math.max(0, fullItems().findIndex((it) => it.f === V.f)) : V.i);
 /* The whole screen for a run's results: a swipe or the arrows go between
    them, Escape or Close goes back to the viewer. */
 
@@ -606,14 +735,16 @@ const dirOf = () => (document.dir === "rtl" ? -1 : 1);
 const fullAt = () => (FULL ? Math.round(Math.abs(FULL.strip.scrollLeft) / Math.max(1, FULL.strip.clientWidth)) : 0);
 function fullGo(d) {
   if (!FULL) return;
-  const k = Math.max(0, Math.min(FULL.rs.length - 1, fullAt() + d));
+  const k = Math.max(0, Math.min(FULL.items.length - 1, fullAt() + d));
   FULL.strip.scrollTo({ left: dirOf() * k * FULL.strip.clientWidth, behavior: motion() ? "smooth" : "auto" });
 }
-function openFull(at = 0) {
-  const j = V.j, rs = outsOf(j).filter((r) => r.url);
-  if (!rs.length || FULL) return;
-  const box = $("#full"), n = rs.length, rtl = dirOf() < 0;
-  const cells = rs.map((r) => {
+// items are the results to go between, each with its job and run (the stage's
+// frames of a press); without them, the viewer's run.
+export function openFull(at = 0, items = null) {
+  items ||= fullItems();
+  if (!items.length || FULL) return;
+  const box = $("#full"), n = items.length, rtl = dirOf() < 0, kind = items[0].j.kind;
+  const cells = items.map(({ j, res: r }) => {
     const vid = r.content_type?.startsWith("video/"), ratio = r.width && r.height ? r.width / r.height : ratioOf(j);
     const m = vid ? player(r, { autoplay: false }) : h("img", { src: r.url, alt: j.prompt || "", decoding: "async" });
     return h("div", { class: "fcell" }, h("div", { class: "fimg", style: { "--r": String(ratio) } }, m));
@@ -621,19 +752,20 @@ function openFull(at = 0) {
   const strip = h("div", { class: "fstrip" }, cells), cnt = h("span", { class: "cnt", "aria-live": "polite" });
   const nav = n > 1 ? [h("button", { type: "button", class: "fnav s", "aria-label": t("view.prev"), title: t("view.prev"), onclick: () => fullGo(-1) }, ic(rtl ? "chev" : "chevl")),
     h("button", { type: "button", class: "fnav e", "aria-label": t("view.next"), title: t("view.next"), onclick: () => fullGo(1) }, ic(rtl ? "chevl" : "chev"))] : [];
-  const dots = n > 1 ? h("div", { class: "dots", "aria-hidden": "true" }, rs.map(() => h("i"))) : null;
+  const dots = n > 1 ? h("div", { class: "dots", "aria-hidden": "true" }, items.map(() => h("i"))) : null;
   const acts = h("div", { class: "jacts acts" });
-  FULL = { j, rs, strip, at: -1, back: document.activeElement };
+  FULL = { items, strip, at: -1, back: document.activeElement };
   // What the strip shows now: the count, the dots, the arrows, the actions of that result, and only its video plays.
   const upd = () => {
     if (!FULL) return;
     const c = fullAt();
     if (c === FULL.at) return;
     FULL.at = c;
-    cnt.textContent = n > 1 ? t("view.of", { i: fmtNum(c + 1), n: fmtNum(n) }) : t("kind." + j.kind);
+    cnt.textContent = n > 1 ? t("view.of", { i: fmtNum(c + 1), n: fmtNum(n) }) : t("kind." + kind);
     if (nav.length) { nav[0].disabled = c === 0; nav[1].disabled = c === n - 1; }
     dots?.querySelectorAll("i").forEach((e, i) => e.classList.toggle("on", i === c));
-    acts.replaceChildren(...view(V.run, { res: outsOf(j).indexOf(rs[c]), again: againBtn }).acts.filter(Boolean));
+    const it = items[c];
+    acts.replaceChildren(...view(it.run, { res: outsOf(it.j).indexOf(it.res), again: it.again }).acts.filter(Boolean));
     cells.forEach((cell, i) => { const v = cell.querySelector("video"); if (v && i === c) v.play().catch(() => {}); else v?.pause(); });
   };
   let raf = 0;

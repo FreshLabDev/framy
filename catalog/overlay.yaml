@@ -331,10 +331,6 @@ models:
     family: {id: seedream, gen: "5", tier: lite, label: 5.0 Lite}
   bytedance-seed/seedream-4.5:
     family: {id: seedream, gen: "4.5", tier: std, label: "4.5"}
-  # xAI retires the slug on 2 November 2026 and serves 2.0 in its place.
-  x-ai/grok-imagine-image-quality:
-    family: {id: grok-image, gen: "2", tier: quality, label: Quality}
-    deprecated: {shuts_down: "2026-11-02", successor: x-ai/grok-imagine-image-2.0}
   x-ai/grok-imagine-image-2.0:
     family: {id: grok-image, gen: "2", tier: std, label: "2.0"}
   qwen/qwen-image-3-pro:

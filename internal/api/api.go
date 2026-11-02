@@ -83,6 +83,10 @@ const (
 // job and answers jobs.ErrRunning for a running one.
 type Queue interface {
 	Enqueue(ctx context.Context, n jobs.New) (id int64, created bool, err error)
+	// EnqueueBatch queues the jobs of one press in one transaction, all or
+	// none; created is false when the press was answered before, and ids
+	// are then that batch's jobs.
+	EnqueueBatch(ctx context.Context, ns []jobs.New) (ids []int64, created bool, err error)
 	Cancel(ctx context.Context, id int64) error
 }
 
@@ -306,6 +310,7 @@ func (a *API) Register(site *web.Server) {
 		web.Deadlines(10*time.Second, 3*time.Minute))
 	site.HandleFunc("POST /api/files/{id}/share", a.share, web.Limit(web.ClassJob))
 	site.HandleFunc("POST /api/jobs", a.create, web.Limit(web.ClassJob))
+	site.HandleFunc("POST /api/batches", a.createBatch, web.Limit(web.ClassJob))
 	site.HandleFunc("GET /api/jobs", a.history)
 	site.HandleFunc("GET /api/jobs/{id}", a.get)
 	site.HandleFunc("DELETE /api/jobs/{id}", a.remove)

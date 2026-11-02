@@ -21,7 +21,81 @@ export const S = {
   view: "create",
 };
 
-export const M = () => C.byId[S.model[S.kind]];
+/* Frames (docs/design.md, Frames): one press of Create makes every frame of
+   the kind. A frame keeps only what differs from the common model, payment
+   and settings; one frame alone has nothing of its own. scope is the frame
+   the composer changes now, null for all of them. */
+let frameSeq = 0;
+export const newFrame = (own) => ({ id: ++frameSeq, own: own ? structuredClone(own) : { wanted: {} } });
+S.frames = { image: [newFrame()], video: [newFrame()] };
+S.scope = { image: null, video: null };
+export const MAXFR = { image: 6, video: 4 };
+export const FR = () => S.frames[S.kind];
+export const scopeFr = () => FR().find((f) => f.id === S.scope[S.kind]) || null;
+export const common = () => C.byId[S.model[S.kind]];
+export const frModel = (fr) => C.byId[fr.own.model] || common();
+export const frPay = (fr) => { const m = frModel(fr); return fr.own.pay && pays(m).includes(fr.own.pay) ? fr.own.pay : basePay(m); };
+export const frWanted = (fr) => ({ ...S.wanted, ...fr.own.wanted });
+// What the composer changes now: one frame's, or the common one of all.
+export const wanted = () => { const fr = scopeFr(); return fr ? frWanted(fr) : S.wanted; };
+export const M = () => { const fr = scopeFr(); return fr ? frModel(fr) : common(); };
+export function setModelHere(id) {
+  const fr = scopeFr();
+  if (fr) { fr.own.model = id; delete fr.own.pay; } else S.model[S.kind] = id;
+  const f = C.famOf[id];
+  if (f) S.lastVar[f.idx] = id;
+}
+export function setPayHere(m, p) { const fr = scopeFr(); if (fr) fr.own.pay = p; else S.pay[m.id] = p; }
+// A chosen setting also keeps the payment it was chosen under.
+export function setWantedHere(name, x) {
+  const fr = scopeFr();
+  if (fr) { fr.own.pay ??= frPay(fr); fr.own.wanted[name] = x; return; }
+  const m = M();
+  S.pay[m.id] ??= payOf(m);
+  S.wanted[name] = x;
+}
+// A frame keeps only what differs from the rest; a frame alone is the common setup.
+export function tidy() {
+  const frs = FR();
+  if (frs.length === 1) {
+    const o = frs[0].own;
+    if (o.model && C.byId[o.model]) S.model[S.kind] = o.model;
+    if (o.pay) S.pay[S.model[S.kind]] = o.pay;
+    Object.assign(S.wanted, o.wanted);
+    frs[0].own = { wanted: {} };
+    S.scope[S.kind] = null;
+    return;
+  }
+  for (const fr of frs) {
+    const o = fr.own;
+    if (o.model && (o.model === S.model[S.kind] || !C.byId[o.model])) delete o.model;
+    const m = frModel(fr);
+    if (o.pay && (o.pay === basePay(m) || !pays(m).includes(o.pay))) delete o.pay;
+    const base = settingsOf(m, frPay(fr), S.wanted, sourceRatio());
+    for (const [k, v] of Object.entries(o.wanted)) if (k in base && String(base[k]) === String(v)) delete o.wanted[k];
+  }
+  if (S.scope[S.kind] != null && !scopeFr()) S.scope[S.kind] = null;
+}
+// What a frame has of its own, for the marks on its frame and in the form.
+export function ownBits(fr) {
+  const o = fr.own, m = frModel(fr), pay = frPay(fr), bits = [];
+  if (o.model) bits.push({ k: "model", m });
+  if (o.pay) bits.push({ k: "pay", pay });
+  if (pay !== "free") { const s = settings(m, pay, frWanted(fr)); for (const k of Object.keys(o.wanted)) if (k in s) bits.push({ k, v: s[k] }); }
+  return bits;
+}
+export const hasOwn = (fr) => ownBits(fr).length > 0;
+// The frames of one press: each with its model, payment and settings; a free
+// frame past what is left of the allowance is short.
+export function plan() {
+  let free = S.signed ? freeLeft(S.kind) : Infinity;
+  return FR().map((fr, i) => {
+    const m = frModel(fr), pay = frPay(fr), set = settings(m, pay, frWanted(fr));
+    return { fr, i, m, pay, set, short: pay === "free" && free-- <= 0 };
+  });
+}
+// The runs a press pays for: its frames that are not free, as POST /api/quote prices them.
+export const paidItems = (P = plan()) => P.filter((it) => it.pay !== "free").map((it) => runItem(it.m, it.pay, it.set));
 export const images = () => S.files.filter((f) => f.kind === "image");
 export const clips = () => S.files.filter((f) => f.kind === "video");
 export const clip = () => clips()[0];
@@ -113,8 +187,13 @@ export const fitsFree = (m) => {
   if (p.start_frame && S.kind === "video" && images().some((f) => slotOf(f) !== "start")) return false;
   return n <= freeTakes(p) && n >= (p.min_inputs || 0) && !(S.cont && S.cont.model === m.id);
 };
-// The payment of a model: the one chosen, else free while it lasts, else a working key, else what the model has.
+// The payment of a model: the frame's own, else the one chosen, else free while it lasts, else a working key, else what the model has.
 export function payOf(m) {
+  const fr = scopeFr();
+  if (m && fr?.own.pay && frModel(fr) === m && pays(m).includes(fr.own.pay)) return fr.own.pay;
+  return basePay(m);
+}
+function basePay(m) {
   if (!m) return "";
   const want = S.pay[m.id];
   if (want && pays(m).includes(want)) return want;
@@ -126,14 +205,14 @@ export function payOf(m) {
 export const usable = (m, pay) => !S.signed || (pay === "free" ? freeLeft(m.kind) > 0 : keyOk(pay));
 
 export function sourceRatio() { const i = images()[0] || clip(); return i && i.w && i.h ? i.w / i.h : null; }
-export const settings = (m, pay, wanted = S.wanted) => withFrames(m, pay, settingsOf(m, pay, wanted, sourceRatio()));
+export const settings = (m, pay, w = wanted()) => withFrames(m, pay, settingsOf(m, pay, w, sourceRatio()));
 // The Fast switch is the site's own, never a setting the server sees: on, the
 // run goes to the model's fast mode (Wan 3.0 Prime for Wan 3.0) with the
 // settings that fit it.
 export function fastOf(m, pay, set) {
   if (!("fast" in set)) return { m, set };
   const { fast, ...rest } = set, f = fast ? C.byId[m.fast] : null;
-  return f ? { m: f, set: settings(f, pay, { ...S.wanted, ...rest }) } : { m, set: rest };
+  return f ? { m: f, set: settings(f, pay, { ...wanted(), ...rest }) } : { m, set: rest };
 }
 
 /* Clips. */
@@ -150,6 +229,21 @@ export const minSecs = (m, pay) => inputsOf(m, pay).videos?.secs?.min || m.trait
 // rounding is let through here.
 const SLACK = 0.005;
 const lenOf = (f) => (f === clip() && S.cut ? S.cut.seconds : f.secs);
+// The frames that take the first clip: the shortest of them sets how long its part is, the longest-minded how short.
+function clipTakers() {
+  const c = clip(), i = c ? S.files.indexOf(c) : -1;
+  return i < 0 ? [] : plan().filter((it) => route(it.m, it.pay)[i]?.go);
+}
+export function cutLimits() {
+  const ts = clipTakers();
+  if (!ts.length) { const m = M(), pay = payOf(m); return { max: maxSecs(m, pay), min: minSecs(m, pay) }; }
+  return { max: Math.min(...ts.map((it) => maxSecs(it.m, it.pay))), min: Math.max(...ts.map((it) => minSecs(it.m, it.pay))) };
+}
+// The part of the first clip a press needs picked: the shortest any of its frames takes.
+export function cutNeeded() {
+  const cs = clipTakers().map((it) => needsCut(it.m, it.pay)).filter(Boolean);
+  return cs.length ? Math.min(...cs) : 0;
+}
 // The first clip is longer than the model takes, and no part of it is chosen yet.
 export function needsCut(m = M(), pay = payOf(m)) {
   const c = clip();
@@ -264,26 +358,34 @@ export function misfit(m) {
 }
 export const famMisfit = (f) => (f.cur.every((v) => misfit(v.m)) ? misfit(f.def.m) : "");
 
-/* What the one button does now: it always names the next step. */
+/* What the one button does now: it always names the next step, for every frame of the press. */
 export function next(prompt) {
-  const m = M();
-  if (!m) return { label: t("go.create"), on: false };
-  const pay = payOf(m), cont = contFits(m, pay), empty = !prompt.trim() && !S.files.length && !cont;
+  if (!M()) return { label: t("go.create"), on: false };
+  const items = plan(), cont = items.some((it) => contFits(it.m, it.pay)), empty = !prompt.trim() && !S.files.length && !cont;
   if (!S.signed) return { label: t(S.mini ? "go.create" : "go.signin"), act: "signin", on: !empty || S.mini };
   if (!S.online) return { label: t("go.offline"), on: false };
   if (S.busy) return { label: t("go.starting"), on: false };
-  if (pay === "free") {
-    if (S.closed[m.kind] > Date.now()) return { label: t("go.free_closed", { time: fmtTime(S.closed[m.kind]) }), on: false };
-    if (freeLeft(m.kind) <= 0) return { label: t("go.free_out"), on: false, why: freesAt(m.kind) ? t("bar.free_back", { at: fmtAt(freesAt(m.kind)) }) : "" };
-  } else if (!keyOk(pay)) return keyStep(pay);
-  const r = route(m, pay);
-  if (needsVideo(m) && !cont && !S.files.some((f, i) => f.kind === "video" && r[i]?.go)) return { label: t("go.need_clip"), on: false };
-  if (!images().length && needsImage(m)) return { label: t("go.add_photo"), on: false };
-  const cut = needsCut(m, pay);
+  const fi = items.find((it) => it.pay === "free");
+  if (fi) {
+    const k = fi.m.kind;
+    if (S.closed[k] > Date.now()) return { label: t("go.free_closed", { time: fmtTime(S.closed[k]) }), on: false };
+    if (freeLeft(k) <= 0) return { label: t("go.free_out"), on: false, why: freesAt(k) ? t("bar.free_back", { at: fmtAt(freesAt(k)) }) : "" };
+    if (items.some((it) => it.short)) return { label: t("go.free_only", { n: freeLeft(k) }), on: false, why: freesAt(k) ? t("bar.free_back", { at: fmtAt(freesAt(k)) }) : "" };
+  }
+  const nokey = items.find((it) => it.pay !== "free" && !keyOk(it.pay));
+  if (nokey) return keyStep(nokey.pay);
+  for (const it of items) {
+    const r = route(it.m, it.pay);
+    if (needsVideo(it.m) && !contFits(it.m, it.pay) && !S.files.some((f, i) => f.kind === "video" && r[i]?.go)) return { label: t("go.need_clip"), on: false };
+    if (!images().length && needsImage(it.m)) return { label: t("go.add_photo"), on: false };
+  }
+  const cut = cutNeeded();
   if (cut) return { label: t("go.pick_part", { n: fmtNum(cut) }), icon: "film", act: "cut", on: true };
-  const q = known(runItem());
-  if (q?.refusal?.error === "no_connection" || q?.refusal?.error === "connection_invalid") return keyStep(offerOf(m, pay).provider);
-  if (q?.refusal) return { label: refusalLabel(q.refusal, m), on: false };
+  for (const it of items) {
+    const q = known(runItem(it.m, it.pay, it.set));
+    if (q?.refusal?.error === "no_connection" || q?.refusal?.error === "connection_invalid") return keyStep(offerOf(it.m, it.pay).provider);
+    if (q?.refusal) return { label: refusalLabel(q.refusal, it.m), on: false };
+  }
   return { label: t("go.create"), icon: "spark", act: "create", on: !empty };
 }
 // A key is missing or stopped working: the button opens the settings at it.
@@ -299,6 +401,6 @@ export function refusalLabel(r, m) {
     default: return t("go.cant");
   }
 }
-// Asks for the prices the composer shows now.
-export const quoteNow = () => { const m = M(); if (m) need(runItem(m)); };
+// Asks for the prices the composer shows now: of every frame.
+export const quoteNow = () => { if (M()) for (const it of plan()) need(runItem(it.m, it.pay, it.set)); };
 export { takesVideo, takesAudio };

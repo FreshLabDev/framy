@@ -31,6 +31,16 @@ const (
 	QueueOpenRouterVideo = "openrouter_video"
 )
 
+// StackQueue is the name of queue on stack (docs/design.md, Stacks): the
+// name itself for production, and with the stack before it for any other,
+// so two stacks on one schema never take each other's jobs.
+func StackQueue(stack, queue string) string {
+	if stack == "" {
+		return queue
+	}
+	return stack + "_" + queue
+}
+
 // QueueFor is the queue of a provider's runs of a kind.
 func QueueFor(provider string, kind catalog.Kind) string {
 	switch {
@@ -87,6 +97,9 @@ const (
 // Config is the queue's setup. Providers are keyed by the catalog's provider
 // name: openai, gemini, openrouter.
 type Config struct {
+	// Stack is the bot this process is (config.Config.Stack): its jobs are
+	// marked with it and go to its own queues, and it works only those.
+	Stack     string
 	Providers map[string]Provider
 	Sink      Sink
 	// Inputs finds the files a job takes; nil while framy keeps none.
@@ -99,7 +112,8 @@ type Config struct {
 	Log   *slog.Logger
 	// MaxRunning is how many jobs one person runs at once; 2 by default.
 	MaxRunning int
-	// Workers per queue; DefaultWorkers by default.
+	// Workers per queue, by the queue's name without the stack;
+	// DefaultWorkers by default.
 	Workers map[string]int
 	// StopGrace is how long a stop waits for runs in progress before it
 	// cuts them short, which costs the person a run: longer than an image
@@ -146,10 +160,13 @@ func NewQueue(pool *pgxpool.Pool, cfg Config) (*Queue, error) {
 	if err := river.AddWorkerSafely(workers, &sweepWorker{q: q}); err != nil {
 		return nil, err
 	}
-	queues := map[string]river.QueueConfig{river.QueueDefault: {MaxWorkers: 1}}
+	// The sweep goes to the default queue. Only River's leader inserts it,
+	// and it changes framy's tables alone, so either stack's does for both.
+	queues := map[string]river.QueueConfig{StackQueue(cfg.Stack, river.QueueDefault): {MaxWorkers: 1}}
 	for name, n := range cfg.Workers {
-		queues[name] = river.QueueConfig{MaxWorkers: max(n, 1)}
+		queues[StackQueue(cfg.Stack, name)] = river.QueueConfig{MaxWorkers: max(n, 1)}
 	}
+	sweepOpts := &river.InsertOpts{Queue: StackQueue(cfg.Stack, river.QueueDefault)}
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Schema:               Schema,
 		Queues:               queues,
@@ -163,7 +180,7 @@ func NewQueue(pool *pgxpool.Pool, cfg Config) (*Queue, error) {
 		Logger:               cfg.Log,
 		PeriodicJobs: []*river.PeriodicJob{
 			river.NewPeriodicJob(river.PeriodicInterval(time.Minute),
-				func() (river.JobArgs, *river.InsertOpts) { return sweepArgs{}, nil },
+				func() (river.JobArgs, *river.InsertOpts) { return sweepArgs{}, sweepOpts },
 				&river.PeriodicJobOpts{RunOnStart: true}),
 		},
 	})
@@ -218,6 +235,59 @@ func (q *Queue) Enqueue(ctx context.Context, n New) (id int64, created bool, err
 		return q.schedule(ctx, tx, id, n.Offer.Provider, n.Offer.Kind)
 	})
 	return id, created, err
+}
+
+// EnqueueBatch queues the jobs of one press of the site's Create in one
+// transaction: every one of them, or none when one is refused. Each has its
+// own dedupe key and they share n.Batch. created is false when the first
+// key was taken already: the press was answered before, and ids are the
+// jobs of that batch, in order.
+func (q *Queue) EnqueueBatch(ctx context.Context, ns []New) (ids []int64, created bool, err error) {
+	err = pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
+		ids = make([]int64, 0, len(ns))
+		for i, n := range ns {
+			if err := q.admitNew(ctx, tx, n); err != nil {
+				return err
+			}
+			id, made, err := q.insert(ctx, tx, n, Queued)
+			if err != nil {
+				return err
+			}
+			if !made {
+				if i > 0 {
+					return fmt.Errorf("job %d of batch %s was there without the first", id, n.Batch)
+				}
+				ids, err = batchOf(ctx, tx, id)
+				return err
+			}
+			ids = append(ids, id)
+			if err := q.schedule(ctx, tx, id, n.Offer.Provider, n.Offer.Kind); err != nil {
+				return err
+			}
+		}
+		created = true
+		return nil
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	return ids, created, nil
+}
+
+// batchOf is the jobs of the batch job id is part of, in order.
+func batchOf(ctx context.Context, tx pgx.Tx, id int64) ([]int64, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT j.id FROM job j
+		JOIN job first ON first.id = $1 AND j.user_id = first.user_id AND j.batch = first.batch
+		ORDER BY j.id`, id)
+	if err != nil {
+		return nil, fmt.Errorf("read batch of job %d: %w", id, err)
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[int64])
+	if err != nil {
+		return nil, fmt.Errorf("read batch of job %d: %w", id, err)
+	}
+	return ids, nil
 }
 
 // Draft creates a job that waits for "Generate", as a chat preview does.
@@ -452,13 +522,16 @@ func (q *Queue) insert(ctx context.Context, tx pgx.Tx, n New, status Status) (in
 	var id int64
 	err := tx.QueryRow(ctx, `
 		INSERT INTO job (user_id, surface, chat_id, message_id, dedupe_key, offer_id, model_id, provider, kind,
-		                 prompt, settings, free, status, estimate_usd, estimate, currency, fx_rate, fx_date, queued_at)
+		                 prompt, settings, free, status, estimate_usd, estimate, currency, fx_rate, fx_date, queued_at, stack,
+		                 batch, batch_frames)
 		VALUES ($1, $2, NULLIF($3::bigint, 0), NULLIF($4::bigint, 0), NULLIF($5, ''), $6, $7, $8, $9,
-		        $10, $11, $12, $13, $14, $15, $16, $17, $18::date, CASE WHEN $13 = 'queued' THEN now() END)
+		        $10, $11, $12, $13, $14, $15, $16, $17, $18::date, CASE WHEN $13 = 'queued' THEN now() END, $19,
+		        NULLIF($20, ''), $21::int4[])
 		ON CONFLICT (dedupe_key) DO NOTHING
 		RETURNING id`,
 		n.UserID, n.Surface, n.ChatID, n.MessageID, n.DedupeKey, n.Offer.ID, n.Offer.ModelID, n.Offer.Provider, n.Offer.Kind,
-		n.Prompt, settings, n.Free, status, estimateUSD, n.Estimate, currency, fxRate, fxDate).Scan(&id)
+		n.Prompt, settings, n.Free, status, estimateUSD, n.Estimate, currency, fxRate, fxDate, q.cfg.Stack,
+		n.Batch, n.BatchFrames).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = tx.QueryRow(ctx, `SELECT id FROM job WHERE dedupe_key=$1`, n.DedupeKey).Scan(&id)
 		return id, false, err
@@ -499,10 +572,10 @@ func insertInputs(ctx context.Context, tx pgx.Tx, id, userID int64, inputs []int
 }
 
 // schedule inserts the River job that works job id, in the same
-// transaction.
+// transaction, in this stack's queue.
 func (q *Queue) schedule(ctx context.Context, tx pgx.Tx, id int64, provider string, kind catalog.Kind) error {
 	res, err := q.river.InsertTx(ctx, tx, generateArgs{JobID: id, Video: kind == catalog.Video}, &river.InsertOpts{
-		Queue:      QueueFor(provider, kind),
+		Queue:      StackQueue(q.cfg.Stack, QueueFor(provider, kind)),
 		UniqueOpts: river.UniqueOpts{ByArgs: true},
 	})
 	if err != nil {

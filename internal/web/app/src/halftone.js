@@ -4,7 +4,8 @@
 // clip being cut, the queue, a wait, the start and each way a run can fail.
 // The dots flow from one figure to the next as the run moves on; a result
 // shows through the dots as they swell until they touch, and settles in.
-// One canvas serves every render of the stage, so the motion never restarts.
+// One canvas serves every render of a frame, so the motion never restarts;
+// several frames of one press have one each (o.id names it).
 import { h } from "./dom.js";
 import { motion } from "./motion.js";
 
@@ -120,8 +121,10 @@ const FIELD = { loop: [1000, 560], strip: [1000, 600], cut: [1000, 600] }, SIGN 
 const sizeOf = (fig, L) => { const [w, hh] = FIELD[fig] || SIGN; return Math.min(L.aw / w, L.ah / hh) * 0.95; };
 const distPx = (fig, sc, L, px, py, t, i, j) => { const s = sizeOf(fig, L); return FIGS[fig]((px - L.cx) / s, (py - L.cy) / s, t, sc, i, j, px / L.W) * s; };
 
-/* The one canvas and what it shows. */
-const ST = { cv: null, scene: null, from: null, at: 0, born: 0, raf: 0, last: 0, lay: null, lostAt: 0, n: 0, img: null };
+/* The canvases and what each shows. "stage" is the one of a lone frame. */
+const ALL = new Map();
+const inst = (id) => { let s = ALL.get(id); if (!s) ALL.set(id, (s = { id, cv: null, scene: null, from: null, at: 0, born: 0, lay: null, lostAt: 0, n: 0, img: null })); return s; };
+let raf = 0, last = 0;
 const BOOT = 900, MORPH = 900, REVEAL = 1800;
 
 // halftone puts the stage's canvas into box with the figure fig. o: n, the
@@ -130,7 +133,7 @@ const BOOT = 900, MORPH = 900, REVEAL = 1800;
 // The figure "reveal" shows the result in box through the dots; it needs a
 // figure on screen before it, and without one the canvas stays out.
 export function halftone(box, fig, o = {}) {
-  const now = performance.now(), showing = !!ST.cv?.isConnected && !!ST.scene;
+  const ST = inst(o.id || "stage"), now = performance.now(), showing = !!ST.cv?.isConnected && !!ST.scene;
   if (fig === "reveal" && !(showing || ST.scene?.fig === "reveal")) { ST.scene = null; return false; }
   if (!ST.cv) ST.cv = h("canvas", { class: "ht", "aria-hidden": "true" });
   const key = fig + "|" + (o.until || "") + "|" + (o.n || 0), was = ST.scene;
@@ -147,39 +150,45 @@ export function halftone(box, fig, o = {}) {
   ST.lostAt = o.lost ? ST.lostAt || now : 0;
   box.classList.add("ht");
   box.prepend(ST.cv);
-  if (!ST.raf) ST.raf = requestAnimationFrame(frame);
+  if (!raf) raf = requestAnimationFrame(frame);
   return true;
 }
 
 function frame(ts) {
-  ST.raf = 0;
-  const cv = ST.cv;
-  if (!cv?.isConnected || !ST.scene) return;
-  ST.raf = requestAnimationFrame(frame);
+  raf = 0;
+  const on = [];
+  for (const ST of ALL.values()) {
+    if (ST.cv?.isConnected && ST.scene) on.push(ST);
+    // A frame's canvas that left the page is forgotten; the stage's keeps its scene for the next render.
+    else if (ST.id !== "stage") ALL.delete(ST.id);
+  }
+  if (!on.length) return;
+  raf = requestAnimationFrame(frame);
   // 30 frames a second, as the bot's loop; with reduced motion only what changes.
-  if (ts - ST.last < (motion() ? 33 : 500)) return;
-  ST.last = ts;
-  paint(performance.now());
+  if (ts - last < (motion() ? 33 : 500)) return;
+  last = ts;
+  const now = performance.now();
+  for (const ST of on) paint(ST, now);
 }
 
-function paint(now) {
+function paint(ST, now) {
   const cv = ST.cv, box = cv.parentElement, W = box.clientWidth, H = box.clientHeight, sc = ST.scene;
   if (!W || !H) return;
   const d = Math.min(2, devicePixelRatio || 1);
   if (cv.width !== Math.round(W * d) || cv.height !== Math.round(H * d)) { cv.width = Math.round(W * d); cv.height = Math.round(H * d); ST.lay = sc.fig === "reveal" ? ST.lay : null; }
   const x = cv.getContext("2d");
   x.setTransform(d, 0, 0, d, 0, 0);
-  if (sc.fig === "reveal") return reveal(x, box, W, H, now);
+  if (sc.fig === "reveal") return reveal(ST, x, box, W, H, now);
   // The line under the figure keeps its place: the dots stay above it.
   const c = box.querySelector(".c"), bottom = H - Math.max(22, (c?.offsetHeight || 0) + 4);
-  const L = layout(W, H, bottom);
+  const L = layout(ST, W, H, bottom);
   x.fillStyle = `rgb(${BG.join(",")})`;
   x.fillRect(0, 0, W, H);
-  dots(x, L, sc, now);
+  dots(ST, x, L, sc, now);
 }
 
 // Where the dots stand: a grid inside the corners and above the line, the figures in its middle.
-function layout(W, H, bottom) {
+function layout(ST, W, H, bottom) {
   const k = W + "x" + H + "x" + bottom;
   if (ST.lay?.k === k) return ST.lay;
   const m = Math.min(W, H), pitch = Math.max(7, m / 30), top = 22, ah = Math.max(40, bottom - top), aw = W - 44;
@@ -189,12 +198,12 @@ function layout(W, H, bottom) {
 }
 
 // The time a figure is drawn at: still figures and reduced motion stay at their start, and a lost connection freezes it.
-const timeOf = (sc, now) => (ST.lostAt ? ST.lostAt : sc.still || !motion() ? sc.t0 : now) / 1000;
+const timeOf = (ST, sc, now) => (ST.lostAt ? ST.lostAt : sc.still || !motion() ? sc.t0 : now) / 1000;
 
 // The dots of the scene sc (and of the one it is leaving), each in one of nine shades.
-function dots(x, L, sc, now) {
+function dots(ST, x, L, sc, now) {
   const { pitch, cols, rows, x0, y0, W, H } = L, rMax = pitch * 0.42, rMin = pitch * 0.08, half = Math.hypot(W, H) / 2;
-  const t = timeOf(sc, now), from = ST.from, tf = from && timeOf(from, now);
+  const t = timeOf(ST, sc, now), from = ST.from, tf = from && timeOf(ST, from, now);
   const mor = from && motion() ? (now - ST.at) / MORPH : 1;
   if (mor >= 1) ST.from = null;
   const boot = motion() ? Math.min(1, (now - ST.born) / BOOT) : 1;
@@ -221,23 +230,23 @@ function dots(x, L, sc, now) {
 // The result is ready: the dots of the figure before it swell, from the
 // figure outward, until they touch, showing the result through them; the
 // corners open out to the edges and the sharp result settles in.
-function reveal(x, box, W, H, now) {
+function reveal(ST, x, box, W, H, now) {
   const sc = ST.scene, from = ST.from || { fig: "loop", phase: sc.phase, t0: sc.t0, still: false };
   // The figure stays where it stood; a frame of another shape lays it out again.
-  const L = ST.lay?.W === W && ST.lay?.H === H ? ST.lay : layout(W, H, H - 22);
+  const L = ST.lay?.W === W && ST.lay?.H === H ? ST.lay : layout(ST, W, H, H - 22);
   const media = box.querySelector("img, video"), ready = media && (media.tagName === "IMG" ? media.complete && media.naturalWidth > 0 : media.readyState >= 2);
   x.fillStyle = `rgb(${BG.join(",")})`;
   x.fillRect(0, 0, W, H);
   if (!sc.revealAt) {
     // Until the result has loaded, the figure before it goes on.
-    if (!ready) { ST.from = null; dots(x, L, from, now); brackets(x, W, H, 0); ST.from = from; return; }
+    if (!ready) { ST.from = null; dots(ST, x, L, from, now); brackets(x, W, H, 0); ST.from = from; return; }
     sc.revealAt = now;
   }
   const p = motion() ? Math.min(1, (now - sc.revealAt) / REVEAL) : 1;
-  if (p >= 1) { finish(); return; }
-  const img = picture(media, W, H);
+  if (p >= 1) { finish(ST); return; }
+  const img = picture(ST, media, W, H);
   const { pitch, cols, rows, x0, y0 } = L, rMax = pitch * 0.42, rMin = pitch * 0.08, full = pitch * 0.74, far = Math.hypot(W, H) / 2;
-  const t = timeOf(from, now);
+  const t = timeOf(ST, from, now);
   const shade = SHADES.map(() => new Path2D()), shown = [0, 1, 2, 3].map(() => new Path2D());
   // The grid runs past the corners to the edges, so the swollen dots cover the whole frame.
   const i0 = -Math.ceil(x0 / pitch) - 1, i1 = Math.ceil((W - x0) / pitch) + 1, j0 = -Math.ceil(y0 / pitch) - 1, j1 = Math.ceil((H - y0) / pitch) + 1;
@@ -263,7 +272,7 @@ function reveal(x, box, W, H, now) {
 }
 
 // The result, drawn once at the frame's size; a video is drawn as it plays.
-function picture(media, W, H) {
+function picture(ST, media, W, H) {
   if (!media) return null;
   if (media.tagName === "VIDEO") return media.readyState >= 2 ? media : ST.img;
   const k = W + "x" + H;
@@ -288,7 +297,7 @@ function brackets(x, W, H, o) {
   x.globalAlpha = 1;
 }
 
-function finish() {
+function finish(ST) {
   ST.cv?.parentElement?.classList.remove("ht");
   ST.cv?.remove();
   ST.scene = ST.from = ST.img = null;

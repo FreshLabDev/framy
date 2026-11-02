@@ -71,7 +71,7 @@ func (f *Flow) guest(ctx context.Context, m *tg.Message, prompt string) error {
 	if prompt == "" {
 		return f.guestText(ctx, m, t(lang, "guest.empty"))
 	}
-	key := guestKey(m)
+	key := stackKey(f.cfg.Stack, guestKey(m))
 	if _, seen, err := f.cfg.Store.JobByKey(ctx, key); err != nil {
 		return err
 	} else if seen {

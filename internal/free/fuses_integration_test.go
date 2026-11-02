@@ -290,3 +290,23 @@ func TestAFreeRunThatFailedForWantOfMoneyPausesTheTier(t *testing.T) {
 		t.Fatalf("still closed: %v", err)
 	}
 }
+
+// A process with no operator chat, as the test bot on production's schema
+// is, leaves the day to the one that has someone to tell (docs/design.md,
+// Stacks).
+func TestAProcessWithNobodyToTellLeavesTheNoticeToProduction(t *testing.T) {
+	h := newHarness(t, 0.01)
+	quiet := h.allowance(0.01, nil)
+	err := quiet.Check(context.Background(), jobs.Admission{UserID: alice, Offer: ImageMAI.Offer, Kind: catalog.Image, Settings: ImageMAI.Settings(), EstimateUSD: 0.0195})
+	asClosed(t, err)
+	quiet.refused(err)
+	quiet.Wait()
+	var day *time.Time
+	if err := h.pool.QueryRow(context.Background(), `SELECT free_budget_alert_day FROM framy.runtime_state`).Scan(&day); err != nil || day != nil {
+		t.Fatalf("the quiet process took the day: %v %v", day, err)
+	}
+	asClosed(t, h.requireRefused(bob))
+	if told, _ := h.notices(); len(told) != 1 {
+		t.Fatalf("production told %q, want one notice", told)
+	}
+}

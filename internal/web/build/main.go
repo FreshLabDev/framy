@@ -72,6 +72,26 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// framy's own mark: the tab icons as files, and the flat SVG inline for
+	// the header, so the first paint already has it.
+	icons := map[string]string{}
+	for _, ext := range []string{".svg", ".png"} {
+		m, err := copyDir(o, filepath.Join(src, "icon"), ext)
+		if err != nil {
+			return err
+		}
+		for k, v := range m {
+			icons[k+ext] = v
+		}
+	}
+	marks, err := inlineDir(filepath.Join(src, "icon"), ".svg", "image/svg+xml")
+	if err != nil {
+		return err
+	}
+	mark := marks["framy"]
+	if mark == "" || icons["framy-32.png"] == "" || icons["framy-180.png"] == "" {
+		return errors.New("app/icon: want framy.svg, framy-32.png and framy-180.png")
+	}
 	texts, err := writeTexts(o)
 	if err != nil {
 		return err
@@ -102,7 +122,7 @@ func run() error {
 		Format:      api.FormatESModule,
 		Plugins: []api.Plugin{
 			virtual("assets:logos", "export default "+string(logoJS)+";"),
-			virtual("assets:lists", "export const LANGS = "+mustJSON(langs)+";\nexport const CURRENCIES = "+mustJSON(fx.Codes)+";"),
+			virtual("assets:lists", "export const LANGS = "+mustJSON(langs)+";\nexport const CURRENCIES = "+mustJSON(fx.Codes)+";\nexport const MARK = "+mustJSON(mark)+";"),
 		},
 	})
 	if err != nil {
@@ -130,6 +150,10 @@ func run() error {
 		{"/*boot*/", strings.TrimSpace(boot)},
 		{"{{app.css}}", cssURL},
 		{"{{app.js}}", jsURL},
+		{"{{icon.svg}}", icons["framy.svg"]},
+		{"{{icon.png}}", icons["framy-32.png"]},
+		{"{{icon.touch}}", icons["framy-180.png"]},
+		{"{{mark}}", mark},
 	} {
 		if strings.Count(html, r.from) != 1 {
 			return fmt.Errorf("index.html: want one %s", r.from)

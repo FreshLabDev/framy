@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="640" viewBox="0 0 640 640" role="img" aria-label="framy">
+  <rect width="640" height="640" fill="#00606E"/>
+  <defs>
+    <mask id="far" maskUnits="userSpaceOnUse" x="0" y="0" width="640" height="640">
+      <polygon points="-80,700 250,300 630,700" fill="#FFFFFF"/>
+      <polygon points="227.4,700 486,387.4 744.6,700" fill="#000000"/>
+    </mask>
+  </defs>
+  <circle cx="430" cy="196" r="74" fill="#FFFFFF"/>
+  <g mask="url(#far)">
+    <polygon points="-80,700 250,300 630,700" fill="#7EAEB5"/>
+    <polygon points="250,300 630,700 320,700" fill="#FFFFFF"/>
+  </g>
+  <polygon points="250,700 486,410 722,700" fill="#7EAEB5"/>
+  <polygon points="486,410 722,700 536,700" fill="#FFFFFF"/>
+</svg>

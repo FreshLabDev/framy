@@ -7,7 +7,7 @@ import { setTexts, t, lang, warmFormats } from "./i18n.js";
 import { session, setToken } from "./api.js";
 import { loadCatalog } from "./catalog.js";
 import { S, initModels, useDefaults } from "./state.js";
-import { mountComposer, wireComposer, render, renderBar, tuneClosed } from "./composer.js";
+import { mountComposer, wireComposer, wireTuneSwipe, render, renderBar, tuneClosed } from "./composer.js";
 import { mountPicker, prefetchPicker } from "./picker.js";
 import { renderStage } from "./stage.js";
 import { closeSheets, onSheets, toast, sheetOpen } from "./ui.js";
@@ -15,6 +15,7 @@ import { signIn, refreshMe, generate, netState } from "./run.js";
 import { mountCutter, openCut } from "./clips.js";
 import { mountPrefs, openPrefs, renderPrefs, prefsOpen, oauthResult, oauthBack } from "./prefs.js";
 import { mountLibrary, mountViewer, mountFull, fullOpen, closeFull, tabs, go, route, libMe } from "./library.js";
+import { MARK } from "assets:lists";
 
 const B = window.framy;
 
@@ -33,11 +34,11 @@ function account() {
     const av = me.photo_url ? h("img", { class: "av", src: me.photo_url, alt: "", referrerpolicy: "no-referrer" }) : h("span", { class: "av" }, (me.name || "?").slice(0, 1).toUpperCase());
     return h("button", { type: "button", class: "me", id: "meBtn", onclick: () => openPrefs(), "aria-label": t("prefs.title"), "aria-haspopup": "dialog" }, av, h("span", { class: "t" }, t("prefs.title")));
   }
-  return S.mini ? null : h("button", { type: "button", class: "signin", onclick: signIn }, ic("send"), t("auth.signin"));
+  return S.mini ? null : h("button", { type: "button", class: "signin", onclick: signIn }, ic("send"), h("span", {}, t("auth.signin")));
 }
 function renderTop() {
   const top = $("#top");
-  top.replaceChildren(...[h("div", { class: "logo" }, "framy"), tabs(), h("span", { class: "sp" }), account()].filter(Boolean));
+  top.replaceChildren(...[h("div", { class: "logo" }, h("img", { src: MARK, alt: "" }), h("span", {}, "framy")), tabs(), h("span", { class: "sp" }), account()].filter(Boolean));
   placeSegs(top);
 }
 
@@ -52,7 +53,7 @@ function mount() {
     h("div", { class: "scrim", id: "scrim", hidden: true, onclick: () => closeSheets() }),
     mountPicker(),
     h("section", { class: "sheet half", id: "tune", hidden: true, "aria-label": t("tune.title"), role: "dialog", "aria-modal": "true" },
-      h("header", {}, h("h3", {}, t("tune.title")), h("button", { type: "button", class: "x", "data-close": "" }, t("pick.done"))),
+      h("header", {}, h("h3", { id: "tuneTitle" }, t("tune.title")), h("button", { type: "button", class: "x", "data-close": "" }, t("pick.done"))),
       h("div", { class: "body", id: "tuneBody" })),
     mountCutter(),
     mountPrefs(),
@@ -62,6 +63,7 @@ function mount() {
   app.addEventListener("click", (e) => { if (e.target.closest("[data-close]")) closeSheets(); });
   $("#tune").addEventListener("closed", tuneClosed);
   wireComposer();
+  wireTuneSwipe();
 }
 
 function reveal() {

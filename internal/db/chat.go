@@ -112,20 +112,21 @@ func scanChatRun(row pgx.Row) (ChatRun, error) {
 func (s *Store) AddChatRun(ctx context.Context, r ChatRun) error {
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO chat_run (job_id, chat_id, thread_id, command_message_id, preview_message_id, lang, taken, album, note,
-		                      preview_ephemeral, command_ephemeral, clip_file_id, clip_bytes, clip_seconds)
-		VALUES ($1, $2, $3, $4, NULLIF($5::bigint, 0), $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		                      preview_ephemeral, command_ephemeral, clip_file_id, clip_bytes, clip_seconds, stack)
+		VALUES ($1, $2, $3, $4, NULLIF($5::bigint, 0), $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		ON CONFLICT (job_id) DO NOTHING`,
 		r.JobID, r.ChatID, r.ThreadID, r.CommandMessageID, r.PreviewMessageID, r.Lang, r.Taken, r.Album, r.Note,
-		r.PreviewEphemeral, r.CommandEphemeral, r.ClipFileID, r.ClipBytes, r.ClipSeconds)
+		r.PreviewEphemeral, r.CommandEphemeral, r.ClipFileID, r.ClipBytes, r.ClipSeconds, s.stack)
 	if err != nil {
 		return fmt.Errorf("add the chat run of job %d: %w", r.JobID, err)
 	}
 	return nil
 }
 
-// ChatRun reads the run of job id, or ErrNoRun.
+// ChatRun reads the run of job id, or ErrNoRun. A run in another bot's chat
+// is none of this stack's.
 func (s *Store) ChatRun(ctx context.Context, jobID int64) (ChatRun, error) {
-	r, err := scanChatRun(s.pool.QueryRow(ctx, `SELECT `+chatRunColumns+chatRunFrom+` WHERE r.job_id = $1`, jobID))
+	r, err := scanChatRun(s.pool.QueryRow(ctx, `SELECT `+chatRunColumns+chatRunFrom+` WHERE r.job_id = $1 AND r.stack = $2`, jobID, s.stack))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ChatRun{}, ErrNoRun
 	}
@@ -135,11 +136,11 @@ func (s *Store) ChatRun(ctx context.Context, jobID int64) (ChatRun, error) {
 	return r, nil
 }
 
-// OpenChatRuns are the runs a chat still has to be told about: a preview or
-// the generating loop, oldest first.
+// OpenChatRuns are the runs a chat of this stack's bot still has to be told
+// about: a preview or the generating loop, oldest first.
 func (s *Store) OpenChatRuns(ctx context.Context) ([]ChatRun, error) {
 	rows, err := s.pool.Query(ctx, `SELECT `+chatRunColumns+chatRunFrom+`
-		WHERE r.stage IN ('preview', 'generating') ORDER BY r.job_id`)
+		WHERE r.stage IN ('preview', 'generating') AND r.stack = $1 ORDER BY r.job_id`, s.stack)
 	if err != nil {
 		return nil, fmt.Errorf("open chat runs: %w", err)
 	}
@@ -217,7 +218,7 @@ func (s *Store) SetChatRunNote(ctx context.Context, jobID int64, note string) er
 func (s *Store) ResultRun(ctx context.Context, chatID, messageID int64) (int64, bool, error) {
 	var id int64
 	err := s.pool.QueryRow(ctx, `
-		SELECT job_id FROM chat_run WHERE chat_id = $1 AND result_message_id = $2`, chatID, messageID).Scan(&id)
+		SELECT job_id FROM chat_run WHERE chat_id = $1 AND result_message_id = $2 AND stack = $3`, chatID, messageID, s.stack).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, false, nil
 	}
