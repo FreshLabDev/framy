@@ -11,6 +11,12 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+## v0.1.0-alpha.4 - 2026-11-02
+
+Fixes for what the first two days of alpha.3 showed in production's logs:
+a refusal shown as a failure, a group `/start` read after downtime, and a
+closed model in the catalog's overlay. No migrations.
+
 ### Fixed
 
 - A picture Azure's moderation blocks for MAI Image is a refusal: the
