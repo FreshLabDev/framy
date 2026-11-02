@@ -57,7 +57,9 @@ func TestBrowserFrames(t *testing.T) {
 
 	// Frames 1 and 3 are the same run and go as one job; frame 2 fails.
 	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+framesHelpers+`
-	const s = await press("frames:done,fail:moderation", () => document.querySelectorAll("#stage .jbox.cell.done img").length === 2 && !!document.querySelector("#stage .jwhy"));
+	// The failed frame's tile stays in the page while it leaves; the press is read once it is gone.
+	const s = await press("frames:done,fail:moderation", () => document.querySelectorAll("#stage .jbox.cell.done img").length === 2 && !!document.querySelector("#stage .jwhy") &&
+	  document.querySelectorAll("#stage .jbox.cell").length === 2);
 	return { ...s, nums: [...document.querySelectorAll("#stage .jbox.cell .num")].map((e) => e.textContent).join(","),
 	  models: [...document.querySelectorAll("#stage .jbox.cell .tm")].length, tiles: document.querySelectorAll("#stage .jbox.cell").length };`)
 	if s["timeout"] == true || s["nums"] != "1,3" || s["models"] != float64(2) || s["tiles"] != float64(2) ||
