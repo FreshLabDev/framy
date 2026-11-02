@@ -799,7 +799,7 @@ Temporary domain `framy.ws04.cc`. Mobile first; on a wide screen the composer an
 - **Refusals** are told apart from failures by the response body, even at HTTP 200:
   - OpenAI: `moderation_blocked` with `moderation_stage`;
   - Gemini: an error code of the Interactions API (`image_safety`, `prohibited_content`, `no_image`), or the older `blockReason` and `finishReason`; `NO_IMAGE`, and a finished run with words and no picture, mean the model answered in text, and its words are shown;
-  - OpenRouter: 403 with `metadata.reasons`.
+  - OpenRouter: 403 with `metadata.reasons`, or a bare 400 in the provider's own words: OpenAI's "safety system" and Azure MAI's "content moderation" (live, 1 November 2026).
 
   A refusal is shown with its stage and category.
 - **Faces.** Some models refuse photos of real people (Omni, Seedance, Veo with `personGeneration`). The picker marks them, so the refusal is not a surprise.

@@ -2303,24 +2303,6 @@
     "ja": "画質を選択：lowまたはmedium",
     "ar": "جودة قابلة للاختيار: low أو medium"
   },
-  "note.x-ai/grok-imagine-image-quality": {
-    "en": "Photorealistic, 1K and 2K",
-    "ru": "Фотореализм, 1K и 2K",
-    "uk": "Фотореалізм, 1K і 2K",
-    "es": "Fotorrealista, 1K y 2K",
-    "fr": "Photoréaliste, 1K et 2K",
-    "de": "Fotorealistisch, 1K und 2K",
-    "it": "Fotorealistico, 1K e 2K",
-    "pl": "Fotorealistyczny, 1K i 2K",
-    "cs": "Fotorealistický, 1K a 2K",
-    "tr": "Fotogerçekçi, 1K ve 2K",
-    "sv": "Fotorealistisk, 1K och 2K",
-    "be": "Фотарэалізм, 1K і 2K",
-    "ca": "Fotorealista, 1K i 2K",
-    "zh": "照片级写实，1K 和 2K",
-    "ja": "フォトリアル、1Kと2K",
-    "ar": "واقعي فوتوغرافي، 1K و2K"
-  },
   "note.x-ai/grok-imagine-video-1.5": {
     "en": "Can generate sound effects and dialogue",
     "ru": "Может создавать звуковые эффекты и диалоги",

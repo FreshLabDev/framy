@@ -314,8 +314,9 @@ func TestAModeratedPromptIsARefusal(t *testing.T) {
 	}
 }
 
-// OpenRouter passes OpenAI's own filter on as a bare 400 (live, 27 October
-// 2026), and only its words tell it from a setting OpenAI does not take.
+// OpenRouter passes OpenAI's and Azure's own filters on as a bare 400 (live,
+// 27 October and 1 November 2026), and only their words tell them from a
+// setting the provider does not take.
 func TestABare400FromTheSafetySystemIsARefusal(t *testing.T) {
 	for _, c := range []struct {
 		name, body string
@@ -323,6 +324,7 @@ func TestABare400FromTheSafetySystemIsARefusal(t *testing.T) {
 	}{
 		{"OpenAI's safety system", `{"error":{"code":400,"message":"Your request was rejected by the safety system. If you believe this is an error, contact us at help.openai.com and include the request ID req_1.","metadata":{"provider_name":"OpenAI"}}}`, jobs.Moderation},
 		{"OpenAI's moderation code", `{"error":{"code":400,"message":"moderation_blocked: Your request was rejected","metadata":{"provider_name":"OpenAI"}}}`, jobs.Moderation},
+		{"Azure's content moderation", `{"error":{"code":400,"message":"Azure MAI blocked this request through content moderation.","metadata":{"provider_name":"Azure"}}}`, jobs.Moderation},
 		{"a size OpenAI does not take", `{"error":{"code":400,"message":"Invalid value: '9x9'. Supported values are: '1024x1024'.","metadata":{"provider_name":"OpenAI"}}}`, jobs.Refused},
 	} {
 		t.Run(c.name, func(t *testing.T) {

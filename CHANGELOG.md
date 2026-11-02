@@ -11,6 +11,19 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+### Fixed
+
+- A picture Azure's moderation blocks for MAI Image is a refusal: the
+  person reads that the model refused the request, not "try again", which
+  would fail the same way. Like any refusal, a free one counts toward the
+  daily free pictures.
+- A `/start` sent in a group while framy was down is no longer an error when
+  framy reads it: Telegram takes an ephemeral answer for 15 seconds only, so
+  framy leaves it and the person sends it again.
+- Grok Imagine Image Quality is out of the catalog's overlay. xAI shut it
+  down on 2 November, and every catalog sync since warned that the overlay
+  named a model no source has.
+
 ## v0.1.0-alpha.3 - 2026-10-31
 
 Several results from one press, end to end: the site and the Mini App make

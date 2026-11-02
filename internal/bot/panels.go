@@ -3,6 +3,7 @@ package bot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -87,6 +88,14 @@ func (b *Bot) onMessage(ctx context.Context, m *tg.Message) error {
 	return nil
 }
 
+// tooLate tells Telegram's refusal of an ephemeral reply to a command it
+// no longer takes one for: 15 seconds after the command. A /start sent
+// while framy was down is read after that, and its sender sends it again.
+func tooLate(err error) bool {
+	var apiErr *tg.APIError
+	return errors.As(err, &apiErr) && apiErr.ErrorCode == 400 && strings.Contains(apiErr.Description, "REPLY_TO_INVALID")
+}
+
 // sendScreen answers a command with a panel: in place in a direct chat, as an
 // ephemeral reply in a group.
 func (b *Bot) sendScreen(ctx context.Context, m *tg.Message, action string) error {
@@ -110,6 +119,10 @@ func (b *Bot) sendScreen(ctx context.Context, m *tg.Message, action string) erro
 		}
 		text, keyboard = v.home(admin, chatLang)
 		if _, err := b.tg.SendEphemeralMessage(ctx, m.Chat.ID, m.From.ID, m.EphemeralMessageID, text, keyboard); err != nil {
+			if tooLate(err) {
+				b.log.Info("group /start read too late to answer", "chat", m.Chat.ID)
+				return nil
+			}
 			return fmt.Errorf("send ephemeral home to %d: %w", m.Chat.ID, err)
 		}
 		return nil

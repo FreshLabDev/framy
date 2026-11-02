@@ -309,6 +309,23 @@ func TestStartInAGroupIsEphemeral(t *testing.T) {
 	}
 }
 
+// Telegram takes an ephemeral reply for 15 seconds after the command. A
+// /start sent while framy was down is read later and gets nothing, which is
+// no failure of the update; any other refusal still is.
+func TestAGroupStartReadTooLateIsLeft(t *testing.T) {
+	b, _, client := newBot()
+	m := message(groupChat, 7, "/start")
+	m.EphemeralMessageID = 99
+	client.ephemeralErr = &tg.APIError{Method: "sendMessage", StatusCode: 400, ErrorCode: 400, Description: "Bad Request: REPLY_TO_INVALID"}
+	if err := b.onMessage(context.Background(), m); err != nil {
+		t.Fatalf("a late /start failed the update: %v", err)
+	}
+	client.ephemeralErr = &tg.APIError{Method: "sendMessage", StatusCode: 400, ErrorCode: 400, Description: "Bad Request: chat not found"}
+	if err := b.onMessage(context.Background(), m); err == nil {
+		t.Fatal("another refusal was taken for a late /start")
+	}
+}
+
 func callback(chat tg.Chat, from, owner int64, action string, ephemeralID int64) *tg.CallbackQuery {
 	return &tg.CallbackQuery{
 		ID:      "cq",
