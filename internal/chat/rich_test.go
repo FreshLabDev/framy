@@ -297,6 +297,37 @@ func TestGenerateSaysWhatTheRunCosts(t *testing.T) {
 	}
 }
 
+// The local price says what the dollars say: a ceiling or a floor stays
+// one in hryvnias, and only an exact price in dollars is "about" in them.
+// The buttons show the local figure alone, so it must carry the bound.
+func TestTheLocalPriceKeepsTheDollarsSign(t *testing.T) {
+	q := fx.Quote{Code: "UAH", PerUSD: 41.5}
+	for _, c := range []struct {
+		e          price.Estimate
+		usd, local string
+	}{
+		{price.Estimate{Kind: price.Exact, USD: 0.18}, "", "≈ "},
+		{price.Estimate{Kind: price.About, USD: 0.18}, "≈ ", "≈ "},
+		{price.Estimate{Kind: price.UpTo, USD: 0.05, MaxUSD: 0.18}, "≤ ", "≤ "},
+		{price.Estimate{Kind: price.From, USD: 0.18}, "≥ ", "≥ "},
+	} {
+		usd, local, code := cardPrice("uk", c.e, q)
+		if want := c.usd + fx.Format(0.18, fx.USD, "uk"); usd != want {
+			t.Errorf("%s: usd = %q, want %q", c.e.Kind, usd, want)
+		}
+		if want := c.local + fx.Format(0.18*41.5, "UAH", "uk"); local != want {
+			t.Errorf("%s: local = %q, want %q", c.e.Kind, local, want)
+		}
+		if want := c.local + fx.FormatCode(0.18*41.5, "UAH", "uk"); code != want {
+			t.Errorf("%s: code = %q, want %q", c.e.Kind, code, want)
+		}
+		d := draft{pay: payKey, offer: catalog.Offer{Kind: catalog.Image}, taken: 1, estimate: c.e, quote: q}
+		if got, want := richKeyboard("uk", 1, d).InlineKeyboard[0][0].Text, i18n.T("uk", "run.generate")+" · "+local; got != want {
+			t.Errorf("%s: generate = %q, want %q", c.e.Kind, got, want)
+		}
+	}
+}
+
 // A long prompt folds, and its lines stay lines: a rich message reads its
 // HTML as a page does.
 func TestTheRichQuoteKeepsTheLines(t *testing.T) {

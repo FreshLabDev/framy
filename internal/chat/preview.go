@@ -124,7 +124,10 @@ func priceLine(lang, pay, provider string, usage free.Meter, e price.Estimate, q
 }
 
 // priceLabel writes an estimate in dollars and, for another currency, in it
-// too: "$0.034 · 1,53 ₴".
+// too: "$0.034 · ≈ 1,53 ₴". It stands in for the card's price where the
+// card cannot draw it, so it says what the card says: a word of the
+// estimate's kind covers both figures, and an exact price in dollars is
+// "≈" in another currency, whose rate is the day's.
 func priceLabel(lang string, e price.Estimate, q fx.Quote) string {
 	amount := e.USD
 	key := ""
@@ -140,7 +143,11 @@ func priceLabel(lang string, e price.Estimate, q fx.Quote) string {
 	}
 	s := fx.Format(amount, fx.USD, lang)
 	if q.Code != "" && q.Code != fx.USD && q.PerUSD > 0 {
-		s += " · " + fx.Format(amount*q.PerUSD, q.Code, lang)
+		local := fx.Format(amount*q.PerUSD, q.Code, lang)
+		if key == "" {
+			local = "≈ " + local
+		}
+		s += " · " + local
 	}
 	if key != "" {
 		return t(lang, key, "price", s)
@@ -205,22 +212,27 @@ func settingChips(settings map[string]any) (aspect string, chips []string) {
 // cardPrice is a price on the person's key as the card writes it, in signs
 // rather than words: "≈ $0.034", with "≈ 1,42 ₴" and "≈ 1,42 UAH" for the
 // faces that lack ₴. An unknown price is empty.
+//
+// The local figure carries the dollars' sign: a bound stays a bound in any
+// currency, and the buttons show the local figure alone, so "≤ 7,82 ₴" must
+// not read "≈ 7,82 ₴". Only exact dollars turn into "≈", since the rate is
+// the day's and the bank's will differ.
 func cardPrice(lang string, e price.Estimate, q fx.Quote) (usd, local, code string) {
-	amount, sign := e.USD, ""
+	amount, sign, near := e.USD, "", "≈ "
 	switch e.Kind {
 	case price.Unknown:
 		return "", "", ""
 	case price.About:
 		sign = "≈ "
 	case price.UpTo:
-		amount, sign = max(e.MaxUSD, e.USD), "≤ "
+		amount, sign, near = max(e.MaxUSD, e.USD), "≤ ", "≤ "
 	case price.From:
-		sign = "≥ "
+		sign, near = "≥ ", "≥ "
 	}
 	usd = sign + fx.Format(amount, fx.USD, lang)
 	if q.Code != "" && q.Code != fx.USD && q.PerUSD > 0 {
-		local = "≈ " + fx.Format(amount*q.PerUSD, q.Code, lang)
-		code = "≈ " + fx.FormatCode(amount*q.PerUSD, q.Code, lang)
+		local = near + fx.Format(amount*q.PerUSD, q.Code, lang)
+		code = near + fx.FormatCode(amount*q.PerUSD, q.Code, lang)
 	}
 	return usd, local, code
 }

@@ -1066,7 +1066,7 @@ func TestPriceLabels(t *testing.T) {
 		lang string
 		want string
 	}{
-		{price.Estimate{Kind: price.Exact, USD: 0.034, MaxUSD: 0.034}, "en", "$0.034 · ₴1.42"},
+		{price.Estimate{Kind: price.Exact, USD: 0.034, MaxUSD: 0.034}, "en", "$0.034 · ≈ ₴1.42"},
 		{price.Estimate{Kind: price.About, USD: 0.034, MaxUSD: 0.04}, "uk", i18n.T("uk", "run.about", "price", "0,034\u00a0$ · 1,42\u00a0₴")},
 		{price.Estimate{Kind: price.UpTo, USD: 0.02, MaxUSD: 0.05}, "en", i18n.T("en", "run.up_to", "price", "$0.05 · ₴2.08")},
 		{price.Estimate{Kind: price.Unknown}, "en", i18n.T("en", "run.price_unknown")},
