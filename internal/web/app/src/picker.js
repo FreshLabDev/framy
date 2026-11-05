@@ -143,7 +143,7 @@ function famRow(f, wide) {
   const olds = S.sort === "price" || query.trim() ? oldShown(f) : [];
   const vars = vs.length > 1 || olds.length ? h("div", { class: "fvars" },
     vs.length > 1 ? vs.map((v) => h("button", { type: "button", class: "pill", "aria-pressed": String(v.id === cur), onclick: () => choose(v, $(`#pkrows [data-k="fam-${f.idx}"]`)), onpointermove: hoverFam(f, wide, v.id) }, v.label)) : null,
-    olds.map((v) => h("button", { type: "button", class: "pill old", "aria-pressed": String(v.id === cur), title: t("pick.outdated", { v: v.by.label }), onclick: () => choose(v, $(`#pkrows [data-k="fam-${f.idx}"]`)) }, v.label))) : null;
+    olds.map((v) => h("button", { type: "button", class: "pill old", "aria-pressed": String(v.id === cur), title: t("pick.newer", { v: v.by.label }), onclick: () => choose(v, $(`#pkrows [data-k="fam-${f.idx}"]`)) }, v.label))) : null;
   return h("div", { class: "frow" + (why ? " dim" : ""), "aria-current": String(mine), "data-k": "fam-" + f.idx, onpointermove: hoverFam(f, wide) },
     h("button", { type: "button", class: "fhit", "aria-label": t("pick.choose_name", { name: f.title }), onclick: (e) => choose(pick, e.currentTarget.parentNode) }),
     lg(famLogo(f), f.maker), h("span", { class: "fbody" }, h("span", { class: "nm" }, f.title), sub && sub.length ? h("span", { class: "fsub" + (why ? " why" : "") }, sub) : null),

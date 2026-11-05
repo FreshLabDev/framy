@@ -332,6 +332,24 @@ func TestTheSiteAddsNoFullStop(t *testing.T) {
 	}
 }
 
+// One failure is said one way. framy's own failure reads the same in the
+// chat and on a failed run of the site (and as the site's refusal with its
+// code), and a version that has a newer one reads the same as a tooltip and
+// as the line above the variants, which only adds the stop of a message.
+// They were "Something went wrong. Try again in a minute.", "It did not
+// work. Try again." and "Outdated: 2.6 is newer" beside "There is a newer
+// 2.6."
+func TestOneFailureIsSaidOneWay(t *testing.T) {
+	for _, code := range Codes() {
+		if a, b := T(code, "run.failed"), T(code, "web.fail.unknown"); a != b {
+			t.Errorf("[%s] the chat says %q, the site %q", code, a, b)
+		}
+		if a, b := T(code, "web.pick.newer"), T(code, "web.var.outdated"); !strings.HasPrefix(b, a) || len([]rune(b))-len([]rune(a)) != 1 {
+			t.Errorf("[%s] a newer version is %q and %q", code, a, b)
+		}
+	}
+}
+
 // panelMark is a symbol a string in Go code may carry although isEmoji
 // counts it: the marks of a chosen option (core/docs/panels.md, R7) and the
 // flags of the language picker's labels.

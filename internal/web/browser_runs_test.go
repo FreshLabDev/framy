@@ -516,7 +516,7 @@ func TestBrowserRuns(t *testing.T) {
 		"storage":         {"Not saved", "The provider charged for it", "Try again", false, false},
 		"no_adapter":      {"Did not work", "cannot run OpenRouter models", "Edit the prompt", false, true},
 		"invalid_request": {"Not sent", "does not take one of these settings", "Edit the prompt", false, true},
-		"internal":        {"Did not work", "It did not work. Try again.", "Try again", false, false},
+		"internal":        {"Did not work", "Something went wrong. Try again.", "Try again", false, false},
 	} {
 		s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`return await press("fail:`+cls+`", (s) => s.failed);`)
 		text, _ := s["text"].(string)

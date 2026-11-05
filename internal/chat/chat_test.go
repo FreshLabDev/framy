@@ -913,18 +913,22 @@ func TestAFailedRunShowsTheCard(t *testing.T) {
 		// try, each on its own row since "Top up OpenRouter" is too long to
 		// share one.
 		{jobs.Failed, jobs.Money, false, "err.money", []string{topUp, actRetry}, true},
-		{jobs.Failed, jobs.Money, true, "err.failed", retry, false},
+		{jobs.Failed, jobs.Money, true, "run.failed", retry, false},
 		// A refused key is replaced in the settings.
 		{jobs.Failed, jobs.Key, false, "err.key", []string{rekey}, false},
 		// A free run is paid by framy's key, not the person's.
-		{jobs.Failed, jobs.Key, true, "err.failed", retry, false},
+		{jobs.Failed, jobs.Key, true, "run.failed", retry, false},
 		{jobs.Expired, "", true, "err.timeout", []string{actRetry, actOther}, false},
 		// A video whose key stopped working while framy asked about it.
 		{jobs.Expired, jobs.Key, false, "err.key", []string{rekey}, false},
 		{jobs.Expired, jobs.Money, false, "err.money", []string{topUp, actRetry}, true},
-		{jobs.Expired, jobs.Key, true, "err.failed", retry, false},
+		{jobs.Expired, jobs.Key, true, "run.failed", retry, false},
 		{jobs.Expired, jobs.ProviderFailed, false, "err.timeout", []string{actRetry, actOther}, false},
-		{jobs.Failed, jobs.Internal, true, "err.failed", []string{actRetry, actOther}, false},
+		// framy's own failure is not the model's.
+		{jobs.Failed, jobs.Internal, true, "run.failed", []string{actRetry, actOther}, false},
+		{jobs.Failed, jobs.Storage, false, "run.failed", []string{actRetry, actOther}, false},
+		{jobs.Failed, jobs.NoAdapter, false, "run.failed", other, false},
+		{jobs.Failed, jobs.ProviderFailed, false, "err.failed", []string{actRetry, actOther}, false},
 	} {
 		h := newHarness(t)
 		id := h.generating(t)
