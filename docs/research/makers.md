@@ -148,7 +148,7 @@ Microsoft's retirement schedule gave 1 October 2026 for MAI-Image-2.5, 2.5 Pro a
 | Context-IR enrichment, 2K regeneration, `mm_file://` ids | yes | no | |
 | Hailuo 3 Max references | yes by the API reference; the FAQ says frames only | text and image only, no reference SKU | |
 | Max `prompt_expansion_mode` | yes | no | |
-| Hailuo 2.3 768P (MiniMax's default), 2.3 Fast | yes | no: 1080p at 6 s and 10 s only | |
+| Hailuo 2.3 768P (MiniMax's default), 2.3 Fast | yes; 10 s is made at 768P only, 1080P is 6 s (confirmed, API reference, 5 November 2026) | no: 1080p only; OpenRouter lists 6 s and 10 s, and framy offers 6 s | 10 s clips |
 
 The first five reference images are free at MiniMax and on OpenRouter's page; framy's estimate counts them free. A sound alone is refused.
 

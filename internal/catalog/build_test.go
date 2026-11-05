@@ -169,6 +169,12 @@ func TestBuildAppliesExclusionsAndPassthrough(t *testing.T) {
 		t.Fatalf("effort = %+v", e)
 	}
 
+	// MiniMax makes Hailuo 2.3 at 1080p in 6 s only; OpenRouter lists 10 s too.
+	hailuo := modelByID(t, snap, "minimax/hailuo-2.3").Offers[0]
+	if !sameValue(hailuo.Params["duration"].Values, []int{6}) {
+		t.Fatalf("hailuo 2.3 durations = %v, want 6 s only", hailuo.Params["duration"].Values)
+	}
+
 	veo := modelByID(t, snap, "google/veo-3.1").Offers[0]
 	if p := veo.Params["negativePrompt"]; p.Type != Text || !p.Passthrough {
 		t.Fatalf("veo negativePrompt = %+v", p)

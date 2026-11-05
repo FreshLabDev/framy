@@ -618,8 +618,12 @@ models:
       audio_clip: {max_seconds: 15}
     # MiniMax and OpenRouter's page: the first 5 reference images are free.
     price: {free_images: 5}
+  # OpenRouter offers 2.3 at 1080p only, and lists 6 and 10 s. MiniMax
+  # makes 1080P at 6 s only and 10 s at 768P only (its API reference), so
+  # 10 s would fail or come back smaller at the 1080p price.
   minimax/hailuo-2.3:
     family: {id: hailuo, gen: "2.3", tier: std, label: "2.3"}
+    exclude: {duration: [10]}
   bytedance/seedance-1-5-pro:
     family: {id: seedance, gen: "1.5", tier: pro, label: 1.5 Pro}
     deprecated: {shuts_down: "2026-11-11", successor: bytedance/seedance-2.0-mini}
