@@ -764,6 +764,22 @@ func TestWhatIsNotARefusalFails(t *testing.T) {
 		})
 	}
 
+	// The run is billed in full: a broken picture does not take the good
+	// ones with it.
+	t.Run("one broken picture of two", func(t *testing.T) {
+		p, _ := serve(t, reply(200, answerWith(usage1K, `{"type":"image","mime_type":"image/png","data":"%%%"}`, imageBlock(png, "image/png"))))
+		sub, err := p.Submit(context.Background(), job(t, nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := sub.Outcome
+		if out.Err != nil || len(out.Results) != 1 || out.CostUSD == nil || !near(*out.CostUSD, cost1K) {
+			t.Fatalf("outcome %+v: want the good picture and the cost", out)
+		}
+		if out.Lost == nil || !strings.Contains(out.Lost.Error(), "image 1") {
+			t.Errorf("lost %v, want what happened to image 1", out.Lost)
+		}
+	})
 	t.Run("a paid run with a broken image keeps its cost", func(t *testing.T) {
 		p, _ := serve(t, reply(200, answerWith(usage1K, `{"type":"image","mime_type":"image/png","data":"%%%"}`)))
 		sub, _ := p.Submit(context.Background(), job(t, nil))

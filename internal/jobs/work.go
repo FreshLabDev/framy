@@ -282,6 +282,9 @@ func (q *Queue) settle(ctx context.Context, j Job, out Outcome) error {
 			break
 		}
 		e.status, e.results = Done, len(out.Results)
+		if out.Lost != nil {
+			q.log.Warn("job lost a file the provider sent, and keeps the others", "job", j.ID, "results", len(out.Results), "error", redact(out.Lost.Error()))
+		}
 		if !out.Grounding.Empty() {
 			e.grounding = out.Grounding
 		}

@@ -554,7 +554,7 @@ A message OpenAI echoes with the start of a wrong key is cut of it before it is 
 
 **Paid requests.** Before a paid request goes out, the job records `submitted_at`. An attempt that finds it set, with no provider job id and no result, fails as `interrupted` and sends nothing: a worker that died mid-call never pays twice. The person can run it again.
 
-**Results.** A result is copied into framy's storage the moment it is ready. Provider links live from one hour to 48 hours, and OpenRouter's unsigned URLs need the key.
+**Results.** A result is copied into framy's storage the moment it is ready. Provider links live from one hour to 48 hours, and OpenRouter's unsigned URLs need the key. An answer with several pictures is billed in full, so a picture of it that cannot be read (not base64, empty) is left out and the others are kept, with the log saying what was lost (`Outcome.Lost`); only an answer with no readable picture fails, as `provider`, with its cost.
 
 **Retries.** Every job has an idempotency key. A retry happens only on a rate-limit 429 or a 5xx before the generation started: the job goes back to `queued` until `retry_at`, the provider's `Retry-After` or 5 s × the requests sent squared, and after 5 refused requests it fails, or sooner when the adapter caps the tries of that refusal (an image OpenRouter could not make, 3). Never after a timeout without asking the provider for the job's status, and never on money or moderation errors.
 

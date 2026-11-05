@@ -7,6 +7,7 @@
 package jobs
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -503,6 +504,32 @@ func TestAFinishedJobHasItsEstimateAndItsCost(t *testing.T) {
 	}
 	if results := scalar[int](t, pool, `SELECT results FROM framy.job WHERE id=$1`, id); results != 1 {
 		t.Fatalf("results = %d", results)
+	}
+}
+
+// A picture that came broken does not take the others with it: the run is
+// done with the ones that came whole, its cost kept, and the log says what
+// was lost.
+func TestARunThatLostAPictureKeepsTheOthers(t *testing.T) {
+	p := newFake()
+	p.submit = func(context.Context, Job) (Submission, error) {
+		sub := done(0.06)
+		sub.Outcome.Lost = errors.New("image 2 of the answer: illegal base64 data at input byte 0")
+		return sub, nil
+	}
+	q, pool := testQueue(t, p)
+	var logged bytes.Buffer
+	q.log = slog.New(slog.NewTextHandler(&logged, nil))
+	id := enqueue(t, q, job(alice, imageOffer))
+	if err := q.work(context.Background(), id); err != nil {
+		t.Fatal(err)
+	}
+	j := get(t, q, id)
+	if j.Status != Done || j.ActualUSD == nil || *j.ActualUSD != 0.06 || scalar[int](t, pool, `SELECT results FROM framy.job WHERE id=$1`, id) != 1 {
+		t.Fatalf("job: %s, actual %v", j.Status, j.ActualUSD)
+	}
+	if !strings.Contains(logged.String(), "image 2 of the answer") {
+		t.Errorf("the log does not say what was lost:\n%s", logged.String())
 	}
 }
 

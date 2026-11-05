@@ -283,11 +283,18 @@ func outcome(of catalog.Offer, raw []byte, key string) jobs.Outcome {
 	for i, b := range m.media {
 		res, err := result(b)
 		if err != nil {
-			out.Results = nil
-			out.Err = &jobs.Error{Class: jobs.ProviderFailed, Err: fmt.Errorf("image %d of the answer: %w", i+1, err)}
-			return out
+			// The run is billed in full: a picture that came broken does
+			// not take the others with it.
+			if out.Lost == nil {
+				out.Lost = fmt.Errorf("image %d of the answer: %w", i+1, err)
+			}
+			continue
 		}
 		out.Results = append(out.Results, res)
+	}
+	if len(out.Results) == 0 {
+		out.Err, out.Lost = &jobs.Error{Class: jobs.ProviderFailed, Err: out.Lost}, nil
+		return out
 	}
 	out.Grounding = m.grounding
 	return out

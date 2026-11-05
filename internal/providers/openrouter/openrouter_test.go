@@ -473,6 +473,23 @@ func TestTheAnswerIsReadCarefully(t *testing.T) {
 			t.Errorf("outcome %+v: a paid run with a broken image fails and keeps its cost", out)
 		}
 	})
+	// The run is billed in full: a broken picture does not take the good
+	// ones with it.
+	t.Run("one broken picture of three", func(t *testing.T) {
+		good := `{"b64_json":"` + base64.StdEncoding.EncodeToString(png) + `","media_type":"image/png"}`
+		p, _ := serve(t, reply(200, `{"created":1,"data":[`+good+`,{"b64_json":"%%%"},`+good+`],"usage":{"cost":0.06}}`))
+		sub, err := p.Submit(context.Background(), job(nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := sub.Outcome
+		if out.Err != nil || len(out.Results) != 2 || out.CostUSD == nil || *out.CostUSD != 0.06 {
+			t.Fatalf("outcome %+v: want the two good pictures and the cost", out)
+		}
+		if out.Lost == nil || !strings.Contains(out.Lost.Error(), "image 2") {
+			t.Errorf("lost %v, want what happened to image 2", out.Lost)
+		}
+	})
 	t.Run("not JSON", func(t *testing.T) {
 		p, _ := serve(t, reply(200, `{"created":1,"data":[{"b64_json":"`))
 		_, err := p.Submit(context.Background(), job(nil))

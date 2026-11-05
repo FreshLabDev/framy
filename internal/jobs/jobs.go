@@ -216,6 +216,11 @@ type Outcome struct {
 	CostUSD *float64
 	// Err ends the run without a result, as moderation does.
 	Err *Error
+	// Lost says why files of the answer were left out of Results, such as
+	// a picture that was not base64: the run is paid in full, so the
+	// others are kept, and the log says what was lost. Nil when nothing
+	// was.
+	Lost error
 	// Grounding is what a search-grounded run brought with its result.
 	Grounding *Grounding
 }

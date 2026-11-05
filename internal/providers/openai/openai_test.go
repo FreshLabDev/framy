@@ -702,6 +702,23 @@ func TestTheAnswerIsReadCarefully(t *testing.T) {
 			t.Errorf("outcome %+v: a paid run with a broken image fails and keeps its cost", out)
 		}
 	})
+	// The run is billed in full: a broken picture does not take the good
+	// ones with it.
+	t.Run("one broken picture of three", func(t *testing.T) {
+		good := `{"b64_json":"` + base64.StdEncoding.EncodeToString(png) + `"}`
+		p, _ := serve(t, reply(200, `{"created":1,"output_format":"png","data":[`+good+`,`+good+`,{"b64_json":"%%%"}],"usage":{"input_tokens":5,"output_tokens":300,"input_tokens_details":{"text_tokens":5,"image_tokens":0}}}`))
+		sub, err := p.Submit(context.Background(), job(t, map[string]any{"size": "1024x1024", "quality": "medium", "n": 3.0}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := sub.Outcome
+		if out.Err != nil || len(out.Results) != 2 || out.CostUSD == nil {
+			t.Fatalf("outcome %+v: want the two good pictures and the cost", out)
+		}
+		if out.Lost == nil || !strings.Contains(out.Lost.Error(), "image 3") {
+			t.Errorf("lost %v, want what happened to image 3", out.Lost)
+		}
+	})
 	t.Run("an answer with no image keeps the cost", func(t *testing.T) {
 		p, _ := serve(t, reply(200, images(5, 0, 100)))
 		sub, err := p.Submit(context.Background(), job(t, medium()))
