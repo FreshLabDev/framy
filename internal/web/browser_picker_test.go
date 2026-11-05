@@ -137,3 +137,54 @@ func TestBrowserShutDownSentence(t *testing.T) {
 		})
 	}
 }
+
+// quoteByOffer changes the estimates the quote answers with: shape is a page
+// function of an estimate and the offer it is for.
+func quoteByOffer(lang, shape string) string {
+	return `
+try { localStorage.setItem("framy.lang", ` + jsString(lang) + `); } catch (e) {}
+{
+  const shape = ` + shape + `, fetch0 = window.fetch;
+  window.fetch = async (u, o) => {
+    const r = await fetch0(u, o);
+    if (!String(u).endsWith("/api/quote")) return r;
+    const b = await r.json();
+    for (const it of b.items || []) it.estimate = shape(it.estimate, it.offer);
+    return new Response(JSON.stringify(b), { status: r.status, headers: { "Content-Type": "application/json" } });
+  };
+}
+`
+}
+
+// TestBrowserPickerFromUpTo checks a family whose cheapest variant is priced
+// "up to": its row says "from" the least that variant costs, not the most,
+// in dollars and in the person's currency alike.
+func TestBrowserPickerFromUpTo(t *testing.T) {
+	ts := fakeAPI(t)
+	for _, tc := range []struct {
+		lang, shape, want string
+	}{
+		{"en", `(e, offer) => !offer.includes("qwen/") ? e : offer.endsWith("/qwen-image-3")
+		  ? { kind: "up_to", usd: 0.09, max_usd: 0.19, currency: "USD", amount: 0.09, max_amount: 0.19, label: "$0.19" }
+		  : { kind: "about", usd: 0.30, max_usd: 0.30, currency: "USD", amount: 0.30, max_amount: 0.30, label: "$0.30" }`, "from $0.09"},
+		{"uk", `(e, offer) => !offer.includes("qwen/") ? e : offer.endsWith("/qwen-image-3")
+		  ? { kind: "up_to", usd: 0.09, max_usd: 0.19, currency: "UAH", amount: 3.735, max_amount: 7.885, label: "7,89 ₴" }
+		  : { kind: "about", usd: 0.30, max_usd: 0.30, currency: "UAH", amount: 12.45, max_amount: 12.45, label: "12,45 ₴" }`, "від 3,74 ₴"},
+	} {
+		t.Run(tc.lang, func(t *testing.T) {
+			ctx := browserInit(t, ts.URL, 1440, 900, false, quoteByOffer(tc.lang, tc.shape))
+			got := js[map[string]string](t, ctx, pageHelpers+pickerHelpers+`
+			await openPicker();
+			const row = famRow("Qwen Image"), b = row.querySelector(".fprice b > .q");
+			for (let i = 0; i < 40 && b.classList.contains("wait"); i++) await wait(100);
+			return { price: b.textContent, hint: b.title || "" };`)
+			if got["price"] != tc.want {
+				t.Errorf("the row says %q, want %q", got["price"], tc.want)
+			}
+			if tc.lang == "uk" && got["hint"] != "$0.09" {
+				t.Errorf("the dollars behind it are %q, want $0.09", got["hint"])
+			}
+			noErrors(t, ctx)
+		})
+	}
+}

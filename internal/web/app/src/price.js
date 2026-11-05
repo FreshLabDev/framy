@@ -64,6 +64,9 @@ function num(a) {
   return s;
 }
 export const usd = (u) => "$" + num(u);
+// The server's label in the person's currency with another amount in it, written as the label
+// writes its own (a decimal comma where it has one): a sum, the least of an "up to".
+const relabel = (lab, amount) => lab.replace(/\d+(?:[.,]\d+)?/, (x) => (x.includes(",") ? num(amount).replace(".", ",") : num(amount)));
 // The price of several runs at once: the sum of each, read the loosest way any
 // of them reads (from, then up to, then about). One price that is not known
 // makes the sum unknown. The label is the first one's, with the sum in it.
@@ -78,7 +81,7 @@ export function sumOf(es) {
   if (cur) { out.amount = add((e) => e.amount); out.max_amount = add((e) => (e.kind === "up_to" ? e.max_amount ?? e.amount : e.amount)); }
   if (kind === "up_to") out.usd = out.max_usd;
   const shown = kind === "up_to" ? out.max_amount : out.amount, lab = es.find((e) => e.label)?.label;
-  out.label = cur && lab && /\d/.test(lab) ? lab.replace(/\d+(?:[.,]\d+)?/, (x) => (x.includes(",") ? num(shown).replace(".", ",") : num(shown))) : usd(out.usd);
+  out.label = cur && lab && /\d/.test(lab) ? relabel(lab, shown) : usd(out.usd);
   if (!cur) out.currency = "USD";
   return out;
 }
@@ -121,6 +124,8 @@ export function needTotal(items) {
 }
 
 // The lowest of several runs (a family's variants, a model's offers), as "from" when they differ.
+// "From" is the least any of them costs. That of an "up to" is its usd, while its label is the
+// most it can cost, so the label is written again from its least.
 const mins = new Set();
 export function lowest(items) {
   const got = items.map((it) => cache.get(keyOf(it)));
@@ -128,7 +133,10 @@ export function lowest(items) {
   const es = got.map((g) => g.estimate).filter((e) => e && e.kind !== "unknown");
   if (!es.length) return { kind: "unknown" };
   const lo = es.reduce((a, b) => (a.usd <= b.usd ? a : b));
-  return es.some((e) => Math.abs(e.usd - lo.usd) > 1e-9) ? { ...lo, kind: "from" } : lo;
+  if (!es.some((e) => Math.abs(e.usd - lo.usd) > 1e-9)) return lo;
+  if (lo.kind !== "up_to") return { ...lo, kind: "from" };
+  const mine = lo.amount != null && lo.label && /\d/.test(lo.label);
+  return { ...lo, kind: "from", max_usd: lo.usd, max_amount: lo.amount, label: mine ? relabel(lo.label, lo.amount) : usd(lo.usd), currency: mine ? lo.currency : "USD" };
 }
 export function minEl(items, o = {}) {
   const el = h("span", { class: "usd q" + (o.cls ? " " + o.cls : "") });

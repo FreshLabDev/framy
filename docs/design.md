@@ -333,6 +333,8 @@ The composer shows the price before the run. `internal/price` works it out from 
 | `from` | "from" the least | the provider sets the price after the run: Riverflow 2.5 |
 | `unknown` | "known after the run" | nothing says how many output tokens a run makes: Omni at 1080p |
 
+The picker prices a family, or a model with several offers, by the cheapest of them, and when they differ as "from" the least any of them costs: for an `up_to` that is its least, not the most its label names.
+
 **Discounts.** OpenRouter takes a share off the listed price of some models, shown on the model's page as the listed price struck through: on 28 October 15% off `alibaba/wan-3.0` and 50% off `heygen/heygen-video-1`, and none on any image model. The sync keeps the discount on the route, matching an upstream by its tag, which is the provider slug of the Images API; a video model's one route takes the smallest of its upstreams'. The estimate takes the discount off the total and keeps the listed figures (`list_usd`, `list_max_usd`) for the price shown struck through; its lines stay at the listed rates. A discount that could not be read this hour is none, and one outside 0–1 is ignored, so a broken answer only makes a price dearer. OpenRouter bills the discounted price, as its page says: checked on 30 October (check 13).
 
 An estimate never rounds in framy's favour, and an approximate one says so. An offer with several routes is priced by the cheapest, and the dearest is the most it can cost, since OpenRouter may fall back to it. The estimate keeps its lines: each billable or SKU, its rate and the quantity.
