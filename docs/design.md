@@ -1,10 +1,10 @@
 # framy: design
 
-Draft of 26 October 2026. No code yet. The research behind it is in [research/](research/README.md) (in Russian, with sources).
+Written on 26 October 2026, before the code, and updated as framy was built. The research behind it is in [research/](research/README.md) (in Russian, with sources).
 
 framy makes images and videos with the models of OpenRouter, OpenAI and Google. The website is the main interface; almost everything it does can also be done in the Mini App and in an ordinary Telegram chat. framy pays for a small free allowance; everything beyond it runs on the person's own keys, at the provider's price, with nothing added on top.
 
-Marks used below: **(owner)** is a decision of the owner of 26 October 2026; **Proposal** is mine and still open to change.
+Marks used below: **(owner)** is a decision of the owner, of 26 October 2026 unless it names another day; **Proposal** is mine and still open to change.
 
 ## Principles
 
@@ -1119,7 +1119,7 @@ Live tests on a test bot and the real tunnel (details in [research/telegram.md](
 3. **Ephemeral command** in reply to a photo: does `reply_to_message` come (T5). Moved to the backlog, #48 (owner, 31 October): `/img` is no ephemeral command, and an admin framy already shows the preview only to the requester.
 4. **Guest mode:** a reply to a photo, edits of the answer, callback buttons (T9). Checked on 31 October; the result is under Guest mode.
 5. **`CF-IPCountry`** behind our tunnel. Checked on 31 October: an anonymous `POST /api/quote` through framy-test.ws04.cc with `Accept-Language: en` and with `ru` came back in PLN, the currency of the caller's country, where without a country both give USD. The header reaches the service, and `web.FromProxy` believes it.
-6. **OpenRouter OAuth** end to end, from the Mini App too.
+6. **OpenRouter OAuth** end to end, from the Mini App too. Checked: from the site on 28 October on framy-test, the key stored encrypted under KEK version 1 and no trace of it, the code or the verifier in the log; from the Mini App by the owner on 31 October, through the external browser (#12).
 7. **Prices:** estimate against `usage.cost` on 10 runs per pricing kind. On 31 October every run of framy-test with a cost (31) was priced again by that day's code: all within 0.7%, 25 of them within 0.5%. Three of 30 October had been far off before the fixes and now match: Wan 3.0 and HeyGen with a reference clip, and GPT Image 2.5 with an input photo. Kinds seen: a table per image (FLUX.3 Klein), tokens (MAI 2.6 Flash, 22 runs; GPT Image 2.5), seconds of video (Grok Lite, HeyGen, TBC mischief, Wan 3.0) and Seedance's tokens (two bills, under Video). Gemini's tokens, FLUX.2's megapixels, a price per reference and Riverflow's floor have no run yet.
 8. **Blind test** of the free image models (#30). The video one was dropped (owner, 31 October).
 9. **Files:** HEIC from real iPhones (Portrait, Live Photo, HDR) through the ffmpeg in framy's image; the final MP4s on iOS, Android, Desktop and Web.

@@ -17,8 +17,9 @@ careful with people's keys, and production-minded.
   `/metrics` on its own listener, the family's panels on `/start`, the hourly
   model catalog sync, the price estimate, the currency rates, the job queue
   on River, the free allowance, the encrypted store of people's keys, the
-  OpenRouter (images, and video with its webhook), OpenAI and Gemini image
-  adapters, connecting OpenRouter with OAuth PKCE (`internal/oauth`),
+  adapters of OpenRouter (images, and video with its webhook), OpenAI
+  (images) and Gemini (images, and Omni's video), connecting OpenRouter with
+  OAuth PKCE (`internal/oauth`),
   storage in R2 with the ffmpeg photo pipeline, the renderer of the album
   preview, the generating loop and the error card (`internal/anim`), the
   public HTTP server's foundation (`internal/web`: security headers, CSRF,
@@ -34,7 +35,7 @@ careful with people's keys, and production-minded.
   Continue, the settings with the keys of each provider, the default models
   and the DM switch, and the library with the viewer of a run at `/r/<id>`.
   The editor of a result is still to come.
-- The service will be one Go binary (module `github.com/FreshLabDev/framy`):
+- The service is one Go binary (module `github.com/FreshLabDev/framy`):
   the HTTP server (site, Mini App, API, SSE, OAuth callbacks, provider
   webhooks), the bot, the job workers, the hourly catalog sync and the
   renderer of loops and cards, all from one process behind a Cloudflare Tunnel
