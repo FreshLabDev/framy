@@ -4662,9 +4662,9 @@
     "ar": "مقطعك مطلوب"
   },
   "web.det.first": {
-    "en": "First frame",
-    "ru": "Первый кадр",
-    "uk": "Перший кадр",
+    "en": "Start only",
+    "ru": "Только начало",
+    "uk": "Лише початок",
     "es": "Primer fotograma",
     "fr": "Première image",
     "de": "Erstes Bild",
@@ -4673,16 +4673,16 @@
     "cs": "První snímek",
     "tr": "İlk kare",
     "sv": "Första bildruta",
-    "be": "Першы кадр",
+    "be": "Толькі пачатак",
     "ca": "Primer fotograma",
     "zh": "首帧",
     "ja": "最初のフレーム",
-    "ar": "الإطار الأول"
+    "ar": "البداية فقط"
   },
   "web.det.first_last": {
-    "en": "First and last",
-    "ru": "Первый и последний",
-    "uk": "Перший і останній",
+    "en": "Both",
+    "ru": "Оба",
+    "uk": "Обидва",
     "es": "Primero y último",
     "fr": "Premier et dernier",
     "de": "Erstes und letztes",
@@ -4691,16 +4691,16 @@
     "cs": "První a poslední",
     "tr": "İlk ve son",
     "sv": "Första och sista",
-    "be": "Першы і апошні",
+    "be": "Абодва",
     "ca": "Primer i últim",
     "zh": "首帧和尾帧",
     "ja": "最初と最後",
-    "ar": "الأول والأخير"
+    "ar": "كلتاهما"
   },
   "web.det.frames": {
-    "en": "Frames",
-    "ru": "Кадры",
-    "uk": "Кадри",
+    "en": "Start and end photos",
+    "ru": "Фото начала и конца",
+    "uk": "Фото початку й кінця",
     "es": "Fotogramas",
     "fr": "Images",
     "de": "Frames",
@@ -4709,11 +4709,11 @@
     "cs": "Snímky",
     "tr": "Kareler",
     "sv": "Bildrutor",
-    "be": "Кадры",
+    "be": "Фота пачатку і канца",
     "ca": "Fotogrames",
     "zh": "帧",
     "ja": "フレーム",
-    "ar": "الإطارات"
+    "ar": "صورتا البداية والنهاية"
   },
   "web.det.free": {
     "en": "Free",
@@ -11862,9 +11862,9 @@
     "ar": "النهاية"
   },
   "web.slot.end_add": {
-    "en": "Add the last frame",
-    "ru": "Добавить последний кадр",
-    "uk": "Додати останній кадр",
+    "en": "Add an end photo",
+    "ru": "Добавить фото конца",
+    "uk": "Додати фото кінця",
     "es": "Añadir el último fotograma",
     "fr": "Ajouter la dernière image",
     "de": "Letztes Bild hinzufügen",
@@ -11873,11 +11873,11 @@
     "cs": "Přidat poslední snímek",
     "tr": "Son kareyi ekle",
     "sv": "Lägg till sista bildrutan",
-    "be": "Дадаць апошні кадр",
+    "be": "Дадаць фота канца",
     "ca": "Afegeix l’últim fotograma",
     "zh": "添加尾帧",
     "ja": "最後のフレームを追加",
-    "ar": "أضف الإطار الأخير"
+    "ar": "أضف صورة النهاية"
   },
   "web.slot.refs": {
     "en": "References",
@@ -11934,9 +11934,9 @@
     "ar": "البداية"
   },
   "web.slot.start_add": {
-    "en": "Add the first frame",
-    "ru": "Добавить первый кадр",
-    "uk": "Додати перший кадр",
+    "en": "Add a start photo",
+    "ru": "Добавить фото начала",
+    "uk": "Додати фото початку",
     "es": "Añadir el primer fotograma",
     "fr": "Ajouter la première image",
     "de": "Erstes Bild hinzufügen",
@@ -11945,11 +11945,11 @@
     "cs": "Přidat první snímek",
     "tr": "İlk kareyi ekle",
     "sv": "Lägg till första bildrutan",
-    "be": "Дадаць першы кадр",
+    "be": "Дадаць фота пачатку",
     "ca": "Afegeix el primer fotograma",
     "zh": "添加首帧",
     "ja": "最初のフレームを追加",
-    "ar": "أضف الإطار الأول"
+    "ar": "أضف صورة البداية"
   },
   "web.stage.cancelled": {
     "en": "Cancelled",
@@ -13284,9 +13284,9 @@
     "ar": "المجموع أطول من {n} ث"
   },
   "web.why.frames_alone": {
-    "en": "Frames go without references or clips",
-    "ru": "Кадры идут без образцов и роликов",
-    "uk": "Кадри йдуть без зразків і кліпів",
+    "en": "References do not go with a start or end photo",
+    "ru": "С фото начала или конца образцы не идут",
+    "uk": "З фото початку чи кінця зразки не йдуть",
     "es": "Los fotogramas van sin referencias ni clips",
     "fr": "Les images partent sans références ni clips",
     "de": "Bilder gehen ohne Referenzen und Clips",
@@ -13295,11 +13295,11 @@
     "cs": "Snímky jdou bez referencí a klipů",
     "tr": "Kareler referans ve klip olmadan gider",
     "sv": "Bildrutor går utan referenser och klipp",
-    "be": "Кадры ідуць без узораў і кліпаў",
+    "be": "З фота пачатку ці канца ўзоры не ідуць",
     "ca": "Els fotogrames van sense referències ni clips",
     "zh": "帧不能与参考或片段一起使用",
     "ja": "フレームは参照やクリップと一緒に使えません",
-    "ar": "الإطارات تُرسل بلا مراجع ولا مقاطع"
+    "ar": "لا تُرسل المراجع مع صورة البداية أو النهاية"
   },
   "web.why.free_no_clips": {
     "en": "Free runs take no clips; with a key they do",
@@ -13356,9 +13356,9 @@
     "ar": "المجاني لا يقبل أصواتًا، ومع المفتاح يقبلها"
   },
   "web.why.free_start": {
-    "en": "Free runs take only a first frame; with a key, references too",
-    "ru": "Бесплатно только первый кадр, с ключом и образцы",
-    "uk": "Безкоштовно лише перший кадр, з ключем і зразки",
+    "en": "Free runs take only a start photo; with a key, references too",
+    "ru": "Бесплатно только фото начала, с ключом и образцы",
+    "uk": "Безкоштовно лише фото початку, з ключем і зразки",
     "es": "Gratis solo admite el primer fotograma; con una clave, también referencias",
     "fr": "Le gratuit n’accepte que la première image ; avec une clé, aussi des références",
     "de": "Kostenlos nur das erste Bild, mit Schlüssel auch Referenzen",
@@ -13367,11 +13367,11 @@
     "cs": "Zdarma jen první snímek, s klíčem i reference",
     "tr": "Ücretsiz çalıştırma yalnızca ilk kareyi alır, anahtarla referansları da",
     "sv": "Gratis tar bara en första bildruta, med nyckel även referenser",
-    "be": "Бясплатна толькі першы кадр, з ключом і ўзоры",
+    "be": "Бясплатна толькі фота пачатку, з ключом і ўзоры",
     "ca": "De franc només admet el primer fotograma; amb una clau, també referències",
     "zh": "免费生成只能用首帧；使用密钥还可以用参考",
     "ja": "無料では最初のフレームのみ。キーがあれば参照も使えます",
-    "ar": "المجاني يقبل الإطار الأول فقط، ومع المفتاح يقبل المراجع أيضًا"
+    "ar": "المجاني يقبل صورة البداية فقط، ومع المفتاح يقبل المراجع أيضًا"
   },
   "web.why.max_clips": {
     "en": "No more than {n} clips",
@@ -13464,9 +13464,9 @@
     "ar": "هذا النموذج لا يقبل مقاطع"
   },
   "web.why.no_end": {
-    "en": "This model takes no last frame",
-    "ru": "Модель не берёт последний кадр",
-    "uk": "Ця модель не приймає останній кадр",
+    "en": "This model takes no end photo",
+    "ru": "Модель не берёт фото конца",
+    "uk": "Ця модель не приймає фото кінця",
     "es": "Este modelo no admite último fotograma",
     "fr": "Ce modèle n’accepte pas de dernière image",
     "de": "Dieses Modell nimmt kein letztes Bild",
@@ -13475,16 +13475,16 @@
     "cs": "Tento model nepřijímá poslední snímek",
     "tr": "Bu model son kare almaz",
     "sv": "Den här modellen tar inte emot en sista bildruta",
-    "be": "Гэтая мадэль не прымае апошні кадр",
+    "be": "Гэтая мадэль не прымае фота канца",
     "ca": "Aquest model no admet últim fotograma",
     "zh": "此模型不接受尾帧",
     "ja": "このモデルでは最後のフレームは使えません",
-    "ar": "هذا النموذج لا يقبل إطارًا أخيرًا"
+    "ar": "هذا النموذج لا يقبل صورة النهاية"
   },
   "web.why.no_frames": {
-    "en": "This model takes no first frame",
-    "ru": "Модель не берёт первый кадр",
-    "uk": "Ця модель не приймає перший кадр",
+    "en": "This model takes no start photo",
+    "ru": "Модель не берёт фото начала",
+    "uk": "Ця модель не приймає фото початку",
     "es": "Este modelo no admite primer fotograma",
     "fr": "Ce modèle n’accepte pas de première image",
     "de": "Dieses Modell nimmt kein erstes Bild",
@@ -13493,11 +13493,11 @@
     "cs": "Tento model nepřijímá první snímek",
     "tr": "Bu model ilk kare almaz",
     "sv": "Den här modellen tar inte emot en första bildruta",
-    "be": "Гэтая мадэль не прымае першы кадр",
+    "be": "Гэтая мадэль не прымае фота пачатку",
     "ca": "Aquest model no admet primer fotograma",
     "zh": "此模型不接受首帧",
     "ja": "このモデルでは最初のフレームは使えません",
-    "ar": "هذا النموذج لا يقبل إطارًا أول"
+    "ar": "هذا النموذج لا يقبل صورة البداية"
   },
   "web.why.no_photos": {
     "en": "This model takes no photos",
