@@ -225,7 +225,7 @@ func (b *Bot) sendScreen(ctx context.Context, m *tg.Message, action, payload str
 		if err != nil {
 			return err
 		}
-		v.lang = panelLang
+		v.lang, v.direct = panelLang, b.directURL()
 		admin, err := b.isAdmin(ctx, m.Chat.ID, m.From.ID)
 		if err != nil {
 			// The member's panel is the safe one to show.
@@ -393,6 +393,8 @@ func (b *Bot) runAction(ctx context.Context, cq *tg.CallbackQuery, action, raw s
 	case actHome:
 		if v.sc == scopePrivate {
 			v.account = b.readAccount(ctx, cq.From.ID, v.lang)
+		} else {
+			v.direct = b.directURL()
 		}
 		return edit(v.home(admin, chatLang))
 	case actHelp:

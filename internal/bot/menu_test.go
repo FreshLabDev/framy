@@ -32,6 +32,9 @@ type drawn struct {
 func everyPanel(v view) []drawn {
 	var out []drawn
 	add := func(name, text string, m *tg.InlineKeyboardMarkup) { out = append(out, drawn{name, text, m}) }
+	if v.sc == scopeGroup {
+		v.direct = "https://t.me/framytest_bot?start=group"
+	}
 	text, m := v.home(true, "uk")
 	add("home", text, m)
 	text, m = v.home(false, "")
@@ -311,6 +314,51 @@ func TestStartInAGroupIsEphemeral(t *testing.T) {
 	}
 	if len(client.calls) != 1 {
 		t.Fatalf("direct-chat tabs answered in a group: %+v", client.calls)
+	}
+}
+
+// A group's panel opens framy too: Telegram takes no Mini App button in a
+// group, so Open framy is a link to framy's direct chat, whose panel opens
+// the Mini App with the person's history and settings, signed in. Before,
+// a group's panel had no way there at all. Without a Mini App to open
+// there is no such button.
+func TestAGroupPanelOpensFramyInItsDirectChat(t *testing.T) {
+	store, client := newStore(), newTelegram()
+	b := New(store, client, quiet(), "framytest_bot", selfID, "v0.1.0", WithSiteURL("https://framy.example"))
+	ctx := context.Background()
+	m := message(groupChat, 7, "/start")
+	m.EphemeralMessageID = 99
+	if err := b.onMessage(ctx, m); err != nil {
+		t.Fatal(err)
+	}
+	open := func(got *tg.InlineKeyboardMarkup) tg.InlineKeyboardButton { return got.InlineKeyboard[0][0] }
+	want := tg.InlineKeyboardButton{Text: i18n.T("en", "btn.open"), URL: "https://t.me/framytest_bot?start=group", Style: tg.StylePrimary}
+	if got := client.last(); got.method != "sendEphemeral" || open(got.markup) != want {
+		t.Fatalf("sent %+v", got)
+	}
+	// Back to the panel draws it again.
+	if err := b.onCallback(ctx, callback(groupChat, 7, 7, actHome, 99)); err != nil {
+		t.Fatal(err)
+	}
+	if got := client.last(); got.method != "editEphemeral" || open(got.markup) != want {
+		t.Fatalf("home = %+v", got)
+	}
+	// The link's /start opens the direct chat's panel, with the Mini App.
+	if err := b.onMessage(ctx, message(dmChat, 7, "/start group")); err != nil {
+		t.Fatal(err)
+	}
+	if got := client.last(); got.method != "sendMessage" || open(got.markup).WebApp == nil {
+		t.Fatalf("direct panel = %+v", got)
+	}
+
+	b, _, client = newBot()
+	if err := b.onMessage(ctx, m); err != nil {
+		t.Fatal(err)
+	}
+	for _, button := range buttons(client.last().markup) {
+		if button.URL != "" {
+			t.Fatalf("a link with no Mini App to open: %+v", button)
+		}
 	}
 }
 

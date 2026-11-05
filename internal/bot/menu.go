@@ -94,6 +94,9 @@ type view struct {
 	owner   int64
 	sc      scope
 	account account
+	// direct is the link a group's panel opens framy by (Bot.directURL);
+	// empty: none.
+	direct string
 }
 
 type row = []tg.InlineKeyboardButton
@@ -175,14 +178,18 @@ func (v view) closeButton() tg.InlineKeyboardButton {
 
 // home is two screens. The direct chat gets every tab, since there the panel
 // is the whole bot; a group gets what a group acts on, and its language only
-// for an admin, who is the only one who can change it. In a direct chat Open
-// framy leads, so it is the Primary button (R4); a group's panel has nothing
-// that leads yet, and generating will. Each ends its quote with how to start
+// for an admin, who is the only one who can change it. Open framy leads in
+// both, so it is the Primary button (R4): in a direct chat it opens the Mini
+// App, and in a group, which takes no Mini App button, it opens framy's
+// direct chat, whose panel does. Each ends its quote with how to start
 // there: /img in a group, a plain message in a direct chat.
 func (v view) home(admin bool, groupLang string) (string, *tg.InlineKeyboardMarkup) {
 	if v.sc == scopeGroup {
 		text := panel(productName, "", v.t("home.hint"), quote(v.t("home.group")))
 		var rows []row
+		if v.direct != "" {
+			rows = append(rows, row{v.directButton()})
+		}
 		if admin {
 			rows = append(rows, row{{Text: v.t("btn.group_language", "language", v.languageLabel(groupLang)), CallbackData: cb(v.owner, actGroupLang)}})
 		}

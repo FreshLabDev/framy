@@ -175,6 +175,30 @@ func (v view) openButton(appURL, text string) tg.InlineKeyboardButton {
 	return tg.InlineKeyboardButton{Text: text, WebApp: &tg.WebAppInfo{URL: appURL}, Style: tg.StylePrimary}
 }
 
+// directButton is Open framy in a group, where Telegram takes no Mini App
+// button: a link to framy's direct chat, whose panel opens the Mini App
+// signed in. A link to the site would ask the person to sign in again in a
+// browser.
+func (v view) directButton() tg.InlineKeyboardButton {
+	return tg.InlineKeyboardButton{Text: v.t("btn.open"), URL: v.direct, Style: tg.StylePrimary}
+}
+
+// startGroup is the /start parameter of the link from a group to framy's
+// direct chat (directURL). Messages already sent carry it, so it is read
+// for good: as the plain home panel.
+const startGroup = "group"
+
+// directURL is the link a group's panel opens framy by: framy's direct
+// chat with /start group, whose panel opens the Mini App, where the
+// person's history and settings are. It is empty when framy has no name to
+// link to, or no Mini App to open there.
+func (b *Bot) directURL() string {
+	if b.username == "" || b.appURL == "" {
+		return ""
+	}
+	return "https://t.me/" + b.username + "?start=" + startGroup
+}
+
 // atKey points the panel's button at provider's key in the settings: the
 // person came from a refusal or an error card in a group or a guest's chat
 // (internal/chat, settings.go) that a key of theirs would fix. The button
