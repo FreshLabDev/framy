@@ -25,7 +25,7 @@ Marks used below: **(owner)** is a decision of the owner, of 26 October 2026 unl
 | Mini App | The same frontend on the same origin, opened from the bot | 1, polished in 3 |
 | Group chat | `/img` and `/edit` with a preview, confirmation, progress and the result in the chat **(owner)** | 1 |
 | DM | The same as a group, plus settings and delivery of results made on the site | 1 |
-| Inline mode | The person's past results by `file_id`, a button into the Mini App | 3 |
+| Inline mode | The person's past results by `file_id`, a button to the bot's chat, whose panel opens the Mini App | 3 |
 | Guest mode | `@framyin_bot …` in reply to a photo in a chat where framy is not a member | 3 |
 
 ## Accounts
