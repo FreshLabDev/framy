@@ -4,9 +4,13 @@ package web
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/FreshLabDev/framy/internal/i18n"
 )
 
 // appSite is a Server with only the generated app on it.
@@ -124,4 +128,86 @@ func TestAppAssets(t *testing.T) {
 	if n != 16 {
 		t.Errorf("%d languages of texts", n)
 	}
+}
+
+// TestAppLinesGetTheirValues checks each t("key", {…}) of the app against
+// its English line: every value it passes fills a {placeholder} of the line,
+// and every placeholder gets a value, so nobody reads "{n}" on the page.
+// A call with values held in a variable is not checked.
+func TestAppLinesGetTheirValues(t *testing.T) {
+	call := regexp.MustCompile(`\bt\("([a-z0-9_.]+)"(?:\s*,\s*\{([^{}]*)\})?\s*\)`)
+	holes := regexp.MustCompile(`\{(\w+)\}`)
+	files, err := filepath.Glob("app/src/*.js")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no app sources: %v", err)
+	}
+	checked := 0
+	for _, path := range files {
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range call.FindAllStringSubmatch(string(src), -1) {
+			key := "web." + m[1]
+			if !i18n.Has(key) {
+				continue // TestEveryKeyTheCodeNamesExists covers the names
+			}
+			passed, ok := valueNames(m[2])
+			if !ok {
+				continue
+			}
+			want := map[string]bool{}
+			for _, h := range holes.FindAllStringSubmatch(i18n.T("en", key), -1) {
+				want[h[1]] = true
+			}
+			for k := range passed {
+				if !want[k] {
+					t.Errorf("%s: %s gets {%s}, which its line does not have", path, m[1], k)
+				}
+			}
+			for k := range want {
+				if !passed[k] {
+					t.Errorf("%s: %s leaves {%s} unfilled", path, m[1], k)
+				}
+			}
+			checked++
+		}
+	}
+	if checked < 100 {
+		t.Errorf("only %d calls checked", checked)
+	}
+}
+
+// valueNames reads the names of an object literal's values, as in
+// `n: fmtNum(x), at`; false when a spread makes them unknown.
+func valueNames(obj string) (map[string]bool, bool) {
+	out := map[string]bool{}
+	depth, start := 0, 0
+	parts := []string{}
+	for i, r := range obj {
+		switch r {
+		case '(', '[':
+			depth++
+		case ')', ']':
+			depth--
+		case ',':
+			if depth == 0 {
+				parts = append(parts, obj[start:i])
+				start = i + 1
+			}
+		}
+	}
+	parts = append(parts, obj[start:])
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if strings.HasPrefix(p, "...") {
+			return nil, false
+		}
+		name, _, _ := strings.Cut(p, ":")
+		out[strings.Trim(strings.TrimSpace(name), `"'`)] = true
+	}
+	return out, true
 }

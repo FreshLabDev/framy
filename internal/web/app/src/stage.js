@@ -461,8 +461,9 @@ function renderPress(st, run) {
   st.replaceChildren(h("div", { class: "preview", "data-k": "pvbox" }, box), h("div", { class: "jfoot", "data-k": "j-foot" }, line, why, h("div", { class: "jacts acts", "data-k": "j-acts" }, acts.filter(Boolean)), prompt));
 }
 // Every result of the press saved, one after another: a browser asks once to allow them, Telegram asks for each.
+// They are the cells right above it, so its label gives no count.
 function allDown(items) {
-  return B("down", t("act.download_all", { n: fmtNum(items.length) }), () => {
+  return B("down", t("act.download_all"), () => {
     const links = items.map((it) => download(it.j, it.res, outsOf(it.j).indexOf(it.res))), tg = S.tg;
     if (links[0]?.tagName === "BUTTON" && tg?.downloadFile) {
       const one = (k) => { if (k < items.length) tg.downloadFile({ url: items[k].res.download, file_name: links[k]._name }, () => one(k + 1)); };
