@@ -209,6 +209,18 @@ screen, a command or a table, check how the siblings do it.
   additive: new tables, columns that are NULL or have a default, indexes. No
   rename, drop, changed type or key, or NOT NULL without a default while the
   released binary still uses the old form.
+- The runner applies each file in one transaction under `lock_timeout` 5 s
+  and `statement_timeout` 1 min, tries a file again a few times when it
+  waited too long for a lock, and keeps each file's SHA-256 in
+  `schema_migrations`: a file that differs from the one applied stops the
+  start. A file that needs longer raises the limits with its own `SET LOCAL`.
+- A new CHECK or foreign key on a table that has rows goes in `NOT VALID`,
+  and a later migration validates it (`VALIDATE CONSTRAINT` does not block
+  writes). The runner has no migration outside a transaction yet, so an
+  index is a plain `CREATE INDEX`, which blocks writes to its table while it
+  builds: fine at thousands of rows. Before a table holds millions, the
+  runner needs a file that runs alone outside a transaction, for
+  `CREATE INDEX CONCURRENTLY`.
 - Anything only one bot can act on (a chat, a message id, a `file_id`, a
   River queue, the getUpdates offset) carries the stack and is read by it.
   Upkeep of shared tables runs on production only (`config.Config.Primary`).
