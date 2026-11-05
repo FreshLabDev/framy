@@ -51,6 +51,10 @@ func TestTheBudgetCountsEstimatesThenActualCosts(t *testing.T) {
 			{status: "failed", class: "storage", estimate: 0.18, sent: true}, {status: "failed", class: "storage", estimate: 0.30, actual: ptr(0.15), sent: true},
 		}, 0.33},
 		{"a refused run costs what the provider charged for it", []row{{status: "failed", class: "moderation", estimate: 0.30, actual: ptr(0.05)}, {status: "failed", class: "moderation", estimate: 0.30}}, 0.05},
+		// A video the provider took and then held back for its content may
+		// have been paid: job 49 on the test stack, $0.45 estimated, no cost
+		// reported.
+		{"a run refused after the provider took it costs its estimate", []row{{status: "failed", class: "moderation", estimate: 0.45, providerJob: "gen-vid-1"}}, 0.45},
 		{"a video the provider never finished may have been paid", []row{{status: "expired", estimate: 0.30}, {status: "expired", estimate: 0.30, actual: ptr(0.20)}}, 0.50},
 		// A video of a length the model picks may cost up to its top.
 		{"an up-to run in flight costs its top", []row{{status: "running", estimate: 0.09, upTo: 0.19}}, 0.19},

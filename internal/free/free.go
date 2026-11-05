@@ -24,8 +24,10 @@
 //     price), the actual cost once it ended, and that most for a run that
 //     ended without a cost on the books but may have been paid (done with no
 //     reported cost, expired, or failed as a timeout, an interruption, an
-//     unreadable answer or results that could not be kept after the request
-//     went out). A run that failed before anything went out costs nothing.
+//     unreadable answer, results that could not be kept after the request
+//     went out, or a refusal for its content after the provider took the
+//     run, as a video it made and then held back). A run that failed before
+//     anything went out costs nothing.
 //     The day is the UTC day of the moment the run was queued.
 package free
 
@@ -231,7 +233,8 @@ const cost = `CASE
 	WHEN status IN ('queued', 'running') THEN ` + most + `
 	WHEN actual_usd IS NOT NULL THEN actual_usd
 	WHEN status IN ('done', 'expired') OR error_class IN ('timeout', 'interrupted', 'provider')
-	     OR (error_class = 'storage' AND submitted_at IS NOT NULL) THEN ` + most + `
+	     OR (error_class = 'storage' AND submitted_at IS NOT NULL)
+	     OR (error_class = 'moderation' AND provider_job_id IS NOT NULL) THEN ` + most + `
 	ELSE 0
 END`
 
