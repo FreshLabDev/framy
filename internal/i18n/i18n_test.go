@@ -350,6 +350,18 @@ func TestOneFailureIsSaidOneWay(t *testing.T) {
 	}
 }
 
+// "The family" is what the people who make the bots call them; a person who
+// knows only framy does not know which family or which "other bots". The
+// language is shared with our other bots, as maply says it.
+func TestEnglishSaysOurBotsNotTheFamily(t *testing.T) {
+	for _, key := range Keys() {
+		s := strings.ToLower(translations[key]["en"])
+		if strings.Contains(s, "famil") || strings.Contains(s, "other bots") && !strings.Contains(s, "our other bots") {
+			t.Errorf("%s speaks of bots the person may not know: %q", key, translations[key]["en"])
+		}
+	}
+}
+
 // panelMark is a symbol a string in Go code may carry although isEmoji
 // counts it: the marks of a chosen option (core/docs/panels.md, R7) and the
 // flags of the language picker's labels.
