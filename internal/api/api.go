@@ -62,8 +62,12 @@ const (
 	// blocks until this runs out.
 	DefaultWriteTimeout = 10 * time.Second
 	// DefaultUploadSlots is how many photos are converted at once: ffmpeg
-	// takes a core for every one of them.
+	// takes a core for every one of them. A photo takes a slot once its
+	// bytes are all in.
 	DefaultUploadSlots = 4
+	// maxPersonUploads is how many photos of one person's may be on their
+	// way in at once; the site sends them one after another.
+	maxPersonUploads = 2
 
 	// uploadRead and uploadWrite are the deadlines of POST /api/uploads,
 	// counted from the start of the request: a slow phone connection may take
@@ -73,7 +77,8 @@ const (
 	// uploadSlack is room above the largest photo for what the body may carry
 	// besides it, so the pipeline's own "too big" answer comes first.
 	uploadSlack = 1 << 20
-	// uploadWait is how long an upload waits for a free conversion slot.
+	// uploadWait is how long a photo whose bytes are in waits for a free
+	// conversion slot.
 	uploadWait = 20 * time.Second
 	// retryMillis is the reconnect delay an event stream suggests.
 	retryMillis = 3000
@@ -135,9 +140,10 @@ type Allowance interface {
 	Check(ctx context.Context, a jobs.Admission) error
 }
 
-// Uploads keeps a photo: *storage.Store.
+// Uploads keeps a photo: *storage.Store. gate is passed once the photo's
+// bytes are all in, before it is converted.
 type Uploads interface {
-	Upload(ctx context.Context, userID int64, r io.Reader) (storage.Asset, error)
+	Upload(ctx context.Context, userID int64, r io.Reader, gate storage.Gate) (storage.Asset, error)
 }
 
 // Links presigns files of the person's: *storage.Store. An id that is not
@@ -220,8 +226,8 @@ type Config struct {
 	UploadSlots  int
 	// VideoSlots is how many clips are worked on at once.
 	VideoSlots int
-	// UploadWait is how long an upload waits for a free slot before it is
-	// sent away with 503.
+	// UploadWait is how long a photo whose bytes are in waits for a free
+	// conversion slot before it is sent away with 503.
 	UploadWait time.Duration
 	MaxUpload  int64
 	// Keepalive is how often the listener checks its connection while no
@@ -254,6 +260,8 @@ type API struct {
 	maxBody int64
 	catalog *catalogCache
 	videos  *videoTasks
+	// uploading counts each person's photos on their way in.
+	uploading personUploads
 	// bg is the context of the work that outlives a request, a clip's task;
 	// Run's end and Close cancel it.
 	bg     context.Context

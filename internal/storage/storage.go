@@ -255,18 +255,30 @@ func (a Asset) audio() *bool {
 	return &a.Audio
 }
 
+// Gate waits for room to convert a photo whose bytes are all in, and gives
+// back what returns the room; an error ends the upload with it, and nothing
+// is kept.
+type Gate func(ctx context.Context) (release func(), err error)
+
 // Upload normalizes a photo the person brought and keeps it. The person is
 // in core.person already, as core.touch puts them. A file that is not a
 // picture framy takes comes back as media.ErrUnsupported, ErrTooLarge or
-// ErrUnreadable, one over the limit as ErrTooBig.
-func (s *Store) Upload(ctx context.Context, userID int64, r io.Reader) (Asset, error) {
-	return s.UploadCopy(ctx, userID, r, "")
+// ErrUnreadable, one over the limit as ErrTooBig. The body is read to a
+// working file first, however slowly it comes, and only its conversion
+// passes gate, when there is one: a slow line holds no room of the
+// conversion's.
+func (s *Store) Upload(ctx context.Context, userID int64, r io.Reader, gate Gate) (Asset, error) {
+	return s.upload(ctx, userID, r, "", gate)
 }
 
 // UploadCopy is Upload that also leaves a copy of the normalized picture at
 // copyTo, a path of the caller's, when it is set: the chat draws its preview
 // from the same picture the provider gets.
 func (s *Store) UploadCopy(ctx context.Context, userID int64, r io.Reader, copyTo string) (Asset, error) {
+	return s.upload(ctx, userID, r, copyTo, nil)
+}
+
+func (s *Store) upload(ctx context.Context, userID int64, r io.Reader, copyTo string, gate Gate) (Asset, error) {
 	dir, done, err := s.work.Dir("upload")
 	if err != nil {
 		return Asset{}, err
@@ -286,7 +298,14 @@ func (s *Store) UploadCopy(ctx context.Context, userID int64, r io.Reader, copyT
 	case n > s.cfg.MaxUpload:
 		return Asset{}, ErrTooBig
 	}
+	release := func() {}
+	if gate != nil {
+		if release, err = gate(ctx); err != nil {
+			return Asset{}, err
+		}
+	}
 	img, err := s.media.Normalize(ctx, dir)
+	release()
 	if err != nil {
 		return Asset{}, err
 	}

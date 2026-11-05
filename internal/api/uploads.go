@@ -2,8 +2,10 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/FreshLabDev/framy/internal/media"
@@ -41,21 +43,15 @@ func (a *API) upload(w http.ResponseWriter, r *http.Request) {
 		tooLarge(w)
 		return
 	}
-	wait := time.NewTimer(a.cfg.UploadWait)
-	select {
-	case a.slots <- struct{}{}:
-		wait.Stop()
-		defer func() { <-a.slots }()
-	case <-r.Context().Done():
-		wait.Stop()
-		return
-	case <-wait.C:
-		e := newError(http.StatusServiceUnavailable, codeBusy, "photos are being converted; try again in a moment")
-		e.retryAfter = 3 * time.Second
-		e.write(w)
+	done, ok := a.uploading.start(user)
+	if !ok {
+		busy(w, "photos of yours are on their way in already; send this one when one of them is in")
 		return
 	}
-	asset, err := a.cfg.Uploads.Upload(r.Context(), user, r.Body)
+	defer done()
+	// The body comes in whole before a conversion slot is taken, so a
+	// phone on a slow line keeps no one else's photo waiting.
+	asset, err := a.cfg.Uploads.Upload(r.Context(), user, r.Body, a.convertSlot)
 	if err != nil {
 		a.uploadFailed(w, r, err)
 		return
@@ -65,9 +61,58 @@ func (a *API) upload(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// errConverting: every conversion slot stayed taken while a photo waited.
+var errConverting = errors.New("every conversion slot is taken")
+
+// convertSlot waits up to UploadWait for one of the slots photos are
+// converted in: storage.Gate.
+func (a *API) convertSlot(ctx context.Context) (func(), error) {
+	wait := time.NewTimer(a.cfg.UploadWait)
+	defer wait.Stop()
+	select {
+	case a.slots <- struct{}{}:
+		return func() { <-a.slots }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-wait.C:
+		return nil, errConverting
+	}
+}
+
+// personUploads counts each person's photos on their way in, read or
+// converted, so one account cannot fill the working directory with bodies
+// sent slowly.
+type personUploads struct {
+	mu  sync.Mutex
+	now map[int64]int
+}
+
+// start counts one more upload of user's, unless maxPersonUploads are in
+// already, and returns what ends it.
+func (p *personUploads) start(user int64) (func(), bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.now[user] >= maxPersonUploads {
+		return nil, false
+	}
+	if p.now == nil {
+		p.now = map[int64]int{}
+	}
+	p.now[user]++
+	return func() {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		if p.now[user]--; p.now[user] <= 0 {
+			delete(p.now, user)
+		}
+	}, true
+}
+
 func (a *API) uploadFailed(w http.ResponseWriter, r *http.Request, err error) {
 	var tooBig *http.MaxBytesError
 	switch {
+	case errors.Is(err, errConverting):
+		busy(w, "photos are being converted; try again in a moment")
 	case errors.As(err, &tooBig), errors.Is(err, storage.ErrTooBig):
 		tooLarge(w)
 	case errors.Is(err, media.ErrTooLarge):

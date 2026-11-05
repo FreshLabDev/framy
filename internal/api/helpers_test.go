@@ -529,10 +529,31 @@ type fakeUploads struct {
 	got   []byte
 	user  int64
 	block chan struct{}
-	calls int
+	// calls are the uploads that reached the conversion, and reading those
+	// whose body is coming in now.
+	calls   int
+	reading int
 }
 
-func (u *fakeUploads) Upload(ctx context.Context, userID int64, r io.Reader) (storage.Asset, error) {
+// Upload reads the body as storage does, passes the gate, and converts:
+// it waits for block, when there is one, holding the gate's room.
+func (u *fakeUploads) Upload(ctx context.Context, userID int64, r io.Reader, gate storage.Gate) (storage.Asset, error) {
+	u.mu.Lock()
+	u.reading++
+	u.mu.Unlock()
+	b, rerr := io.ReadAll(r)
+	u.mu.Lock()
+	u.reading--
+	u.got, u.user = b, userID
+	u.mu.Unlock()
+	if rerr != nil {
+		return storage.Asset{}, rerr
+	}
+	release, err := gate(ctx)
+	if err != nil {
+		return storage.Asset{}, err
+	}
+	defer release()
 	u.mu.Lock()
 	block, err, a := u.block, u.err, u.asset
 	u.calls++
@@ -543,13 +564,6 @@ func (u *fakeUploads) Upload(ctx context.Context, userID int64, r io.Reader) (st
 		case <-ctx.Done():
 			return storage.Asset{}, ctx.Err()
 		}
-	}
-	b, rerr := io.ReadAll(r)
-	u.mu.Lock()
-	u.got, u.user = b, userID
-	u.mu.Unlock()
-	if rerr != nil {
-		return storage.Asset{}, rerr
 	}
 	return a, err
 }

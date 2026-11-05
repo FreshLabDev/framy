@@ -185,7 +185,7 @@ func sum(b []byte) string {
 func TestAnIPhonePhotoIsKeptNormalized(t *testing.T) {
 	c := converter(t)
 	h := newHarness(t, storage.Config{Media: c})
-	a, err := h.store.Upload(context.Background(), alice, bytes.NewReader(fixture(t, "iphone.heic")))
+	a, err := h.store.Upload(context.Background(), alice, bytes.NewReader(fixture(t, "iphone.heic")), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,29 +208,73 @@ func TestAnIPhonePhotoIsKeptNormalized(t *testing.T) {
 		t.Errorf("usage %+v %v", u, err)
 	}
 	// An AVIF and a PNG with alpha come through too.
-	avif, err := h.store.Upload(context.Background(), alice, bytes.NewReader(fixture(t, "tiled.avif")))
+	avif, err := h.store.Upload(context.Background(), alice, bytes.NewReader(fixture(t, "tiled.avif")), nil)
 	if err != nil || avif.ContentType != "image/jpeg" || avif.Width != 1600 {
 		t.Errorf("the AVIF: %+v %v", avif, err)
 	}
-	alpha, err := h.store.Upload(context.Background(), alice, bytes.NewReader(pngBytes(t, 64, 48, 100)))
+	alpha, err := h.store.Upload(context.Background(), alice, bytes.NewReader(pngBytes(t, 64, 48, 100)), nil)
 	if err != nil || alpha.ContentType != "image/png" || !strings.HasSuffix(alpha.Key, ".png") {
 		t.Errorf("the PNG with alpha: %+v %v", alpha, err)
 	}
 	h.workIsEmpty(t)
 }
 
+// A photo's bytes come in first, however slowly; only its conversion waits
+// at the gate, and gives the room back once ffmpeg is done. A gate that
+// turns the photo away keeps nothing.
+func TestOnlyTheConversionOfAnUploadPassesTheGate(t *testing.T) {
+	c := converter(t)
+	h := newHarness(t, storage.Config{Media: c})
+	ctx := context.Background()
+	body := &watchedReader{r: bytes.NewReader(pngBytes(t, 64, 48, 255))}
+	var read, released bool
+	gate := func(context.Context) (func(), error) {
+		read = body.done
+		return func() { released = true }, nil
+	}
+	a, err := h.store.Upload(ctx, alice, body, gate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !read || !released || a.ID == 0 {
+		t.Errorf("read before the gate %v, released %v, %+v", read, released, a)
+	}
+	busy := errors.New("busy")
+	if _, err := h.store.Upload(ctx, alice, bytes.NewReader(pngBytes(t, 64, 48, 255)), func(context.Context) (func(), error) { return nil, busy }); !errors.Is(err, busy) {
+		t.Errorf("a closed gate: %v", err)
+	}
+	if u, _ := h.store.Usage(ctx, alice); u.Files != 1 {
+		t.Errorf("files kept: %+v", u)
+	}
+	h.workIsEmpty(t)
+}
+
+// watchedReader tells when its reader has given everything.
+type watchedReader struct {
+	r    io.Reader
+	done bool
+}
+
+func (w *watchedReader) Read(p []byte) (int, error) {
+	n, err := w.r.Read(p)
+	if err == io.EOF {
+		w.done = true
+	}
+	return n, err
+}
+
 func TestWhatIsNotAPhotoIsNotKept(t *testing.T) {
 	c := converter(t)
 	h := newHarness(t, storage.Config{Media: c, MaxUpload: 1 << 20})
 	ctx := context.Background()
-	if _, err := h.store.Upload(ctx, alice, strings.NewReader("<html>not a photo</html>")); !errors.Is(err, media.ErrUnsupported) {
+	if _, err := h.store.Upload(ctx, alice, strings.NewReader("<html>not a photo</html>"), nil); !errors.Is(err, media.ErrUnsupported) {
 		t.Errorf("html: %v", err)
 	}
-	if _, err := h.store.Upload(ctx, alice, bytes.NewReader(make([]byte, 2<<20))); !errors.Is(err, storage.ErrTooBig) {
+	if _, err := h.store.Upload(ctx, alice, bytes.NewReader(make([]byte, 2<<20)), nil); !errors.Is(err, storage.ErrTooBig) {
 		t.Errorf("2 MB over a 1 MB limit: %v", err)
 	}
 	// A body that breaks off is not a photo either.
-	if _, err := h.store.Upload(ctx, alice, io.MultiReader(bytes.NewReader(fixture(t, "exif.jpg")[:100]), errReader{})); err == nil {
+	if _, err := h.store.Upload(ctx, alice, io.MultiReader(bytes.NewReader(fixture(t, "exif.jpg")[:100]), errReader{}), nil); err == nil {
 		t.Error("a cut upload was kept")
 	}
 	if keys := h.bucket.Keys(); len(keys) != 0 {
@@ -967,7 +1011,7 @@ func TestAnObjectThatWouldNotGoKeepsItsRow(t *testing.T) {
 func TestATestBotWritesUnderItsPrefix(t *testing.T) {
 	h := newHarness(t, storage.Config{Prefix: "test/", Media: converter(t)})
 	ctx := context.Background()
-	a, err := h.store.Upload(ctx, alice, bytes.NewReader(pngBytes(t, 8, 8, 255)))
+	a, err := h.store.Upload(ctx, alice, bytes.NewReader(pngBytes(t, 8, 8, 255)), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
