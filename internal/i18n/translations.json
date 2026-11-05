@@ -1457,6 +1457,24 @@
     "ja": "オープンウェイト、キャラクターの一貫性、より安価",
     "ar": "أوزان مفتوحة، شخصيات متسقة، أرخص"
   },
+  "note.black-forest-labs/flux-3-video": {
+    "en": "Up to 4K and 20 s, with sound",
+    "ru": "До 4K и 20 с, со звуком",
+    "uk": "До 4K і 20 с, зі звуком",
+    "es": "Hasta 4K y 20 s, con sonido",
+    "fr": "Jusqu'à 4K et 20 s, avec le son",
+    "de": "Bis zu 4K und 20 s, mit Ton",
+    "it": "Fino a 4K e 20 s, con audio",
+    "pl": "Do 4K i 20 s, z dźwiękiem",
+    "cs": "Až 4K a 20 s, se zvukem",
+    "tr": "4K ve 20 sn'ye kadar, sesli",
+    "sv": "Upp till 4K och 20 s, med ljud",
+    "be": "Да 4K і 20 с, з гукам",
+    "ca": "Fins a 4K i 20 s, amb so",
+    "zh": "最高 4K，最长 20 秒，带声音",
+    "ja": "最大4K・20秒、音声付き",
+    "ar": "حتى 4K و20 ث، مع الصوت"
+  },
   "note.black-forest-labs/flux.2-flex": {
     "en": "Complex text and typography",
     "ru": "Сложный текст и шрифты",

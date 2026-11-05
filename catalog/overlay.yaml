@@ -628,6 +628,13 @@ models:
     free: true
     source_video: {required: true, min_seconds: 0.7, max_seconds: 15, max_mib: 50, keeps_length: true}
 
+  # BFL's flagship video, here for its note. It continues a clip at BFL
+  # (v2v, up to 15 s), and framy sends it none: OpenRouter prices a
+  # continuation and documents no field for the clip, and its rates run
+  # backwards, 41 cents a second at 720p against 31 at 2K
+  # (docs/research/makers.md).
+  black-forest-labs/flux-3-video: {}
+
   # A source up to 20 s, 50 MB and 2560x1440.
   black-forest-labs/flux-video-upscale:
     source_video: {required: true, max_seconds: 20, max_mib: 50, keeps_length: true}
