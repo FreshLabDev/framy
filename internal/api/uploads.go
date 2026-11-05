@@ -45,6 +45,7 @@ func (a *API) upload(w http.ResponseWriter, r *http.Request) {
 	}
 	done, ok := a.uploading.start(user)
 	if !ok {
+		a.full(fullPhotoPerson)
 		busy(w, "photos of yours are on their way in already; send this one when one of them is in")
 		return
 	}
@@ -112,6 +113,7 @@ func (a *API) uploadFailed(w http.ResponseWriter, r *http.Request, err error) {
 	var tooBig *http.MaxBytesError
 	switch {
 	case errors.Is(err, errConverting):
+		a.full(fullPhotoSlots)
 		busy(w, "photos are being converted; try again in a moment")
 	case errors.As(err, &tooBig), errors.Is(err, storage.ErrTooBig):
 		tooLarge(w)

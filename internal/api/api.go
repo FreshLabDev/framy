@@ -215,7 +215,10 @@ type Config struct {
 	// session ended in another process is not believed here from memory.
 	// Nil leaves the sessions to their cache's TTL.
 	SessionsEnded func()
-	Log           *slog.Logger
+	// Notify tells the operator chat, once a day, that something everyone
+	// shares was full (busy.go). Nil only logs it.
+	Notify func(ctx context.Context, text string) error
+	Log    *slog.Logger
 
 	// MaxStreams per person, Ping, WriteTimeout and UploadSlots default to
 	// the constants above. MaxUpload is the largest photo the pipeline takes
@@ -262,6 +265,11 @@ type API struct {
 	videos  *videoTasks
 	// uploading counts each person's photos on their way in.
 	uploading personUploads
+	// told is the UTC day the operator chat last heard that each shared
+	// thing was full, and notices the notices on their way.
+	noticeMu sync.Mutex
+	told     map[string]time.Time
+	notices  sync.WaitGroup
 	// bg is the context of the work that outlives a request, a clip's task;
 	// Run's end and Close cancel it.
 	bg     context.Context
@@ -301,6 +309,7 @@ func New(cfg Config) (*API, error) {
 		catalog: &catalogCache{ttl: cfg.CatalogTTL},
 		videos:  newVideoTasks(cfg.VideoSlots, cfg.Now),
 	}
+	a.videos.full = a.full
 	a.bg, a.stopBG = context.WithCancel(context.Background())
 	if a.data == nil {
 		a.data = pgData{pool: cfg.Pool}
@@ -382,6 +391,7 @@ func (a *API) Run(ctx context.Context) {
 func (a *API) Close() {
 	a.stopBG()
 	a.hub.close()
+	a.notices.Wait()
 }
 
 // ---- answers ----

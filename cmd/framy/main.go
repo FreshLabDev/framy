@@ -297,6 +297,15 @@ func run(log *slog.Logger) error {
 		sharing = flow
 		site.HandleFunc("GET "+chat.SharePath+"{token}", flow.ServeShare, web.Deadlines(10*time.Second, time.Minute))
 	}
+	// The operator chat hears once a day when photos or clips had to wait
+	// for room everyone shares.
+	var operator func(context.Context, string) error
+	if cfg.OperatorChatID != 0 && cfg.Primary() {
+		operator = func(ctx context.Context, text string) error {
+			_, err := client.SendPlainText(ctx, cfg.OperatorChatID, text)
+			return err
+		}
+	}
 	jobAPI, err := api.New(api.Config{
 		Pool: store.Pool(), Queue: queue, Store: store, Uploads: uploads, Links: links, Files: kept, Videos: clips, Keys: people,
 		Allowance: allowance, Person: signIn.Identify, Sharing: sharing, Log: log.With("component", "api"),
@@ -305,6 +314,7 @@ func run(log *slog.Logger) error {
 			return err
 		},
 		SessionsEnded: signIn.ForgetAll,
+		Notify:        operator,
 	})
 	if err != nil {
 		return err

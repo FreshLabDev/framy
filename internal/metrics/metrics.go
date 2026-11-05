@@ -217,6 +217,7 @@ var (
 	EventsReconnects = registerCounter("framy_sse_listener_reconnects_total", "Times the job event listener lost its connection and made it again.")
 	OpenRouterHooks  = registerVec("framy_openrouter_hooks_total", "OpenRouter video webhooks, by result: woken, duplicate, ignored, bad_path, bad_signature, error.", "result")
 	StreamsOpen      = registerGauge("framy_sse_streams_open", "Job event streams open now.")
+	Busy             = registerVec("framy_busy_total", "Requests answered 503 busy, by what was full: photo_slots, photo_person, clip_queue, clip_person, clip_slots.", "what")
 
 	// The jobs: what they cost, how long they took, why they failed, and
 	// how many wait.

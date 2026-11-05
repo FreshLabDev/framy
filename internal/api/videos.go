@@ -232,6 +232,7 @@ func (a *API) lastFrame(w http.ResponseWriter, r *http.Request) {
 		wait.Stop()
 		return
 	case <-wait.C:
+		a.full(fullClipSlots)
 		busy(w, "clips are being worked on; try again in a moment")
 		return
 	}
@@ -338,6 +339,8 @@ type videoTasks struct {
 	tasks map[string]*videoTask
 	slots chan struct{}
 	now   func() time.Time
+	// full counts a refusal by what was full; nil counts nothing.
+	full func(what string)
 }
 
 type videoTask struct {
@@ -377,6 +380,13 @@ func (v *videoTasks) start(ctx context.Context, user int64, key string, work fun
 		}
 	}
 	if running >= maxVideoTasks || theirs >= maxPersonVideoTasks {
+		if v.full != nil {
+			what := fullClipPerson
+			if running >= maxVideoTasks {
+				what = fullClipQueue
+			}
+			v.full(what)
+		}
 		e := newError(http.StatusServiceUnavailable, codeBusy, "clips are being worked on; try again in a moment")
 		e.retryAfter = 10 * time.Second
 		return "", e
