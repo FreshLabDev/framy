@@ -25,29 +25,40 @@ func mustJSON(t *testing.T, s string, v any) {
 	}
 }
 
-// loginStateOf decodes the browser's login cookie.
-func loginStateOf(t *testing.T, b *browser) loginState {
+// loginStatesOf decodes the browser's login cookie: its open sign-ins,
+// oldest first.
+func loginStatesOf(t *testing.T, b *browser) []loginState {
 	t.Helper()
 	payload, _, _ := strings.Cut(b.cookies[loginCookie], ".")
 	raw, err := base64.RawURLEncoding.DecodeString(payload)
 	if err != nil {
 		t.Fatalf("login cookie: %v", err)
 	}
-	var st loginState
-	mustJSON(t, string(raw), &st)
-	return st
+	var pending []loginState
+	mustJSON(t, string(raw), &pending)
+	return pending
+}
+
+// loginStateOf is the browser's newest sign-in.
+func loginStateOf(t *testing.T, b *browser) loginState {
+	t.Helper()
+	pending := loginStatesOf(t, b)
+	if len(pending) == 0 {
+		t.Fatal("the login cookie holds no sign-in")
+	}
+	return pending[len(pending)-1]
 }
 
 // sealLoginState writes a login cookie into the browser as framy signs one:
 // what a test needs to reach the checks behind the signature.
 func sealLoginState(b *browser, st loginState) {
-	b.cookies[loginCookie] = b.h.auth.sealLogin(st)
+	b.cookies[loginCookie] = b.h.auth.sealLogin([]loginState{st})
 }
 
 // forgeLoginState writes the login cookie a client can make itself: the
 // fields of its choice, signed with key, or not at all when key is nil.
 func forgeLoginState(b *browser, st loginState, key []byte) {
-	raw, _ := json.Marshal(st)
+	raw, _ := json.Marshal([]loginState{st})
 	v := base64.RawURLEncoding.EncodeToString(raw)
 	if key != nil {
 		m := hmac.New(sha256.New, key)
@@ -460,12 +471,16 @@ func TestStateAndCookieChecks(t *testing.T) {
 			t.Error("the code was traded without a login cookie")
 		}
 	})
-	t.Run("another login in the same browser", func(t *testing.T) {
+	t.Run("a callback of another login leaves this one", func(t *testing.T) {
 		h := newHarness(t)
 		b := h.browser()
-		first := b.approve(b.startLogin(""))
-		b.startLogin("") // a second tab replaces the cookie
-		expectRefused(t, h, b, b.get(first), "failed", "site_state")
+		authURL := b.startLogin("/library")
+		// A page sends the browser to a callback that is not its own.
+		expectRefused(t, h, b, b.get("/auth/callback?code=x&state=the-state-of-an-attackers-login"), "failed", "site_state")
+		// The person's own sign-in is still there to finish.
+		if r := b.get(b.approve(authURL)); r.code != http.StatusSeeOther || r.location() != "/library" {
+			t.Fatalf("the person's callback: %d -> %q", r.code, r.location())
+		}
 	})
 	t.Run("login cookie older than ten minutes", func(t *testing.T) {
 		h := newHarness(t)
@@ -489,9 +504,9 @@ func TestStateAndCookieChecks(t *testing.T) {
 		cb := b.approve(b.startLogin(""))
 		payload, sig, _ := strings.Cut(b.cookies[loginCookie], ".")
 		raw, _ := base64.RawURLEncoding.DecodeString(payload)
-		edited := strings.Replace(string(raw), `"r":"/"`, `"r":"/library"`, 1)
+		edited := strings.Replace(string(raw), `"t":`, `"r":"/library","t":`, 1)
 		if edited == string(raw) {
-			edited = strings.Replace(string(raw), `"t":`, `"r":"/library","t":`, 1)
+			t.Fatalf("nothing to edit in %s", raw)
 		}
 		b.cookies[loginCookie] = base64.RawURLEncoding.EncodeToString([]byte(edited)) + "." + sig
 		expectRefused(t, h, b, b.get(cb), "expired", "site_cookie")
@@ -608,6 +623,80 @@ func TestOpenRedirectsAreRefused(t *testing.T) {
 	if r := b.get(cb); r.code != http.StatusSeeOther || r.location() != "/" {
 		t.Errorf("a doctored cookie sent the browser to %q", r.location())
 	}
+}
+
+// Two tabs, or Sign in pressed again while Telegram's page was slow: each
+// sign-in finishes on its own, in either order, and only a fourth pushes
+// the oldest out.
+func TestSignInsInTwoTabsBothFinish(t *testing.T) {
+	for _, order := range []string{"first first", "second first"} {
+		t.Run(order, func(t *testing.T) {
+			h := newHarness(t)
+			b := h.browser()
+			first := b.approve(b.startLogin("/library"))
+			second := b.approve(b.startLogin("/r/7"))
+			if n := len(loginStatesOf(t, b)); n != 2 {
+				t.Fatalf("the cookie holds %d sign-ins", n)
+			}
+			calls := []struct{ url, back string }{{first, "/library"}, {second, "/r/7"}}
+			if order == "second first" {
+				calls[0], calls[1] = calls[1], calls[0]
+			}
+			for _, c := range calls {
+				r := b.get(c.url)
+				if r.code != http.StatusSeeOther || r.location() != c.back {
+					t.Fatalf("callback: %d -> %q, want %q", r.code, r.location(), c.back)
+				}
+				if id, ok := b.signedIn(); !ok || id != testUserID {
+					t.Fatalf("not signed in after the callback to %s", c.back)
+				}
+			}
+			if _, ok := b.cookies[loginCookie]; ok {
+				t.Error("the login cookie outlived the sign-ins it held")
+			}
+		})
+	}
+	t.Run("a fourth pushes the oldest out", func(t *testing.T) {
+		h := newHarness(t)
+		b := h.browser()
+		var cbs []string
+		for range maxPending + 1 {
+			cbs = append(cbs, b.approve(b.startLogin("")))
+		}
+		if n := len(loginStatesOf(t, b)); n != maxPending {
+			t.Fatalf("the cookie holds %d sign-ins, want %d", n, maxPending)
+		}
+		expectRefused(t, h, b, b.get(cbs[0]), "failed", "site_state")
+		if r := b.get(cbs[len(cbs)-1]); r.code != http.StatusSeeOther || r.location() != "/" {
+			t.Fatalf("the newest: %d -> %q", r.code, r.location())
+		}
+	})
+	t.Run("an old one is not kept", func(t *testing.T) {
+		h := newHarness(t)
+		b := h.browser()
+		old := b.approve(b.startLogin(""))
+		h.clock.Advance(loginLife + time.Second)
+		b.startLogin("")
+		if n := len(loginStatesOf(t, b)); n != 1 {
+			t.Fatalf("the cookie holds %d sign-ins, the old one too", n)
+		}
+		expectRefused(t, h, b, b.get(old), "failed", "site_state")
+	})
+	t.Run("long return paths still fit a cookie", func(t *testing.T) {
+		h := newHarness(t)
+		b := h.browser()
+		long := "/" + strings.Repeat(`"`, 500)
+		var last string
+		for range maxPending {
+			last = b.approve(b.startLogin(long))
+		}
+		if v := b.cookies[loginCookie]; len(loginCookie)+1+len(v) > 4000 {
+			t.Fatalf("the login cookie is %d bytes", len(loginCookie)+1+len(v))
+		}
+		if r := b.get(last); r.code != http.StatusSeeOther || r.location() != long {
+			t.Fatalf("the newest: %d -> %q", r.code, r.location())
+		}
+	})
 }
 
 // Someone who has another person's code, with the state and the nonce of

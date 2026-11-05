@@ -3,6 +3,7 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/rand"
@@ -27,11 +28,16 @@ import (
 )
 
 // loginCookie holds what the callback needs to recognise the browser that
-// started the sign-in: the state, the nonce, the PKCE verifier and where to go
-// afterwards. It lives ten minutes and is cleared by the callback, whatever
-// the outcome. A table would need a write for every visitor of /auth/login,
-// signed in or not, and a sweep; the cookie needs neither, and what it holds
-// is of use only to the browser it was set on.
+// started a sign-in: the state, the nonce, the PKCE verifier and where to go
+// afterwards. A sign-in lives ten minutes, and its callback takes it out of
+// the cookie whatever the outcome. A table would need a write for every
+// visitor of /auth/login, signed in or not, and a sweep; the cookie needs
+// neither, and what it holds is of use only to the browser it was set on.
+//
+// It holds the last maxPending sign-ins of the browser, not one: two tabs,
+// or Sign in pressed again while Telegram's page was slow, each finish on
+// their own, where a single one would make the earlier callback fail on the
+// state and the later one find nothing.
 //
 // The cookie is signed (sealLogin), so a browser can carry it but not write
 // it. Unsigned, the callback's checks of the state and the nonce would compare
@@ -46,6 +52,13 @@ const (
 	// loginKeyInfo names what the key derived from the client secret is
 	// for, so it is used for nothing else.
 	loginKeyInfo = "framy sign-in cookie"
+	// maxPending is how many sign-ins a browser keeps open at once; a
+	// newer one pushes the oldest out.
+	maxPending = 3
+	// maxLoginCookie bounds the cookie's value below the 4096 bytes a
+	// browser keeps of a cookie: the oldest sign-ins go first when long
+	// return_to paths would pass it.
+	maxLoginCookie = 3600
 )
 
 // scopes of the sign-in: `profile` gives the `id` claim, which is the
@@ -134,17 +147,8 @@ func (a *Auth) Login() http.Handler {
 			ReturnTo: safeReturnTo(r.URL.Query().Get("return_to")),
 			At:       a.now().Unix(),
 		}
-		http.SetCookie(w, &http.Cookie{
-			Name:     loginCookie,
-			Value:    a.sealLogin(st),
-			Path:     "/",
-			MaxAge:   int(loginLife.Seconds()),
-			HttpOnly: true,
-			Secure:   true,
-			// The callback is a top-level GET from Telegram's site, which
-			// Lax sends and Strict would not.
-			SameSite: http.SameSiteLaxMode,
-		})
+		pending, _ := a.readLogins(r)
+		a.setLogins(w, append(a.live(pending), st))
 		target := p.oauth.AuthCodeURL(st.State,
 			oauth2.S256ChallengeOption(st.Verifier),
 			oidc.Nonce(st.Nonce))
@@ -159,9 +163,9 @@ type failure struct {
 	err            error
 }
 
-// Callback is Telegram's redirect back. It checks the state against the
-// cookie, trades the code (with the PKCE verifier, the client authenticated
-// in a header) for tokens, verifies the id_token and its nonce, takes the
+// Callback is Telegram's redirect back. It finds its sign-in in the cookie
+// by the state, trades the code (with the PKCE verifier, the client
+// authenticated in a header) for tokens, verifies the id_token and its nonce, takes the
 // account from the `id` claim, records the person in core and starts a
 // session. A failure redirects to `/?sign_in=<reason>` with reason one of
 // `cancelled`, `expired` and `failed`, and sets no session.
@@ -171,19 +175,32 @@ func (a *Auth) Callback() http.Handler {
 			signInUnavailable(w)
 			return
 		}
-		st, found := a.readLogin(r)
-		clearCookie(w, loginCookie) // used once, whatever happens
+		q := r.URL.Query()
+		pending, found := a.readLogins(r)
+		// The sign-in this callback answers is used once, whatever happens;
+		// the browser's others stay for their own callbacks.
+		st, matched, rest := takeLogin(pending, q.Get("state"))
+		rest = a.live(rest)
+		a.setLogins(w, rest)
 		var (
 			userID int64
 			f      *failure
 		)
-		switch found {
-		case loginFound:
-			userID, f = a.finishLogin(r, st)
-		case loginForged:
+		switch {
+		case found == loginForged:
 			f = &failure{reason: "expired", result: "site_cookie", err: errors.New("the login cookie is not signed by this server")}
-		default:
+		case q.Get("error") != "" && (matched || len(rest) > 0):
+			// An answer with an error grants nothing, so it is told as it
+			// is, whichever of the browser's sign-ins it ends.
+			f = providerError(q.Get("error"))
+		case matched && !a.fresh(st):
 			f = &failure{reason: "expired", result: "site_no_state"}
+		case matched:
+			userID, f = a.finishLogin(r, st)
+		case len(rest) == 0:
+			f = &failure{reason: "expired", result: "site_no_state"}
+		default:
+			f = &failure{reason: "failed", result: "site_state", err: errors.New("state does not match")}
 		}
 		if f != nil {
 			metrics.AuthResults.Inc(f.result)
@@ -208,19 +225,21 @@ func (a *Auth) Callback() http.Handler {
 	})
 }
 
-// finishLogin is the callback after the cookie was found: every check the
-// design lists, in the order that spends the least before refusing.
-func (a *Auth) finishLogin(r *http.Request, st loginState) (int64, *failure) {
-	q := r.URL.Query()
-	if e := q.Get("error"); e != "" {
-		if e == "access_denied" {
-			return 0, &failure{reason: "cancelled", result: "site_denied"}
-		}
-		return 0, &failure{reason: "failed", result: "site_provider", err: fmt.Errorf("the provider answered error=%q", e)}
+// providerError is an answer of Telegram's that carries an error.
+func providerError(e string) *failure {
+	if e == "access_denied" {
+		return &failure{reason: "cancelled", result: "site_denied"}
 	}
-	code := q.Get("code")
-	if code == "" || !equal(q.Get("state"), st.State) {
-		return 0, &failure{reason: "failed", result: "site_state", err: errors.New("state does not match")}
+	return &failure{reason: "failed", result: "site_provider", err: fmt.Errorf("the provider answered error=%q", e)}
+}
+
+// finishLogin is the callback after its sign-in was found in the cookie by
+// the state: every other check the design lists, in the order that spends
+// the least before refusing.
+func (a *Auth) finishLogin(r *http.Request, st loginState) (int64, *failure) {
+	code := r.URL.Query().Get("code")
+	if code == "" {
+		return 0, &failure{reason: "failed", result: "site_state", err: errors.New("no code")}
 	}
 	p, err := a.provider(r.Context())
 	if err != nil {
@@ -331,7 +350,7 @@ func language(locale string) string {
 	return l
 }
 
-// What readLogin found.
+// What readLogins found.
 type loginFind int
 
 const (
@@ -340,11 +359,14 @@ const (
 	loginFound
 )
 
-// sealLogin is the value of the login cookie: the JSON of st as base64url, a
-// dot, and the HMAC-SHA256 of that text under the login key.
-func (a *Auth) sealLogin(st loginState) string {
-	raw, _ := json.Marshal(st)
-	payload := base64.RawURLEncoding.EncodeToString(raw)
+// sealLogin is the value of the login cookie: the JSON of the sign-ins as
+// base64url, a dot, and the HMAC-SHA256 of that text under the login key.
+func (a *Auth) sealLogin(pending []loginState) string {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(pending)
+	payload := base64.RawURLEncoding.EncodeToString(bytes.TrimSpace(buf.Bytes()))
 	return payload + "." + base64.RawURLEncoding.EncodeToString(a.loginMAC(payload))
 }
 
@@ -354,30 +376,91 @@ func (a *Auth) loginMAC(payload string) []byte {
 	return m.Sum(nil)
 }
 
-// readLogin reads the login cookie. Nothing in it is believed before its
-// signature matches. A cookie that is missing or older than loginLife is
-// none; one that is damaged or signed by anyone else (a key since rotated
-// with the client secret included) is forged.
-func (a *Auth) readLogin(r *http.Request) (loginState, loginFind) {
+// readLogins reads the sign-ins of the login cookie, old ones included.
+// Nothing in it is believed before its signature matches: a cookie that is
+// damaged or signed by anyone else (a key since rotated with the client
+// secret included) is forged, and gives none.
+func (a *Auth) readLogins(r *http.Request) ([]loginState, loginFind) {
 	c, err := r.Cookie(loginCookie)
 	if err != nil {
-		return loginState{}, loginNone
+		return nil, loginNone
 	}
 	payload, sig, ok := strings.Cut(c.Value, ".")
 	mac, err := base64.RawURLEncoding.DecodeString(sig)
 	if !ok || err != nil || !hmac.Equal(mac, a.loginMAC(payload)) {
-		return loginState{}, loginForged
+		return nil, loginForged
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(payload)
-	var st loginState
-	if err != nil || json.Unmarshal(raw, &st) != nil || st.State == "" || st.Verifier == "" {
-		return loginState{}, loginForged
+	var pending []loginState
+	if err != nil || json.Unmarshal(raw, &pending) != nil {
+		return nil, loginForged
 	}
+	for _, st := range pending {
+		if st.State == "" || st.Verifier == "" {
+			return nil, loginForged
+		}
+	}
+	return pending, loginFound
+}
+
+// fresh reports whether a sign-in is younger than loginLife.
+func (a *Auth) fresh(st loginState) bool {
 	age := a.now().Sub(time.Unix(st.At, 0))
-	if age > loginLife || age < -time.Minute {
-		return loginState{}, loginNone
+	return age <= loginLife && age >= -time.Minute
+}
+
+// live is the sign-ins still fresh.
+func (a *Auth) live(pending []loginState) []loginState {
+	out := pending[:0:0]
+	for _, st := range pending {
+		if a.fresh(st) {
+			out = append(out, st)
+		}
 	}
-	return st, loginFound
+	return out
+}
+
+// takeLogin finds the sign-in of the state and returns it apart from the
+// others.
+func takeLogin(pending []loginState, state string) (st loginState, ok bool, rest []loginState) {
+	for _, p := range pending {
+		if !ok && state != "" && equal(p.State, state) {
+			st, ok = p, true
+			continue
+		}
+		rest = append(rest, p)
+	}
+	return st, ok, rest
+}
+
+// setLogins writes the browser's open sign-ins, the newest maxPending that
+// fit, or clears the cookie when there are none. It lives as long as the
+// newest of them.
+func (a *Auth) setLogins(w http.ResponseWriter, pending []loginState) {
+	if len(pending) > maxPending {
+		pending = pending[len(pending)-maxPending:]
+	}
+	value := a.sealLogin(pending)
+	for len(value) > maxLoginCookie && len(pending) > 1 {
+		pending = pending[1:]
+		value = a.sealLogin(pending)
+	}
+	if len(pending) == 0 {
+		clearCookie(w, loginCookie)
+		return
+	}
+	newest := time.Unix(pending[len(pending)-1].At, 0)
+	http.SetCookie(w, &http.Cookie{
+		Name:     loginCookie,
+		Value:    value,
+		Path:     "/",
+		MaxAge:   max(1, int(newest.Add(loginLife).Sub(a.now()).Seconds())),
+		HttpOnly: true,
+		Secure:   true,
+		// The callback is a top-level GET from Telegram's site, which Lax
+		// sends and Strict would not.
+		SameSite: http.SameSiteLaxMode,
+	})
 }
 
 // safeReturnTo returns the path if it is one on this site and "/" otherwise.
