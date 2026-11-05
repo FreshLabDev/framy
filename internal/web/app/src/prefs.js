@@ -245,7 +245,9 @@ function keyRows(p) {
     // A long line: on a narrow sheet the button goes under it.
     r.classList.add("two");
   } else {
-    r = row(t("key.paste_sub"), k.edit ? null : h("button", { type: "button", class: "primary", onclick: () => edit(p) }, ic("plus"), h("span", {}, t("key.add"))));
+    // What the key needs to make anything, since the check on save cannot
+    // see it: credits at OpenAI, a project with billing at AI Studio.
+    r = row(t("key." + p + "_sub"), k.edit ? null : h("button", { type: "button", class: "primary", onclick: () => edit(p) }, ic("plus"), h("span", {}, t("key.add"))));
   }
   r.dataset.p = p;
   out.push(r);

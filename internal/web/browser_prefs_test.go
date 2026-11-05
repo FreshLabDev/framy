@@ -266,8 +266,11 @@ func TestBrowserPrefs(t *testing.T) {
 	await wait(500);
 	return { or: rowText("openrouter"), oa: rowText("openai"), ge: rowText("gemini"), groups: [...document.querySelectorAll("#prefs .group")].map((g) => g.textContent),
 	  out: !!btn(sheet(), "Sign out"), who: note("p-out"), store: note("p-store"), free: note("p-free-image") };`)
-	if fmt.Sprint(s["or"]) != "map[bad:false btns:[Connect] sub:Sign in through OpenRouter. Have a key? Paste it]" ||
-		fmt.Sprint(s["oa"]) != "map[bad:false btns:[Key] sub:Paste a key, framy checks it]" ||
+	// Each says what the key needs to make anything, which the check on save
+	// cannot see: credits, or a project with billing.
+	if fmt.Sprint(s["or"]) != "map[bad:false btns:[Connect] sub:Sign in through OpenRouter and pay with its credits. Have a key? Paste it]" ||
+		fmt.Sprint(s["oa"]) != "map[bad:false btns:[Key] sub:Needs credits on the account]" ||
+		fmt.Sprint(s["ge"]) != "map[bad:false btns:[Key] sub:Needs a project with billing]" ||
 		fmt.Sprint(s["groups"]) != "[Model keys Free Default models Telegram Currency Language Account]" ||
 		s["out"] != true || s["who"] != "AAdaA sign-in lasts 30 daysSign out" ||
 		s["store"] != "Files stored: 1230 MB · pictures, clips and uploads" || !strings.HasPrefix(s["free"].(string), "Pictures0 left of 5 a day · next one in 3 hours") {
@@ -337,7 +340,7 @@ func TestBrowserPrefs(t *testing.T) {
 	btn(rowOf("openai"), "Disconnect").click();
 	await until(() => note("pr-openai"));
 	return { note: note("pr-openai"), row: rowText("openai") };`)
-	if s["note"] != "The key is gone from framy. Revoke it at OpenAI too: platform.openai.com/api-keys." || fmt.Sprint(s["row"]) != "map[bad:false btns:[Key] sub:Paste a key, framy checks it]" {
+	if s["note"] != "The key is gone from framy. Revoke it at OpenAI too: platform.openai.com/api-keys." || fmt.Sprint(s["row"]) != "map[bad:false btns:[Key] sub:Needs credits on the account]" {
 		t.Errorf("disconnected: %v", s)
 	}
 
@@ -709,7 +712,7 @@ func TestBrowserPrefsPhone(t *testing.T) {
 	return { shown, before, out, who, away: rowText("openrouter"), links: window.__tg.links.map((u) => new URL(u).pathname) };`)
 	// Whose account a key goes to shows in the Mini App too, with no Sign out.
 	if s["shown"] != true || s["out"] != false || s["who"] != "AAdaSigned in with Telegram" ||
-		fmt.Sprint(s["before"]) != "map[bad:false btns:[Connect] sub:Opens in the browser. Have a key? Paste it]" ||
+		fmt.Sprint(s["before"]) != "map[bad:false btns:[Connect] sub:Opens in the browser. Pay with OpenRouter credits. Have a key? Paste it]" ||
 		fmt.Sprint(s["away"]) != "map[bad:false btns:[Open again] sub:OpenRouter is open in the browser. Sign in there, allow access and come back here.]" ||
 		fmt.Sprint(s["links"]) != "[/oauth/openrouter/start]" {
 		t.Errorf("mini app connect: %v", s)
