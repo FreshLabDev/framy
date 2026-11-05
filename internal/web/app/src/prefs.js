@@ -11,6 +11,7 @@ import { clearPrices } from "./price.js";
 import { openSheet, closeSheets, toast, ask } from "./ui.js";
 import { anim, morph, opt, placeSegs } from "./motion.js";
 import { signOut, signOutAll, forget, refreshMe } from "./run.js";
+import { launchGone } from "./errors.js";
 import { LANGS, CURRENCIES } from "assets:lists";
 
 const PROVIDERS = ["openrouter", "openai", "gemini"];
@@ -132,7 +133,7 @@ async function save(p, value) {
     update(() => { Object.assign(k, { busy: false, edit: false, draft: "", revoked: false, wait: 0 }); });
     meChanged();
   } catch (e) {
-    if (e.code === "sign_in") return lost();
+    if (gone(e)) return lost(e);
     update(() => { k.busy = false; k.err = e.code; if (e.code === "check_unavailable") waitFor(p, e.retryAfter || 10); });
   }
 }
@@ -146,7 +147,7 @@ async function recheck(p) {
     update(() => { k.busy = false; });
     meChanged();
   } catch (e) {
-    if (e.code === "sign_in") return lost();
+    if (gone(e)) return lost(e);
     // Gone meanwhile, from another tab or the bot: the list is read again.
     if (e.code === "not_found") { k.busy = false; await refreshMe(); update(); return; }
     update(() => { k.busy = false; k.err = e.code; if (e.code === "key_unreadable") k.edit = true; if (e.code === "check_unavailable") waitFor(p, e.retryAfter || 10); });
@@ -159,7 +160,7 @@ async function disconnect(p) {
   if (k.busy) return;
   try { await api(`/api/connections/${p}`, { method: "DELETE" }); }
   catch (e) {
-    if (e.code === "sign_in") return lost();
+    if (gone(e)) return lost(e);
     if (e.code !== "not_found") { toast(keyErr(p, e.code)); return; }
   }
   S.meV++;
@@ -308,7 +309,7 @@ async function setDefault(kind, id) {
   if (prefsOpen()) update(); else openPrefs();
   try { S.me = await patchMe({ default_models: { [kind]: id } }); }
   catch (e) {
-    if (e.code === "sign_in") return lost();
+    if (gone(e)) return lost(e);
     S.me.default_models = was;
     toast(e.code === "network" ? t("err.network") : t("prefs.not_saved"));
   }
@@ -327,7 +328,7 @@ async function setDeliver(on) {
   update();
   try { S.me = await patchMe({ deliver_to_telegram: on }); }
   catch (e) {
-    if (e.code === "sign_in") return lost();
+    if (gone(e)) return lost(e);
     S.me.deliver_to_telegram = !on;
     toast(e.code === "network" ? t("err.network") : t("prefs.not_saved"));
   }
@@ -342,7 +343,7 @@ async function setCurrency(c) {
   renderPrefs();
   try { S.me = await patchMe({ currency: c }); }
   catch (e) {
-    if (e.code === "sign_in") return lost();
+    if (gone(e)) return lost(e);
     S.me.currency = was;
     toast(e.code === "network" ? t("err.network") : t("prefs.not_saved"));
   }
@@ -356,7 +357,7 @@ async function setLanguage(code) {
   let me;
   try { me = await patchMe({ language: code }); }
   catch (e) {
-    if (e.code === "sign_in") return lost();
+    if (gone(e)) return lost(e);
     toast(e.code === "network" ? t("err.network") : t("prefs.not_saved"));
     update();
     return;
@@ -380,7 +381,7 @@ async function deleteAccount() {
   update(() => { ACC = "busy"; });
   try { await api("/api/me", { method: "DELETE", body: { confirm: true } }); }
   catch (e) {
-    if (e.code === "sign_in") { ACC = null; return lost(); }
+    if (gone(e)) { ACC = null; return lost(e); }
     if (e.code === "jobs_active") { update(() => { ACC = null; }); await activeJobs(); return; }
     // Files that did not go, or an answer that never came: the account is
     // there, and the next press goes on from what is left.
@@ -409,11 +410,12 @@ async function activeJobs() {
   if (!running) { update(() => { ACC = "fail"; }); return deleteAccount(); }
   await ask({ title: t("prefs.wait_q"), text: t("prefs.wait_started"), yes: t("prefs.got_it"), one: true });
 }
-// The session ended under the sheet.
-function lost() {
+// The session ended under the sheet, or in the Mini App its launch did (launchGone).
+const gone = (e) => e.code === "sign_in" || !!launchGone(e);
+function lost(e) {
   closeSheets(true);
   forget();
-  toast(t("err.sign_in"), { ms: 6000 });
+  toast(t(launchGone(e) || "err.sign_in"), { ms: 6000 });
 }
 
 export function renderPrefs() {

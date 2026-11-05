@@ -48,6 +48,9 @@ type fakePrefs struct {
 	allOut             bool
 	// photo is the person's photo_url, none when empty.
 	photo string
+	// launchOld: the Mini App's launch data is past its hour. Its token is
+	// refused, and POST /auth/miniapp answers init_data_expired.
+	launchOld bool
 }
 
 func (f *fakePrefs) me() map[string]any {
@@ -78,7 +81,7 @@ func (f *fakePrefs) mount(srv *Server) {
 	f.conns = map[string]map[string]any{}
 	f.currency, f.language, f.defaults, f.deliver = "USD", "en", map[string]string{}, true
 	signIn := func(w http.ResponseWriter) bool {
-		if f.deleted || f.allOut {
+		if f.deleted || f.allOut || f.launchOld {
 			writeTestJSON(w, http.StatusUnauthorized, map[string]any{"error": "sign_in"})
 			return false
 		}
@@ -248,6 +251,13 @@ func (f *fakePrefs) mount(srv *Server) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	srv.HandleFunc("POST /auth/miniapp", func(w http.ResponseWriter, _ *http.Request) {
+		f.mu.Lock()
+		old := f.launchOld
+		f.mu.Unlock()
+		if old {
+			writeTestJSON(w, http.StatusUnauthorized, map[string]any{"error": "init_data_expired"})
+			return
+		}
 		writeTestJSON(w, http.StatusOK, map[string]any{"token": "test-token", "expires_in": 3600})
 	})
 }
@@ -526,6 +536,29 @@ func TestBrowserSignInUnavailable(t *testing.T) {
 	if s["toast"] != "Sign-in is not available right now. Try again in a few minutes." || s["url"] != "/" {
 		t.Errorf("back from a sign-in that could not start: %v", s)
 	}
+}
+
+// In the Mini App past its launch's hour, the next read of the person finds
+// the token refused and the launch data too old to trade again: the page
+// says to open framy again, once, instead of only showing nobody, and a
+// form of the settings says the same.
+func TestBrowserMiniLaunchRunsOutInTheSettings(t *testing.T) {
+	f := &fakePrefs{}
+	ts := fakeSite(t, f.mount)
+	ctx := miniBrowser(t, ts.URL)
+	prefs(t, ctx, `await until(() => document.querySelector("#meBtn")); return {};`)
+	f.with(func() { f.launchOld = true })
+	s := prefs(t, ctx, `
+	document.querySelector("#meBtn").click();
+	await until(() => toastText());
+	const toast = toastText();
+	await until(() => sheet().hidden);
+	await wait(300);
+	return { toast, toasts: document.querySelectorAll(".toast").length, me: !!document.querySelector("#meBtn"), open: !sheet().hidden };`)
+	if s["toast"] != "The Telegram session is too old. Close framy and open it again." || s["toasts"] != 1.0 || s["me"] != false || s["open"] != false {
+		t.Errorf("opening the settings after the launch's hour: %v", s)
+	}
+	noErrors(t, ctx)
 }
 
 // The sessions could not be read when the page opened: /api/me answered 503,

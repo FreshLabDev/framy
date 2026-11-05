@@ -20,6 +20,11 @@ export const BILLING = {
 
 export const providerOf = (j) => (j.free ? "openrouter" : String(j.offer || "").split(":")[0]);
 
+// The Mini App's launch data that buys no token any more: an hour after Telegram signed it
+// (init_data_expired), or not Telegram's. Only opening framy again gives new data, and the
+// line that says so is the key returned here; "" for any other error.
+export const launchGone = (e) => ({ init_data_expired: "auth.mini_expired", init_data_invalid: "auth.mini_failed" })[e?.code] || "";
+
 // The provider's words without framy's wrapping: "refused: openrouter 400:
 // HTTP 400: {json}" reads as the message inside the JSON, without its request id.
 export function ownWords(s) {
@@ -134,6 +139,7 @@ export function refusal(err, ctx = {}) {
     case "network": return R(t("ref.offline_l"), t("err.network"), ["again"]);
     case "http_429": case "busy": case "unavailable": return R(t("ref.busy_l"), t("err.busy"), ["again"]);
     case "sign_in": return R(t("ref.signin_l"), t("err.sign_in"));
+    case "init_data_expired": case "init_data_invalid": return R(t("ref.signin_l"), t(launchGone(err)));
     default: return R(t("stage.failed"), t("err.generic", { code }), ["again"]);
   }
 }

@@ -64,10 +64,16 @@ const (
 	// renewEvery is how stale a session's end may get before Renew moves it:
 	// at most one write per session a day, however often the site loads.
 	renewEvery = 24 * time.Hour
-	// MiniAppTokenLife is how long a Mini App's bearer token lasts. It matches
-	// MaxInitDataAge: the same initData cannot be exchanged again after an
-	// hour, so a Mini App left open longer has to be opened again.
+	// MiniAppTokenLife is how long a Mini App's bearer token lasts at most.
+	// It ends with the initData it was exchanged for, MaxInitDataAge after
+	// Telegram signed it, however late the exchange: one launch is good for
+	// an hour in all, and a Mini App left open longer has to be opened
+	// again.
 	MiniAppTokenLife = time.Hour
+	// minTokenLife is the least a token is worth making for: initData with
+	// less of its hour left is answered as too old, which tells the person
+	// to open the Mini App again at once instead of after one more refusal.
+	minTokenLife = time.Minute
 	// DefaultIssuer is Telegram's OpenID Connect provider.
 	DefaultIssuer = "https://oauth.telegram.org"
 
@@ -464,20 +470,20 @@ func (a *Auth) forgetUser(userID int64) {
 	}
 }
 
-// newSession stores a session for the person and returns the secret that
-// opens it, which is the only copy there will ever be.
-func (a *Auth) newSession(ctx context.Context, userID int64, kind Kind, life time.Duration) (secret string, expires time.Time, err error) {
+// newSession stores a session for the person that ends at expires and
+// returns the secret that opens it, which is the only copy there will ever
+// be.
+func (a *Auth) newSession(ctx context.Context, userID int64, kind Kind, expires time.Time) (secret string, err error) {
 	secret, hash, err := newToken()
 	if err != nil {
-		return "", time.Time{}, err
+		return "", err
 	}
 	now := a.now()
-	expires = now.Add(life)
 	if err := a.sessions.Create(ctx, Session{Hash: hash, UserID: userID, Kind: kind, Created: now, Expires: expires}); err != nil {
-		return "", time.Time{}, err
+		return "", err
 	}
 	a.sweep(ctx, now)
-	return secret, expires, nil
+	return secret, nil
 }
 
 // sweep removes expired sessions, at most once an hour and only when someone

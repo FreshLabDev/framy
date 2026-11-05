@@ -74,7 +74,8 @@ func (h *harness) mini(b *browser, raw string, wantStatus int) string {
 		UserID    int64  `json:"user_id"`
 	}
 	mustJSON(h.t, r.body, &out)
-	if out.TokenType != "Bearer" || out.ExpiresIn != 3600 || out.Token == "" {
+	// The token ends with the initData, so it lasts a minute to an hour.
+	if out.TokenType != "Bearer" || out.ExpiresIn < 60 || out.ExpiresIn > 3600 || out.Token == "" {
 		h.t.Fatalf("answer = %+v", out)
 	}
 	b.bearer = out.Token
@@ -171,13 +172,14 @@ func TestMiniAppExchange(t *testing.T) {
 	if got := h.people.(*memPeople).users(); len(got) != 1 || got[0] != want {
 		t.Fatalf("touched %+v", got)
 	}
-	// Only the hash is stored, as a Mini App token that lasts an hour.
+	// Only the hash is stored, as a Mini App token that ends an hour after
+	// Telegram signed the initData.
 	rows := h.sessions.(*memSessions).rows
 	s, ok := rows[sha256.Sum256([]byte(token))]
 	if len(rows) != 1 || !ok {
 		t.Fatalf("rows = %+v", rows)
 	}
-	if s.UserID != testUserID || s.Kind != KindMiniApp || s.Expires.Sub(s.Created) != time.Hour {
+	if s.UserID != testUserID || s.Kind != KindMiniApp || s.Expires.Sub(s.Created) != 55*time.Minute {
 		t.Errorf("row = %+v", s)
 	}
 	if strings.Contains(string(s.Hash[:]), token) {
@@ -206,6 +208,56 @@ func TestMiniAppTokenExpires(t *testing.T) {
 	}
 	if r := b.me(); r.code != http.StatusUnauthorized {
 		t.Fatalf("/api/me with an expired token: %d", r.code)
+	}
+}
+
+// A token lasts no longer than the initData it was exchanged for: one
+// initData that got out is good for an hour after Telegram signed it, however
+// late it is exchanged.
+func TestMiniAppTokenEndsWithItsInitData(t *testing.T) {
+	h := newHarness(t)
+	b := h.browser()
+	body, _ := json.Marshal(map[string]string{"init_data": signInitData(testBotToken, miniAppFields(h.clock.Now().Add(-40*time.Minute), testUserID))})
+	r := b.do(http.MethodPost, "/auth/miniapp", string(body))
+	var out struct {
+		Token     string `json:"token"`
+		ExpiresIn int    `json:"expires_in"`
+	}
+	mustJSON(t, r.body, &out)
+	if r.code != http.StatusOK || out.ExpiresIn != 20*60 {
+		t.Fatalf("initData signed 40 minutes ago: %d %q, want 20 minutes", r.code, r.body)
+	}
+	b.bearer = out.Token
+	h.clock.Advance(19 * time.Minute)
+	if _, ok := b.signedIn(); !ok {
+		t.Fatal("the token stopped before the initData's hour was up")
+	}
+	h.clock.Advance(2 * time.Minute)
+	if _, ok := b.signedIn(); ok {
+		t.Fatal("the token works after the initData's hour")
+	}
+
+	// With a minute left there is still a token, for that minute.
+	h = newHarness(t)
+	b = h.browser()
+	body, _ = json.Marshal(map[string]string{"init_data": signInitData(testBotToken, miniAppFields(h.clock.Now().Add(-59*time.Minute), testUserID))})
+	r = b.do(http.MethodPost, "/auth/miniapp", string(body))
+	mustJSON(t, r.body, &out)
+	if r.code != http.StatusOK || out.ExpiresIn != 60 {
+		t.Fatalf("initData with a minute left: %d %q", r.code, r.body)
+	}
+
+	// With less, the person is told to open the Mini App again at once,
+	// and nothing is written.
+	h = newHarness(t)
+	b = h.browser()
+	body, _ = json.Marshal(map[string]string{"init_data": signInitData(testBotToken, miniAppFields(h.clock.Now().Add(-59*time.Minute-30*time.Second), testUserID))})
+	r = b.do(http.MethodPost, "/auth/miniapp", string(body))
+	if r.code != http.StatusUnauthorized || r.body != "{\"error\":\"init_data_expired\"}\n" {
+		t.Fatalf("initData with 30 seconds left: %d %q", r.code, r.body)
+	}
+	if h.sessions.(*memSessions).count() != 0 || len(h.people.(*memPeople).users()) != 0 {
+		t.Error("initData too old for a token left a session or touched core")
 	}
 }
 

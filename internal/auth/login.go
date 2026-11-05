@@ -214,7 +214,8 @@ func (a *Auth) Callback() http.Handler {
 			redirect(w, "/?sign_in="+f.reason)
 			return
 		}
-		secret, expires, err := a.newSession(r.Context(), userID, KindSite, SessionLife)
+		expires := a.now().Add(SessionLife)
+		secret, err := a.newSession(r.Context(), userID, KindSite, expires)
 		if err != nil {
 			a.log.Error("start a session", "error", err)
 			metrics.AuthResults.Inc("site_error")

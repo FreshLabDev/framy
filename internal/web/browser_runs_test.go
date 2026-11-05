@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -62,6 +63,9 @@ type fakeRuns struct {
 	// end, as the server ends them, and every route answers 401 after.
 	out     chan struct{}
 	outOnce sync.Once
+	// launchOld: the Mini App's launch data is past its hour, so POST
+	// /auth/miniapp answers init_data_expired.
+	launchOld atomic.Bool
 }
 
 // signOutElsewhere is "Sign out everywhere" pressed on another device.
@@ -123,6 +127,10 @@ func (f *fakeRuns) mount(srv *Server) {
 	srv.HandleFunc("GET /api/jobs/{id}/events", f.events, Stream())
 	srv.HandleFunc("POST /api/jobs/{id}/cancel", f.cancel)
 	srv.HandleFunc("POST /auth/miniapp", func(w http.ResponseWriter, _ *http.Request) {
+		if f.launchOld.Load() {
+			writeTestJSON(w, http.StatusUnauthorized, map[string]any{"error": "init_data_expired"})
+			return
+		}
 		writeTestJSON(w, http.StatusOK, map[string]any{"token": "test-token", "expires_in": 3600})
 	})
 	srv.HandleFunc("POST /api/files/{id}/share", func(w http.ResponseWriter, r *http.Request) {
@@ -180,6 +188,9 @@ func (f *fakeRuns) job(r *http.Request) (*fakeJob, int64) {
 }
 
 func (f *fakeRuns) create(w http.ResponseWriter, r *http.Request) {
+	if f.signedOut(w) {
+		return
+	}
 	var in struct {
 		Offer    string         `json:"offer"`
 		Prompt   string         `json:"prompt"`
@@ -783,6 +794,31 @@ func TestBrowserMiniSVG(t *testing.T) {
 	defer runs.mu.Unlock()
 	if runs.shares != 0 {
 		t.Errorf("%d shares", runs.shares)
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserMiniLaunchRunsOut: the Mini App's token ends with its launch,
+// an hour after Telegram signed it, and the launch data then buys no other.
+// A run pressed after that says to open framy again, not "something went
+// wrong" with a code, and the person shows as signed out.
+func TestBrowserMiniLaunchRunsOut(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := miniBrowser(t, ts.URL)
+	js[bool](t, ctx, pageHelpers+`for (let i = 0; i < 50 && !window.__tg?.main; i++) await wait(100); return true;`)
+	runs.launchOld.Store(true)
+	runs.signOutElsewhere()
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const p = document.querySelector("#prompt");
+	p.value = "done"; p.dispatchEvent(new Event("input"));
+	await wait(80);
+	window.__tg.main();
+	let st = stage();
+	for (let i = 0; i < 80 && !st.why; i++) { await wait(100); st = stage(); }
+	return { label: st.label, why: st.why, acts: st.acts, me: !!document.querySelector("#meBtn") };`)
+	if s["label"] != "Sign in again" || s["why"] != "The Telegram session is too old. Close framy and open it again." || s["me"] != false {
+		t.Errorf("a run after the launch's hour: %v", s)
 	}
 	noErrors(t, ctx)
 }

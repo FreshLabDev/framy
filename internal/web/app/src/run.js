@@ -12,7 +12,7 @@ import { renderStage, runChanged } from "./stage.js";
 import { upload } from "./files.js";
 import { takeClip, openCut } from "./clips.js";
 import { openPicker } from "./picker.js";
-import { refusal, failure, providerOf } from "./errors.js";
+import { refusal, failure, providerOf, launchGone } from "./errors.js";
 import { toast, ask } from "./ui.js";
 
 export function signIn() {
@@ -67,7 +67,14 @@ export async function refreshMe() {
     if (was && was !== me.currency) clearPrices();
   } catch (e) {
     // The session is gone (signed out everywhere, the account deleted): the page forgets the person.
-    if (e.status === 401) { forget(); return false; }
+    // A Mini App's token ends with its launch, an hour after Telegram signed it, and only opening
+    // framy again gets a new one: the page says so, once, instead of just showing nobody.
+    if (e.status === 401) {
+      const said = S.signed && launchGone(e);
+      forget();
+      if (said) toast(t(said), { ms: 8000 });
+      return false;
+    }
   }
   window.dispatchEvent(new Event("framy:me"));
   return known;
@@ -248,7 +255,7 @@ function afterRefusal(run, err) {
   if (err.code === "free_closed") S.closed[run.kind] = Date.parse(b.until) || 0;
   if (err.code === "price_changed") clearPrices();
   if (err.code === "free_limit" || err.code === "free_closed" || err.code === "connection_invalid") refreshMe();
-  if (err.code === "sign_in") { S.signed = false; S.me = null; window.dispatchEvent(new Event("framy:me")); }
+  if (err.code === "sign_in" || launchGone(err)) { S.signed = false; S.me = null; window.dispatchEvent(new Event("framy:me")); }
   if (err.code === "no_connection") refreshMe();
   render();
 }

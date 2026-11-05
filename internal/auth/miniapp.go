@@ -20,7 +20,10 @@ import (
 // checked first, then the age of auth_date (MaxInitDataAge). A forged or
 // edited initData is 401 `init_data_invalid`, an old one 401
 // `init_data_expired`: the Mini App has to be opened again, since Telegram
-// signs initData only when it opens.
+// signs initData only when it opens. The token ends when the initData stops
+// being accepted, an hour after auth_date, so expires_in is less than an
+// hour for initData exchanged late, and initData with less than a minute
+// left is too old already.
 //
 // The person is recorded in core before the token is made, as a bot update
 // would. The token is stored as a hash, like the site's cookie.
@@ -34,6 +37,14 @@ func (a *Auth) MiniApp() http.Handler {
 			return
 		}
 		data, err := a.initData.Verify(req.InitData)
+		now := a.now()
+		// A token lasts no longer than the initData it came from: one
+		// initData that got out is worth an hour after Telegram signed it,
+		// not an hour more after its last minute.
+		expires := minTime(now.Add(MiniAppTokenLife), data.AuthDate.Add(MaxInitDataAge))
+		if err == nil && expires.Sub(now) < minTokenLife {
+			err = ErrStale
+		}
 		switch {
 		case errors.Is(err, ErrStale):
 			metrics.AuthResults.Inc("miniapp_stale")
@@ -55,7 +66,7 @@ func (a *Auth) MiniApp() http.Handler {
 			name = data.User.Username
 		}
 		a.setCard(r.Context(), data.User.ID, name, data.PhotoURL)
-		token, _, err := a.newSession(r.Context(), data.User.ID, KindMiniApp, MiniAppTokenLife)
+		token, err := a.newSession(r.Context(), data.User.ID, KindMiniApp, expires)
 		if err != nil {
 			a.log.Error("start a Mini App session", "error", err)
 			metrics.AuthResults.Inc("miniapp_error")
@@ -66,7 +77,7 @@ func (a *Auth) MiniApp() http.Handler {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"token":      token,
 			"token_type": "Bearer",
-			"expires_in": int(MiniAppTokenLife.Seconds()),
+			"expires_in": int(expires.Sub(now).Seconds()),
 			"user_id":    data.User.ID,
 		})
 	})
