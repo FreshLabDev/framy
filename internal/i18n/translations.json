@@ -2754,7 +2754,7 @@
     "ar": "النموذج"
   },
   "run.need_key": {
-    "en": "Needs a {provider} key",
+    "en": "{provider} key needed",
     "ru": "Нужен ключ {provider}",
     "uk": "Потрібен ключ {provider}",
     "es": "Falta una clave de {provider}",
