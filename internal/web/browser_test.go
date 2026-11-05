@@ -245,10 +245,16 @@ func TestBrowserPhone(t *testing.T) {
 	  dockBottom: Math.round(innerHeight - c.bottom), dockFixed: getComputedStyle(document.querySelector("#composer")).position,
 	  stageAbove: Math.round(c.top - pv.bottom), chip: vis(document.querySelector("#dtools .chipbtn")), how: vis(document.querySelector("#composer > #how")),
 	  top: !!document.querySelector("#top .signin"),
+	  cap: document.querySelector("#pcap").textContent, capCut: document.querySelector("#pcap").scrollWidth - document.querySelector("#pcap").clientWidth,
 	};`)
 	if got["overflow"].(float64) > 0 || got["dockBottom"].(float64) != 0 || got["dockFixed"] != "fixed" || got["stageAbove"].(float64) < 0 ||
 		got["chip"] != true || got["how"] != false || got["top"] != true {
 		t.Errorf("phone layout: %v", got)
+	}
+	// Signed out, the line under the price says the allowance whole, its
+	// window too: the button beside it already says to sign in.
+	if got["cap"] != "5 free in any 24 hours" || got["capCut"].(float64) > 0 {
+		t.Errorf("the line under the price: %q, cut by %v px", got["cap"], got["capCut"])
 	}
 	// The settings open in a sheet, and choosing there keeps every control in place.
 	res := js[map[string]any](t, ctx, pageHelpers+`

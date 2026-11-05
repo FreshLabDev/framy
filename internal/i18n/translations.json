@@ -4175,24 +4175,6 @@
     "ja": "無料の残り：{left} / {limit}",
     "ar": "المتبقي مجانًا: {left} من {limit}"
   },
-  "web.bar.free_signed_out": {
-    "en": "Sign in for {per}",
-    "ru": "Войди, и будет {per}",
-    "uk": "Увійди, і буде {per}",
-    "es": "Inicia sesión para tener {per}",
-    "fr": "Connecte-toi : {per}",
-    "de": "Anmelden: {per}",
-    "it": "Accedi per avere {per}",
-    "pl": "Zaloguj się, by mieć {per}",
-    "cs": "Přihlas se a získáš {per}",
-    "tr": "Giriş yap: {per}",
-    "sv": "Logga in för {per}",
-    "be": "Увайдзі, і будзе {per}",
-    "ca": "Inicia la sessió per tenir {per}",
-    "zh": "登录即可{per}",
-    "ja": "ログインすると {per}",
-    "ar": "سجّل الدخول للحصول على {per}"
-  },
   "web.bar.unknown": {
     "en": "The price is known after the run",
     "ru": "Цена станет известна после запуска",

@@ -624,7 +624,7 @@ export function renderBar() {
   const cap = $("#pcap"), was = cap.textContent;
   let parts;
   if (nx.why) parts = [nx.why];
-  else if (free) parts = [S.signed ? t("bar.free_left", { left: freeLeft(kind), limit: freeLimit(kind) }) : t("bar.free_signed_out", { per: freePer(kind) })];
+  else if (free) parts = [S.signed ? t("bar.free_left", { left: freeLeft(kind), limit: freeLimit(kind) }) : freePer(kind)];
   else if (unknown && ready) parts = [t("bar.unknown")];
   else if (e && e.discount && e.list_label) parts = [h("s", { class: "was" }, priceText({ ...e, label: e.list_label })), " ", h("b", { class: "off" }, "−" + fmtNum(Math.round(e.discount * 100)) + "%")];
   else parts = [""];
