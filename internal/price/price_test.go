@@ -573,3 +573,58 @@ func TestDiscountPicksTheCheapestRoute(t *testing.T) {
 		t.Fatalf("listed most %v below the most %v", e.ListMaxUSD, e.MaxUSD)
 	}
 }
+
+// side reads a resolution as the side of its square, in pixels.
+func TestSide(t *testing.T) {
+	for res, want := range map[string]float64{"1k": 1024, "1.5k": 1536, "2k": 2048, "4k": 4096, "768": 768, "0.5k": 512} {
+		if got, ok := side(res); !ok || got != want {
+			t.Errorf("side(%q) = %v, %v; want %v", res, got, ok, want)
+		}
+	}
+	for _, res := range []string{"", "k", "0k", "-1k", "big", "1080p"} {
+		if got, ok := side(res); ok {
+			t.Errorf("side(%q) = %v; want no side", res, got)
+		}
+	}
+}
+
+// A price by the megapixel follows the size the run makes. FLUX.2 on
+// OpenRouter takes only an aspect ratio, and is priced at 1024×1024 for
+// each; a model that also took a resolution or a size would be priced at
+// it, not at the 1 MP default, so a 4K picture never comes out at the price
+// of a 1K one.
+func TestMegapixelsFollowTheChosenSize(t *testing.T) {
+	m, of := offer(t, "openrouter:black-forest-labs/flux.2-pro")
+	const rate = 0.03
+	for _, ar := range []string{"1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "21:9"} {
+		if e := Of(m, of, Request{Settings: set{"aspect_ratio": ar}}); !near(e.USD, rate*1.048576) || e.Kind != About {
+			t.Errorf("flux 2 pro at %s = $%.6f %s, want $%.6f about", ar, e.USD, e.Kind, rate*1.048576)
+		}
+	}
+
+	sized := of
+	sized.Params = map[string]catalog.Param{}
+	for k, v := range of.Params {
+		sized.Params[k] = v
+	}
+	sized.Params["resolution"] = catalog.Param{Type: catalog.Enum, Values: []any{"1K", "1.5K", "2K", "4K"}}
+	sized.Params["size"] = catalog.Param{Type: catalog.Enum, Values: []any{"1024x1024", "2048x1152"}}
+	for _, c := range []struct {
+		settings set
+		pixels   float64
+	}{
+		{set{}, 1024 * 1024},
+		{set{"resolution": "1K"}, 1024 * 1024},
+		{set{"resolution": "1.5K"}, 1536 * 1536},
+		{set{"resolution": "2K"}, 2048 * 2048},
+		{set{"resolution": "4K"}, 4096 * 4096},
+		// A size is the pixels themselves, ahead of a resolution.
+		{set{"size": "2048x1152"}, 2048 * 1152},
+		{set{"size": "2048X1152", "resolution": "4K"}, 2048 * 1152},
+	} {
+		e := Of(m, sized, Request{Settings: c.settings})
+		if want := rate * c.pixels / 1e6; !near(e.USD, want) {
+			t.Errorf("%v: $%.6f, want $%.6f (%.2f MP)", c.settings, e.USD, want, c.pixels/1e6)
+		}
+	}
+}
