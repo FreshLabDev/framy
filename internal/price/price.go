@@ -161,7 +161,7 @@ func route(m catalog.Model, of catalog.Offer, r catalog.Route, req Request) Esti
 	if m.Traits.Price != nil {
 		c.hints = *m.Traits.Price
 	}
-	c.prices(r.Prices)
+	c.prices(withUnlisted(r.Prices, c.hints.Unlisted))
 	c.skus(r.SKUs)
 	if req.Sounds > 0 {
 		c.cannot("the reference sounds")
@@ -184,6 +184,22 @@ func route(m catalog.Model, of catalog.Offer, r catalog.Route, req Request) Esti
 		e.MaxUSD *= 1 - d
 	}
 	return e
+}
+
+// withUnlisted adds the overlay's unlisted lines to a route's prices: each
+// one the route bills without listing it. A route with no prices at all is
+// priced some other way, by SKUs or not at all, and is left as it is.
+func withUnlisted(rows, unlisted []catalog.Price) []catalog.Price {
+	if len(rows) == 0 || len(unlisted) == 0 {
+		return rows
+	}
+	out := slices.Clip(rows)
+	for _, u := range unlisted {
+		if !slices.ContainsFunc(rows, func(p catalog.Price) bool { return p.Billable == u.Billable && p.Unit == u.Unit }) {
+			out = append(out, u)
+		}
+	}
+	return out
 }
 
 // add records a line priced at rate for a quantity between qLo and qHi, and

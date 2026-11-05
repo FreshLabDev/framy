@@ -121,6 +121,12 @@ func TestEstimates(t *testing.T) {
 		{"flux 3 at 1K", "openrouter:black-forest-labs/flux-3-image", Request{Settings: set{"resolution": "1K"}}, 0.048, 0, Exact},
 		{"flux 3 at 4K", "openrouter:black-forest-labs/flux-3-image", Request{Settings: set{"resolution": "4K"}}, 0.607, 0, Exact},
 		{"flux 2 pro by the megapixel", "openrouter:black-forest-labs/flux.2-pro", Request{Settings: set{"aspect_ratio": "1:1"}}, 0.03 * 1.048576, 0, About},
+		// OpenRouter lists only the output of FLUX.2 Pro and Max; their pages
+		// give the references' rate (price.unlisted).
+		{"flux 2 pro editing two photos", "openrouter:black-forest-labs/flux.2-pro", Request{Settings: set{"aspect_ratio": "1:1"}, Images: []Image{{Width: 2048, Height: 1536}, {Width: 1024, Height: 1024}}}, 0.03*1.048576 + 0.015*(3.145728+1.048576), 0, About},
+		{"flux 2 max editing a photo", "openrouter:black-forest-labs/flux.2-max", Request{Settings: set{"aspect_ratio": "1:1"}, Images: images(1)}, (0.07 + 0.03) * 1.048576, 0, About},
+		{"flux 2 flex lists its input", "openrouter:black-forest-labs/flux.2-flex", Request{Settings: set{"aspect_ratio": "1:1"}, Images: images(1)}, 0.06 * 2 * 1.048576, 0, About},
+		{"flux 2 klein bills the output alone", "openrouter:black-forest-labs/flux.2-klein-4b", Request{Settings: set{"aspect_ratio": "1:1"}, Images: images(4)}, 0.014 * 1.048576, 0, About},
 		// docs/research/images.md, 5.2: 8 references at 2K cost 0.06 + 8 × 0.07.
 		{"k3 edit at 2K with 8 references", "openrouter:krea/k3-edit", Request{Settings: set{"resolution": "2K"}, Images: images(8)}, 0.62, 0, Exact},
 		{"k3 edit at 1K with 8 references", "openrouter:krea/k3-edit", Request{Settings: set{"resolution": "1K"}, Images: images(8)}, 0.19, 0, Exact},

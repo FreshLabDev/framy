@@ -280,6 +280,11 @@ type PriceHints struct {
 	// ClipMinSeconds: a reference clip is billed as at least this long, as
 	// Seedance 2.0 Mini billed a 2 s clip as 3 s.
 	ClipMinSeconds float64 `json:"clip_min_seconds,omitempty" yaml:"clip_min_seconds"`
+	// Unlisted are lines the provider bills that OpenRouter's listing of the
+	// model leaves out, as the model's own page on OpenRouter states them:
+	// FLUX.2 Pro's input megapixels. The estimate adds each to a route that
+	// lists prices but no line of that billable and unit.
+	Unlisted []Price `json:"unlisted,omitempty" yaml:"unlisted"`
 }
 
 // Traits is what the overlay knows about a model and no API says.

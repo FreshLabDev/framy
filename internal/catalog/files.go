@@ -465,8 +465,16 @@ func (h *PriceHints) validate() error {
 	if h == nil {
 		return nil
 	}
-	if len(h.Tokens) == 0 && len(h.OpenAITokens) == 0 && h.OpenAIInputPatches == 0 && h.InputTokensPerMP == 0 && len(h.Variants) == 0 && len(h.Skip) == 0 && h.From == "" && h.FreeImages == 0 && len(h.Sizes) == 0 && h.ClipMinSeconds == 0 {
+	if len(h.Tokens) == 0 && len(h.OpenAITokens) == 0 && h.OpenAIInputPatches == 0 && h.InputTokensPerMP == 0 && len(h.Variants) == 0 && len(h.Skip) == 0 && h.From == "" && h.FreeImages == 0 && len(h.Sizes) == 0 && h.ClipMinSeconds == 0 && len(h.Unlisted) == 0 {
 		return errors.New("price says nothing")
+	}
+	for i, p := range h.Unlisted {
+		if p.Billable == "" || p.Unit == "" || !(p.CostUSD > 0) || math.IsInf(p.CostUSD, 0) {
+			return fmt.Errorf("price.unlisted[%d] needs billable, unit and a positive cost_usd", i)
+		}
+		if p.Variant != "" {
+			return fmt.Errorf("price.unlisted[%d]: a line of the overlay has no variant", i)
+		}
 	}
 	if h.ClipMinSeconds < 0 || math.IsNaN(h.ClipMinSeconds) || math.IsInf(h.ClipMinSeconds, 0) {
 		return errors.New("price.clip_min_seconds cannot be negative")

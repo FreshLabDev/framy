@@ -285,11 +285,20 @@ models:
     price:
       from: the price grows with reasoning, resolution and the image's complexity
 
-  # Variants with nothing to add but their place in the picker.
+  # OpenRouter lists only the output of Max and Pro, but Black Forest Labs
+  # bills the references too, as the models' pages on OpenRouter say: "$0.03
+  # for each megapixel on the input" at Max, $0.015 at Pro. Flex lists its
+  # input line; Klein bills the output alone.
   black-forest-labs/flux.2-max:
     family: {id: flux, gen: "2", tier: max, label: 2 Max}
+    price:
+      unlisted: [{billable: input_image, unit: megapixel, cost_usd: 0.03}]
   black-forest-labs/flux.2-pro:
     family: {id: flux, gen: "2", tier: pro, label: 2 Pro}
+    price:
+      unlisted: [{billable: input_image, unit: megapixel, cost_usd: 0.015}]
+
+  # Variants with nothing to add but their place in the picker.
   black-forest-labs/flux.2-flex:
     family: {id: flux, gen: "2", tier: flex, label: 2 Flex}
   black-forest-labs/flux.2-klein-4b:

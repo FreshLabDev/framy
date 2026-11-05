@@ -200,6 +200,9 @@ models:
     passthrough:
       notAccepted: {type: text}
     source_video: {max_seconds: 8}
+  black-forest-labs/flux.2-flex:
+    price:
+      unlisted: [{billable: input_image, unit: megapixel, cost_usd: 0.06}]
 hide:
   - match: openai/gpt-image-1*
     why: closed
@@ -216,6 +219,7 @@ hide:
 		"no offer accepts the pass-through setting notAccepted",
 		"model google/veo-3.1: source_video is set, but no offer takes a video",
 		"openrouter:black-forest-labs/flux-video-edit takes only text and video; mark source_video.required",
+		"model black-forest-labs/flux.2-flex: price.unlisted input_image per megapixel, but no route lists prices without it",
 	} {
 		if !slices.ContainsFunc(snap.Warnings, func(w string) bool { return strings.Contains(w, want) }) {
 			t.Errorf("no warning %q in %q", want, snap.Warnings)

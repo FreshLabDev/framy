@@ -333,6 +333,19 @@ func checkPrice(model string, h PriceHints, offers []Offer, warn func(string, ..
 			warn("model %s: price.skip.%s, but no offer bills it", model, billable)
 		}
 	}
+	// An unlisted line is needed while some route lists prices without it;
+	// once OpenRouter lists it everywhere, the overlay's copy only waits to
+	// go stale.
+	for _, u := range h.Unlisted {
+		needed := slices.ContainsFunc(offers, func(of Offer) bool {
+			return slices.ContainsFunc(of.Routes, func(r Route) bool {
+				return len(r.Prices) > 0 && !slices.ContainsFunc(r.Prices, func(p Price) bool { return p.Billable == u.Billable && p.Unit == u.Unit })
+			})
+		})
+		if !needed {
+			warn("model %s: price.unlisted %s per %s, but no route lists prices without it", model, u.Billable, u.Unit)
+		}
+	}
 	for _, res := range slices.Sorted(maps.Keys(h.Sizes)) {
 		if !offered("resolution", res) {
 			warn("model %s: price.sizes.%s, but no offer has that resolution", model, res)
