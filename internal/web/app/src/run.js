@@ -4,9 +4,9 @@
 import { $ } from "./dom.js";
 import { t } from "./i18n.js";
 import { api, watchJob, isFinal, outsOf } from "./api.js";
-import { S, M, payOf, settings, fastOf, going, clip, contFits, keyOk, runItem, plan, paidItems, newFrame } from "./state.js";
+import { S, M, payOf, settings, fastOf, going, clip, contFits, keyOk, runItem, plan, paidItems, newFrame, next } from "./state.js";
 import { C, offerOf, PNAME, framesOf, photoLimit } from "./catalog.js";
-import { known, knownTotal, priceText, clearPrices } from "./price.js";
+import { priced, knownTotal, priceText, clearPrices } from "./price.js";
 import { act, render, renderBar } from "./composer.js";
 import { renderStage, runChanged } from "./stage.js";
 import { upload } from "./files.js";
@@ -62,7 +62,7 @@ const newKey = () => "site-" + crypto.randomUUID();
 export const shownOf = (e) => (e && e.kind !== "unknown" ? (e.kind === "up_to" ? e.max_usd : e.usd) : null);
 
 function fromComposer() {
-  const m0 = M(), pay = payOf(m0), { m, set } = fastOf(m0, pay, settings(m0, pay)), e = known(runItem(m, pay, set))?.estimate;
+  const m0 = M(), pay = payOf(m0), { m, set } = fastOf(m0, pay, settings(m0, pay)), e = priced(runItem(m, pay, set))?.estimate;
   const files = going(m, pay), c = clip();
   return { kind: m.kind, model: m.id, pay, offer: offerOf(m, pay).id, prompt: $("#prompt").value.trim(), settings: set, files,
     clip: files.includes(c) ? c : null, cut: files.includes(c) && S.cut ? { ...S.cut } : null, cont: contFits(m, pay) ? S.cont : null,
@@ -93,6 +93,10 @@ const pressOfRun = (run) => run?.press || run;
 
 export function generate() {
   if (!M() || S.busy) return;
+  // A run on a key starts at the price the bar shows: never before it shows
+  // one, whatever pressed (the button, Ctrl+Enter, Telegram's main button).
+  const nx = next($("#prompt").value);
+  if (nx.act !== "create" || !nx.on) return;
   start(plan().length > 1 ? pressOf() : fromComposer());
 }
 
@@ -341,7 +345,7 @@ export function quiet(run = S.run) {
   if (run.multi) { act(() => { restore({ ...run, frames: run.frames.map((fm) => ("generate_audio" in fm.settings ? { ...fm, settings: { ...fm.settings, generate_audio: false } } : fm)) }); S.showJob = false; render(); }); return; }
   const set = { ...run.settings, generate_audio: false };
   act(() => { restore(run); S.wanted.generate_audio = false; render(); });
-  const e = run.pay === "free" ? null : known(runItem(m, run.pay, set))?.estimate;
+  const e = run.pay === "free" ? null : priced(runItem(m, run.pay, set))?.estimate;
   start(copyOf(run, { settings: set, ...(e ? { shown: shownOf(e), shownLabel: priceText(e), priceLabel: e.label || "" } : {}) }));
 }
 // The price went up: the person agreed to the new one.
@@ -360,7 +364,7 @@ export function byKey(run = S.run) {
   // A press comes back with its free frames on the person's keys, and goes on the next press.
   if (run.multi) { act(() => { restore({ ...run, frames: run.frames.map((fm) => (fm.pay === "free" ? { ...fm, pay: keyFor(fm) || fm.pay } : fm)) }); S.showJob = false; render(); }); return; }
   act(() => { restore(run, p); render(); });
-  const r = fastOf(m, p, settings(m, p)), e = known(runItem(r.m, p, r.set))?.estimate;
+  const r = fastOf(m, p, settings(m, p)), e = priced(runItem(r.m, p, r.set))?.estimate;
   start(copyOf(run, { model: r.m.id, pay: p, offer: offerOf(r.m, p).id, settings: r.set, shown: shownOf(e), shownLabel: e ? priceText(e) : "", priceLabel: e?.label || "" }));
 }
 export function drop() { S.showJob = false; renderStage(); renderBar(); }

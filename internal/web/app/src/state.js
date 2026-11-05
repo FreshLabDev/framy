@@ -3,7 +3,7 @@
 // button does now.
 import { C, freePlan, pays, offerOf, settings as settingsOf, photoLimit, needsImage, needsVideo, takesVideo, takesAudio, framesOf, refsOf, refClipsOf, soundsOf, PNAME } from "./catalog.js";
 import { t, fmtTime, fmtAt, fmtNum, fmtSecs } from "./i18n.js";
-import { known, need } from "./price.js";
+import { known, need, priced, knownTotal } from "./price.js";
 
 export const S = {
   signed: false, me: null, mini: false, tg: null, online: navigator.onLine,
@@ -386,6 +386,9 @@ export function next(prompt) {
     if (q?.refusal?.error === "no_connection" || q?.refusal?.error === "connection_invalid") return keyStep(offerOf(it.m, it.pay).provider);
     if (q?.refusal) return { label: refusalLabel(q.refusal, it.m), on: false };
   }
+  // A run on a key starts at the price the bar shows, so not before the bar shows one.
+  const paid = paidItems(items);
+  if (paid.length && !(items.length < 2 ? priced(paid[0]) : knownTotal(paid)?.total)) return { label: t("go.create"), icon: "spark", act: "create", on: false };
   return { label: t("go.create"), icon: "spark", act: "create", on: !empty };
 }
 // A key is missing or stopped working: the button opens the settings at it.

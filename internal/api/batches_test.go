@@ -59,11 +59,16 @@ func frame(offer, pay string, extra ...string) string {
 	return s + "}"
 }
 
+// press is a press as the site sends it, with the price the person saw
+// (seenUSD); a press of free frames only has nothing to check it against.
 func press(frames ...string) string {
-	return `{"prompt":"a fox in the snow","frames":[` + strings.Join(frames, ",") + `]}`
+	return `{"prompt":"a fox in the snow","shown_usd":` + seenUSD + `,"frames":[` + strings.Join(frames, ",") + `]}`
 }
 
 func pressWith(extra string, frames ...string) string {
+	if !strings.Contains(extra, `"shown_usd"`) {
+		extra += `,"shown_usd":` + seenUSD
+	}
 	return `{"prompt":"a fox in the snow",` + extra + `,"frames":[` + strings.Join(frames, ",") + `]}`
 }
 
@@ -226,6 +231,20 @@ func TestAPressDearerThanShownStartsNothing(t *testing.T) {
 	}
 	if resp := r.post(alice, "/api/batches", nextKey(), pressWith(`"shown_usd":0.08`, frames...)); resp.StatusCode != http.StatusAccepted {
 		t.Errorf("the price shown: %d", resp.StatusCode)
+	}
+	// No price came with it: the person saw none, and the press waits with it.
+	before = len(r.queue.batches)
+	resp = r.post(alice, "/api/batches", nextKey(), `{"prompt":"a fox in the snow","frames":[`+strings.Join(frames, ",")+`]}`)
+	m = jsonOf(t, resp)
+	if resp.StatusCode != http.StatusConflict || m["error"] != codePriceChanged || len(r.queue.batches) != before {
+		t.Fatalf("no price: %d %v", resp.StatusCode, m)
+	}
+	if e := m["estimate"].(map[string]any); e["usd"] != 0.08 {
+		t.Errorf("no price: the price = %v", e)
+	}
+	// Free frames alone cost the person nothing, and need no price.
+	if resp := r.post(alice, "/api/batches", nextKey(), `{"prompt":"a fox in the snow","frames":[`+frame(freeImage, "free")+`]}`); resp.StatusCode != http.StatusAccepted {
+		t.Errorf("free alone: %d %v", resp.StatusCode, jsonOf(t, resp))
 	}
 }
 

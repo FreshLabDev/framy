@@ -962,6 +962,88 @@ func TestBrowserJoined(t *testing.T) {
 	noErrors(t, ctx)
 }
 
+// TestBrowserPriceBeforeCreate checks that a run on a key starts at the price
+// the bar shows, never before the bar shows one: the price beside a choice
+// stands for the run at once, Create waits while a price is on its way, and a
+// price that did not come is asked again by itself.
+func TestBrowserPriceBeforeCreate(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const until = async (fn, ms = 4000) => { const end = Date.now() + ms; while (Date.now() < end) { if (fn()) return true; await wait(50); } return !!fn(); };
+	const sent = [], fetch0 = window.fetch;
+	let hold = null, release = null, fail = 0, quotes = 0;
+	window.fetch = async (u, o) => {
+	  const s = String(u);
+	  if (s.endsWith("/api/jobs") && o?.method === "POST") sent.push(JSON.parse(o.body));
+	  if (s.endsWith("/api/quote")) {
+	    quotes++;
+	    if (fail > 0) { fail--; return new Response('{"error":"internal","message":"x"}', { status: 500, headers: { "Content-Type": "application/json" } }); }
+	    if (hold) await hold;
+	  }
+	  return fetch0(u, o);
+	};
+	const holdQuotes = () => { hold = new Promise((r) => { release = () => { hold = null; r(); }; }); };
+	const go = () => document.querySelector("#go");
+	const bar = () => document.querySelector("#pnum").textContent;
+	const usdOf = (x) => +String(x).replace(/[^\d.]/g, "");
+	const out = {};
+	await until(() => !document.querySelector("#composer .q.wait") && !go().disabled);
+	// On the free allowance, the key's tile shows its price: picked, it is the bar's at once.
+	const keyTile = document.querySelector('#how [data-seg="pay"] [data-v="openrouter"]');
+	const tilePrice = keyTile.querySelector(".usd")?.textContent || "";
+	const p = document.querySelector("#prompt");
+	p.value = "done"; p.dispatchEvent(new Event("input"));
+	holdQuotes();
+	keyTile.click();
+	await wait(200);
+	out.twin = [bar() === tilePrice, go().disabled];
+	await press("done", (s) => s.done);
+	out.twinSent = [sent.length, usdOf(tilePrice) === sent[0]?.shown_usd];
+	release();
+	await until(() => !document.querySelector("#composer .q.wait"));
+	// A ratio no price was asked for: Create waits for it, and Ctrl+Enter too.
+	const tried = new Set([document.querySelector("#how .ratios .rt[aria-checked=true]")?.dataset.v]);
+	const ratio = () => { const b = [...document.querySelectorAll("#how .ratios .rt")].find((b) => !tried.has(b.dataset.v) && !b.classList.contains("more") && !b.disabled); tried.add(b.dataset.v); return b; };
+	holdQuotes();
+	ratio().click();
+	await wait(300);
+	p.value = "done"; p.dispatchEvent(new Event("input"));
+	p.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }));
+	go().click();
+	await wait(300);
+	out.waiting = [bar(), go().disabled, sent.length];
+	release();
+	await until(() => !go().disabled);
+	const shown = bar();
+	go().click();
+	await until(() => sent.length === 2);
+	out.after = Math.abs(usdOf(shown) - sent[1].shown_usd) < 0.0011;
+	out.shown = [shown, sent[1].shown_usd];
+	// A price that did not come is asked again by itself, and Create follows it.
+	await until(() => !document.querySelector("#composer .q.wait") && !go().disabled);
+	fail = 1;
+	const q0 = quotes;
+	ratio().click();
+	await wait(300);
+	out.failed = [bar(), go().disabled];
+	const t0 = Date.now();
+	await until(() => !go().disabled, 5000);
+	out.retried = [!go().disabled, quotes - q0 >= 2, Date.now() - t0 < 4000];
+	return out;`)
+	want := map[string]string{
+		"twin": "[true false]", "twinSent": "[1 true]", "waiting": "[… true 1]", "after": "true",
+		"failed": "[… true]", "retried": "[true true true]",
+	}
+	for k, w := range want {
+		if got := fmt.Sprint(s[k]); got != w {
+			t.Errorf("%s = %s, want %s", k, got, w)
+		}
+	}
+	noErrors(t, ctx)
+}
+
 // TestBrowserResultStays checks a result on the stage is drawn once: the end
 // of the run reads the account again, and a new state of the account (the
 // settings opened, the page back from another tab) leaves the picture, the

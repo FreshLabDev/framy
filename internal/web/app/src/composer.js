@@ -9,7 +9,7 @@ import { C, PNAME, vname, famLogo, lg, provMark, freePlan, pays, offerOf, facts,
 import { S, M, images, clip, payOf, usable, keyOk, connection, freeLeft, freeLimit, freesAt, freePer, settings, route, runItem, altItem, next, sourceRatio, quoteNow,
   maxSecs, needsCut, contFits, slotOf, sources, inputsOf, placeFiles, refuses,
   FR, MAXFR, scopeFr, newFrame, common, wanted, setModelHere, setPayHere, setWantedHere, tidy, ownBits, hasOwn, plan, paidItems, cutLimits, cutNeeded } from "./state.js";
-import { priceEl, priceText, known, need, onPrices, usd, needTotal, knownTotal } from "./price.js";
+import { priceEl, priceText, known, need, priced, onPrices, usd, needTotal, knownTotal } from "./price.js";
 import { renderStage, stageFrom, refit, runOver, ratioOf, syncStrip } from "./stage.js";
 import { openPicker } from "./picker.js";
 import { openSheet, closeSheets } from "./ui.js";
@@ -610,7 +610,7 @@ export function renderBar() {
   if (!m) return;
   const nx = next($("#prompt").value), kind = m.kind;
   // One frame is its run's price; several are the server's sum of them.
-  const P = plan(), paid = paidItems(P), one = P.length < 2, qs = one ? paid.map((it) => known(it) || need(it)) : [];
+  const P = plan(), paid = paidItems(P), one = P.length < 2, qs = one ? paid.map((it) => need(it) || priced(it)) : [];
   const tot = one ? null : needTotal(paid), free = !paid.length;
   const ready = one ? qs.every(Boolean) : free || !!tot, e = free || !ready ? null : one ? qs[0].estimate : tot.total;
   const unknown = !free && (!e || e.kind === "unknown");
