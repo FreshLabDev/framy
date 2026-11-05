@@ -354,9 +354,15 @@ func (q *Queue) end(ctx context.Context, id int64, e ending) error {
 	if actual != nil {
 		attrs = append(attrs, "actual_usd", *actual)
 	}
-	if e.status == Done {
+	switch {
+	case e.status == Done:
 		q.log.Info("job done", attrs...)
-	} else {
+	case e.class == Region:
+		// Not the person's to fix: every run on this provider fails the same
+		// way until the server's address changes.
+		q.log.Error("provider does not serve framy's server; its runs fail until the server's address changes",
+			append(attrs, "provider", provider, "error", e.msg)...)
+	default:
 		q.log.Warn("job ended without a result", append(attrs, "error", e.msg)...)
 	}
 	// A price that changed shows up as a run that cost more, or less, than

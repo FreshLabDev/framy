@@ -293,6 +293,10 @@ func clip(s string) string {
 // Please enable billing on your project".
 var billingWords = regexp.MustCompile(`(?i)enable billing|billing (is )?(not (enabled|set up)|disabled)|disabled billing`)
 
+// locationWords are what a 400 failed_precondition says when Google does not
+// serve the country the request came from: framy's server, not the person.
+var locationWords = regexp.MustCompile(`(?i)\blocation is not supported\b`)
+
 // prepayDepleted is the message of a project whose prepaid balance is spent.
 var prepayDepleted = regexp.MustCompile(`(?i)prepa(y|id|yment)[^.]*(depleted|exhausted|insufficient)`)
 
@@ -321,6 +325,10 @@ func (e *APIError) classify() *jobs.Error {
 		return e.keyError(jobs.Key, StatusInvalid)
 	case s == http.StatusBadRequest && (e.Code == "failed_precondition" || e.Code == "") && billingWords.MatchString(e.Message):
 		return e.keyError(jobs.Key, StatusNeedsBilling)
+	case s == http.StatusBadRequest && locationWords.MatchString(e.Message):
+		// Google serves the country of framy's server no more: the key is
+		// fine, and no run on it can go until the server's address changes.
+		return &jobs.Error{Class: jobs.Region, Err: e}
 	case s == http.StatusForbidden:
 		// A restricted key, or an API that is off in the project.
 		return e.keyError(jobs.Key, "")

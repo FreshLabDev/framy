@@ -68,6 +68,8 @@ export function failure(j) {
       ? { cls, label: t("fail.free_off_l"), text: t("fail.free_key"), note: t("fail.free_kept"), acts: ["bykey"] }
       : { cls, label: t("fail.key_l"), text: t("fail.key", { provider: P }), ...none, acts: ["rekey"], provider: p };
     case "refused": return { cls, label: t("fail.refused_l"), text: t("fail.refused", { provider: P }), ...none, said, acts: ["edit"] };
+    // The provider does not serve the country of framy's server: nothing ran, and another provider may.
+    case "region": return { cls, label: t("fail.region_l"), text: t("fail.region", { provider: P }), ...none, acts: ["model"] };
     // The model refused the sound it made (copyright); nothing was charged.
     case "sound": return { cls, label: t("fail.sound_l"), text: t("fail.sound"), ...none, acts: m && hasAudio(m) ? ["quiet", "edit"] : again };
     case "rate_limited": case "unavailable": return { cls, label: t("fail.no_answer_l"), text: "", ...none, note: (free ? back + " " : "") + t("fail.later"), acts: again };

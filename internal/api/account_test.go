@@ -65,6 +65,7 @@ func TestWhatTheKeysServiceRefusesIsSaidPlainly(t *testing.T) {
 		{keys.ErrBadKey, http.StatusUnprocessableEntity, "bad_key"},
 		{keys.ErrRejected, http.StatusUnprocessableEntity, "key_rejected"},
 		{keys.ErrForbidden, http.StatusUnprocessableEntity, "key_forbidden"},
+		{keys.ErrRegion, http.StatusServiceUnavailable, "key_region"},
 		{keys.ErrUnavailable, http.StatusServiceUnavailable, "check_unavailable"},
 		{keys.ErrDisabled, http.StatusServiceUnavailable, "keys_off"},
 		{keys.ErrUnreadable, http.StatusConflict, "key_unreadable"},

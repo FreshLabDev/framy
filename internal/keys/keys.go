@@ -167,7 +167,8 @@ func scanConnection(row pgx.Row) (Connection, error) {
 // (for OpenRouter the key's own record): free, and enough to tell a key the
 // provider accepts, so the connection starts as Valid. A key the provider
 // refuses is not stored, nor is one that could not be checked: ErrRejected,
-// ErrForbidden and ErrUnavailable say which, and none carries the key.
+// ErrForbidden, ErrRegion and ErrUnavailable say which, and none carries the
+// key.
 //
 // The person has to be in core already (Store.Touch): the row references
 // core.person.
@@ -297,8 +298,9 @@ func (s *Service) open(r row) ([]byte, error) {
 //     verification, so a status that named such a problem is cleared to Valid
 //     rather than kept: the person who fixed it presses this, and the next
 //     run sets the status again if it was not fixed;
-//   - the check reached no answer, or the provider refuses the list (403):
-//     nothing changes and the error says why.
+//   - the check reached no answer, the provider refuses the list (403), or
+//     it does not serve the country framy's server is in: nothing changes
+//     and the error says why.
 func (s *Service) Recheck(ctx context.Context, userID int64, provider string) (Connection, error) {
 	if s == nil {
 		return Connection{}, ErrDisabled

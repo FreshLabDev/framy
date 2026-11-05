@@ -132,8 +132,8 @@ func (e *APIError) class() jobs.Class {
 		return jobs.Key
 	case s == http.StatusForbidden && e.Code == "unsupported_country_region_territory":
 		// The request came from framy's server, so the person's key is not
-		// what is wrong.
-		return jobs.ProviderFailed
+		// what is wrong, and OpenAI refused it before running anything.
+		return jobs.Region
 	case s == http.StatusForbidden:
 		// A project without access to the model, a missing scope, an
 		// organization that is not verified.

@@ -511,6 +511,9 @@ func TestAFailedRunShowsTheCard(t *testing.T) {
 		// The model's own sound: the same run without it may pass. This
 		// run had no sound to turn off.
 		{jobs.Failed, jobs.Sound, false, "err.sound", retry},
+		// framy's server is where the provider does not serve: another
+		// model, through another provider, may run; the same one cannot.
+		{jobs.Failed, jobs.Region, false, "err.region", other},
 		// The person's key needs the site.
 		{jobs.Failed, jobs.Money, false, "err.money", nil},
 		{jobs.Failed, jobs.Money, true, "err.failed", retry},

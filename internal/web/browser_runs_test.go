@@ -445,6 +445,7 @@ func TestBrowserRuns(t *testing.T) {
 		"money":           {"No money on the key", "", "Top up OpenRouter", false, true},
 		"key":             {"The key does not work", "no longer accepts the key", "Replace the OpenRouter key", false, true},
 		"refused":         {"Not accepted", "did not accept the request", "Edit the prompt", true, true},
+		"region":          {"Region not served", "does not serve the country framy's server is in", "Another model", false, true},
 		"rate_limited":    {"No answer", "Try again in a few minutes", "Try again", false, true},
 		"unavailable":     {"No answer", "Try again in a few minutes", "Try again", false, true},
 		"timeout":         {"Over an hour", "may have charged up to $0.040", "Try again", false, false},

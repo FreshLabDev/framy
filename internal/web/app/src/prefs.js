@@ -107,7 +107,7 @@ const shaped = (v) => v.length >= 20 && v.length <= 512 && /^[\x21-\x7e]+$/.test
 function keyErr(p, code, saving) {
   const P = PNAME[p] || p;
   switch (code) {
-    case "bad_key": case "key_rejected": case "key_forbidden": case "key_unreadable": case "keys_off": return t("key." + code, { provider: P });
+    case "bad_key": case "key_rejected": case "key_forbidden": case "key_region": case "key_unreadable": case "keys_off": return t("key." + code, { provider: P });
     case "check_unavailable": return t(saving ? "key.check_unavailable" : "key.recheck_unavailable", { provider: P });
     case "network": return t("err.network");
     case "http_429": return t("err.busy");

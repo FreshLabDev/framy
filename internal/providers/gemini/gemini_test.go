@@ -505,7 +505,10 @@ func TestErrorsAreToldApart(t *testing.T) {
 		{"a malformed request", 400, `{"error":{"code":"invalid_request","message":"Invalid value at 'response_format.image_size'"}}`, nil, jobs.Refused, "", 0},
 		{"no billing, in a precondition", 400, `{"error":{"code":"failed_precondition","message":"Gemini API free tier is not available in your country. Please enable billing on your project in Google AI Studio."}}`, nil, jobs.Key, "needs_billing", 0},
 		{"no billing, in the RPC form", 400, `{"error":{"code":400,"status":"FAILED_PRECONDITION","message":"Please enable billing on your project."}}`, nil, jobs.Key, "needs_billing", 0},
-		{"a precondition that is not billing", 400, `{"error":{"code":"failed_precondition","message":"User location is not supported for the API use."}}`, nil, jobs.Refused, "", 0},
+		// framy's server is where Google does not serve: not the key's fault.
+		{"a region Google does not serve", 400, `{"error":{"code":400,"status":"FAILED_PRECONDITION","message":"User location is not supported for the API use."}}`, nil, jobs.Region, "", 0},
+		{"a region, in the Interactions form", 400, `{"error":{"code":"failed_precondition","message":"User location is not supported for the API use."}}`, nil, jobs.Region, "", 0},
+		{"a precondition that is not billing", 400, `{"error":{"code":"failed_precondition","message":"Precondition check failed."}}`, nil, jobs.Refused, "", 0},
 		{"a wrong key, in the RPC form", 400, `{"error":{"code":400,"status":"INVALID_ARGUMENT","message":"API key not valid. Please pass a valid API key.","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"API_KEY_INVALID","domain":"googleapis.com"}]}}`, nil, jobs.Key, "invalid", 0},
 		{"an expired key", 400, `{"error":{"code":"invalid_request","message":"API key expired. Please renew the API key."}}`, nil, jobs.Key, "invalid", 0},
 		{"a missing or revoked key", 401, `{"error":{"code":"authentication","message":"The API key is missing, invalid, or expired."}}`, nil, jobs.Key, "invalid", 0},

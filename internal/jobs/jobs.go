@@ -273,6 +273,12 @@ const (
 	// Faces: the provider refused a real person in an input, such as
 	// Seedance on BytePlus. Another model may take the same files.
 	Faces Class = "faces"
+	// Region: the provider does not serve the country framy's server calls
+	// from, as Google's "User location is not supported" and OpenAI's
+	// unsupported_country_region_territory. Nothing ran and nothing was
+	// billed, the person's key is fine, and asking again changes nothing
+	// until the server's address does; another provider may serve it.
+	Region Class = "region"
 	// Sound: the provider refused the sound the model made, as BytePlus
 	// refuses Seedance's when it may be copyrighted. The same run without
 	// sound may pass, and nothing was billed.

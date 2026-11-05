@@ -404,6 +404,7 @@ const (
 	codeBadKey            = "bad_key"
 	codeKeyRejected       = "key_rejected"
 	codeKeyForbidden      = "key_forbidden"
+	codeKeyRegion         = "key_region"
 	codeKeyUnreadable     = "key_unreadable"
 	codeCheckUnavailable  = "check_unavailable"
 	codeCannotContinue    = "cannot_continue"

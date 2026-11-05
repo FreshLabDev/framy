@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/FreshLabDev/framy/internal/catalog"
@@ -25,10 +26,15 @@ var (
 	ErrRejected = errors.New("the provider does not accept this key")
 	// ErrForbidden: the provider knows the key but refuses it the list of
 	// models, a 403. The key may be restricted to other calls, or to other
-	// addresses, or framy's region may be one the provider does not serve. A
-	// restricted OpenAI key that cannot list models might still generate;
-	// the list is all a check can see, so nothing is said of such a key.
+	// addresses. A restricted OpenAI key that cannot list models might still
+	// generate; the list is all a check can see, so nothing is said of such
+	// a key.
 	ErrForbidden = errors.New("the provider refuses this key the list of models")
+	// ErrRegion: the provider does not serve the country framy's server is
+	// in: Gemini's 400 "User location is not supported", OpenAI's 403
+	// unsupported_country_region_territory. Nothing is known of the key, and
+	// no run on it could go until the server's address changes.
+	ErrRegion = errors.New("the provider does not serve the country framy's server is in")
 	// ErrUnavailable: the check did not reach an answer about the key: the
 	// network, a 429 or a 5xx. Nothing is known; try again.
 	ErrUnavailable = errors.New("the key could not be checked just now")
@@ -108,12 +114,45 @@ func verdict(provider string, status int, body []byte) error {
 	case status == http.StatusBadRequest && provider == catalog.Gemini && geminiKeyInvalid(body):
 		// Google answers a bad key with a 400, not a 401.
 		return ErrRejected
+	case regionRefused(provider, status, body):
+		// Not the key: framy's server, which the person cannot change.
+		return ErrRegion
 	case status == http.StatusForbidden:
 		return ErrForbidden
 	}
 	// A 429, a 5xx, or something this code does not expect: it says nothing
 	// about the key.
 	return fmt.Errorf("%w: %s answered %d", ErrUnavailable, name, status)
+}
+
+// locationWords are what Google's 400 says when it does not serve the
+// country a request came from, as the Gemini adapter reads it.
+var locationWords = regexp.MustCompile(`(?i)\blocation is not supported\b`)
+
+// regionRefused reads the answer of a provider that does not serve the
+// country framy's server is in: Gemini's 400 FAILED_PRECONDITION "User
+// location is not supported for the API use", OpenAI's 403 with the code
+// unsupported_country_region_territory. Only the code and the message are
+// looked at.
+func regionRefused(provider string, status int, body []byte) bool {
+	var e struct {
+		Error struct {
+			// A number in Google's RPC form, a string at OpenAI.
+			Code    json.RawMessage `json:"code"`
+			Message string          `json:"message"`
+		} `json:"error"`
+	}
+	if json.NewDecoder(bytes.NewReader(body)).Decode(&e) != nil {
+		return false
+	}
+	switch {
+	case provider == catalog.Gemini && status == http.StatusBadRequest:
+		return locationWords.MatchString(e.Error.Message)
+	case provider == catalog.OpenAI && status == http.StatusForbidden:
+		var code string
+		return json.Unmarshal(e.Error.Code, &code) == nil && code == "unsupported_country_region_territory"
+	}
+	return false
 }
 
 // geminiKeyInvalid reads Google's error: reason API_KEY_INVALID in the

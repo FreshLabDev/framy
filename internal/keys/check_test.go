@@ -104,6 +104,7 @@ func TestCheckVerdicts(t *testing.T) {
 		{"OpenAI errs", catalog.OpenAI, 500, openAIUnauthorized, ErrUnavailable},
 		{"OpenAI is not found", catalog.OpenAI, 404, ``, ErrUnavailable},
 		{"OpenAI redirects", catalog.OpenAI, 302, ``, ErrUnavailable},
+		{"OpenAI does not serve the server's country", catalog.OpenAI, 403, `{"error":{"code":"unsupported_country_region_territory","message":"Country, region, or territory not supported","param":null,"type":"request_forbidden"}}`, ErrRegion},
 
 		{"Gemini accepts", catalog.Gemini, 200, `{}`, nil},
 		{"Gemini says the key is invalid", catalog.Gemini, 400, geminiBadKey, ErrRejected},
@@ -114,6 +115,8 @@ func TestCheckVerdicts(t *testing.T) {
 		{"Gemini 401", catalog.Gemini, 401, `{"error":{"status":"UNAUTHENTICATED"}}`, ErrRejected},
 		{"Gemini 403", catalog.Gemini, 403, `{"error":{"status":"PERMISSION_DENIED"}}`, ErrForbidden},
 		{"Gemini 429", catalog.Gemini, 429, `{"error":{"status":"RESOURCE_EXHAUSTED"}}`, ErrUnavailable},
+		{"Gemini does not serve the server's country", catalog.Gemini, 400, `{"error":{"code":400,"message":"User location is not supported for the API use.","status":"FAILED_PRECONDITION"}}`, ErrRegion},
+		{"Gemini's words on another provider", catalog.OpenAI, 400, `{"error":{"message":"User location is not supported for the API use."}}`, ErrUnavailable},
 
 		{"OpenRouter accepts", catalog.OpenRouter, 200, `{"data":{}}`, nil},
 		{"OpenRouter does not know the key", catalog.OpenRouter, 401, `{"error":{"message":"User not found.","code":401}}`, ErrRejected},
