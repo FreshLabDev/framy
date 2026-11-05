@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/jpeg"
 	"image/png"
 	"io"
 	"log/slog"
@@ -601,6 +602,45 @@ func TestAResultThatIsNotMediaIsRefused(t *testing.T) {
 		t.Errorf("objects kept: %v", keys)
 	}
 	h.workIsEmpty(t)
+}
+
+// A provider that names the wrong type does not give the file the wrong
+// extension and type: the bytes decide, from the answer and from a link.
+func TestAResultIsKeptAsItsBytesSay(t *testing.T) {
+	h := newHarness(t, storage.Config{})
+	ctx := context.Background()
+	var jobID int64
+	if err := h.pool.QueryRow(ctx, `
+		INSERT INTO framy.job (user_id, surface, offer_id, model_id, provider, kind, status, finished_at)
+		VALUES ($1, 'site', $2, 'test/image', 'openrouter', 'image', 'done', now()) RETURNING id`, alice, offer.ID).Scan(&jobID); err != nil {
+		t.Fatal(err)
+	}
+	var jpg bytes.Buffer
+	if err := jpeg.Encode(&jpg, image.NewGray(image.Rect(0, 0, 12, 9)), nil); err != nil {
+		t.Fatal(err)
+	}
+	links := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(jpg.Bytes())
+	}))
+	defer links.Close()
+	err := h.store.Keep(ctx, jobs.Job{ID: jobID, UserID: alice}, []jobs.Result{
+		{ContentType: "image/png", Data: jpg.Bytes()},
+		{ContentType: "image/webp", URL: links.URL},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := h.store.Results(ctx, jobID)
+	if err != nil || len(got) != 2 {
+		t.Fatalf("%v %v", got, err)
+	}
+	for _, a := range got {
+		o, ok := h.bucket.Get(a.Key)
+		if a.ContentType != "image/jpeg" || !strings.HasSuffix(a.Key, ".jpg") || a.Width != 12 || !ok || o.ContentType != "image/jpeg" {
+			t.Errorf("kept %s as %s (%dx%d), served as %q", a.Key, a.ContentType, a.Width, a.Height, o.ContentType)
+		}
+	}
 }
 
 func TestTheOperatorHearsWhenTheBucketPassesAStep(t *testing.T) {

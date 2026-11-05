@@ -7,6 +7,10 @@ import (
 
 func TestResultType(t *testing.T) {
 	png := []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR")
+	jpeg := []byte("\xff\xd8\xff\xe0\x00\x10JFIF\x00")
+	webp := []byte("RIFF\x24\x00\x00\x00WEBPVP8 ")
+	gif := []byte("GIF89a\x01\x00\x01\x00")
+	webm := []byte("\x1a\x45\xdf\xa3\x9f\x42\x86\x81\x01")
 	mp4 := []byte("\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2")
 	mov := []byte("\x00\x00\x00\x14ftypqt  \x00\x00\x02\x00qt  ")
 	for _, c := range []struct {
@@ -14,7 +18,16 @@ func TestResultType(t *testing.T) {
 		head           []byte
 		want           string
 	}{
-		{"declared", "image/webp", png, "image/webp"},
+		// The bytes win over a provider that names the wrong type.
+		{"a png called webp", "image/webp", png, "image/png"},
+		{"a webp called png", "image/png", webp, "image/webp"},
+		{"a jpeg called png", "image/png", jpeg, "image/jpeg"},
+		{"a jpeg called jpg", "image/jpg", jpeg, "image/jpeg"},
+		{"a webm called mp4", "video/mp4", webm, "video/webm"},
+		{"a gif called png", "image/png", gif, "image/gif"},
+		// Bytes framy cannot tell keep the provider's word.
+		{"declared, bytes unknown", "image/bmp", []byte("BM\x00\x00"), "image/bmp"},
+		{"declared, text", "text/html", []byte("<html>an error page</html>"), "text/html"},
 		{"generic, a png", "application/octet-stream", png, "image/png"},
 		{"none, a png", "", png, "image/png"},
 		{"none, an mp4", "", mp4, "video/mp4"},

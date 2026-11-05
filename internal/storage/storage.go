@@ -368,6 +368,7 @@ func (s *Store) keep(ctx context.Context, j jobs.Job, i int, r jobs.Result) erro
 	switch {
 	case r.Data != nil:
 		a.ContentType = resultType(r.ContentType, r.Data)
+		s.noteType(j, r.ContentType, a.ContentType)
 		if err := s.checkType(a.ContentType); err != nil {
 			return err
 		}
@@ -390,14 +391,18 @@ func (s *Store) keep(ctx context.Context, j jobs.Job, i int, r jobs.Result) erro
 			return err
 		}
 		defer done()
-		path, contentType, err := s.download(ctx, r.URL, dir)
+		path, served, head, err := s.download(ctx, r.URL, dir)
 		if err != nil {
 			return err
 		}
-		a.ContentType = contentType
-		if r.ContentType != "" {
-			a.ContentType = r.ContentType
+		// What the provider's answer said of the file, and else what its
+		// link served it as; the bytes decide over both.
+		declared := r.ContentType
+		if generic(declared) {
+			declared = served
 		}
+		a.ContentType = resultType(declared, head)
+		s.noteType(j, declared, a.ContentType)
 		if err := s.checkType(a.ContentType); err != nil {
 			return err
 		}
@@ -568,48 +573,57 @@ func (s *Store) fillThumb(ctx context.Context) (found, made bool, err error) {
 	return true, false, err
 }
 
-// download fetches a provider's link into dir under the result limit.
-func (s *Store) download(ctx context.Context, link, dir string) (path, contentType string, err error) {
+// noteType logs a result whose bytes are not what its provider called
+// them, so a provider that says the wrong type can be told.
+func (s *Store) noteType(j jobs.Job, declared, kept string) {
+	if !generic(declared) && declared != kept {
+		s.log.Info("a result's bytes are not the type its provider named", "job", j.ID, "named", declared, "kept_as", kept)
+	}
+}
+
+// download fetches a provider's link into dir under the result limit, and
+// says the type the link served it as and its first bytes.
+func (s *Store) download(ctx context.Context, link, dir string) (path, served string, head []byte, err error) {
 	ctx, cancel := context.WithTimeout(ctx, DefaultFetchTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, link, nil)
 	if err != nil {
-		return "", "", fmt.Errorf("the result's link: %w", err)
+		return "", "", nil, fmt.Errorf("the result's link: %w", err)
 	}
 	resp, err := s.fetch.Do(req)
 	if err != nil {
 		// The provider's link may carry a token: the error names the host
 		// only.
-		return "", "", fmt.Errorf("fetch the result from %s: %w", host(link), unwrapURL(err))
+		return "", "", nil, fmt.Errorf("fetch the result from %s: %w", host(link), unwrapURL(err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("fetch the result from %s: %d", host(link), resp.StatusCode)
+		return "", "", nil, fmt.Errorf("fetch the result from %s: %d", host(link), resp.StatusCode)
 	}
 	if resp.ContentLength > s.cfg.MaxResult {
-		return "", "", fmt.Errorf("the result is %d bytes, over %d", resp.ContentLength, s.cfg.MaxResult)
+		return "", "", nil, fmt.Errorf("the result is %d bytes, over %d", resp.ContentLength, s.cfg.MaxResult)
 	}
 	path = filepath.Join(dir, "result")
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
-	head := &headBuffer{max: 512}
-	n, err := io.Copy(io.MultiWriter(f, head), io.LimitReader(resp.Body, s.cfg.MaxResult+1))
+	buf := &headBuffer{max: 512}
+	n, err := io.Copy(io.MultiWriter(f, buf), io.LimitReader(resp.Body, s.cfg.MaxResult+1))
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
 	switch {
 	case err != nil:
-		return "", "", fmt.Errorf("fetch the result from %s: %w", host(link), unwrapURL(err))
+		return "", "", nil, fmt.Errorf("fetch the result from %s: %w", host(link), unwrapURL(err))
 	case n > s.cfg.MaxResult:
-		return "", "", fmt.Errorf("the result is over %d bytes", s.cfg.MaxResult)
+		return "", "", nil, fmt.Errorf("the result is over %d bytes", s.cfg.MaxResult)
 	}
-	contentType = resp.Header.Get("Content-Type")
-	if mt, _, err := mime.ParseMediaType(contentType); err == nil {
-		contentType = mt
+	served = resp.Header.Get("Content-Type")
+	if mt, _, err := mime.ParseMediaType(served); err == nil {
+		served = mt
 	}
-	return path, resultType(contentType, head.b), nil
+	return path, served, buf.b, nil
 }
 
 // putFile hashes the file at path and puts it under a.Key.
@@ -1097,12 +1111,25 @@ func (s *Store) checkBucket(ctx context.Context) {
 	}
 }
 
-// resultType keeps a provider's type unless it is missing or generic, and
-// reads the bytes then.
+// resultType is what a result is. Its first bytes decide when they name a
+// format framy knows: a provider's word can be wrong, a WebP sent as
+// image/png, and the file would be kept and served under the wrong type
+// and extension. The provider's type is kept for bytes framy cannot tell,
+// and Go's sniffing has the last word when that type is missing or
+// generic.
 func resultType(declared string, head []byte) string {
-	if declared != "" && declared != "application/octet-stream" && declared != "binary/octet-stream" {
+	if t := sniffType(head); t != "" {
+		return t
+	}
+	if !generic(declared) {
 		return declared
 	}
+	return http.DetectContentType(head)
+}
+
+// sniffType names the picture or video whose first bytes are head, of the
+// formats framy knows, or "".
+func sniffType(head []byte) string {
 	if f := media.Sniff(head); f != "" {
 		return "image/" + string(f)
 	}
@@ -1118,7 +1145,16 @@ func resultType(declared string, head []byte) string {
 		}
 		return "video/mp4"
 	}
-	return http.DetectContentType(head)
+	switch t := http.DetectContentType(head); t {
+	case "image/gif", "video/webm":
+		return t
+	}
+	return ""
+}
+
+// generic: a type that says nothing of what the file is.
+func generic(contentType string) bool {
+	return contentType == "" || contentType == "application/octet-stream" || contentType == "binary/octet-stream"
 }
 
 func resultKey(prefix string, j jobs.Job, i int, contentType string) string {
