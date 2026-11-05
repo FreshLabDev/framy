@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"image/png"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/chromedp/cdproto/accessibility"
@@ -476,4 +477,28 @@ func TestBrowserLowWindow(t *testing.T) {
 			t.Errorf("%s: %v", c.name, got)
 		}
 	}
+}
+
+// TestBrowserReducedMotion checks the style sheet against the rule of the
+// site's motion: what moves (a transition of transform, or of all) is
+// declared only under prefers-reduced-motion: no-preference, so a person who
+// asked for less motion sees nothing slide, the switches' knobs included.
+func TestBrowserReducedMotion(t *testing.T) {
+	ts := fakeAPI(t)
+	ctx := browserAs(t, ts.URL, 390, 844, opened{phone: true, media: map[string]string{"prefers-reduced-motion": "reduce"}})
+	got := js[[]string](t, ctx, `
+	const bad = [], moves = /(^|,)\s*(all|transform|translate|scale|rotate)\s*(,|$)/;
+	const walk = (rules, quiet) => {
+	  for (const r of rules) {
+	    if (r instanceof CSSImportRule) { if (r.styleSheet) walk(r.styleSheet.cssRules, quiet); continue; }
+	    if (r instanceof CSSStyleRule && quiet && moves.test(r.style.transitionProperty || "")) bad.push(r.selectorText + " {transition: " + r.style.transition + "}");
+	    if (r.cssRules) walk(r.cssRules, quiet && !(r instanceof CSSMediaRule && /prefers-reduced-motion:\s*no-preference/.test(r.media.mediaText)));
+	  }
+	};
+	for (const s of document.styleSheets) walk(s.cssRules, true);
+	return bad;`)
+	if len(got) > 0 {
+		t.Errorf("moves outside prefers-reduced-motion: no-preference:\n%s", strings.Join(got, "\n"))
+	}
+	noErrors(t, ctx)
 }

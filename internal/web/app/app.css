@@ -155,7 +155,7 @@ textarea#prompt::placeholder {color: var(--muted);}
 .rng {display: grid;}
 .tog {justify-self: start; display: inline-flex; align-items: center; gap: 12px; height: 44px; font-size: 14px; font-weight: 600; color: var(--muted);}
 .tog .knob {position: relative; width: 36px; height: 20px; background: var(--deep); flex: none;}
-.tog .knob::after {content: ""; position: absolute; top: 4px; left: 4px; width: 12px; height: 12px; background: var(--muted); transition: transform .18s, background .18s;}
+.tog .knob::after {content: ""; position: absolute; top: 4px; left: 4px; width: 12px; height: 12px; background: var(--muted);}
 .tog[aria-checked="true"] {color: var(--ink);}
 .tog[aria-checked="true"] .knob {background: var(--ink);}
 .tog[aria-checked="true"] .knob::after {transform: translateX(16px); background: var(--field);}
@@ -375,6 +375,7 @@ input.search::placeholder {color: var(--muted);}
 @media (prefers-reduced-motion: no-preference) {
   .seg > button, .rt, .pill, .vl, .frow, .rcard, .acts button, .link, .ib, .addfile, .me, .morebtn, .mhead, .x, .chipbtn {transition: background-color .16s, color .16s;}
   .go {transition: transform .14s, background-color .16s;}
+  .tog .knob::after {transition: transform .18s, background-color .18s;}
   .go:active:not(:disabled) {transform: scale(.97);}
   .acts button:active, .pill:active, .rcard:active, .mhead:active, .choose:active, .chipbtn:active {transform: translateY(1px);}
   .morebtn .chev {transition: transform .32s cubic-bezier(.34,1.5,.55,1);}
