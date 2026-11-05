@@ -439,10 +439,52 @@ func TestCheckReadsTheWholeCatalog(t *testing.T) {
 		Prices: []catalog.Price{{Billable: "output_hologram", Unit: "image", CostUSD: 1}},
 		SKUs:   map[string]string{"cents_per_vibe": "3"},
 	}}}}}}}
-	if got := Check(broken); len(got) != 2 {
-		t.Fatalf("check = %v, want the billable and the SKU", got)
+	if got := Check(broken); len(got) != 3 || !strings.Contains(got[2], "no price before the run") {
+		t.Fatalf("check = %v, want the billable, the SKU and the price it leaves unknown", got)
 	}
 }
+
+// A model that only shows "$?" or leaves a part out says so in the sync's
+// log, before someone sees it in the picker.
+func TestCheckFindsWhatGoesUnpriced(t *testing.T) {
+	refs := map[string]catalog.Param{"input_references": {Type: catalog.Range, Min: ptr(0.0), Max: ptr(4.0)}}
+	for _, tc := range []struct {
+		name  string
+		model catalog.Model
+		want  []string
+	}{
+		// GPT Image 2.6 on 4 November: tokens of the output image and no
+		// count of them in the overlay.
+		{"output tokens without a count", catalog.Model{ID: "openai/gpt-image-9", Offers: []catalog.Offer{{ID: "openrouter:openai/gpt-image-9", Kind: catalog.Image, Routes: []catalog.Route{{
+			Prices: []catalog.Price{{Billable: "output_image", Unit: "token", CostUSD: 3e-5}},
+		}}}}}, []string{"openrouter:openai/gpt-image-9 has no price before the run at its default settings: the tokens of the output image"}},
+		{"input tokens without a count", catalog.Model{ID: "google/gemini-9-image", Traits: catalog.Traits{Price: &catalog.PriceHints{Tokens: map[string]map[string]int{"output_image": {"*": 1120}}}}, Offers: []catalog.Offer{{ID: "gemini:gemini-9-image", Kind: catalog.Image, Params: refs, Routes: []catalog.Route{{
+			Prices: []catalog.Price{{Billable: "output_image", Unit: "token", CostUSD: 3e-5}, {Billable: "input_image", Unit: "token", CostUSD: 1e-6}, {Billable: "output_text", Unit: "token", CostUSD: 1e-5}},
+		}}}}}, []string{"gemini:gemini-9-image cannot price a reference: the tokens of the input images"}},
+		{"a SKU word nobody named", catalog.Model{ID: "bfl/upscale", Traits: catalog.Traits{SourceVideo: &catalog.SourceVideo{Required: true, KeepsLength: true}}, Offers: []catalog.Offer{{ID: "openrouter:bfl/upscale", Kind: catalog.Video, Routes: []catalog.Route{{
+			SKUs: map[string]string{"cents_per_megapixel_second_precise": "3.5", "cents_per_megapixel_second_creative": "5"},
+		}}}}}, []string{
+			"openrouter:bfl/upscale: SKU cents_per_megapixel_second_creative says creative, which the estimate does not read; name its settings in price.variants",
+			"openrouter:bfl/upscale: SKU cents_per_megapixel_second_precise says precise, which the estimate does not read; name its settings in price.variants",
+		}},
+		{"a long SKU without its length", catalog.Model{ID: "heygen/x", Offers: []catalog.Offer{{ID: "openrouter:heygen/x", Kind: catalog.Video, Params: map[string]catalog.Param{"duration": {Type: catalog.Enum, Values: []any{5.0, 20.0}}}, Routes: []catalog.Route{{
+			SKUs: map[string]string{"duration_seconds": "0.02", "long_duration_seconds": "0.045"},
+		}}}}}, []string{"openrouter:heygen/x: SKU long_duration_seconds is for long videos; say from how long in price.long"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Check(catalog.Snapshot{Models: []catalog.Model{tc.model}})
+			var want []string
+			for _, w := range tc.want {
+				want = append(want, "price: "+w)
+			}
+			if !slices.Equal(got, want) {
+				t.Errorf("check = %q\nwant    %q", got, want)
+			}
+		})
+	}
+}
+
+func ptr[T any](v T) *T { return &v }
 
 // Every offer people can pick gets an estimate for its first settings,
 // whatever they are, and only the known gaps have no price before the run.
