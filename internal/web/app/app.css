@@ -201,11 +201,13 @@ input[type="range"]::-moz-range-thumb {width: 20px; height: 20px; background: va
 .price {flex: 1; min-width: 0; display: grid; gap: 2px;}
 .pnum {justify-self: start; display: inline-flex; overflow: hidden; font: 700 32px/1.08 var(--display); font-variant-numeric: tabular-nums;}
 .pnum.usd {cursor: help; border-bottom: 2px dotted var(--muted);}
+.pnum > .w {white-space: pre;}
+.pnum > .amt {display: inline-flex; direction: ltr;}
 .pnum .ch {position: relative; display: inline-block; white-space: pre;}
 .pnum .ch > span {display: inline-block;}
 .pnum .ch > .o {position: absolute; left: 0; top: 0;}
 .pnum {position: relative;}
-.pnum > .whole {position: absolute; left: 0; top: 0; white-space: pre; pointer-events: none;}
+.pnum > .whole {position: absolute; inset-inline-start: 0; top: 0; white-space: pre; pointer-events: none;}
 #pcap s.was {color: var(--muted);}
 #pcap b.off {color: var(--ink); font-weight: 700;}
 #pcap {font-size: 14px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 1.4em;}

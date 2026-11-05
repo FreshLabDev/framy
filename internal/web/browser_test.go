@@ -147,6 +147,14 @@ try { new PerformanceObserver((l) => { for (const e of l.getEntries()) __long.pu
 // browser opens the page in a fresh headless Chrome of the given size.
 func browser(t *testing.T, url string, w, h int64, phone bool) context.Context {
 	t.Helper()
+	return browserInit(t, url, w, h, phone, "")
+}
+
+// browserInit is browser with a script of the test's own that runs before
+// the page's first line, as watch does: a language to open in, a fetch to
+// change.
+func browserInit(t *testing.T, url string, w, h int64, phone bool, init string) context.Context {
+	t.Helper()
 	// No sandbox: the runners of CI do not allow Chrome's, and the page is our own.
 	opts := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.WindowSize(int(w), int(h)), chromedp.NoSandbox)
 	if p := os.Getenv("CHROME_PATH"); p != "" {
@@ -162,7 +170,7 @@ func browser(t *testing.T, url string, w, h int64, phone bool) context.Context {
 	err := chromedp.Do(ctx,
 		chromedp.EmulateViewport(w, h, vp...),
 		chromedp.Func(func(ctx context.Context, tg *chromedp.Target) error {
-			_, err := cdp.Call(ctx, tg, page.AddScriptToEvaluateOnNewDocument, page.AddScriptToEvaluateOnNewDocumentParams{Source: watch})
+			_, err := cdp.Call(ctx, tg, page.AddScriptToEvaluateOnNewDocument, page.AddScriptToEvaluateOnNewDocumentParams{Source: watch + init})
 			return err
 		}),
 		chromedp.Navigate(url),

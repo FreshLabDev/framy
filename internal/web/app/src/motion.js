@@ -200,25 +200,48 @@ export function ticker(box, oldText, dir = 1) {
   a.finished.then(done, done);
 }
 
+// The amount of a price, the part that rolls by characters: "$0.061" of "≈ $0.061", "0.077" of
+// "0.077 zł". The words around it ("≈", "حتى", "from") stay whole. A currency's sign goes with the
+// figures it touches, except in a right-to-left line after an Arabic word: there the figures are an
+// Arabic number, which the sign does not join (Unicode's bidi rules W2 and W5), and the line places
+// the sign as it places a word.
+const FIGURES = /\d(?:[\d.,]*\d)?/, SIGN = /^\p{Sc}$/u, ARABIC = /(?=\p{L})\p{Script=Arabic}/u;
+function amountOf(s) {
+  const m = s.match(FIGURES);
+  if (!m) return [s, "", ""];
+  let a = m.index, b = a + m[0].length;
+  if (!(document.documentElement.dir === "rtl" && ARABIC.test(s.slice(0, a)))) {
+    if (a > 0 && SIGN.test(s[a - 1])) a--;
+    if (b < s.length && SIGN.test(s[b])) b++;
+  }
+  return [s.slice(0, a), s.slice(a, b), s.slice(b)];
+}
+
 // The price is an odometer: only the characters that change roll, right to left, up when it grows.
+// A figure reads left to right in every language, so the amount is a box of its own that keeps that
+// order inside a right-to-left line, and the words beside it are whole, so Arabic letters join and
+// the line places them as it places any text.
 export function roll(el, text, dir) {
   const old = el.dataset.t || "";
   el.dataset.t = text;
   el.setAttribute("aria-label", text);
-  el.replaceChildren(...[...text].map((c) => h("span", { class: "ch", "aria-hidden": "true" }, h("span", {}, c))));
+  const [pre, amt, post] = amountOf(text);
+  const word = (s) => s && h("span", { class: "w", "aria-hidden": "true" }, s);
+  const box = amt && h("span", { class: "amt", "aria-hidden": "true" }, [...amt].map((c) => h("span", { class: "ch" }, h("span", {}, c))));
+  el.replaceChildren(...[word(pre), box, word(post)].filter(Boolean));
   if (!motion() || !old || old === text) return;
   dir = dir || 1;
-  const shape = (s) => (/\d/.test(s) ? s.replace(/\d/g, "") : null);
-  if (shape(old) === null || shape(old) !== shape(text)) {
+  const [opre, oamt, opost] = amountOf(old), shape = (s) => s.replace(/\d/g, "");
+  if (!amt || !oamt || opre !== pre || opost !== post || shape(oamt) !== shape(amt)) {
     // "Free" and "≈ $0.04" have nothing in common: the old line leaves whole, the new one comes in whole.
     const g = h("span", { class: "whole", "aria-hidden": "true" }, old);
     el.append(g);
     g.animate([{ transform: "none", opacity: 1 }, { transform: `translateY(${-dir * 60}%)`, opacity: 0 }],
       { duration: 150, easing: "cubic-bezier(.4,0,1,1)", fill: "forwards" }).finished.then(() => g.remove(), () => g.remove());
-    for (const col of el.children) if (col !== g) col.firstChild.animate([{ transform: `translateY(${dir * 60}%)`, opacity: 0 }, { transform: "none", opacity: 1 }], { duration: 340, delay: 150, easing: SNAP, fill: "backwards" });
+    for (const part of el.children) if (part !== g) part.animate([{ transform: `translateY(${dir * 60}%)`, opacity: 0 }, { transform: "none", opacity: 1 }], { duration: 340, delay: 150, easing: SNAP, fill: "backwards" });
     return;
   }
-  const a = [...old], b = [...text], cols = el.children;
+  const a = [...oamt], b = [...amt], cols = box.children;
   let k = 0;
   for (let i = b.length - 1; i >= 0; i--) {
     const oc = a[a.length - (b.length - i)];
