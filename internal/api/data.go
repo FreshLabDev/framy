@@ -409,9 +409,10 @@ func (d pgData) Continuation(ctx context.Context, userID, id int64) (Continuatio
 
 // cleared is what a deleted job keeps: its kind, offer, payer, status,
 // costs and times, which the free allowance, its budget and the per-person
-// limits count. Everything the person wrote or got goes.
-const cleared = `deleted_at = now(), prompt = '', settings = '{}', error = NULL, grounding = NULL,
-	chat_id = NULL, message_id = NULL, updated_at = now()`
+// limits count. Everything the person wrote or got goes, the provider's own
+// words about a refusal too: they may quote the prompt or describe a photo.
+const cleared = `deleted_at = now(), prompt = '', settings = '{}', error = NULL, provider_message = NULL,
+	grounding = NULL, chat_id = NULL, message_id = NULL, updated_at = now()`
 
 func (d pgData) Remove(ctx context.Context, userID, id int64) error {
 	return pgx.BeginFunc(ctx, d.pool, func(tx pgx.Tx) error {

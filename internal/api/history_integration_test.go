@@ -26,10 +26,11 @@ func aJob(t *testing.T, pool *pgxpool.Pool, user int64, status, kind, prompt str
 	var id int64
 	err := pool.QueryRow(context.Background(), `
 		INSERT INTO job (user_id, surface, offer_id, model_id, provider, kind, prompt, settings, free, status,
-		                 chat_id, message_id, error, error_class, queued_at, finished_at)
+		                 chat_id, message_id, error, error_class, provider_message, queued_at, finished_at)
 		VALUES ($1, 'site', $2, $3, 'openrouter', $4, $5, '{"n": 1}', $6, $7,
 		        42, 7, CASE WHEN $7 = 'failed' THEN 'the provider said no' END,
 		        CASE WHEN $7 = 'failed' THEN 'moderation' END,
+		        CASE WHEN $7 = 'failed' THEN 'The input image may contain ' || $5 END,
 		        CASE WHEN $7 <> 'draft' THEN now() END,
 		        CASE WHEN $7 IN ('done', 'failed', 'cancelled', 'expired') THEN now() END)
 		RETURNING id`, user, offer, model, kind, prompt, isFree, status).Scan(&id)
@@ -176,14 +177,15 @@ func TestARemovedJobIsClearedButStillCountsAsFree(t *testing.T) {
 		}
 	}
 	var prompt, settings string
-	var errText, chat *string
+	var errText, said, chat *string
 	var class *string
-	if err := pool.QueryRow(ctx, `SELECT prompt, settings::text, error, chat_id::text, error_class FROM job WHERE id = $1 AND deleted_at IS NOT NULL`, refused).
-		Scan(&prompt, &settings, &errText, &chat, &class); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT prompt, settings::text, error, provider_message, chat_id::text, error_class FROM job WHERE id = $1 AND deleted_at IS NOT NULL`, refused).
+		Scan(&prompt, &settings, &errText, &said, &chat, &class); err != nil {
 		t.Fatal(err)
 	}
-	if prompt != "" || settings != "{}" || errText != nil || chat != nil {
-		t.Errorf("left: %q %s %v %v", prompt, settings, errText, chat)
+	// The provider's words may quote the prompt: they go with it.
+	if prompt != "" || settings != "{}" || errText != nil || said != nil || chat != nil {
+		t.Errorf("left: %q %s %v %v %v", prompt, settings, errText, said, chat)
 	}
 	if class == nil || *class != string(jobs.Moderation) {
 		t.Errorf("the class the allowance counts went: %v", class)
@@ -242,6 +244,7 @@ func TestForgettingAnAccount(t *testing.T) {
 	exec(t, pool, `INSERT INTO oauth_state (state_hash, user_id, provider, verifier, expires_at)
 		VALUES (sha256('s'), 1001, 'openrouter', 'v', now() + interval '10 minutes')`)
 	done := aJob(t, pool, alice, "done", "image", "a fox", false)
+	refused := aJob(t, pool, alice, "failed", "image", "a refused fox", false)
 	draft := aJob(t, pool, alice, "draft", "image", "a draft fox", false)
 	running := aJob(t, pool, alice, "running", "image", "a running fox", false)
 	bobs := aJob(t, pool, bob, "done", "image", "bob's fox", false)
@@ -283,8 +286,10 @@ func TestForgettingAnAccount(t *testing.T) {
 			}
 		}
 	}
-	if n := count(`SELECT count(*) FROM job WHERE id = ANY($1) AND deleted_at IS NOT NULL AND prompt = ''`, []int64{done, draft, running}); n != 3 {
-		t.Errorf("%d of alice's 3 jobs cleared", n)
+	cleared := `SELECT count(*) FROM job WHERE id = ANY($1) AND deleted_at IS NOT NULL AND prompt = '' AND settings = '{}'
+		AND error IS NULL AND provider_message IS NULL AND grounding IS NULL AND chat_id IS NULL AND message_id IS NULL`
+	if n := count(cleared, []int64{done, refused, draft, running}); n != 4 {
+		t.Errorf("%d of alice's 4 jobs cleared", n)
 	}
 	if n := count(`SELECT count(*) FROM job WHERE id = $1 AND status = 'cancelled'`, draft); n != 1 {
 		t.Error("the draft was not cancelled")
