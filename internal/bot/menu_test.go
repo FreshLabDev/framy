@@ -2,9 +2,13 @@
 package bot
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"log/slog"
 	"strings"
 	"testing"
+	"time"
 	"unicode"
 	"unicode/utf16"
 
@@ -454,6 +458,81 @@ func TestProfileIsPublishedPerLanguageAndWrittenOnlyOnChange(t *testing.T) {
 	b.publishProfile(ctx)
 	if client.writes != first {
 		t.Fatalf("a restart wrote %d unchanged texts again", client.writes-first)
+	}
+}
+
+// sleeps has the bot's waits end at once, and records them.
+func sleeps(b *Bot) *[]time.Duration {
+	var waited []time.Duration
+	b.sleep = func(ctx context.Context, d time.Duration) bool {
+		waited = append(waited, d)
+		return ctx.Err() == nil
+	}
+	return &waited
+}
+
+// A language Telegram refuses is that language's alone: every other is
+// published, and so are the rest of its own menus and texts. It is tried
+// once more a minute later, and what is still refused then is logged once,
+// by language. Before, the first refusal left every language after it with
+// no description and no menu until the next restart.
+func TestALanguageTelegramRefusesLeavesTheOthersPublished(t *testing.T) {
+	var logs bytes.Buffer
+	b, _, client := buildBot(slog.New(slog.NewTextHandler(&logs, nil)))
+	waited := sleeps(b)
+	tooLong := &tg.APIError{Method: "setMyDescription", StatusCode: 400, ErrorCode: 400, Description: "Bad Request: description is too long"}
+	client.profileErrs["description/de"] = []error{tooLong, tooLong}
+	client.profileErrs["all_group_chats/pl"] = []error{errors.New("connection reset")}
+	b.publishProfile(context.Background())
+	for _, code := range append([]string{""}, i18n.Codes()...) {
+		if len(client.commands["all_private_chats/"+code]) != 1 || len(client.commands["all_group_chats/"+code]) != 3 {
+			t.Fatalf("%q: commands %+v", code, client.commands)
+		}
+		if client.profile["short_description/"+code] == "" || code != "de" && client.profile["description/"+code] == "" {
+			t.Fatalf("%q: profile %v", code, client.profile)
+		}
+	}
+	if client.profile["description/de"] != "" {
+		t.Fatal("the German description was published")
+	}
+	if len(*waited) != 1 || (*waited)[0] != profileAgainAfter {
+		t.Fatalf("waited %v", *waited)
+	}
+	if !strings.Contains(logs.String(), "level=WARN msg=\"bot profile not published in every language\" languages=[de] of=17") ||
+		strings.Contains(logs.String(), "commands and descriptions published") {
+		t.Fatalf("logs:\n%s", logs.String())
+	}
+}
+
+// Telegram still asking to wait after tg waited once is a limit on the bot:
+// the languages after it are not sent into it, and all of them go once the
+// wait Telegram asked for is over.
+func TestAWaitTelegramAsksForHoldsTheRestOfTheProfile(t *testing.T) {
+	var logs bytes.Buffer
+	b, _, client := buildBot(slog.New(slog.NewTextHandler(&logs, nil)))
+	waited := sleeps(b)
+	client.profileErrs["all_private_chats/ru"] = []error{&tg.APIError{Method: "setMyCommands", StatusCode: 429, ErrorCode: 429, Description: "Too Many Requests: retry after 300", RetryAfter: 5 * time.Minute}}
+	b.publishProfile(context.Background())
+	if len(*waited) != 1 || (*waited)[0] != 5*time.Minute {
+		t.Fatalf("waited %v", *waited)
+	}
+	for _, code := range append([]string{""}, i18n.Codes()...) {
+		if len(client.commands["all_private_chats/"+code]) != 1 || client.profile["description/"+code] == "" {
+			t.Fatalf("%q was not published", code)
+		}
+	}
+	if !strings.Contains(logs.String(), "bot commands and descriptions published") {
+		t.Fatalf("logs:\n%s", logs.String())
+	}
+
+	// A stop during the wait ends it there, with nothing more sent or said.
+	b, _, client = buildBot(quiet())
+	ctx, stop := context.WithCancel(context.Background())
+	b.sleep = func(context.Context, time.Duration) bool { stop(); return false }
+	client.profileErrs["all_private_chats/ru"] = []error{&tg.APIError{Method: "setMyCommands", StatusCode: 429, ErrorCode: 429, RetryAfter: time.Minute}}
+	b.publishProfile(ctx)
+	if len(client.commands["all_private_chats/ru"]) != 0 || len(client.commands["all_private_chats/uk"]) != 0 {
+		t.Fatalf("sent after the stop: %v", client.commands)
 	}
 }
 

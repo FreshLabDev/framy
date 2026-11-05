@@ -88,8 +88,9 @@ type Bot struct {
 	flow Flow
 	// grace is how long the updates already taken are worked after a stop.
 	grace time.Duration
-	// now is the clock.
+	// now is the clock, and sleep waits on it until ctx ends: false then.
 	now         func() time.Time
+	sleep       func(ctx context.Context, d time.Duration) bool
 	lastPoll    atomic.Int64
 	initialized atomic.Bool
 
@@ -164,7 +165,7 @@ func WithAlbumSweep() Option { return func(b *Bot) { b.sweepsAlbums = true } }
 func New(store Store, client Telegram, log *slog.Logger, username string, selfID int64, version string, opts ...Option) *Bot {
 	b := &Bot{
 		store: store, tg: client, log: log, username: username, selfID: selfID, version: version,
-		arrivals: newArrivals(), inlineTouched: &touches{}, readTimeout: homeReadTimeout, grace: UpdateGrace, now: time.Now,
+		arrivals: newArrivals(), inlineTouched: &touches{}, readTimeout: homeReadTimeout, grace: UpdateGrace, now: time.Now, sleep: wait,
 	}
 	for _, opt := range opts {
 		opt(b)
