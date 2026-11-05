@@ -1250,7 +1250,7 @@ func newHarness(t *testing.T) *harness {
 	}
 	f, err := New(Config{
 		Telegram: h.tg, Store: store, Queue: h.queue, Files: h.files, Allowance: fakeAllowance{left: 5},
-		Renderer: h.renderer, Clips: clips, Work: media.Work{Root: t.TempDir()},
+		Renderer: h.renderer, Clips: clips, Work: media.Work{Root: t.TempDir()}, Username: "framyin_bot",
 	})
 	if err != nil {
 		t.Fatal(err)

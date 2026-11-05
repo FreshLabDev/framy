@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -181,6 +182,10 @@ type Config struct {
 	// key of a job a message starts: the DM of one person with two bots has
 	// the same chat id, and each counts its message ids from one.
 	Stack string
+	// Username is the bot's, without the @. A mention of it in a plain
+	// message of a DM is left out of the prompt. Empty leaves the words as
+	// they came.
+	Username string
 }
 
 // Flow runs /img and /edit in chats, and a plain message in a DM, and sends
@@ -191,6 +196,8 @@ type Flow struct {
 	now    func() time.Time
 	slot   chan struct{}
 	albums Albums
+	// mention is framy's mention in a plain message (Config.Username).
+	mention *regexp.Regexp
 
 	// locks keeps a press and the delivery from changing one run at once.
 	locksMu sync.Mutex
@@ -257,8 +264,12 @@ func New(cfg Config) (*Flow, error) {
 		cfg.MaxVideo = storage.DefaultMaxVideo
 	}
 	cfg.AppURL = miniAppURL(cfg.AppURL)
-	return &Flow{cfg: cfg, log: cfg.Log, now: time.Now, slot: make(chan struct{}, cfg.Commands),
-		shareKey: newShareKey(), shareSlots: make(chan struct{}, shareSlots)}, nil
+	f := &Flow{cfg: cfg, log: cfg.Log, now: time.Now, slot: make(chan struct{}, cfg.Commands),
+		shareKey: newShareKey(), shareSlots: make(chan struct{}, shareSlots)}
+	if name := strings.TrimPrefix(cfg.Username, "@"); name != "" {
+		f.mention = regexp.MustCompile(`(?i)[ \t]*@` + regexp.QuoteMeta(name) + `\b[ \t]*`)
+	}
+	return f, nil
 }
 
 // Wait waits for the commands and presses in flight; the caller cancels

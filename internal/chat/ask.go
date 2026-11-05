@@ -81,7 +81,7 @@ func (f *Flow) plainAlbumItem(ctx context.Context, m *tg.Message) {
 	v, loaded := f.dmAlbums.LoadOrStore(k, &dmAlbum{first: m})
 	a := v.(*dmAlbum)
 	a.mu.Lock()
-	if a.words == nil && strings.TrimSpace(m.Caption) != "" {
+	if a.words == nil && f.words(m) != "" {
 		a.words = m
 	}
 	a.mu.Unlock()
@@ -109,7 +109,7 @@ func (f *Flow) plain(ctx context.Context, m *tg.Message) error {
 	if err != nil {
 		return err
 	}
-	prompt := strings.TrimSpace(cmp.Or(m.Text, m.Caption))
+	prompt := f.words(m)
 	src := sourcesOf(m)
 	switch {
 	case prompt == "" && src.clip == nil && len(src.photos) == 0:
@@ -196,6 +196,18 @@ func (f *Flow) answerAsk(ctx context.Context, cq *tg.CallbackQuery) error {
 		command = commandMotion
 	}
 	var err error
-	f.withSlot(ctx, func() { err = f.command(ctx, m, command, strings.TrimSpace(cmp.Or(m.Text, m.Caption))) })
+	f.withSlot(ctx, func() { err = f.command(ctx, m, command, f.words(m)) })
 	return err
+}
+
+// words are a plain message's prompt: its text or caption without framy's
+// mention. Telegram offers inline mode as one types "@framyin_bot", and a
+// person who sends it as text anyway, or writes to framy as in guest mode,
+// means the words after it. Other mentions are the person's words.
+func (f *Flow) words(m *tg.Message) string {
+	text := cmp.Or(m.Text, m.Caption)
+	if f.mention != nil {
+		text = f.mention.ReplaceAllString(text, " ")
+	}
+	return strings.TrimSpace(text)
 }

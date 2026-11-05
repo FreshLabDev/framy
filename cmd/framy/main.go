@@ -193,7 +193,7 @@ func run(log *slog.Logger) error {
 	}
 	// /img and /edit in chats (#24) make jobs on the queue and keep their
 	// photos in the bucket.
-	flow, err := openFlow(ctx, cfg, client, store, queue, files, work, allowance, people, log)
+	flow, err := openFlow(ctx, cfg, client, store, queue, files, work, allowance, people, me.Username, log)
 	if err != nil {
 		return err
 	}
@@ -552,7 +552,7 @@ func openStorage(ctx context.Context, cfg config.Config, store *db.Store, client
 // openFlow sets up /img and /edit. Without the bucket, or with an ffmpeg that
 // cannot draw the loops, they are off and the rest runs.
 func openFlow(ctx context.Context, cfg config.Config, client *tg.Client, store *db.Store, queue *jobs.Queue,
-	files *storage.Store, work media.Work, allowance *free.Allowance, people *keys.Service, log *slog.Logger) (*chat.Flow, error) {
+	files *storage.Store, work media.Work, allowance *free.Allowance, people *keys.Service, username string, log *slog.Logger) (*chat.Flow, error) {
 	if files == nil {
 		log.Warn("no bucket, so /img is off: the photos a run takes and its results are kept there")
 		return nil, nil
@@ -568,7 +568,7 @@ func openFlow(ctx context.Context, cfg config.Config, client *tg.Client, store *
 	return chat.New(chat.Config{
 		Telegram: client, Store: store, Queue: queue, Files: files, Allowance: allowance, Keys: people,
 		Renderer: renderer, Clips: clips, Work: work, Log: log.With("component", "chat"), AppURL: cfg.SiteURL,
-		Stack: cfg.Stack,
+		Stack: cfg.Stack, Username: username,
 	})
 }
 

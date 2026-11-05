@@ -97,6 +97,41 @@ func TestWordsInADirectChatAreAskedAbout(t *testing.T) {
 	}
 }
 
+// framy's mention is no part of the prompt, wherever it is; another
+// mention is the person's words.
+func TestFramysMentionIsLeftOutOfThePrompt(t *testing.T) {
+	for text, want := range map[string]string{
+		"@framyin_bot a fox in the snow":  "a fox in the snow",
+		"@FramyIn_Bot\na fox in the snow": "a fox in the snow",
+		"a fox @framyin_bot in the snow":  "a fox in the snow",
+		"a fox in the snow @framyin_bot":  "a fox in the snow",
+		"a logo for @framyin_bots":        "a logo for @framyin_bots",
+		"a poster for @maply_bot":         "a poster for @maply_bot",
+	} {
+		h := dmHarness(t)
+		q := h.ask(t, said(text))
+		if err := h.answer(q, "d:10:i", 7, nil); err != nil {
+			t.Fatal(err)
+		}
+		if job := h.store.jobs[1]; job == nil || job.n.Prompt != want {
+			t.Fatalf("%q: job = %+v", text, job)
+		}
+	}
+	// A photo's caption the same; the mention alone is no words.
+	h := dmHarness(t)
+	q := h.ask(t, photoSaid("@framyin_bot make it night"))
+	if err := h.answer(q, "d:10:i", 7, nil); err != nil {
+		t.Fatal(err)
+	}
+	if job := h.store.jobs[1]; job == nil || job.n.Prompt != "make it night" {
+		t.Fatalf("job = %+v", job)
+	}
+	h = dmHarness(t)
+	if q := h.ask(t, photoSaid("@framyin_bot")); q == 0 || h.tg.methods("sendMessage")[0].text != i18n.T("en", "dm.say_what") {
+		t.Fatalf("calls = %+v", h.tg.calls)
+	}
+}
+
 // Image pressed twice: the second press comes while the first keeps the
 // photo, and keeps nothing again.
 func TestADoubleTapOnImageKeepsThePhotoOnce(t *testing.T) {
