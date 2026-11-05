@@ -29,6 +29,11 @@ func (b *Bot) commandArgs(m *tg.Message) (cmd, rest string, ok bool) {
 	if m.From == nil || m.From.IsBot {
 		return "", "", false
 	}
+	return b.parseCommand(m)
+}
+
+// parseCommand is commandArgs whoever sent the message.
+func (b *Bot) parseCommand(m *tg.Message) (cmd, rest string, ok bool) {
 	text := m.Text
 	if text == "" {
 		text = m.Caption
@@ -50,6 +55,15 @@ func (b *Bot) commandArgs(m *tg.Message) (cmd, rest string, ok bool) {
 }
 
 func (b *Bot) onMessage(ctx context.Context, m *tg.Message) error {
+	if asChat, forwarded := sentAsChat(m); asChat {
+		// No person sent it, as far as Telegram says, so no run can be
+		// anyone's: /img, /edit and the mention are told why. A channel's
+		// post its discussion group gets asks for nothing.
+		if !forwarded && b.flow != nil && b.asksFramy(m) {
+			b.flow.Anonymous(ctx, m)
+		}
+		return nil
+	}
 	if handled, err := b.keyInChat(ctx, m); handled {
 		return err
 	}
@@ -139,6 +153,34 @@ func (b *Bot) mentionArgs(m *tg.Message) (prompt string, ok bool) {
 		return "", false
 	}
 	return strings.TrimSpace(strings.TrimLeft(rest, " \t\n,:")), true
+}
+
+// sentAsChat tells a group message sent on behalf of a chat, which the
+// package does not model: it is read from Raw. An anonymous admin writes as
+// the group itself (from is GroupAnonymousBot), and a person may post as a
+// channel (Channel_Bot); a channel's post comes to its discussion group as
+// an automatic forward, from Telegram. None names the person.
+func sentAsChat(m *tg.Message) (asChat, forwarded bool) {
+	if len(m.Raw) == 0 || m.Chat.Type == "private" {
+		return false, false
+	}
+	var raw struct {
+		SenderChat         *struct{} `json:"sender_chat"`
+		IsAutomaticForward bool      `json:"is_automatic_forward"`
+	}
+	if json.Unmarshal(m.Raw, &raw) != nil || raw.SenderChat == nil {
+		return false, false
+	}
+	return true, raw.IsAutomaticForward
+}
+
+// asksFramy tells /img, /edit or framy's mention, whoever sent it.
+func (b *Bot) asksFramy(m *tg.Message) bool {
+	if cmd, _, ok := b.parseCommand(m); ok {
+		return cmd == "img" || cmd == "edit"
+	}
+	_, ok := b.mentionArgs(m)
+	return ok
 }
 
 // viaBot tells a message sent through a bot's inline mode, which the

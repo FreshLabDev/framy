@@ -123,6 +123,9 @@ type Flow interface {
 	// the mention taken out of the prompt: framy is asked by name, as by
 	// /img.
 	Mention(ctx context.Context, m *tg.Message, prompt string)
+	// Anonymous takes /img, /edit or framy's mention sent on behalf of a
+	// chat: by an anonymous admin, or by a person posting as a channel.
+	Anonymous(ctx context.Context, m *tg.Message)
 	// Owns reports whether callback data is a run's button or an answer to
 	// the flow's question.
 	Owns(data string) bool

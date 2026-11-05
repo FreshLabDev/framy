@@ -331,6 +331,30 @@ func (f *Flow) Command(ctx context.Context, m *tg.Message, command, prompt strin
 	})
 }
 
+// Anonymous answers /img, /edit or framy's mention sent on behalf of a
+// chat: by an anonymous admin, or by a person posting as a channel, whom
+// Telegram does not name. A run is a person's, who pays for it and alone
+// presses its buttons, so none is made; the chat is told why, and how to
+// send it so it works. A key pasted after it is as public as anyone's, and
+// goes as theirs does (keyInCommand): deleted, with the answer that says
+// where keys go.
+func (f *Flow) Anonymous(ctx context.Context, m *tg.Message) {
+	if m == nil || m.From == nil {
+		return
+	}
+	f.wg.Go(func() {
+		if handled, err := f.keyInCommand(ctx, m, ""); handled {
+			if err != nil && ctx.Err() == nil {
+				f.log.Warn("an anonymous key not answered", "chat", m.Chat.ID, "error", err)
+			}
+			return
+		}
+		if err := f.reply(ctx, m, t(f.chatLang(ctx, m.Chat, *m.From), "run.anonymous")); err != nil && ctx.Err() == nil {
+			f.log.Warn("an anonymous command not answered", "chat", m.Chat.ID, "error", err)
+		}
+	})
+}
+
 // Mention takes a group message that starts with framy's mention, the
 // mention taken out: "@framyin_bot a fox" is /img a fox, as the same words
 // are in a chat framy is not in (guest mode). A clip it carries or replies

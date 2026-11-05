@@ -21,6 +21,7 @@ type fakeFlow struct {
 	inline    []string
 	guests    []string
 	mentions  []string
+	anonymous []string
 	open      int
 }
 
@@ -36,6 +37,12 @@ func (f *fakeFlow) Mention(_ context.Context, _ *tg.Message, prompt string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.mentions = append(f.mentions, prompt)
+}
+
+func (f *fakeFlow) Anonymous(_ context.Context, m *tg.Message) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.anonymous = append(f.anonymous, m.Text+m.Caption)
 }
 
 func (f *fakeFlow) Plain(_ context.Context, m *tg.Message) {
@@ -364,5 +371,45 @@ func TestWithoutAFlowAPlainMessageIsLeftUnanswered(t *testing.T) {
 	}
 	if len(client.calls) != 0 {
 		t.Fatalf("sent %+v", client.calls)
+	}
+}
+
+// A message sent on behalf of a chat names no person: an anonymous admin
+// writes as the group (from is GroupAnonymousBot), and a person may post as
+// a channel. /img, /edit and the mention from them are told why nothing is
+// made, rather than met with silence; anything else from them, and a
+// channel's post forwarded into its discussion group, is left alone.
+func TestAMessageSentAsAChatIsToldWhyNothingIsMade(t *testing.T) {
+	flow := &fakeFlow{}
+	b, _, client := newBotWith(WithFlow(flow))
+	anonymous := &tg.User{ID: 1087968824, IsBot: true, FirstName: "Group", Username: "GroupAnonymousBot"}
+	asChannel := &tg.User{ID: 136817688, IsBot: true, FirstName: "Channel", Username: "Channel_Bot"}
+	telegram := &tg.User{ID: 777000, FirstName: "Telegram"}
+	for _, tc := range []struct {
+		from   *tg.User
+		text   string
+		raw    string
+		answer bool
+	}{
+		{anonymous, "/img a fox", `{"sender_chat":{"id":-100,"type":"supergroup"}}`, true},
+		{anonymous, "/edit@framytest_bot make it night", `{"sender_chat":{"id":-100,"type":"supergroup"}}`, true},
+		{asChannel, "@framytest_bot a fox", `{"sender_chat":{"id":-200,"type":"channel"}}`, true},
+		{anonymous, "/img@other_bot a fox", `{"sender_chat":{"id":-100,"type":"supergroup"}}`, false},
+		{anonymous, "a fox", `{"sender_chat":{"id":-100,"type":"supergroup"}}`, false},
+		{anonymous, "/start", `{"sender_chat":{"id":-100,"type":"supergroup"}}`, false},
+		{telegram, "/img a fox", `{"sender_chat":{"id":-200,"type":"channel"},"is_automatic_forward":true}`, false},
+	} {
+		flow.anonymous, flow.commands, flow.mentions = nil, nil, nil
+		m := message(groupChat, 7, tc.text)
+		m.From, m.Raw = tc.from, []byte(tc.raw)
+		if err := b.onMessage(context.Background(), m); err != nil {
+			t.Fatalf("%q: %v", tc.text, err)
+		}
+		if (len(flow.anonymous) == 1) != tc.answer || len(flow.commands) != 0 || len(flow.mentions) != 0 {
+			t.Errorf("%q from %s: told %q, commands %+v, mentions %q", tc.text, tc.from.Username, flow.anonymous, flow.commands, flow.mentions)
+		}
+	}
+	if len(client.calls) != 0 {
+		t.Errorf("the bot answered itself: %+v", client.calls)
 	}
 }

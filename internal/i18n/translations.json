@@ -2501,6 +2501,24 @@
     "ja": "アルバムの写真は {n} 枚見えています。framy を管理者にすると、アルバムをまるごと取り込めます。",
     "ar": "صور الألبوم التي أراها: {n}. اجعل framy مشرفًا لأتمكن من أخذ الألبومات كاملة."
   },
+  "run.anonymous": {
+    "en": "I can’t see who sent this: it came on behalf of the group or a channel. Send it from your own account, or turn off anonymity in your admin rights.",
+    "ru": "Не вижу, кто это отправил: сообщение пришло от имени группы или канала. Отправь его от своего аккаунта или выключи анонимность в правах администратора.",
+    "uk": "Не бачу, хто це надіслав: повідомлення прийшло від імені групи або каналу. Надішли його зі свого акаунта або вимкни анонімність у правах адміністратора.",
+    "es": "No veo quién lo envió: llegó en nombre del grupo o de un canal. Envíalo desde tu propia cuenta o desactiva el anonimato en tus permisos de administrador.",
+    "fr": "Je ne vois pas qui l’a envoyé : il est arrivé au nom du groupe ou d’un canal. Envoie-le depuis ton propre compte, ou désactive l’anonymat dans tes droits d’administrateur.",
+    "de": "Ich sehe nicht, wer das gesendet hat: Es kam im Namen der Gruppe oder eines Kanals. Sende es von deinem eigenen Konto oder schalte die Anonymität in deinen Admin-Rechten aus.",
+    "it": "Non vedo chi l’ha inviato: è arrivato a nome del gruppo o di un canale. Invialo dal tuo account oppure disattiva l’anonimato nei tuoi permessi da amministratore.",
+    "pl": "Nie widzę, kto to wysłał: wiadomość przyszła w imieniu grupy lub kanału. Wyślij ją ze swojego konta albo wyłącz anonimowość w swoich uprawnieniach administratora.",
+    "cs": "Nevidím, kdo to poslal: zpráva přišla jménem skupiny nebo kanálu. Pošli ji ze svého účtu, nebo si v právech správce vypni anonymitu.",
+    "tr": "Bunu kimin gönderdiğini göremiyorum: grup ya da bir kanal adına geldi. Kendi hesabından gönder veya yönetici izinlerinde anonimliği kapat.",
+    "sv": "Jag ser inte vem som skickade det: det kom i gruppens eller en kanals namn. Skicka det från ditt eget konto, eller stäng av anonymiteten i dina administratörsrättigheter.",
+    "be": "Не бачу, хто гэта адправіў: паведамленне прыйшло ад імя групы або канала. Адпраў яго са свайго акаўнта або выключы ананімнасць у правах адміністратара.",
+    "ca": "No veig qui ho ha enviat: ha arribat en nom del grup o d’un canal. Envia-ho des del teu compte o desactiva l’anonimat als teus permisos d’administrador.",
+    "zh": "我看不到是谁发送的：这条消息是以群组或频道的名义发出的。请用你自己的账号发送，或在你的管理员权限中关闭匿名。",
+    "ja": "誰が送ったのか分かりません。グループまたはチャンネルの名義で送られています。自分のアカウントから送るか、管理者権限で匿名をオフにしてください。",
+    "ar": "لا أرى من أرسل هذا: وصلت الرسالة باسم المجموعة أو قناة. أرسلها من حسابك الخاص، أو أوقف إخفاء الهوية في صلاحيات المشرف لديك."
+  },
   "run.as_image": {
     "en": "Make an image",
     "ru": "Сделать картинку",
