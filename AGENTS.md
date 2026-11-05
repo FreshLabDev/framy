@@ -256,12 +256,21 @@ screen, a command or a table, check how the siblings do it.
 
 ## Planning
 
-- Tasks and their status live in GitHub issues on the
-  [framy project board](https://github.com/orgs/FreshLabDev/projects/3), not in
-  files. The board's Stage field follows the stages of the design, and Area
-  says which part of the service a task touches. Repository labels stay the
-  GitHub defaults, as in every family repository. When the plan changes,
-  change the issues in the same step.
+- Tasks and their status live in GitHub issues of this repository, not in
+  files. The family's [Asterfield board](https://github.com/orgs/FreshLabDev/projects/4)
+  gathers them, with framy on its
+  [framy tab](https://github.com/orgs/FreshLabDev/projects/4/views/3); the
+  framy board (projects/3) is closed. An issue opened from a template by someone
+  who can write to the board lands on it, and any other is added with
+  `gh project item-add 4 --owner FreshLabDev --url <issue>`. On the board it
+  gets Status, Area (which part of the service it touches) and Size.
+- The stage of a task is its milestone, and the milestones follow the stages
+  of the design (`docs/design.md`, Stages): MVP is Images, Video is Video, and
+  After MVP is Telegram in depth and what is deliberately deferred. Give every
+  issue a milestone, Area and Size: the board still shows one without them,
+  but a filter by any of them misses it. Repository labels stay the GitHub
+  defaults, as in every family repository. When the plan changes, change the
+  issues in the same step.
 - A new issue says what to do in its title, and its body ends with
   "Done when …": the check that closes it.
 - Everything public is written in English: issues, the board, docs, code
