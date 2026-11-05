@@ -195,13 +195,19 @@ type countByMethod map[string]int
 
 func (c countByMethod) Inc(method string) { c[method]++ }
 
+// callLog counts what /healthz is told of the calls.
+type callLog struct{ answered, failed int }
+
+func (c *callLog) Answered(time.Time) { c.answered++ }
+func (c *callLog) Failed(time.Time)   { c.failed++ }
+
 // framy_telegram_errors_total counts what went wrong: not a probe, not a
 // 429 (counted apart), and not "message is not modified", which a second
 // press on the same button of a panel gets and tg and framy take for
 // success.
 func TestTelegramErrorsAreWhatWentWrong(t *testing.T) {
 	errs, limited := countByMethod{}, countByMethod{}
-	observe := observeTelegram(errs, limited)
+	observe := observeTelegram(errs, limited, &callLog{})
 	apiErr := func(code int, desc string) error {
 		return &tg.APIError{ErrorCode: code, Description: desc}
 	}
@@ -221,6 +227,41 @@ func TestTelegramErrorsAreWhatWentWrong(t *testing.T) {
 	}
 	if want := (countByMethod{"sendPhoto": 1}); !maps.Equal(limited, want) {
 		t.Errorf("rate limited %v, want %v", limited, want)
+	}
+}
+
+// /healthz hears which calls Telegram answered and which got no answer. With
+// the local Bot API, getUpdates is answered by the server on the host even
+// when it has lost Telegram, so it says nothing here; a 4xx or a 429 says
+// neither way, since the local server can answer some itself.
+func TestTelegramCallsTellHealthWhatReachedTelegram(t *testing.T) {
+	apiErr := func(code int, desc string) error {
+		return &tg.APIError{ErrorCode: code, Description: desc}
+	}
+	for _, tc := range []struct {
+		name             string
+		e                tg.Event
+		answered, failed int
+	}{
+		{"a message sent", tg.Event{Method: "sendMessage", Status: 200}, 1, 0},
+		{"a panel drawn again", tg.Event{Method: "editMessageText", Status: 400, Err: apiErr(400, "Bad Request: message is not modified")}, 1, 0},
+		{"no answer", tg.Event{Method: "sendMessage", Err: errors.New("telegram transport failed: EOF"), Retryable: true}, 0, 1},
+		{"a 502", tg.Event{Method: "editMessageMedia", Status: 502, Err: apiErr(502, "Bad Gateway"), Retryable: true}, 0, 1},
+		{"a 429", tg.Event{Method: "sendPhoto", Status: 429, Err: apiErr(429, "Too Many Requests: retry after 3"), Retryable: true}, 0, 0},
+		{"a 400", tg.Event{Method: "editMessageText", Status: 400, Err: apiErr(400, "Bad Request: message to edit not found")}, 0, 0},
+		{"a 403", tg.Event{Method: "sendMessage", Status: 403, Err: apiErr(403, "Forbidden: bot was blocked by the user")}, 0, 0},
+		{"polling", tg.Event{Method: "getUpdates", Status: 200}, 0, 0},
+		{"polling without an answer", tg.Event{Method: "getUpdates", Err: errors.New("connection reset by peer"), Retryable: true}, 0, 0},
+		{"a file on the local disk", tg.Event{Method: "readLocalFile", Err: errors.New("no such file"), Retryable: true}, 0, 0},
+		{"a probe", tg.Event{Method: "sendRichMessage", Status: 400, Err: apiErr(400, "Bad Request: invalid parameters"), Probe: true}, 0, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := &callLog{}
+			observeTelegram(countByMethod{}, countByMethod{}, calls)(tc.e)
+			if calls.answered != tc.answered || calls.failed != tc.failed {
+				t.Errorf("answered %d, failed %d; want %d, %d", calls.answered, calls.failed, tc.answered, tc.failed)
+			}
+		})
 	}
 }
 

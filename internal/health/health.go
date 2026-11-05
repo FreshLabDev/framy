@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -27,13 +28,16 @@ type Build struct {
 // Config is what the check looks at.
 type Config struct {
 	Store Store
-	// LastPoll is when getUpdates last answered; Initialized, whether the
-	// bot has started.
+	// LastPoll is when getUpdates last answered; LastUpdate, when it last
+	// brought an update; Initialized, whether the bot has started.
 	LastPoll    func() time.Time
+	LastUpdate  func() time.Time
 	Initialized func() bool
-	StartedAt   time.Time
-	Build       Build
-	Log         *slog.Logger
+	// Telegram is what the other calls to Telegram showed. Nil: not looked at.
+	Telegram  *Calls
+	StartedAt time.Time
+	Build     Build
+	Log       *slog.Logger
 }
 
 type Handler struct {
@@ -61,6 +65,10 @@ type report struct {
 	TelegramInitialized  bool       `json:"telegram_initialized"`
 	TelegramPollingFresh bool       `json:"telegram_polling_fresh"`
 	TelegramLastPollAt   *time.Time `json:"telegram_last_poll_at,omitempty"`
+	TelegramLastUpdateAt *time.Time `json:"telegram_last_update_at,omitempty"`
+	TelegramCallsFailing bool       `json:"telegram_calls_failing"`
+	TelegramLastAnswerAt *time.Time `json:"telegram_last_answer_at,omitempty"`
+	TelegramLastFailedAt *time.Time `json:"telegram_last_failed_at,omitempty"`
 }
 
 // Public answers whether framy is healthy and nothing more: 200 with
@@ -96,9 +104,71 @@ func (h *Handler) check(ctx context.Context) report {
 		result.TelegramLastPollAt = &lastPoll
 	}
 	result.TelegramPollingFresh = fresh(h.cfg.StartedAt, lastPoll, pollMaxAge)
+	if h.cfg.LastUpdate != nil {
+		result.TelegramLastUpdateAt = when(h.cfg.LastUpdate())
+	}
+	if c := h.cfg.Telegram; c != nil {
+		answered, failed, failing := c.state(time.Now())
+		result.TelegramCallsFailing = failing
+		result.TelegramLastAnswerAt, result.TelegramLastFailedAt = when(answered), when(failed)
+	}
 	result.TelegramInitialized = h.cfg.Initialized != nil && h.cfg.Initialized()
-	result.OK = result.DB && result.TelegramInitialized && result.TelegramPollingFresh
+	result.OK = result.DB && result.TelegramInitialized && result.TelegramPollingFresh && !result.TelegramCallsFailing
 	return result
+}
+
+func when(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
+}
+
+// Calls follows what framy's calls to Telegram show, getUpdates apart.
+// The family's Bot API in --local mode answers getUpdates from the host
+// even when it has lost Telegram, so polling stays fresh through an outage
+// (3 November); calls that keep failing show it. Its zero value is ready.
+type Calls struct {
+	mu sync.Mutex
+	// answered is the last call Telegram answered; firstFailed, the first
+	// failure since then; failed, the last failure.
+	answered, firstFailed, failed time.Time
+}
+
+const (
+	// failingFor is how long calls must keep failing, with none answered,
+	// before Telegram counts as out of reach. A restart of the Bot API, or
+	// one call's retries, end sooner.
+	failingFor = 2 * time.Minute
+	// failingRecent: a failure older than this says nothing about now. A
+	// bot nobody uses makes no calls, so it cannot tell.
+	failingRecent = 5 * time.Minute
+)
+
+// Answered: a call at the time given got Telegram's answer.
+func (c *Calls) Answered(at time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.answered, c.firstFailed = at, time.Time{}
+}
+
+// Failed: a call at the time given got no answer, or a 5xx.
+func (c *Calls) Failed(at time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.firstFailed.IsZero() {
+		c.firstFailed = at
+	}
+	c.failed = at
+}
+
+// state: the last answer and failure, and whether calls have failed for
+// failingFor with none answered, the last of them within failingRecent.
+func (c *Calls) state(now time.Time) (answered, failed time.Time, failing bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	failing = !c.firstFailed.IsZero() && c.failed.Sub(c.firstFailed) >= failingFor && now.Sub(c.failed) < failingRecent
+	return c.answered, c.failed, failing
 }
 
 func write(w http.ResponseWriter, ok bool, body any) {

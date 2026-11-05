@@ -95,6 +95,7 @@ type Bot struct {
 	now         func() time.Time
 	sleep       func(ctx context.Context, d time.Duration) bool
 	lastPoll    atomic.Int64
+	lastUpdate  atomic.Int64
 	initialized atomic.Bool
 
 	// sweepsAlbums: this process clears the album cache of every stack.
@@ -190,8 +191,14 @@ func isHTTPS(raw string) bool {
 }
 
 // LastPoll is when getUpdates last answered, for /healthz.
-func (b *Bot) LastPoll() time.Time {
-	if unix := b.lastPoll.Load(); unix != 0 {
+func (b *Bot) LastPoll() time.Time { return unixTime(b.lastPoll.Load()) }
+
+// LastUpdate is when getUpdates last brought an update, for /healthz: a
+// quiet night has none, so it is a clue and not a check.
+func (b *Bot) LastUpdate() time.Time { return unixTime(b.lastUpdate.Load()) }
+
+func unixTime(unix int64) time.Time {
+	if unix != 0 {
 		return time.Unix(unix, 0)
 	}
 	return time.Time{}
@@ -260,6 +267,7 @@ func (b *Bot) Run(ctx context.Context) error {
 		if len(updates) == 0 {
 			continue
 		}
+		b.lastUpdate.Store(time.Now().Unix())
 		// A stop in the middle of the batch does not end it: the updates were
 		// taken, so they are worked here and their offset saved, rather than
 		// half done now and taken again after the restart. Only when the

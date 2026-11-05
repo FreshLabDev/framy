@@ -104,6 +104,9 @@ func run(log *slog.Logger, level *slog.LevelVar) error {
 		}
 	}
 
+	// What the calls to Telegram show, for /healthz: the local Bot API keeps
+	// answering getUpdates when it has lost Telegram.
+	tgCalls := new(health.Calls)
 	tgOpts := []tg.Option{
 		tg.WithAPIBase(cfg.TelegramAPIBase),
 		// my_chat_member tells core which groups framy is in; Telegram leaves
@@ -111,7 +114,7 @@ func run(log *slog.Logger, level *slog.LevelVar) error {
 		// edited_message, which can swap the file of an album's item.
 		tg.WithAllowedUpdates("message", "edited_message", "callback_query", "my_chat_member", "inline_query", "guest_message"),
 		tg.WithLogger(log),
-		tg.WithObserver(observeTelegram(metrics.TelegramErrors, metrics.TelegramLimited)),
+		tg.WithObserver(observeTelegram(metrics.TelegramErrors, metrics.TelegramLimited, tgCalls)),
 	}
 	// A --local server hands files over by path on its own disk.
 	if cfg.BotAPIFilesDir != "" {
@@ -264,7 +267,8 @@ func run(log *slog.Logger, level *slog.LevelVar) error {
 	// Whether framy works: the public /healthz says only that, and the
 	// metrics listener gives each part with the version and the commit.
 	checks := health.New(health.Config{
-		Store: store, LastPoll: b.LastPoll, Initialized: b.Initialized, StartedAt: started,
+		Store: store, LastPoll: b.LastPoll, LastUpdate: b.LastUpdate, Initialized: b.Initialized,
+		Telegram: tgCalls, StartedAt: started,
 		Build: health.Build{Version: version, Commit: commit, Date: date},
 		Log:   log,
 	})
@@ -497,21 +501,44 @@ func stopWhenDone(ctx context.Context, stop func(context.Context) error, limit t
 }
 
 // observeTelegram counts what went wrong with Telegram, by method: the 429s
-// apart from the rest.
-func observeTelegram(failed, limited interface{ Inc(string) }) tg.Observer {
+// apart from the rest. It also tells calls which calls Telegram answered and
+// which got no answer.
+func observeTelegram(failed, limited interface{ Inc(string) }, calls telegramCalls) tg.Observer {
 	return func(e tg.Event) {
-		switch {
 		// A capability probe is answered with a parameter error on purpose;
 		// counting it would add a phantom incident per probed method to
-		// every start. "Message is not modified" answers a press that draws
-		// the panel it already shows, and tg and framy take it for success.
-		case e.Probe, e.Err == nil, tg.IsMessageNotModified(e.Err):
+		// every start.
+		if e.Probe {
+			return
+		}
+		// "Message is not modified" answers a press that draws the panel it
+		// already shows, and tg and framy take it for success.
+		answered := e.Err == nil || tg.IsMessageNotModified(e.Err)
+		switch {
+		case answered:
 		case e.Status == http.StatusTooManyRequests:
 			limited.Inc(e.Method)
 		default:
 			failed.Inc(e.Method)
 		}
+		// getUpdates has its own check, and a file read from the local
+		// server's disk is no call. A 4xx or a 429 neither clears a run of
+		// failures nor adds to it: the local server can give some of those
+		// from what it knows, without Telegram.
+		switch {
+		case e.Method == "getUpdates" || e.Method == "readLocalFile":
+		case answered:
+			calls.Answered(time.Now())
+		case e.Retryable && e.Status != http.StatusTooManyRequests:
+			calls.Failed(time.Now())
+		}
 	}
+}
+
+// telegramCalls is what /healthz learns of the calls (health.Calls).
+type telegramCalls interface {
+	Answered(time.Time)
+	Failed(time.Time)
 }
 
 // upkeep is what this process keeps of the tables every stack on the schema

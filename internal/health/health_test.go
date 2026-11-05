@@ -105,6 +105,68 @@ func TestPublicSaysOnlyOK(t *testing.T) {
 	}
 }
 
+// The local Bot API answers getUpdates when it has lost Telegram, as on 3
+// November: calls that keep failing, with none answered, make framy
+// unhealthy while polling looks fresh.
+func TestTelegramCallsFailing(t *testing.T) {
+	now := time.Now()
+	for _, tc := range []struct {
+		name    string
+		calls   func(c *Calls)
+		failing bool
+	}{
+		{"no calls", func(c *Calls) {}, false},
+		{"answered", func(c *Calls) { c.Answered(now.Add(-time.Minute)) }, false},
+		{"failing for three minutes", func(c *Calls) {
+			c.Answered(now.Add(-10 * time.Minute))
+			c.Failed(now.Add(-3 * time.Minute))
+			c.Failed(now.Add(-30 * time.Second))
+		}, true},
+		// One call's retries, or a restart of the Bot API.
+		{"failing for a minute", func(c *Calls) {
+			c.Failed(now.Add(-time.Minute))
+			c.Failed(now.Add(-time.Second))
+		}, false},
+		{"answered since", func(c *Calls) {
+			c.Failed(now.Add(-4 * time.Minute))
+			c.Failed(now.Add(-time.Minute))
+			c.Answered(now.Add(-30 * time.Second))
+		}, false},
+		{"failures that ended long ago", func(c *Calls) {
+			c.Failed(now.Add(-time.Hour))
+			c.Failed(now.Add(-50 * time.Minute))
+		}, false},
+		{"failing again after an answer", func(c *Calls) {
+			c.Failed(now.Add(-20 * time.Minute))
+			c.Answered(now.Add(-10 * time.Minute))
+			c.Failed(now.Add(-3 * time.Minute))
+			c.Failed(now.Add(-time.Minute))
+		}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := new(Calls)
+			tc.calls(calls)
+			h := New(Config{
+				Store:       fakeStore{},
+				LastPoll:    func() time.Time { return now },
+				LastUpdate:  func() time.Time { return now.Add(-time.Hour) },
+				Initialized: func() bool { return true },
+				Telegram:    calls,
+				StartedAt:   now.Add(-time.Hour),
+			})
+			rr := httptest.NewRecorder()
+			h.Public(rr, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+			got := h.check(context.Background())
+			if got.TelegramCallsFailing != tc.failing || got.OK == tc.failing || (rr.Code == http.StatusOK) == tc.failing {
+				t.Fatalf("failing %v, ok %v, public %d; want failing %v", got.TelegramCallsFailing, got.OK, rr.Code, tc.failing)
+			}
+			if got.TelegramLastUpdateAt == nil || !got.TelegramPollingFresh {
+				t.Errorf("polling looked at: %+v", got)
+			}
+		})
+	}
+}
+
 func TestStartingProcessIsFresh(t *testing.T) {
 	now := time.Now()
 	_, got := serve(t, fakeStore{}, time.Time{}, true, now)
