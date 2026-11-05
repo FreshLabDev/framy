@@ -110,7 +110,8 @@ export function renderStage() {
   const add = h("button", { type: "button", class: "link addf", "data-k": "pv-add", disabled: full, title: full ? t("fr.max", { n: MAXFR[S.kind] }) : t("fr.add_sub"), onclick: () => addFrame() }, ic("plus"), t("fr.add_short"));
   const tip = fr && !phone ? h("span", { class: "scopetip", "data-k": "pv-tip" }, miniShape(ratioOf(P[fi].set, P[fi].m), 14), h("span", { class: "t" }, t("fr.tune", { n: fi + 1 })),
     h("button", { type: "button", "aria-label": t("fr.to_all"), title: t("fr.to_all"), onclick: () => setScope(null) }, ic("close"))) : null;
-  const head = h("div", { class: "shead", "data-k": "pv-head" }, tip, add), under = phone ? 48 : 40;
+  // Under the frames on a phone: the dots of a strip, or the way back to a run; one empty frame needs no room there.
+  const head = h("div", { class: "shead", "data-k": "pv-head" }, tip, add), under = phone ? (many || run ? 48 : 0) : 40;
   let main;
   if (!many) {
     const pay = payOf(m), set = settings(m, pay), r = ratioOf(set, m), b = fit(r, under), f = C.famOf[m.id];

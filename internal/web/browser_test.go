@@ -266,6 +266,29 @@ func TestBrowserPhone(t *testing.T) {
 	noErrors(t, ctx)
 }
 
+// TestBrowserSmallPhone checks the composer on the smallest phone (320 by
+// 568, an iPhone SE): the model's whole name shows in its chip, the empty
+// frame keeps what it says inside it, and the line under the price is read
+// to its end, signed in or not.
+func TestBrowserSmallPhone(t *testing.T) {
+	runs := &fakeRuns{}
+	for name, ts := range map[string]*httptest.Server{"signed out": fakeAPI(t), "signed in": fakeSite(t, runs.mount)} {
+		ctx := browser(t, ts.URL, 320, 568, true)
+		got := js[map[string]any](t, ctx, pageHelpers+`
+	await wait(400);
+	const clipped = (el) => !!el && (el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1);
+	const g = document.querySelector("#stage .ghost"), gr = g.getBoundingClientRect();
+	const inside = [...g.querySelectorAll(".c > *")].filter(vis).every((el) => { const r = el.getBoundingClientRect(); return r.top >= gr.top && r.bottom <= gr.bottom && r.left >= gr.left && r.right <= gr.right; });
+	const dock = document.querySelector("#composer").getBoundingClientRect();
+	return { name: clipped(document.querySelector("#dtools .chipbtn .nm > span")), cap: clipped(document.querySelector("#pcap")), inside,
+	  size: Math.round(gr.height), above: Math.round(dock.top - gr.bottom), overflow: document.documentElement.scrollWidth - innerWidth };`)
+		if got["name"] != false || got["cap"] != false || got["inside"] != true || got["size"].(float64) < 110 || got["above"].(float64) < 0 || got["overflow"].(float64) > 0 {
+			t.Errorf("%s at 320x568: %v", name, got)
+		}
+		noErrors(t, ctx)
+	}
+}
+
 func TestBrowserDesktop(t *testing.T) {
 	ts := fakeAPI(t)
 	ctx := browser(t, ts.URL, 1440, 900, false)

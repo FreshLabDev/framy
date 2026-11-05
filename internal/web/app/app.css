@@ -208,7 +208,9 @@ input[type="range"]::-moz-range-thumb {width: 20px; height: 20px; background: va
 .pnum > .whole {position: absolute; left: 0; top: 0; white-space: pre; pointer-events: none;}
 #pcap s.was {color: var(--muted);}
 #pcap b.off {color: var(--ink); font-weight: 700;}
-#pcap {font-size: 14px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 1.4em;}
+/* The line under the price takes two lines rather than lose its end: a reason a press cannot go,
+   or what to do about it, reads to its end on any width. */
+#pcap {font-size: 14px; color: var(--muted); overflow: hidden; min-height: 1.4em; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.25; text-wrap: balance;}
 #pcap.note {white-space: normal; color: var(--soft);}
 .go .kbd {font-size: 12px; font-weight: 500; opacity: .55; margin-left: 2px;}
 .go {flex: none; min-width: 150px; height: 52px; padding: 0 22px; display: flex; align-items: center; justify-content: center; gap: 10px; background: var(--ink); color: var(--field); font-size: 17px; font-weight: 700;}
@@ -229,6 +231,11 @@ input[type="range"]::-moz-range-thumb {width: 20px; height: 20px; background: va
 .ghost .c b, .jbox .c b {font: 700 clamp(20px, 4vw, 42px)/1 var(--display); color: var(--line);}
 .ghost .c small, .jbox .c small {font-size: 13px; color: var(--muted);}
 .ghost .c > .ic, .jbox .c > .ic {width: 34px; height: 34px; color: var(--line);}
+/* A small empty frame, as on a short phone, says what fits: the shape, then
+   the model, and the icon only where there is room for all three. */
+.ghost {container-type: size;}
+@container (max-height: 149.98px) { .ghost .c > .ic {display: none;} }
+@container (max-height: 99.98px) { .ghost .c small {display: none;} }
 @media (min-width: 960px) {
   .stage {position: sticky; top: 12px;}
 }
@@ -416,6 +423,14 @@ input.search::placeholder {color: var(--muted);}
 @media (max-width: 420px) {
   .chipbtn > .lg {display: none;}
   .chipbtn:not(.set) {padding: 0 10px; gap: 6px;}
+}
+/* On a phone a long name takes two lines rather than lose its end, which
+   is what tells one variant from another ("2.6 Flash"). */
+@media (max-width: 959px) {
+  .chipbtn .nm > span {white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.15;}
+}
+@media (max-width: 389.98px) {
+  .composer .go {padding: 0 16px;}
 }
 
 /* The run on the stage. */
