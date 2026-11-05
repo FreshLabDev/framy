@@ -225,13 +225,16 @@ func result(b64 answer.Base64, format string, asked map[string]any) (jobs.Result
 }
 
 // rates are what OpenAI bills per token, in dollars, from the offer's price
-// lines.
+// lines. outputText is the rate of a text output token: the catalog's
+// output_text where it lists one, else the image's, as OpenAI lists no
+// separate rate for GPT Image 2 and later.
 type rates struct {
-	text, image, output float64
+	text, image, output, outputText float64
 }
 
 // usage is the usage object of an answer. The input tokens are text and
-// image tokens (the references), the output tokens are the image.
+// image tokens (the references); the output tokens are the image's and,
+// on some models, text the model wrote, which the details tell apart.
 type usage struct {
 	InputTokens        int64 `json:"input_tokens"`
 	OutputTokens       int64 `json:"output_tokens"`
@@ -239,6 +242,10 @@ type usage struct {
 		TextTokens  int64 `json:"text_tokens"`
 		ImageTokens int64 `json:"image_tokens"`
 	} `json:"input_tokens_details"`
+	OutputTokensDetails *struct {
+		TextTokens  int64 `json:"text_tokens"`
+		ImageTokens int64 `json:"image_tokens"`
+	} `json:"output_tokens_details"`
 }
 
 // ratesOf reads the rates from the offer's route. The lines are the catalog's
@@ -250,7 +257,7 @@ func ratesOf(of catalog.Offer, withReferences bool) (rates, error) {
 		return rates{}, refused("the catalog lists no route for %s", of.ID)
 	}
 	var r rates
-	var seen struct{ text, image, output bool }
+	var seen struct{ text, image, output, outputText bool }
 	for _, p := range of.Routes[0].Prices {
 		if p.Unit != "token" || p.Variant != "" {
 			continue
@@ -262,7 +269,12 @@ func ratesOf(of catalog.Offer, withReferences bool) (rates, error) {
 			r.image, seen.image = p.CostUSD, true
 		case "output_image":
 			r.output, seen.output = p.CostUSD, true
+		case "output_text":
+			r.outputText, seen.outputText = p.CostUSD, true
 		}
+	}
+	if !seen.outputText {
+		r.outputText = r.output
 	}
 	switch {
 	case !seen.text:
@@ -275,18 +287,26 @@ func ratesOf(of catalog.Offer, withReferences bool) (rates, error) {
 	return r, nil
 }
 
-// cost is the run's price: the tokens times the rates. Input tokens the
-// details do not account for, or all of them when the answer has no details,
-// count at the dearer input rate, so the cost is never below what OpenAI
+// cost is the run's price: the tokens times the rates. Tokens the details
+// do not account for, or all of them when the answer has no details, count
+// at the dearer rate of their side, so the cost is never below what OpenAI
 // billed. It is rounded to a nano-dollar, which hides only binary noise.
 func (r rates) cost(u usage) *float64 {
 	var text, image int64
 	if d := u.InputTokensDetails; d != nil {
 		text, image = d.TextTokens, d.ImageTokens
 	}
-	usd := float64(text)*r.text + float64(image)*r.image + float64(u.OutputTokens)*r.output
+	usd := float64(text)*r.text + float64(image)*r.image
 	if rest := u.InputTokens - text - image; rest > 0 {
 		usd += float64(rest) * math.Max(r.text, r.image)
+	}
+	var written, drawn int64
+	if d := u.OutputTokensDetails; d != nil {
+		written, drawn = d.TextTokens, d.ImageTokens
+	}
+	usd += float64(written)*r.outputText + float64(drawn)*r.output
+	if rest := u.OutputTokens - written - drawn; rest > 0 {
+		usd += float64(rest) * math.Max(r.output, r.outputText)
 	}
 	usd = math.Round(usd*1e9) / 1e9
 	return &usd

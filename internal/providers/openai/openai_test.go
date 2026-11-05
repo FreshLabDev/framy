@@ -781,8 +781,8 @@ func TestTheCostIsEachKindOfTokenAtItsOwnRate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.text != 5e-6 || r.image != 8e-6 || r.output != 30e-6 {
-		t.Fatalf("rates %+v: the catalog says $5, $8 and $30 per million", r)
+	if r.text != 5e-6 || r.image != 8e-6 || r.output != 30e-6 || r.outputText != 30e-6 {
+		t.Fatalf("rates %+v: the catalog says $5, $8 and $30 per million, and no rate for text out", r)
 	}
 	type d = struct {
 		TextTokens  int64 `json:"text_tokens"`
@@ -799,6 +799,9 @@ func TestTheCostIsEachKindOfTokenAtItsOwnRate(t *testing.T) {
 		{"all three", usage{InputTokens: 1500, OutputTokens: 439, InputTokensDetails: &d{TextTokens: 100, ImageTokens: 1400}}, 100*5e-6 + 1400*8e-6 + 439*30e-6},
 		{"input with no details is the dearer rate", usage{InputTokens: 1000}, 1000 * 8e-6},
 		{"input the details miss is the dearer rate", usage{InputTokens: 1000, InputTokensDetails: &d{TextTokens: 100, ImageTokens: 600}}, 100*5e-6 + 600*8e-6 + 300*8e-6},
+		// OpenAI lists no rate for the text these models write: it counts
+		// at the image's.
+		{"text out with no rate of its own", usage{OutputTokens: 500, OutputTokensDetails: &d{TextTokens: 60, ImageTokens: 440}}, 500 * 30e-6},
 		{"nothing", usage{}, 0},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -809,6 +812,50 @@ func TestTheCostIsEachKindOfTokenAtItsOwnRate(t *testing.T) {
 	}
 	if got := *r.cost(usage{OutputTokens: 439}); got != 0.01317 {
 		t.Errorf("cost %v: binary noise left in", got)
+	}
+}
+
+// A model whose price lists text output (output_text) has the text it wrote
+// priced at that rate, the image at the image's, and output the details do
+// not account for at the dearer of the two.
+func TestTextTheModelWroteIsPricedAtItsOwnRate(t *testing.T) {
+	_, of := realOffer(t, flare)
+	of.Routes[0].Prices = append(slices.Clone(of.Routes[0].Prices), catalog.Price{Billable: "output_text", Unit: "token", CostUSD: 10e-6})
+	r, err := ratesOf(of, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type d = struct {
+		TextTokens  int64 `json:"text_tokens"`
+		ImageTokens int64 `json:"image_tokens"`
+	}
+	for _, c := range []struct {
+		name string
+		u    usage
+		want float64
+	}{
+		{"text and image out", usage{OutputTokens: 500, OutputTokensDetails: &d{TextTokens: 60, ImageTokens: 440}}, 60*10e-6 + 440*30e-6},
+		{"output the details miss", usage{OutputTokens: 500, OutputTokensDetails: &d{TextTokens: 60, ImageTokens: 400}}, 60*10e-6 + 400*30e-6 + 40*30e-6},
+		{"no details", usage{OutputTokens: 500}, 500 * 30e-6},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := r.cost(c.u); got == nil || !near(*got, c.want) {
+				t.Errorf("cost %v, want %v", got, c.want)
+			}
+		})
+	}
+
+	// The same from an answer, as OpenAI writes the details.
+	p, _ := serve(t, reply(200, `{"created":1,"output_format":"png","data":[{"b64_json":"`+base64.StdEncoding.EncodeToString(png)+`"}],`+
+		`"usage":{"input_tokens":5,"output_tokens":500,"input_tokens_details":{"text_tokens":5,"image_tokens":0},"output_tokens_details":{"text_tokens":60,"image_tokens":440}}}`))
+	j := job(t, medium())
+	j.Offer = of
+	sub, err := p.Submit(context.Background(), j)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := sub.Outcome.CostUSD, 5*5e-6+60*10e-6+440*30e-6; got == nil || !near(*got, want) {
+		t.Errorf("cost of the answer %v, want %v", got, want)
 	}
 }
 

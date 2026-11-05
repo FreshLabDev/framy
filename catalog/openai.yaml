@@ -19,6 +19,10 @@
 #   - gpt-image-1 (shut down on 23 October 2026), gpt-image-1-mini and
 #     gpt-image-1.5 (closing on 1 December 2026).
 #
+# The pricing page gives these models no rate for text output ("-"): the
+# text a model writes counts at the output image rate. A model that lists
+# output_text has it priced at that rate (internal/providers/openai).
+#
 # OpenAI takes any size whose sides are multiples of 16, with a ratio up to
 # 3:1, a side up to 3840 and 655,360 to 8,294,400 pixels. The list below is
 # the common shapes until the composer can draw a custom one. OpenAI calls the
