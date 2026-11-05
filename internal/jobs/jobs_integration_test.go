@@ -930,3 +930,23 @@ func TestADraftThatNeverRanLetsItsFilesGo(t *testing.T) {
 		t.Errorf("a second pass cleared %d: %v", n, err)
 	}
 }
+
+// A deleted account's job that no longer says whose it was (035) reads as
+// one, and a Generate pressed on it starts nothing.
+func TestAJobWithoutAPersonStartsNothing(t *testing.T) {
+	q, pool := testQueue(t, newFake())
+	ctx := context.Background()
+	draft, _, err := q.Draft(ctx, job(alice, imageOffer))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE framy.job SET status = 'cancelled', finished_at = now(), deleted_at = now(), user_id = NULL WHERE id = $1`, draft); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Generate(ctx, draft); !errors.Is(err, ErrNotDraft) {
+		t.Fatalf("Generate = %v, want ErrNotDraft", err)
+	}
+	if j := get(t, q, draft); j.UserID != 0 || j.Status != Cancelled {
+		t.Errorf("read as %+v", j)
+	}
+}

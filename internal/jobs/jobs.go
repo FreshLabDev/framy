@@ -102,7 +102,9 @@ func TelegramUpdate(updateID int64) string { return fmt.Sprintf("tg:%d", updateI
 
 // Job is a job as the providers see it.
 type Job struct {
-	ID             int64
+	ID int64
+	// UserID is 0 for a deleted account's job that no longer says whose it
+	// was (migrations/035_job_forget.sql).
 	UserID         int64
 	Surface        Surface
 	ChatID         int64

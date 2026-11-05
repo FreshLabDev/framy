@@ -337,7 +337,8 @@ func (q *Queue) Draft(ctx context.Context, n New) (id int64, created bool, err e
 func (q *Queue) Generate(ctx context.Context, id int64) error {
 	return pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
 		var userID int64
-		err := tx.QueryRow(ctx, `SELECT user_id FROM job WHERE id=$1`, id).Scan(&userID)
+		// A job without a person is a deleted account's (035): no draft.
+		err := tx.QueryRow(ctx, `SELECT user_id FROM job WHERE id=$1 AND user_id IS NOT NULL`, id).Scan(&userID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotDraft
 		}
@@ -634,7 +635,7 @@ func load(ctx context.Context, db querier, id int64) (Job, error) {
 	var dedupe, providerJobID, errClass, errText *string
 	var params, routes []byte
 	err := db.QueryRow(ctx, `
-		SELECT j.id, j.user_id, j.surface, j.chat_id, j.message_id, j.dedupe_key, j.offer_id, j.model_id, j.provider, j.kind,
+		SELECT j.id, COALESCE(j.user_id, 0), j.surface, j.chat_id, j.message_id, j.dedupe_key, j.offer_id, j.model_id, j.provider, j.kind,
 		       j.prompt, j.settings, j.free, j.status, j.idempotency_key::text, j.submits, j.submitted_at, j.retry_at, j.provider_job_id,
 		       j.estimate_usd::float8, j.actual_usd::float8, j.error_class, j.error, j.created_at,
 		       o.provider_model_id, o.name, o.input_modalities, o.params, o.routes

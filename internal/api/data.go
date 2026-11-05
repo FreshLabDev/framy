@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/FreshLabDev/framy/internal/catalog"
+	"github.com/FreshLabDev/framy/internal/free"
 	"github.com/FreshLabDev/framy/internal/jobs"
 	"github.com/FreshLabDev/framy/internal/price"
 )
@@ -410,7 +411,8 @@ func (d pgData) Continuation(ctx context.Context, userID, id int64) (Continuatio
 
 // cleared is what a deleted job keeps: its kind, offer, payer, status,
 // costs and times, which the free allowance, its budget and the per-person
-// limits count. Everything the person wrote or got goes, the provider's own
+// limits count. A deleted account's job loses the payer too, once the
+// allowance is done with it (forgetAt). Everything the person wrote or got goes, the provider's own
 // words about a refusal too: they may quote the prompt or describe a photo.
 const cleared = `deleted_at = now(), prompt = '', settings = '{}', error = NULL, provider_message = NULL,
 	grounding = NULL, chat_id = NULL, message_id = NULL, updated_at = now()`
@@ -478,7 +480,8 @@ func (d pgData) Active(ctx context.Context, userID int64) (bool, error) {
 // messages framy sent the site's results in are dropped, and the keys, the
 // pending connections to OpenRouter, the profile (currency, name and photo)
 // and the photos of albums framy saw the person send in a chat are deleted.
-// The jobs are cleared first: their rows are what a result being sent to the
+// Every job of the person's is given its forget_at: the moment its row stops
+// saying whose it was (forgetAt). The jobs are cleared first: their rows are what a result being sent to the
 // DM holds (db.SentSiteResult), so its chat run is either written before and
 // dropped here, or not written at all. The sessions go through
 // Config.Revoke, which also drops what internal/auth remembers of them.
@@ -511,6 +514,22 @@ func (d pgData) Forget(ctx context.Context, userID int64) error {
 				return fmt.Errorf("forget %d: %w", userID, err)
 			}
 		}
+		if _, err := tx.Exec(ctx, forgetAt, userID, free.VideoWindow.Seconds(), free.ImageWindow.Seconds()); err != nil {
+			return fmt.Errorf("forget %d: %w", userID, err)
+		}
 		return nil
 	})
 }
+
+// forgetAt is when a deleted account's job stops saying whose it was. A
+// free run keeps the person's id while the allowance counts it, until it
+// leaves the window of its kind, so a person who deletes the account and
+// comes back does not get the free runs of the last day or week back; any
+// other job lets it go at once. db.Store.ForgetJobs takes the id off when
+// the time comes, within the hour.
+const forgetAt = `
+	UPDATE job SET forget_at = CASE
+		WHEN free AND queued_at IS NOT NULL
+		THEN GREATEST(now(), queued_at + make_interval(secs => CASE kind WHEN 'video' THEN $2::float8 ELSE $3::float8 END))
+		ELSE now() END
+	WHERE user_id = $1`

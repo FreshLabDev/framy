@@ -336,3 +336,105 @@ func TestForgettingAnAccount(t *testing.T) {
 		t.Errorf("a second forget: %v", err)
 	}
 }
+
+// A deleted account's jobs say whose they were only while the free
+// allowance counts them; then the row keeps its kind, cost and times and
+// nothing else of the person's.
+func TestADeletedAccountsJobsForgetWhoseTheyWere(t *testing.T) {
+	store, pool := pg(t)
+	ctx := context.Background()
+	d := pgData{pool: pool}
+	allow, err := free.New(free.Config{Pool: pool, DailyBudgetUSD: 1, Log: quiet})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ran := func(kind string, isFree bool, ago string) int64 {
+		id := aJob(t, pool, alice, "done", kind, "a fox", isFree)
+		exec(t, pool, `UPDATE job SET queued_at = now() - $2::interval, finished_at = now() - $2::interval, actual_usd = 0.02 WHERE id = $1`, id, ago)
+		return id
+	}
+	recent := ran("image", true, "2 hours")   // in the 24-hour window
+	old := ran("image", true, "30 hours")     // out of it
+	video := ran("video", true, "2 days")     // in the 7-day window
+	paid := ran("image", false, "10 minutes") // never counted
+	draft := aJob(t, pool, alice, "draft", "image", "a draft fox", true)
+	exec(t, pool, `INSERT INTO chat_run (job_id, chat_id, command_message_id, preview_message_id, lang)
+		VALUES ($1, 42, 7, 8, 'en')`, draft)
+	bobs := aJob(t, pool, bob, "done", "image", "bob's fox", true)
+	before, err := allow.Usage(ctx, alice)
+	if err != nil || before.Images.Used != 1 || before.Videos.Used != 1 {
+		t.Fatalf("setup: %+v, %v", before, err)
+	}
+
+	if err := d.Forget(ctx, alice); err != nil {
+		t.Fatal(err)
+	}
+	// A free run is forgotten when it leaves its window; any other at once.
+	var inWindow, now int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FILTER (WHERE id = $1 AND forget_at = queued_at + interval '24 hours'
+		                         OR id = $2 AND forget_at = queued_at + interval '7 days'),
+		       count(*) FILTER (WHERE id = ANY($3) AND forget_at <= now())
+		FROM job`, recent, video, []int64{old, paid, draft}).Scan(&inWindow, &now); err != nil || inWindow != 2 || now != 3 {
+		t.Fatalf("forget_at: %d in the window, %d now; %v", inWindow, now, err)
+	}
+
+	n, err := store.ForgetJobs(ctx)
+	if err != nil || n != 2 {
+		t.Fatalf("ForgetJobs = %d, %v; want the old run and the paid one", n, err)
+	}
+	owner := func(id int64) *int64 {
+		t.Helper()
+		var u *int64
+		if err := pool.QueryRow(ctx, `SELECT user_id FROM job WHERE id = $1`, id).Scan(&u); err != nil {
+			t.Fatal(err)
+		}
+		return u
+	}
+	for _, id := range []int64{old, paid} {
+		if owner(id) != nil {
+			t.Errorf("job %d still says whose it was", id)
+		}
+	}
+	for _, id := range []int64{recent, video, bobs} {
+		if owner(id) == nil {
+			t.Errorf("job %d lost its person too early", id)
+		}
+	}
+	// The preview still in the chat keeps it until the bot has taken the
+	// message down, which it does by the person's id.
+	if owner(draft) == nil {
+		t.Error("the run with an open preview lost its person")
+	}
+	// What the budget and the books count stays.
+	var kind string
+	var isFree, times bool
+	var cost float64
+	if err := pool.QueryRow(ctx, `SELECT kind, free, queued_at IS NOT NULL AND finished_at IS NOT NULL, actual_usd::float8 FROM job WHERE id = $1`, old).
+		Scan(&kind, &isFree, &times, &cost); err != nil || kind != "image" || !isFree || !times || cost != 0.02 {
+		t.Errorf("the forgotten row: %s %v %v %v, %v", kind, isFree, times, cost, err)
+	}
+	// Coming back, the runs still in their window count.
+	after, err := allow.Usage(ctx, alice)
+	if err != nil || after != before {
+		t.Errorf("usage %+v, then %+v, %v", before, after, err)
+	}
+
+	// The bot took the preview down; the windows ran out.
+	exec(t, pool, `DELETE FROM chat_run WHERE job_id = $1`, draft)
+	exec(t, pool, `UPDATE job SET forget_at = now() - interval '1 second' WHERE id IN ($1, $2)`, recent, video)
+	if n, err := store.ForgetJobs(ctx); err != nil || n != 3 {
+		t.Fatalf("ForgetJobs = %d, %v; want the rest of alice's", n, err)
+	}
+	var left int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE user_id = $1`, alice).Scan(&left); err != nil || left != 0 {
+		t.Errorf("%d jobs still say they were alice's, %v", left, err)
+	}
+	if owner(bobs) == nil {
+		t.Error("bob's job was touched")
+	}
+	// Only a deleted job may be without a person.
+	if _, err := pool.Exec(ctx, `UPDATE job SET user_id = NULL WHERE id = $1`, bobs); err == nil {
+		t.Error("a live job lost its person")
+	}
+}

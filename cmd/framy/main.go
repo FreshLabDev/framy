@@ -355,10 +355,10 @@ func run(log *slog.Logger) error {
 			}
 		})
 	}
-	// The catalog, the rates, the uploads no job took, the thumbnails and
-	// the expired sessions are shared by every stack on the schema:
-	// production keeps them, so two releases never write their own versions
-	// over each other.
+	// The catalog, the rates, the uploads no job took, the thumbnails, the
+	// expired sessions and the jobs of deleted accounts are shared by every
+	// stack on the schema: production keeps them, so two releases never
+	// write their own versions over each other.
 	if cfg.CatalogEvery > 0 && cfg.Primary() {
 		syncer := &catalog.Syncer{
 			Source: &catalog.OpenRouterSource{
@@ -388,6 +388,7 @@ func run(log *slog.Logger) error {
 	if cfg.Primary() {
 		workers.Go(func() { sweepUnused(ctx, queue, files, log) })
 		workers.Go(func() { sweepSessions(ctx, signIn, log) })
+		workers.Go(func() { forgetJobs(ctx, store, log) })
 	}
 	if files != nil && cfg.Primary() {
 		workers.Go(func() { fillThumbs(ctx, files, log) })
@@ -609,6 +610,25 @@ func sweepSessions(ctx context.Context, signIn *auth.Auth, log *slog.Logger) {
 			log.Warn("sweep expired sessions", "error", err)
 		} else if n > 0 {
 			log.Info("swept expired sessions", "count", n)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
+}
+
+// forgetJobs takes the person's id off the jobs of deleted accounts once the
+// free allowance no longer counts them: at start and every hour.
+func forgetJobs(ctx context.Context, store *db.Store, log *slog.Logger) {
+	tick := time.NewTicker(time.Hour)
+	defer tick.Stop()
+	for {
+		if n, err := store.ForgetJobs(ctx); err != nil && ctx.Err() == nil {
+			log.Error("forget the jobs of deleted accounts", "error", err)
+		} else if n > 0 {
+			log.Info("forgot whose jobs of deleted accounts were", "count", n)
 		}
 		select {
 		case <-ctx.Done():
