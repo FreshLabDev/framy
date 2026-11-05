@@ -51,7 +51,7 @@ p {margin: 0;}
 .mirror > * {background: transparent !important; color: var(--field) !important; opacity: 1 !important;}
 .mirror small, .mirror .n, .mirror .k2 {color: var(--line) !important;}
 .top {display: flex; align-items: center; gap: 12px; height: 68px;}
-.logo {display: flex; align-items: baseline; gap: 8px; font: 700 34px/1 var(--display); margin-right: 8px;}
+.logo {display: flex; align-items: baseline; gap: 8px; font: 700 34px/1 var(--display); margin-right: 8px; color: inherit; text-decoration: none;}
 .logo img {width: 32px; height: 32px;}
 .me {height: 40px; padding: 0 12px 0 6px; display: flex; align-items: center; gap: 8px; background: var(--deep); font-weight: 600;}
 .me .av {width: 28px; height: 28px; display: grid; place-items: center; background: var(--ink); color: var(--field); font-weight: 700;}
@@ -648,8 +648,11 @@ main.library {display: grid; gap: 18px; padding: 6px 0 calc(48px + env(safe-area
 .lempty h2 {margin: 0; font: 700 28px/1.1 var(--display);}
 .lempty p {margin: 0; color: var(--soft); max-width: 46ch;}
 .lempty .go {margin-top: 8px;}
+.lempty .two {display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 8px;}
+.lempty .two .go {margin-top: 0;}
 .lempty.slim {grid-template-columns: minmax(0, 1fr); padding: 20px;}
 .lempty .x {height: 40px; padding: 0 14px; display: inline-flex; align-items: center; gap: 8px; background: var(--field); font-weight: 600;}
+.lempty a.x {color: var(--ink); text-decoration: none;}
 .lframe {position: relative; width: 132px; aspect-ratio: 4 / 3; background: var(--field);}
 .lframe > i, .li .cover.none > i {position: absolute; width: 22px; aspect-ratio: 1; border: 0 solid var(--soft);}
 .lframe > i:nth-of-type(1), .li .cover.none > i:nth-of-type(1) {left: 10px; top: 10px; border-width: 3px 0 0 3px;}

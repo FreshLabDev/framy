@@ -504,34 +504,73 @@ func TestBrowserLibraryPhone(t *testing.T) {
 }
 
 // TestBrowserLibrarySignedOut checks the library of nobody: it asks to sign
-// in, and signing in comes back to it.
+// in, and signing in comes back to it. Whoever came by a link, to the library
+// or to a run, gets to the composer from it, by the card or by framy's mark,
+// on a phone as on a computer.
 func TestBrowserLibrarySignedOut(t *testing.T) {
 	ts := fakeAPI(t)
-	ctx := browser(t, ts.URL+"/library", 1440, 900, false)
-	got := js[map[string]any](t, ctx, libHelpers+`
+	for _, size := range [][2]int64{{390, 844}, {1440, 900}} {
+		ctx := browser(t, ts.URL+"/library", size[0], size[1], size[0] < 600)
+		got := js[map[string]any](t, ctx, libHelpers+`
 	const e = await until(() => document.querySelector("#library .lempty h2"));
-	return { h: e.textContent, tabs: !!document.querySelector("#top .tabs"), btn: document.querySelector("#library .lempty .go")?.textContent };`)
-	if got["h"] != "Your library is in your account" || got["tabs"] != false || got["btn"] != "Sign in with Telegram" {
-		t.Errorf("signed out: %v", got)
-	}
-	if _, err := chromedp.Run(ctx, chromedp.Evaluate[any](`document.querySelector("#library .lempty .go").click()`)); err != nil {
-		t.Fatal(err)
-	}
-	// The page goes away under the check, so it asks again until the new one answers.
-	var url string
-	for range 40 {
-		time.Sleep(250 * time.Millisecond)
-		if url, _ = chromedp.Run(ctx, chromedp.Evaluate[string](`location.pathname + location.search`)); url == "/auth/login?return_to=%2Flibrary" {
-			break
+	const make = document.querySelector("#library .lempty a.x"), logo = document.querySelector("#top a.logo");
+	const out = { h: e.textContent, tabs: !!document.querySelector("#top .tabs"), btn: document.querySelector("#library .lempty .go")?.textContent,
+		make: make?.textContent, makeHref: make?.getAttribute("href"), logo: logo?.getAttribute("href"), wide: document.documentElement.scrollWidth > innerWidth };
+	make.click();
+	await until(() => !document.querySelector("#create").hidden);
+	out.card = [location.pathname, !document.querySelector("#create").hidden, document.querySelector("#library").hidden];
+	history.back();
+	await until(() => !document.querySelector("#library").hidden);
+	document.querySelector("#top a.logo").click();
+	await until(() => !document.querySelector("#create").hidden);
+	out.mark = [location.pathname, !document.querySelector("#create").hidden];
+	history.back();
+	await until(() => document.querySelector("#library .lempty .go"));
+	return out;`)
+		if got["h"] != "Your library is in your account" || got["tabs"] != false || got["btn"] != "Sign in with Telegram" ||
+			got["make"] != "Create" || got["makeHref"] != "/" || got["logo"] != "/" || got["wide"] != false {
+			t.Errorf("%d: signed out: %v", size[0], got)
+		}
+		if fmt.Sprint(got["card"]) != "[/ true true]" || fmt.Sprint(got["mark"]) != "[/ true]" {
+			t.Errorf("%d: to the composer: by the card %v, by the mark %v", size[0], got["card"], got["mark"])
+		}
+		noErrors(t, ctx)
+		if size[0] < 600 {
+			continue
+		}
+		if _, err := chromedp.Run(ctx, chromedp.Evaluate[any](`document.querySelector("#library .lempty .go").click()`)); err != nil {
+			t.Fatal(err)
+		}
+		// The page goes away under the check, so it asks again until the new one answers.
+		var url string
+		for range 40 {
+			time.Sleep(250 * time.Millisecond)
+			if url, _ = chromedp.Run(ctx, chromedp.Evaluate[string](`location.pathname + location.search`)); url == "/auth/login?return_to=%2Flibrary" {
+				break
+			}
+		}
+		if url != "/auth/login?return_to=%2Flibrary" {
+			t.Errorf("sign in went to %q", url)
 		}
 	}
-	if url != "/auth/login?return_to=%2Flibrary" {
-		t.Errorf("sign in went to %q", url)
+	// A link to a run of someone signed out: the same card, and the same way to the composer.
+	ctx := browser(t, ts.URL+"/r/66", 390, 844, true)
+	got := js[map[string]any](t, ctx, libHelpers+`
+	const e = await until(() => document.querySelector("#library .lempty h2"));
+	const out = { h: e?.textContent, viewer: !document.querySelector("#viewer").hidden };
+	document.querySelector("#library .lempty a.x").click();
+	await until(() => !document.querySelector("#create").hidden);
+	out.to = [location.pathname, !document.querySelector("#create").hidden];
+	return out;`)
+	if got["h"] != "Your library is in your account" || got["viewer"] != false || fmt.Sprint(got["to"]) != "[/ true]" {
+		t.Errorf("a run signed out: %v", got)
 	}
+	noErrors(t, ctx)
 }
 
 // TestBrowserLibraryMini checks the library in the Mini App: no main button
-// there, Telegram's back button to the composer, and the address untouched.
+// there, Telegram's back button to the composer, framy's mark too, and the
+// address untouched.
 func TestBrowserLibraryMini(t *testing.T) {
 	f := newFakeLibrary()
 	ts := fakeSite(t, f.mount)
@@ -551,10 +590,18 @@ func TestBrowserLibraryMini(t *testing.T) {
 	r.closed = document.querySelector("#viewer").hidden; r.lib = vis(document.querySelector("#library")); r.back3 = __tg.back;
 	__tg.backClick(); await wait(600);
 	r.create = vis(document.querySelector("#create")); r.main2 = __tg.params?.is_visible; r.back2 = __tg.back;
+	// framy's mark, which the Mini App shows until Telegram's script has dressed the page, goes to the composer
+	// in place, a press with Ctrl as any other: as a link it would leave the launch data behind.
+	document.querySelector("#top .tab[data-v=library]").click();
+	await wait(500);
+	const ev = new MouseEvent("click", { ctrlKey: true, bubbles: true, cancelable: true });
+	document.querySelector("#top a.logo").dispatchEvent(ev);
+	await wait(500);
+	r.mark = [ev.defaultPrevented, vis(document.querySelector("#create")), location.pathname];
 	return r;`)
 	if got["main0"] != true || got["back0"] != false || got["main1"] != false || got["back1"] != true || got["path"] != "/" ||
 		got["viewer"] != true || got["path2"] != "/" || got["full"] != true || got["cnt"] != "Image" || got["fullClosed"] != true || got["viewerKept"] != true ||
-		got["closed"] != true || got["lib"] != true || got["create"] != true || got["main2"] != true || got["back2"] != false {
+		got["closed"] != true || got["lib"] != true || got["create"] != true || got["main2"] != true || got["back2"] != false || fmt.Sprint(got["mark"]) != "[true true /]" {
 		t.Errorf("mini app: %v", got)
 	}
 	noErrors(t, ctx)

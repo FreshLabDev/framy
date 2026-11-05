@@ -36,9 +36,17 @@ function account() {
   }
   return S.mini ? null : h("button", { type: "button", class: "signin", onclick: signIn }, ic("send"), h("span", {}, t("auth.signin")));
 }
+// The mark leads to the composer from anywhere, signed in or not: a person who
+// came by a link to the library or to a run has a way to make something. The
+// Mini App, which shows it until Telegram's script has dressed the page, never
+// follows it as a link: that would leave its launch data behind.
+function logo() {
+  return h("a", { class: "logo", href: "/", onclick: (e) => { if (!S.mini && (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) return; e.preventDefault(); go("create"); } },
+    h("img", { src: MARK, alt: "" }), h("span", {}, "framy"));
+}
 function renderTop() {
   const top = $("#top");
-  top.replaceChildren(...[h("div", { class: "logo" }, h("img", { src: MARK, alt: "" }), h("span", {}, "framy")), tabs(), h("span", { class: "sp" }), account()].filter(Boolean));
+  top.replaceChildren(...[logo(), tabs(), h("span", { class: "sp" }), account()].filter(Boolean));
   placeSegs(top);
 }
 

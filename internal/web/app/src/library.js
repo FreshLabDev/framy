@@ -352,9 +352,12 @@ async function relink(id) {
 const frame = () => h("div", { class: "lframe", "aria-hidden": "true" }, h("i"), h("i"), h("i"), h("i"));
 const slim = (text, icon, label, fn) => h("div", { class: "lempty slim", "data-k": "lempty" },
   h("div", { class: "t" }, h("p", {}, text), h("button", { type: "button", class: "x", onclick: fn }, ic(icon), label)));
+// Signed out: the library asks for the sign-in, and the composer stays a press
+// away for whoever came by a link and would rather try it first.
 function signedOut() {
   return h("div", { class: "lempty", "data-k": "lempty" }, frame(), h("div", { class: "t" }, h("h2", {}, t("lib.signin_title")), h("p", {}, t("lib.signin_text")),
-    h("button", { type: "button", class: "go", onclick: signIn }, ic("send"), t("auth.signin"))));
+    h("div", { class: "two" }, h("button", { type: "button", class: "go", onclick: signIn }, ic("send"), t("auth.signin")),
+      h("a", { class: "x", href: "/", onclick: (e) => { if (S.mini || !(e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) { e.preventDefault(); go("create"); } } }, ic("spark"), t("tab.create")))));
 }
 function empty() {
   if (L.q) return slim(t("lib.none_q", { q: L.q }), "close", t("lib.reset"), () => { if (Q) Q.input.value = ""; find(""); });
