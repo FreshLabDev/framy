@@ -678,7 +678,7 @@ func (f *Flow) draftVideo(ctx context.Context, m *tg.Message, c clip, prompt, ke
 		return draft{}, refusal{}, err
 	}
 	if limits.MaxMiB > 0 && a.Bytes > int64(limits.MaxMiB)<<20 {
-		return draft{}, refusal{}, errTooBig
+		return draft{}, refusal{}, &tooBigError{int64(limits.MaxMiB) << 20}
 	}
 	d.keptSeconds = a.Seconds
 	poster, err := f.cfg.Clips.Poster(ctx, dir)
@@ -775,10 +775,11 @@ func (f *Flow) keep(ctx context.Context, user int64, dir string, photos []photo)
 }
 
 // download reads a file from Telegram into dst. One over limit, by what the
-// message says, by what getFile says or by Telegram's own cap, is errTooBig.
+// message says or by what getFile says, is a tooBigError; one over
+// Telegram's own cap is errTooBig.
 func (f *Flow) download(ctx context.Context, fileID string, size, limit int64, dst string) error {
 	if size > limit {
-		return errTooBig
+		return &tooBigError{limit}
 	}
 	file, err := f.cfg.Telegram.GetFile(ctx, fileID)
 	if err != nil {
@@ -789,7 +790,7 @@ func (f *Flow) download(ctx context.Context, fileID string, size, limit int64, d
 		return fmt.Errorf("get file: %w", err)
 	}
 	if file.FileSize > limit {
-		return errTooBig
+		return &tooBigError{limit}
 	}
 	if err := f.cfg.Telegram.DownloadToFile(ctx, file.FilePath, dst, limit); err != nil {
 		return fmt.Errorf("download file: %w", err)

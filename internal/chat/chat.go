@@ -701,22 +701,42 @@ func threadOf(m *tg.Message) int {
 	return 0
 }
 
-// errorText is the reason a person reads for an error before a preview.
+// errorText is the reason a person reads for an error before a preview. A
+// file over a limit names the limit, so the person knows how far to shrink
+// it.
 func errorText(lang string, err error) string {
+	var big *tooBigError
 	switch {
 	case errors.Is(err, media.ErrUnsupported), errors.Is(err, media.ErrUnreadable):
 		return t(lang, "run.unsupported")
 	case errors.Is(err, media.ErrUnsupportedVideo), errors.Is(err, media.ErrUnreadableVideo):
 		return t(lang, "edit.unsupported")
-	case errors.Is(err, media.ErrTooLarge), errors.Is(err, media.ErrVideoTooLarge),
-		errors.Is(err, storage.ErrTooBig), errors.Is(err, errTooBig):
+	case errors.Is(err, media.ErrTooLarge):
+		return t(lang, "run.too_many_pixels", "n", strconv.Itoa(media.DefaultMaxPixels/1_000_000))
+	case errors.Is(err, media.ErrVideoTooLarge):
+		return t(lang, "edit.too_many_pixels", "n", strconv.Itoa(media.DefaultMaxPixels/1_000_000))
+	case errors.As(err, &big):
+		// Rounded down: a file at the number said always goes.
+		return t(lang, "run.too_big_mb", "n", strconv.FormatInt(big.limit>>20, 10))
+	case errors.Is(err, storage.ErrTooBig), errors.Is(err, errTooBig):
 		return t(lang, "run.too_big")
 	}
 	return t(lang, "run.failed")
 }
 
-// errTooBig is a file Telegram says is over the download limit.
+// errTooBig is a file Telegram will not hand over, over its own cap, which
+// framy does not know.
 var errTooBig = errors.New("the file is over the download limit")
+
+// tooBigError is a file over a limit of limit bytes: framy's for what it
+// reads from Telegram, or the model's for a clip.
+type tooBigError struct{ limit int64 }
+
+func (e *tooBigError) Error() string {
+	return fmt.Sprintf("the file is over the limit of %d bytes", e.limit)
+}
+
+func (e *tooBigError) Is(target error) bool { return target == errTooBig }
 
 func t(lang, key string, pairs ...string) string { return i18n.T(i18n.Resolve(lang), key, pairs...) }
 

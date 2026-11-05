@@ -20,6 +20,7 @@ import (
 	"github.com/FreshLabDev/framy/internal/i18n"
 	"github.com/FreshLabDev/framy/internal/jobs"
 	"github.com/FreshLabDev/framy/internal/keys"
+	"github.com/FreshLabDev/framy/internal/media"
 	"github.com/FreshLabDev/framy/internal/price"
 	"github.com/FreshLabDev/framy/internal/storage"
 )
@@ -408,6 +409,37 @@ func TestEmptyCommandsVideosAndRepeats(t *testing.T) {
 	}
 	if n := len(h.tg.methods("sendRichMessage")); n != 1 || len(h.store.jobs) != 1 {
 		t.Fatalf("%d previews, %d jobs", n, len(h.store.jobs))
+	}
+}
+
+// A file over a limit says the limit, so the person knows how far to
+// shrink it: framy's on what it reads from Telegram, and the pixels of a
+// picture.
+func TestAPhotoOverALimitSaysTheLimit(t *testing.T) {
+	big := photoReply("/img x")
+	big.ReplyToMessage.Photo = nil
+	big.ReplyToMessage.Document = &tg.Document{FileID: "doc", MimeType: "image/png", FileSize: storage.DefaultMaxUpload + 1}
+	for _, c := range []struct {
+		name  string
+		m     *tg.Message
+		setup func(*harness)
+		want  string
+	}{
+		{"over the bytes", big, nil, "This file is too big: it can be up to 50 MB."},
+		{"over the pixels", photoReply("/img x"), func(h *harness) { h.files.fail = fmt.Errorf("%w: 9000×9000", media.ErrTooLarge) },
+			"This photo is over 64 megapixels. Make it smaller and send it again."},
+	} {
+		h := newHarness(t)
+		if c.setup != nil {
+			c.setup(h)
+		}
+		_ = h.command(c.m, CommandImage, "x")
+		if got := h.tg.methods("sendMessage"); len(got) != 1 || got[0].text != c.want {
+			t.Errorf("%s: answer = %+v, want %q", c.name, got, c.want)
+		}
+		if len(h.store.jobs) != 0 {
+			t.Errorf("%s: a job was made", c.name)
+		}
 	}
 }
 
