@@ -3653,6 +3653,24 @@
     "ja": "Telegram でログイン",
     "ar": "تسجيل الدخول عبر Telegram"
   },
+  "web.auth.signin_short": {
+    "en": "Sign in",
+    "ru": "Войти",
+    "uk": "Увійти",
+    "es": "Iniciar sesión",
+    "fr": "Se connecter",
+    "de": "Anmelden",
+    "it": "Accedi",
+    "pl": "Zaloguj się",
+    "cs": "Přihlásit se",
+    "tr": "Giriş yap",
+    "sv": "Logga in",
+    "be": "Увайсці",
+    "ca": "Inicia la sessió",
+    "zh": "登录",
+    "ja": "ログイン",
+    "ar": "تسجيل الدخول"
+  },
   "web.auth.signout": {
     "en": "Sign out",
     "ru": "Выйти",

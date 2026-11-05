@@ -181,3 +181,33 @@ func TestBrowserAddTile(t *testing.T) {
 		noErrors(t, ctx)
 	}
 }
+
+// TestBrowserSignInButton checks the sign-in button in the header of a phone:
+// its line is whole in every language from 320 px, its name is the whole
+// line, and from 360 px the name framy stands beside the mark.
+func TestBrowserSignInButton(t *testing.T) {
+	ts := fakeAPI(t)
+	for _, c := range []struct {
+		lang string
+		w    int64
+	}{{"en", 360}, {"de", 360}, {"ca", 360}, {"ar", 360}, {"es", 320}, {"ca", 320}, {"ca", 430}, {"en", 1440}} {
+		ctx := browserAs(t, ts.URL, c.w, 780, opened{lang: c.lang, phone: c.w < 960})
+		got := js[map[string]any](t, ctx, pageHelpers+`
+		const b = document.querySelector("#top .signin"), shown = [...b.querySelectorAll(":scope > span")].filter(vis);
+		const name = document.querySelector("#top .logo span");
+		return { shown: shown.map((s) => s.textContent), cut: shown.some((s) => s.scrollWidth > s.clientWidth), label: b.getAttribute("aria-label"),
+		  framy: vis(name), right: Math.round(b.getBoundingClientRect().right), page: document.documentElement.scrollWidth - innerWidth };`)
+		shown := got["shown"].([]any)
+		if len(shown) != 1 || got["cut"] != false || got["label"] == "" || got["page"].(float64) > 0 || got["right"].(float64) > float64(c.w) {
+			t.Errorf("%s at %d: %v", c.lang, c.w, got)
+		}
+		if want := c.w >= 360; got["framy"] != want {
+			t.Errorf("%s at %d: the name beside the mark shown %v, want %v", c.lang, c.w, got["framy"], want)
+		}
+		// The short line is on a phone only; the whole one is the name everywhere.
+		if (c.w >= 480) != (shown[0] == got["label"]) {
+			t.Errorf("%s at %d: the button says %q, named %q", c.lang, c.w, shown[0], got["label"])
+		}
+		noErrors(t, ctx)
+	}
+}

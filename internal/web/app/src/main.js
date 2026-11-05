@@ -34,7 +34,9 @@ function account() {
     const av = me.photo_url ? h("img", { class: "av", src: me.photo_url, alt: "", referrerpolicy: "no-referrer" }) : h("span", { class: "av" }, (me.name || "?").slice(0, 1).toUpperCase());
     return h("button", { type: "button", class: "me", id: "meBtn", onclick: () => openPrefs(), "aria-label": t("prefs.title"), "aria-haspopup": "dialog" }, av, h("span", { class: "t" }, t("prefs.title")));
   }
-  return S.mini ? null : h("button", { type: "button", class: "signin", onclick: signIn }, ic("send"), h("span", {}, t("auth.signin")));
+  // A phone shows the short line; the whole one stays the button's name.
+  return S.mini ? null : h("button", { type: "button", class: "signin", onclick: signIn, "aria-label": t("auth.signin") },
+    ic("send"), h("span", { class: "t" }, t("auth.signin")), h("span", { class: "ts" }, t("auth.signin_short")));
 }
 function renderTop() {
   const top = $("#top");

@@ -57,6 +57,10 @@ p {margin: 0;}
 .me .av {width: 28px; height: 28px; display: grid; place-items: center; background: var(--ink); color: var(--field); font-weight: 700;}
 .signin {height: 40px; min-width: 0; padding: 0 14px; display: flex; align-items: center; gap: 8px; background: var(--ink); color: var(--field); font-weight: 700;}
 .signin > span {white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+.signin > .ts {display: none;}
+/* "Sign in with Telegram" does not fit beside the name on a phone, in English neither: there the
+   button says "Sign in" by Telegram's plane, and under 360 px the name gives way to the mark. */
+@media (max-width: 479px) {.signin > .t {display: none;} .signin > .ts {display: block;}}
 @media (max-width: 359px) {.top:has(.signin) .logo span {display: none;}}
 @media (max-width: 520px) {
   .me .t {display: none;}

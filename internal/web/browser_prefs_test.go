@@ -454,10 +454,11 @@ func TestBrowserPrefs(t *testing.T) {
 	const failed = note("p-del");
 	btn(sheet(), "Again").click();
 	await until(() => sheet().hidden && document.querySelector(".signin"));
-	return { q1, q2, failed, asked: !document.querySelector("#ask").hidden, toast: toastText(), top: document.querySelector("#top").textContent };`)
+	const top = [...document.querySelectorAll("#top .logo span, #top .signin > span")].filter(vis).map((e) => e.textContent).join(" ");
+	return { q1, q2, failed, asked: !document.querySelector("#ask").hidden, toast: toastText(), top };`)
 	if s["q1"] != "Delete the account?" || s["q2"] != "Runs finish first" ||
 		s["failed"] != "Delete the accountNot every file was deleted, the account is still here. Press again and the deletion goes on.Again" ||
-		s["asked"] != false || s["toast"] != "The account is deleted, and every session is closed." || s["top"] != "framySign in with Telegram" {
+		s["asked"] != false || s["toast"] != "The account is deleted, and every session is closed." || s["top"] != "framy Sign in with Telegram" {
 		t.Errorf("delete: %v", s)
 	}
 	f.with(func() {
