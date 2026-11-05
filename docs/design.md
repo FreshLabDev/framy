@@ -122,7 +122,7 @@ Every OpenRouter model describes its parameters as `enum`, `range` or `boolean`,
 | `range` | stepper or slider within the range |
 | `boolean` | toggle |
 
-A parameter the model does not list is not shown at all, not shown disabled. When the model changes, a value the new model does not allow falls back to its default, and a short note says which.
+A parameter the model does not list is not shown at all, not shown disabled. When the model changes, a value the new model does not allow falls back to its default. Not built yet (#19): a short note saying which setting fell back; today the control simply shows the new value.
 
 ### Defaults
 
@@ -269,9 +269,9 @@ Nobody reports progress in percent. The wait shows elapsed time and the model's 
 - Edit: the result becomes a reference; a video becomes the attached video, with the editors first. It goes by its file id in `inputs`, with no upload.
 - **Animate:** an image becomes the start frame of a video, and the video tab opens.
 - Continue: on a model whose overlay confirms `previous_job_id` or Omni's `previous_interaction_id`, the run names the job it goes on from with `continues` (`POST /api/jobs`, `POST /api/quote`), and framy fills the provider's setting from that job's `provider_job_id`. A client that sends the setting itself gets 400, so nobody can point a run at another person's video at the provider. The job must be the person's own and done, made by the same model through the same provider and not on the free allowance, since framy's key made it and the person's run cannot reach it; the run goes on the person's key, and its price counts the earlier video's length, as for Omni above. On any other model Continue takes the clip's last frame (`POST /api/files/{id}/last-frame`) as the start frame of a new run.
-- **Continue joins the clips (owner, 31 October).** A run that starts from a clip's last frame (`frame_images` beginning with `first_frame`, with that frame as its first file) makes a video that goes on from the clip, and the person wants the two as one. When it is done, framy keeps its video as the result and, beside it, the clip up to that frame with the new video after it, without the new video's first frame, which is the frame again: `joined` in the job. The joined clip takes the larger of the two sizes, the other padded where the shapes differ, and the higher frame rate, and gets silence where one part has no sound. Continuing the joined clip joins the next part to all of it. The joined clip keeps where each part begins (`segments`, migration 027), so the player can mark them. A join that fails, or would pass 180 s, leaves the run's own video alone. Omni's true continuation is not joined: Google speaks of extending a clip "up to a total length of 40s", so its video may hold the earlier one already, and nobody has checked it on a paid run. The site shows the joined clip as the result, on the stage, in the library and in the viewer, with Download and Send to Telegram for it, and the DM gets it too; New part, beside Download, saves the run's own video. A video plays in the site's own player, not the browser's (owner, 31 October): play, a bar to seek on, the time, the sound and the whole screen, the same in every browser and in the Mini App. Its bar is cut into the parts of a joined clip (`segments`), the one playing standing taller.
+- **Continue joins the clips (owner, 31 October).** A run that starts from a clip's last frame (`frame_images` beginning with `first_frame`, with that frame as its first file) makes a video that goes on from the clip, and the person wants the two as one. When it is done, framy keeps its video as the result and, beside it, the clip up to that frame with the new video after it, without the new video's first frame, which is the frame again: `joined` in the job. The joined clip takes the larger of the two sizes, the other padded where the shapes differ, and the higher frame rate, and gets silence where one part has no sound. Continuing the joined clip joins the next part to all of it. The joined clip keeps where each part begins (`segments`, migration 027), so the player can mark them. A join that fails, or would pass 180 s, leaves the run's own video alone. Omni's true continuation is not joined: Google speaks of extending a clip "up to a total length of 40s", so its video may hold the earlier one already, and nobody has checked it on a paid run. The site shows the joined clip as the result, on the stage, in the library and in the viewer, with Download for it and, in the Mini App, Send to Telegram, and the DM gets it too; New part, beside Download, saves the run's own video. A video plays in the site's own player, not the browser's (owner, 31 October): play, a bar to seek on, the time, the sound and the whole screen, the same in every browser and in the Mini App. Its bar is cut into the parts of a joined clip (`segments`), the one playing standing taller.
 - Download the original.
-- Send to Telegram: the bot sends it to the DM, or `shareMessage` in the Mini App.
+- Send to Telegram, in the Mini App: `shareMessage` with the result prepared by `POST /api/files/{id}/share`, to any chat the person picks (#37). The site outside Telegram has no such button: a result made there reaches the DM by itself while delivery to Telegram is on (DM, Results made on the site). Proposal: a button on the site that has the bot send one result to the DM, for one made while delivery was off.
 - Copy the prompt.
 - Delete.
 
@@ -814,13 +814,15 @@ Built (`internal/web/app/src`, Telegram's part in `main.js`):
 
 Temporary domain `framy.ws04.cc`. Mobile first; on a wide screen the composer and the feed sit side by side.
 
+The site has three addresses (`internal/web/app.go`); the rest opens over them.
+
 | Page | What it holds | Signed in |
 |:--|:--|:--|
-| Create | Composer and the feed of recent results | to generate |
-| Library | Every generation: images or video, search by prompt, filters | yes |
-| Result `/r/<id>` | One result with its settings, price and actions. Private by default; "Share" makes a public link with an OG image (proposal) | owner of the result |
-| Models | The catalog with prices, what each model can do | no |
-| Settings | Providers, currency, language, defaults, delivery to Telegram | yes |
+| Create `/` | The composer, and the stage: the frame of what Create will make, then the run with its result and actions | to generate |
+| Library `/library` | Every generation, newest first: all, images or videos, and search by prompt | yes |
+| Result `/r/<id>` | One run of the library in its viewer, with its settings, price and actions. Private; "Share" makes a public link with an OG image (proposal, #45) | owner of the result |
+| Settings | A sheet over the page, opened from the person's picture, not an address: providers and their keys, currency, language, default models, delivery to Telegram, what framy stores, deleting the account | yes |
+| Models | No page: the composer's model picker is the catalog, with prices and what each model can do, signed in or not. Proposal: a page of its own | no |
 
 - References come by drag and drop, a paste from the clipboard, or a file picker.
 - Progress arrives over SSE.
