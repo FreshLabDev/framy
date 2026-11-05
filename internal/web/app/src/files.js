@@ -227,18 +227,25 @@ export function fitModel() {
   if (best) setModel(best.id);
 }
 
+// The type a picture drawn again goes up as: one that can be transparent
+// stays so, a PNG or a GIF as PNG, a WebP or an AVIF as WebP (a browser that
+// writes no WebP gives PNG); a photo goes as JPEG.
+const DRAWN = { "image/png": "image/png", "image/gif": "image/png", "image/webp": "image/webp", "image/avif": "image/webp" };
+
 // The photo as it goes up: as it is, or drawn smaller when a side is too
-// long. One the browser cannot draw, or fails to, goes as it is, and the
-// server brings it down instead.
+// long. A GIF is always drawn, as its first frame: the server takes no GIF,
+// and a model takes a still. One the browser cannot draw, or fails to, goes
+// as it is, and the server brings it down instead.
 async function body(f) {
-  if (f.asIs || Math.max(f.w, f.h) <= MAX_SIDE) return f.file;
-  const k = MAX_SIDE / Math.max(f.w, f.h), w = Math.round(f.w * k), hh = Math.round(f.h * k);
+  const type = f.meta.content_type, gif = type === "image/gif";
+  if (f.asIs || (!gif && Math.max(f.w, f.h) <= MAX_SIDE)) return f.file;
+  const k = Math.min(1, MAX_SIDE / Math.max(f.w, f.h)), w = Math.round(f.w * k), hh = Math.round(f.h * k);
   try {
-    const bmp = await createImageBitmap(f.file, { resizeWidth: w, resizeHeight: hh, resizeQuality: "high" });
+    const bmp = await createImageBitmap(f.file, k < 1 ? { resizeWidth: w, resizeHeight: hh, resizeQuality: "high" } : {});
     const c = new OffscreenCanvas(w, hh);
-    c.getContext("2d").drawImage(bmp, 0, 0);
+    c.getContext("2d").drawImage(bmp, 0, 0, w, hh);
     bmp.close?.();
-    return await c.convertToBlob({ type: f.meta.content_type === "image/png" ? "image/png" : "image/jpeg", quality: 0.92 });
+    return await c.convertToBlob({ type: DRAWN[type] || "image/jpeg", quality: 0.92 });
   } catch { return f.file; }
 }
 

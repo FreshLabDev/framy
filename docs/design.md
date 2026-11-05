@@ -282,7 +282,7 @@ Nobody reports progress in percent. The wait shows elapsed time and the model's 
 **(owner, 27 October)**
 
 - **Before Generate.** A photo or a video dropped, pasted or picked into the composer stays in the browser: a `File` with an object URL for its thumbnail. The client reads what the price needs and sends only that to the quote: the type sniffed from the first bytes, the size in bytes, the picture size, and a video's length and frame rate (from a `<video>` element's metadata). The server answers with the price and what it will do with the file: convert it, scale it, or ask for a cut.
-- **On Generate** the files go up. The browser first scales a photo above 2048 px on the long side down to it, as the server would anyway, so a 48 MP photo does not cross the home uplink whole. Video goes by presigned PUT into `incoming/` (see Storage).
+- **On Generate** the files go up. The browser first scales a photo above 2048 px on the long side down to it, as the server would anyway, so a 48 MP photo does not cross the home uplink whole. A picture that can be transparent stays so: a PNG goes as PNG, a WebP or an AVIF as WebP (PNG in a browser that writes no WebP), and only a photo as JPEG. A GIF, which the server does not take, always goes as a PNG of its first frame, since a model takes a still. Video goes by presigned PUT into `incoming/` (see Storage).
 - **A photo the browser cannot draw** is still taken: a HEIC in Chrome or Firefox, which draw none. Its size comes from its header (the primary item's `ispe`, turned by its `irot`), its cell shows a plain picture sign instead of a thumbnail, and on Generate it goes up as it is, for the server to convert and scale. A file with no type, as Windows and Linux give a HEIC, is known by its name; the file dialog lists `.heic` and `.heif` for the same reason. A file that only says it is a picture and has no header to read is refused by name.
 - **The server trusts no number from the browser.** It checks the real files as it does any upload (Storage) and prices the run again. When the real price is higher than the one shown, the run does not start: the composer shows the new price and waits for another press. A lower price runs as it is.
 - A file picked from the history is already in R2 and goes by its id, with no upload. The Mini App works the same way.
@@ -294,7 +294,7 @@ framy changes on its own anything that does not change what the person expects o
 
 | Silently | The person decides |
 |:--|:--|
-| Format and container: HEIC, AVIF or WebP to JPEG or PNG, MOV to MP4 | The length of a clip: the mini editor or another model (see Video) |
+| Format and container: HEIC, AVIF or WebP to JPEG or PNG, a GIF to a PNG of its first frame, MOV to MP4 | The length of a clip: the mini editor or another model (see Video) |
 | Codec, bitrate, frame rate, rotation | A crop to another aspect ratio: offered in the same mini editor, never made silently |
 | Resolution down to what the model takes, or to 2048 px for a photo | Photos over the model's limit: the preview says how many are left out, and Generate is the consent |
 | A photo below the model's minimum scaled up | Another model, or a price higher than the one shown |
