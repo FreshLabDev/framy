@@ -645,7 +645,18 @@ func TestAResultIsKeptAsItsBytesSay(t *testing.T) {
 }
 
 func TestTheOperatorHearsWhenTheBucketPassesAStep(t *testing.T) {
-	h := newHarness(t, storage.Config{AlertStep: 1000})
+	var clockMu sync.Mutex
+	clock := time.Now()
+	later := func() {
+		clockMu.Lock()
+		clock = clock.Add(time.Minute)
+		clockMu.Unlock()
+	}
+	h := newHarness(t, storage.Config{AlertStep: 1000, Now: func() time.Time {
+		clockMu.Lock()
+		defer clockMu.Unlock()
+		return clock
+	}})
 	ctx := context.Background()
 	var jobID int64
 	if err := h.pool.QueryRow(ctx, `
@@ -676,15 +687,31 @@ func TestTheOperatorHearsWhenTheBucketPassesAStep(t *testing.T) {
 	if told() != 0 {
 		t.Fatal("told below the step")
 	}
+	// The bucket is summed once a minute at most: the write that passes
+	// the step within the minute tells nothing, and with no write after it
+	// the minute's catch-up tells it.
 	keep(3) // past 1000 bytes
+	if told() != 0 {
+		t.Fatalf("summed twice in a minute: told %v", h.told)
+	}
+	h.store.CatchUpBucket(ctx)
+	if told() != 0 {
+		t.Fatalf("caught up within the minute: told %v", h.told)
+	}
+	later()
+	h.store.CatchUpBucket(ctx)
 	if told() != 1 || !strings.Contains(h.told[0], "R2 bucket") {
 		t.Fatalf("told %d times: %v", told(), h.told)
 	}
-	keep(3) // the same results again: no new step
+	later()
+	keep(3) // the same results again: nothing added, no new step
+	h.store.CatchUpBucket(ctx)
 	if told() != 1 {
 		t.Errorf("told %d times for the same step", told())
 	}
-	// A failed message is tried again by the next write.
+	later()
+	// A failed message is tried again at once by the next catch-up (or
+	// write), and only once it went is the step done.
 	h.mu.Lock()
 	h.notify = func(context.Context, string) error { return errors.New("telegram is down") }
 	h.mu.Unlock()
@@ -692,9 +719,14 @@ func TestTheOperatorHearsWhenTheBucketPassesAStep(t *testing.T) {
 	h.mu.Lock()
 	h.notify = func(context.Context, string) error { return nil }
 	h.mu.Unlock()
-	keep(6)
+	h.store.CatchUpBucket(ctx)
 	if told() != 3 {
 		t.Errorf("told %d times, want the failed message and its retry", told())
+	}
+	later()
+	keep(6)
+	if told() != 3 {
+		t.Errorf("told %d times after the retry went", told())
 	}
 	var step int
 	_ = h.pool.QueryRow(ctx, `SELECT bucket_alert_step FROM framy.runtime_state`).Scan(&step)
@@ -802,6 +834,40 @@ func TestAnUploadNoJobTookGoesAfterAnHour(t *testing.T) {
 	}
 	if n, err := h.store.SweepUploads(ctx, storage.UploadTTL); err != nil || n != 0 {
 		t.Fatalf("a second sweep: %d, %v", n, err)
+	}
+}
+
+// The uploads are looked for many at a time, and a sweep goes on past the
+// first look, by the ids, so one it passes by does not stop it.
+func TestTheSweepTakesUploadsManyAtATime(t *testing.T) {
+	h := newHarness(t, storage.Config{})
+	ctx := context.Background()
+	img := pngBytes(t, 2, 2, 255)
+	var ids []int64
+	for i := range 230 {
+		id := upload(t, h, alice, fmt.Sprintf("in/many/%d.png", i), img)
+		ids = append(ids, id)
+	}
+	if _, err := h.pool.Exec(ctx, `UPDATE framy.asset SET created_at = now() - interval '2 hours' WHERE id = ANY($1)`, ids); err != nil {
+		t.Fatal(err)
+	}
+	// One in the first look is held by a job taking it.
+	tx, err := h.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM framy.asset WHERE id=$1 FOR KEY SHARE`, ids[3]); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := h.store.SweepUploads(ctx, storage.UploadTTL); err != nil || n != 229 {
+		t.Fatalf("swept %d, %v; want 229", n, err)
+	}
+	if !h.assetExists(t, ids[3]) {
+		t.Error("the upload a job held went")
+	}
+	if _, ok := h.bucket.Get("in/many/229.png"); ok {
+		t.Error("the last upload's object is still there")
 	}
 }
 

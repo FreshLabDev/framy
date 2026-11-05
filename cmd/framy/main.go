@@ -201,6 +201,9 @@ func run(log *slog.Logger) error {
 	// panel of a direct chat shows what is left of the one and what is
 	// connected of the other, and the flow answers /img.
 	opts := []bot.Option{bot.WithAllowance(allowance), bot.WithConnections(people), bot.WithSiteURL(cfg.SiteURL)}
+	if cfg.Primary() {
+		opts = append(opts, bot.WithAlbumSweep())
+	}
 	if flow != nil {
 		opts = append(opts, bot.WithFlow(flow))
 	}
@@ -372,6 +375,7 @@ func run(log *slog.Logger) error {
 	}
 	if files != nil && cfg.Primary() {
 		workers.Go(func() { fillThumbs(ctx, files, log) })
+		workers.Go(func() { catchUpBucket(ctx, files) })
 	}
 	if keyWatch != nil {
 		workers.Go(func() { keyWatch.Run(ctx) })
@@ -593,6 +597,22 @@ func fillThumbs(ctx context.Context, files *storage.Store, log *slog.Logger) {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
+		}
+	}
+}
+
+// catchUpBucket sums the bucket every minute when a write came too soon
+// after the last sum to be summed, so the operator hears of a step the last
+// write of a busy minute crossed without waiting for the next write.
+func catchUpBucket(ctx context.Context, files *storage.Store) {
+	tick := time.NewTicker(time.Minute)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			files.CatchUpBucket(ctx)
 		}
 	}
 }

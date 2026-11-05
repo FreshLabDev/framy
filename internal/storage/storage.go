@@ -74,6 +74,13 @@ const (
 	// uploads on Generate and the chat right before its draft, so an upload
 	// older than this that no job took is left from a failure.
 	UploadTTL = time.Hour
+	// sweepBatch is how many uploads one look for those no job took finds:
+	// the look reads every upload, so it is made once for many.
+	sweepBatch = 100
+	// bucketEvery is the least time between two sums of the bucket. A sum
+	// reads every row of asset, and a step of 10 GB told a minute late is
+	// told in time.
+	bucketEvery = time.Minute
 )
 
 var (
@@ -154,6 +161,13 @@ type Store struct {
 	thumbErr  error
 	// thumb is makeThumb; tests stand in for it.
 	thumb func(ctx context.Context, a Asset, fill func(dst string) error) (*Thumb, error)
+
+	// bucketAt is when a write may sum the bucket again (checkBucket), and
+	// bucketOwed says a write came sooner and was not summed, which
+	// CatchUpBucket sums.
+	bucketMu   sync.Mutex
+	bucketAt   time.Time
+	bucketOwed bool
 }
 
 // New checks cfg and fills its defaults.
@@ -696,34 +710,55 @@ func (s *Store) dropLateThumb(ctx context.Context, before, after *string) {
 }
 
 // SweepUploads deletes the uploads no job took within age, the object and
-// then the row, and returns how many went. The row is locked while its
-// object goes, so a job taking the file at that moment either waits and
-// finds it gone, or holds it first and the sweep passes it by.
+// then the row, and returns how many went. They are looked for sweepBatch at
+// a time, in the order of their ids, and each is checked again under its
+// row's lock while its object goes, so a job taking the file at that moment
+// either waits and finds it gone, or holds it first and the sweep passes it
+// by.
 func (s *Store) SweepUploads(ctx context.Context, age time.Duration) (int, error) {
 	n := 0
+	var after int64
 	for {
-		gone, err := s.sweepUpload(ctx, age)
-		if err != nil || !gone {
+		rows, err := s.pool.Query(ctx, `
+			SELECT a.id FROM asset a
+			WHERE a.kind = 'upload' AND a.created_at <= now() - make_interval(secs => $1) AND a.id > $2
+			  AND NOT EXISTS (SELECT 1 FROM job_input i WHERE i.asset_id = a.id)
+			ORDER BY a.id
+			LIMIT $3`, age.Seconds(), after, sweepBatch)
+		if err != nil {
 			return n, err
 		}
-		n++
+		ids, err := pgx.CollectRows(rows, pgx.RowTo[int64])
+		if err != nil {
+			return n, err
+		}
+		for _, id := range ids {
+			gone, err := s.sweepUpload(ctx, id, age)
+			if err != nil {
+				return n, err
+			}
+			if gone {
+				n++
+			}
+		}
+		if len(ids) < sweepBatch {
+			return n, nil
+		}
+		after = ids[len(ids)-1]
 	}
 }
 
-// sweepUpload deletes the oldest upload no job took within age, and reports
-// false when there is none.
-func (s *Store) sweepUpload(ctx context.Context, age time.Duration) (bool, error) {
+// sweepUpload deletes the upload id if no job took it within age, and
+// reports whether it went. One a job holds or took meanwhile stays.
+func (s *Store) sweepUpload(ctx context.Context, id int64, age time.Duration) (bool, error) {
 	var gone bool
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		var id int64
 		var key string
 		err := tx.QueryRow(ctx, `
-			SELECT a.id, a.object_key FROM asset a
-			WHERE a.kind = 'upload' AND a.created_at <= now() - make_interval(secs => $1)
+			SELECT a.object_key FROM asset a
+			WHERE a.id = $1 AND a.kind = 'upload' AND a.created_at <= now() - make_interval(secs => $2)
 			  AND NOT EXISTS (SELECT 1 FROM job_input i WHERE i.asset_id = a.id)
-			ORDER BY a.id
-			LIMIT 1
-			FOR UPDATE SKIP LOCKED`, age.Seconds()).Scan(&id, &key)
+			FOR UPDATE SKIP LOCKED`, id, age.Seconds()).Scan(&key)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
@@ -1079,12 +1114,45 @@ func (s *Store) Usage(ctx context.Context, userID int64) (Usage, error) {
 	return u, err
 }
 
+// CatchUpBucket sums the bucket when a write since the last sum came too
+// soon to be summed. Production calls it every minute, so a step crossed by
+// the last write of a busy minute is told a minute or two later, not at the
+// next write, which may be hours away.
+func (s *Store) CatchUpBucket(ctx context.Context) {
+	s.bucketMu.Lock()
+	owed := s.bucketOwed
+	s.bucketMu.Unlock()
+	if owed {
+		s.checkBucket(ctx)
+	}
+}
+
 // checkBucket tells the operator chat when the bucket passes another step.
 // Two writes crossing it at once tell it once: the step is swapped, not
-// set. It never fails the write that called it.
+// set. It never fails the write that called it. The bucket is summed at
+// most once in bucketEvery, a write that comes sooner is left to
+// CatchUpBucket, and a sum or a message that failed is tried again by the
+// next write or the next catch-up.
 func (s *Store) checkBucket(ctx context.Context) {
 	if s.notify == nil {
 		return
+	}
+	at := s.cfg.Now()
+	s.bucketMu.Lock()
+	due := !at.Before(s.bucketAt)
+	if due {
+		s.bucketAt, s.bucketOwed = at.Add(bucketEvery), false
+	} else {
+		s.bucketOwed = true
+	}
+	s.bucketMu.Unlock()
+	if !due {
+		return
+	}
+	failed := func() {
+		s.bucketMu.Lock()
+		s.bucketAt, s.bucketOwed = time.Time{}, true
+		s.bucketMu.Unlock()
 	}
 	ctx = context.WithoutCancel(ctx)
 	var total int64
@@ -1092,6 +1160,7 @@ func (s *Store) checkBucket(ctx context.Context) {
 	if err := s.pool.QueryRow(ctx, `
 		SELECT COALESCE((SELECT sum(bytes + COALESCE(thumb_bytes, 0)) FROM asset), 0)::bigint, bucket_alert_step FROM runtime_state`).Scan(&total, &step); err != nil {
 		s.log.Error("bucket usage", "error", err)
+		failed()
 		return
 	}
 	now := int(total / s.cfg.AlertStep)
@@ -1111,6 +1180,7 @@ func (s *Store) checkBucket(ctx context.Context) {
 		s.log.Error("tell the operator chat", "error", err)
 		// The next write tries again.
 		_, _ = s.pool.Exec(ctx, `UPDATE runtime_state SET bucket_alert_step=$1 WHERE bucket_alert_step=$2`, step, now)
+		failed()
 	}
 }
 

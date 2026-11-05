@@ -537,20 +537,32 @@ func TestAlbumCacheIsSweptHourly(t *testing.T) {
 	}
 }
 
-// Run starts the clean-up beside polling and waits for it before it returns.
+// Run starts the clean-up beside polling and waits for it before it
+// returns, on production; another stack leaves the cache to production.
 func TestRunSweepsTheAlbumCacheAndWaitsForIt(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	store, client := newStore(), newTelegram()
-	client.cancel = cancel
-	store.items[albumID{-100, 1}] = db.AlbumItem{ChatID: -100, MediaGroupID: "g", MessageID: 1, CreatedAt: time.Now().Add(-72 * time.Hour)}
-	b := New(store, client, quiet(), "framytest_bot", selfID, "v0.1.0")
-	if err := b.Run(ctx); err != nil {
-		t.Fatal(err)
-	}
-	store.mu.Lock()
-	defer store.mu.Unlock()
-	if len(store.swept) != 1 || len(store.items) != 0 {
-		t.Errorf("sweeps = %v, items = %+v", store.swept, store.items)
+	for _, c := range []struct {
+		name  string
+		opts  []Option
+		sweep bool
+	}{
+		{"production", []Option{WithAlbumSweep()}, true},
+		{"another stack", nil, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			store, client := newStore(), newTelegram()
+			client.cancel = cancel
+			store.items[albumID{-100, 1}] = db.AlbumItem{ChatID: -100, MediaGroupID: "g", MessageID: 1, CreatedAt: time.Now().Add(-72 * time.Hour)}
+			b := New(store, client, quiet(), "framytest_bot", selfID, "v0.1.0", c.opts...)
+			if err := b.Run(ctx); err != nil {
+				t.Fatal(err)
+			}
+			store.mu.Lock()
+			defer store.mu.Unlock()
+			if swept := len(store.swept) == 1 && len(store.items) == 0; swept != c.sweep || (!c.sweep && len(store.swept) != 0) {
+				t.Errorf("sweeps = %v, items = %+v", store.swept, store.items)
+			}
+		})
 	}
 }

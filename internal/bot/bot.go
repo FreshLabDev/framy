@@ -87,6 +87,9 @@ type Bot struct {
 	grace       time.Duration
 	lastPoll    atomic.Int64
 	initialized atomic.Bool
+
+	// sweepsAlbums: this process clears the album cache of every stack.
+	sweepsAlbums bool
 }
 
 // Option gives the bot what the home panel of a direct chat reads or opens.
@@ -130,6 +133,13 @@ type Flow interface {
 
 // WithFlow answers /img and /edit, and plain direct messages.
 func WithFlow(f Flow) Option { return func(b *Bot) { b.flow = f } }
+
+// WithAlbumSweep has Run clear the album cache, every stack's rows, as
+// production does (docs/design.md, Stacks): the photos framy saw people
+// send then go after albumKeep as the released code counts it, even while
+// the test bot is stopped, and code not yet released keeps its hands off
+// production's rows.
+func WithAlbumSweep() Option { return func(b *Bot) { b.sweepsAlbums = true } }
 
 // New takes the username and the id Preflight returned: the username tells a
 // command for framy from one for another bot in the same group, and the id is
@@ -187,7 +197,9 @@ func (b *Bot) Run(ctx context.Context) error {
 	// The profile is dozens of calls; polling does not wait for them.
 	var side sync.WaitGroup
 	side.Go(func() { b.publishProfile(ctx) })
-	side.Go(func() { b.sweepAlbums(ctx, albumSweepEvery) })
+	if b.sweepsAlbums {
+		side.Go(func() { b.sweepAlbums(ctx, albumSweepEvery) })
+	}
 	side.Go(func() { b.publishMenuButton(ctx) })
 	defer side.Wait()
 
