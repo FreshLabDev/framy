@@ -194,6 +194,46 @@ func TestBrowserNotesInPageLanguage(t *testing.T) {
 	noErrors(t, ctx)
 }
 
+// TestBrowserCyrillicForms opens the page in Ukrainian: its Cyrillic has the
+// forms Russian has, not Sofia Sans's Bulgarian ones (a т like an m is twice
+// as wide), in both faces and whatever language an element is in.
+func TestBrowserCyrillicForms(t *testing.T) {
+	ts := fakeSite(t, nil)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	js[bool](t, ctx, `localStorage.setItem("framy.lang", "uk"); return true;`)
+	if _, err := chromedp.Run(ctx, chromedp.Reload()); err != nil {
+		t.Fatal(err)
+	}
+	ready(t, ctx)
+	s := js[map[string]any](t, ctx, `
+	const text = "Додати твій ґудзик", out = { lang: document.documentElement.lang };
+	for (const font of ["400 40px 'Sofia Sans'", "700 40px 'Sofia Sans Extra Condensed'"]) {
+	  await document.fonts.load(font, text);
+	  const w = {};
+	  for (const lang of ["ru", "uk", "be", "en"]) {
+	    const el = document.createElement("span");
+	    Object.assign(el.style, { font, position: "absolute", whiteSpace: "nowrap" });
+	    el.lang = lang;
+	    el.textContent = text;
+	    document.body.append(el);
+	    w[lang] = el.getBoundingClientRect().width;
+	    el.remove();
+	  }
+	  out[font] = w;
+	}
+	return out;`)
+	if s["lang"] != "uk" {
+		t.Fatalf("the page is in %v", s["lang"])
+	}
+	for _, font := range []string{"400 40px 'Sofia Sans'", "700 40px 'Sofia Sans Extra Condensed'"} {
+		w, _ := s[font].(map[string]any)
+		if ru, _ := w["ru"].(float64); ru == 0 || w["uk"] != ru || w["be"] != ru || w["en"] != ru {
+			t.Errorf("%s: the width of the line in each language %v, want the Russian one in all", font, w)
+		}
+	}
+	noErrors(t, ctx)
+}
+
 // ready waits until the app has replaced the skeleton and the prices are in.
 func ready(t *testing.T, ctx context.Context) {
 	t.Helper()
