@@ -185,8 +185,8 @@ func (c *calc) inMode(mode string) bool {
 	case modeImage:
 		return r.Frames > 0
 	case modeReference:
-		// HeyGen bills a reference clip at its reference rate, as job 47 on
-		// the test bot showed.
+		// HeyGen bills a reference clip at its reference rate, as job 33 of
+		// the shared schema showed.
 		return len(r.Images) > 0 || c.clipSeconds() > 0
 	case modeContinue, modeVideoInput:
 		return r.Video != nil
@@ -352,8 +352,9 @@ func (c *calc) skuQuantity(s sku) (lo, hi float64, ok bool) {
 			return lo, hi, ok
 		}
 		// A reference clip's seconds are billed beside the output's, at
-		// the same rate: Wan 3.0 and HeyGen through OpenRouter (jobs 44 and
-		// 47 on the test bot), and MiniMax for Hailuo 3.
+		// the same rate: Wan 3.0 and HeyGen through OpenRouter (jobs 47 and
+		// 33 of the shared schema, runs of the test bot), and MiniMax for
+		// Hailuo 3.
 		if s := c.clipSeconds(); s > 0 {
 			c.about()
 			lo, hi = lo+s, hi+s
