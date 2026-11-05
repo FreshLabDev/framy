@@ -590,6 +590,11 @@ func waitText(lang string, d time.Duration) string {
 // sender sees, while Telegram takes the reply. A reply that got no answer
 // may have reached the sender, so the chat is not told it too.
 func (f *Flow) reply(ctx context.Context, m *tg.Message, text string) error {
+	if isQuiet(ctx) {
+		// A reply to a result: the chat does not hear about it.
+		f.log.Info("an answer to a reply left unsaid", "chat", m.Chat.ID)
+		return nil
+	}
 	if ephemeralCommand(m) {
 		_, err := f.cfg.Telegram.SendEphemeralMessage(ctx, m.Chat.ID, m.From.ID, m.EphemeralMessageID, text, nil)
 		if err == nil {

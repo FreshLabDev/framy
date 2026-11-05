@@ -350,6 +350,8 @@ func (f *Flow) sendPreview(ctx context.Context, m *tg.Message, d draft, prompt, 
 			opts.Ephemeral = &tg.Ephemeral{ReceiverUserID: m.From.ID}
 		case f.isAdmin(ctx, m.Chat.ID):
 			opts.Ephemeral = &tg.Ephemeral{ReceiverUserID: m.From.ID}
+		case isQuiet(ctx):
+			return 0, false, errNotAlone
 		}
 	}
 	if opts.Ephemeral != nil {
@@ -366,6 +368,9 @@ func (f *Flow) sendPreview(ctx context.Context, m *tg.Message, d draft, prompt, 
 			// already. The chat would see one sent to it now beside theirs,
 			// with their photos and words.
 			return 0, false, fmt.Errorf("send the preview: %w", err)
+		}
+		if isQuiet(ctx) {
+			return 0, false, fmt.Errorf("%w: %w", errNotAlone, err)
 		}
 		f.log.Warn("ephemeral preview refused; the chat sees it", "chat", m.Chat.ID, "error", err)
 		opts.Ephemeral, opts.ReplyToEphemeral = nil, 0

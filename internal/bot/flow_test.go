@@ -15,6 +15,7 @@ type fakeFlow struct {
 	mu        sync.Mutex
 	commands  []flowCommand
 	plain     []string
+	replies   []string
 	callbacks []string
 	inline    []string
 	guests    []string
@@ -33,6 +34,12 @@ func (f *fakeFlow) Plain(_ context.Context, m *tg.Message) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.plain = append(f.plain, m.Text+m.Caption)
+}
+
+func (f *fakeFlow) Reply(_ context.Context, m *tg.Message) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.replies = append(f.replies, m.Text)
 }
 
 func (f *fakeFlow) Owns(data string) bool {
@@ -232,6 +239,45 @@ func TestAPlainDirectMessageGoesToTheFlow(t *testing.T) {
 	}
 	if len(flow.callbacks) != 1 || flow.callbacks[0] != "d:11:v" || len(client.answers) != 0 {
 		t.Fatalf("flow got %v, the bot answered %+v", flow.callbacks, client.answers)
+	}
+}
+
+// In a group, words that answer one of framy's own messages go to the flow,
+// which takes them when they answer a result of the sender's; chatter, a
+// reply to someone else, another bot's command and a bot's words do not.
+func TestAGroupsReplyToFramyGoesToTheFlow(t *testing.T) {
+	flow := &fakeFlow{}
+	b, _, _ := newBotWith(WithFlow(flow))
+	toFramy := func(m *tg.Message) *tg.Message {
+		m.ReplyToMessage = &tg.Message{MessageID: 5, Chat: groupChat, From: &tg.User{ID: selfID, IsBot: true}}
+		return m
+	}
+	for _, tc := range []struct {
+		name    string
+		m       *tg.Message
+		reaches bool
+	}{
+		{"words to framy", toFramy(message(groupChat, 7, "make it brighter")), true},
+		{"chatter", message(groupChat, 7, "make it brighter"), false},
+		{"words to a person", func() *tg.Message {
+			m := message(groupChat, 7, "make it brighter")
+			m.ReplyToMessage = &tg.Message{MessageID: 5, Chat: groupChat, From: &tg.User{ID: 8}}
+			return m
+		}(), false},
+		{"another bot's command", toFramy(message(groupChat, 7, "/foo@other_bot bar")), false},
+		{"a bot", toFramy(&tg.Message{MessageID: 13, Chat: groupChat, From: &tg.User{ID: 8, IsBot: true}, Text: "a fox"}), false},
+		{"a command", toFramy(message(groupChat, 7, "/img make it brighter")), false},
+	} {
+		flow.replies = nil
+		if err := b.onMessage(context.Background(), tc.m); err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if got := len(flow.replies) == 1; got != tc.reaches {
+			t.Errorf("%s: reached the flow %v, want %v", tc.name, flow.replies, tc.reaches)
+		}
+		if len(flow.plain) != 0 {
+			t.Fatalf("%s: taken as a direct message", tc.name)
+		}
 	}
 }
 

@@ -116,6 +116,9 @@ type Flow interface {
 	// Plain takes a direct message that is no command: it is asked what
 	// to make of it.
 	Plain(ctx context.Context, m *tg.Message)
+	// Reply takes a message of a group that is no command and answers one
+	// of framy's own: words to a result may go on from it.
+	Reply(ctx context.Context, m *tg.Message)
 	// Owns reports whether callback data is a run's button or an answer to
 	// the flow's question.
 	Owns(data string) bool
@@ -131,7 +134,8 @@ type Flow interface {
 	GuestOpen(ctx context.Context, m *tg.Message)
 }
 
-// WithFlow answers /img and /edit, and plain direct messages.
+// WithFlow answers /img and /edit, plain direct messages, and words in a
+// group that answer framy's own messages.
 func WithFlow(f Flow) Option { return func(b *Bot) { b.flow = f } }
 
 // WithAlbumSweep has Run clear the album cache, every stack's rows, as

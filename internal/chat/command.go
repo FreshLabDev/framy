@@ -255,8 +255,12 @@ func (f *Flow) command(ctx context.Context, m *tg.Message, command, prompt strin
 		return f.reply(ctx, m, t(lang, "run.video_edit"))
 	}
 	thread := threadOf(m)
-	if err := f.cfg.Telegram.SendChatAction(ctx, m.Chat.ID, thread, chatAction(edit || motion)); err != nil {
-		f.log.Debug("chat action not sent", "chat", m.Chat.ID, "error", err)
+	// A run a reply started sends no chat action: the chat would see framy
+	// sending a picture that only one person gets.
+	if !isQuiet(ctx) {
+		if err := f.cfg.Telegram.SendChatAction(ctx, m.Chat.ID, thread, chatAction(edit || motion)); err != nil {
+			f.log.Debug("chat action not sent", "chat", m.Chat.ID, "error", err)
+		}
 	}
 	dir, done, err := f.cfg.Work.Dir("chat")
 	if err != nil {

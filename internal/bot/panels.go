@@ -53,9 +53,14 @@ func (b *Bot) onMessage(ctx context.Context, m *tg.Message) error {
 	cmd, rest, ok := b.commandArgs(m)
 	private := m.Chat.Type == "private"
 	if !ok {
-		// In a direct chat no command is needed (docs/design.md, DM).
-		if private && b.flow != nil && m.From != nil && !m.From.IsBot && !strings.HasPrefix(strings.TrimSpace(m.Text), "/") {
+		person := b.flow != nil && m.From != nil && !m.From.IsBot && !strings.HasPrefix(strings.TrimSpace(m.Text), "/")
+		switch {
+		case person && private:
+			// In a direct chat no command is needed (docs/design.md, DM).
 			b.flow.Plain(ctx, m)
+		case person && b.repliesToSelf(m):
+			// In a group a reply to framy's result may go on from it.
+			b.flow.Reply(ctx, m)
 		}
 		return nil
 	}
@@ -86,6 +91,12 @@ func (b *Bot) onMessage(ctx context.Context, m *tg.Message) error {
 		return b.sendScreen(ctx, m, action)
 	}
 	return nil
+}
+
+// repliesToSelf tells whether m answers one of framy's own messages.
+func (b *Bot) repliesToSelf(m *tg.Message) bool {
+	r := m.ReplyToMessage
+	return r != nil && r.From != nil && b.selfID != 0 && r.From.ID == b.selfID
 }
 
 // tooLate tells Telegram's refusal of an ephemeral reply to a command it
