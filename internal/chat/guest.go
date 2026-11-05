@@ -86,12 +86,12 @@ func (f *Flow) guest(ctx context.Context, m *tg.Message, prompt string) error {
 		return f.guestFail(ctx, m, lang, err)
 	}
 	defer done()
-	d, refusal, err := f.draft(ctx, m, src, cutPrompt(prompt), key, dir)
+	d, refused, err := f.draft(ctx, m, src, cutPrompt(prompt), key, dir)
 	if err != nil {
 		return f.guestFail(ctx, m, lang, err)
 	}
-	if refusal != "" {
-		return f.guestText(ctx, m, refusal)
+	if refused.text != "" {
+		return f.guestAnswer(ctx, m, refused.text, f.refusalKeyboard(lang, false, refused))
 	}
 	if d.id == 0 {
 		return nil
@@ -139,8 +139,13 @@ func guestSources(m *tg.Message) found {
 // guestText answers a guest message with text: a refusal or a hint. It is
 // the one answer the message gets.
 func (f *Flow) guestText(ctx context.Context, m *tg.Message, text string) error {
+	return f.guestAnswer(ctx, m, text, nil)
+}
+
+// guestAnswer is guestText with buttons under it.
+func (f *Flow) guestAnswer(ctx context.Context, m *tg.Message, text string, kb *tg.InlineKeyboardMarkup) error {
 	_, err := f.cfg.Telegram.AnswerGuestQuery(ctx, m.GuestQueryID, tg.InlineQueryResultArticle{
-		ID: "t", Title: "framy", InputMessageContent: tg.InputTextMessageContent{MessageText: text},
+		ID: "t", Title: "framy", InputMessageContent: tg.InputTextMessageContent{MessageText: text}, ReplyMarkup: kb,
 	})
 	return err
 }
@@ -294,6 +299,12 @@ func (f *Flow) guestDeliver(ctx context.Context, run db.ChatRun, a storage.Asset
 func (f *Flow) guestFailed(ctx context.Context, run db.ChatRun, key string) {
 	text := failureText(run, key)
 	model := "<b>" + html.EscapeString(run.Model) + "</b>"
+	// A guest card has no Try again: framy is not in the chat to post a new
+	// preview. It has the way to fix a key that failed.
+	var kb *tg.InlineKeyboardMarkup
+	if fix := f.keyFix(run); len(fix) > 0 {
+		kb = withRow(nil, fix)
+	}
 	card, err := f.cfg.Renderer.ErrorCard(ctx, text, run.Lang)
 	if err == nil {
 		line := ""
@@ -301,11 +312,11 @@ func (f *Flow) guestFailed(ctx context.Context, run db.ChatRun, key string) {
 			line = text
 		}
 		item := tg.InputMediaPhoto{Media: f.guestPicture(card, f.guestURL(run, shareFailure)), Caption: lines(promptQuote(run.Prompt), line, model)}
-		err = f.cfg.Telegram.EditInlineMessageMedia(ctx, run.InlineMessageID, item, nil)
+		err = f.cfg.Telegram.EditInlineMessageMedia(ctx, run.InlineMessageID, item, kb)
 	}
 	if err != nil {
 		f.log.Warn("error card not shown; the caption says it", "job", run.JobID, "error", err)
-		f.guestCaption(ctx, run, lines(promptQuote(run.Prompt), text, model), nil)
+		f.guestCaption(ctx, run, lines(promptQuote(run.Prompt), text, model), kb)
 	}
 	if _, err := f.cfg.Store.FinishChatRun(ctx, run.JobID, db.StageFailed, db.ChatResult{}); err != nil {
 		f.log.Error("run not finished", "job", run.JobID, "error", err)

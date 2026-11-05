@@ -184,8 +184,9 @@ type Config struct {
 	// the same chat id, and each counts its message ids from one.
 	Stack string
 	// Username is the bot's, without the @. A mention of it in a plain
-	// message of a DM is left out of the prompt. Empty leaves the words as
-	// they came.
+	// message of a DM is left out of the prompt, and a refusal outside
+	// framy's direct chat links to that chat by it (settings.go). Empty
+	// leaves the words as they came and the refusal without a link.
 	Username string
 }
 
@@ -591,13 +592,18 @@ func waitText(lang string, d time.Duration) string {
 // sender sees, while Telegram takes the reply. A reply that got no answer
 // may have reached the sender, so the chat is not told it too.
 func (f *Flow) reply(ctx context.Context, m *tg.Message, text string) error {
+	return f.replyWith(ctx, m, text, nil)
+}
+
+// replyWith is reply with buttons under the text.
+func (f *Flow) replyWith(ctx context.Context, m *tg.Message, text string, kb *tg.InlineKeyboardMarkup) error {
 	if isQuiet(ctx) {
 		// A reply to a result: the chat does not hear about it.
 		f.log.Info("an answer to a reply left unsaid", "chat", m.Chat.ID)
 		return nil
 	}
 	if ephemeralCommand(m) {
-		_, err := f.cfg.Telegram.SendEphemeralMessage(ctx, m.Chat.ID, m.From.ID, m.EphemeralMessageID, text, nil)
+		_, err := f.cfg.Telegram.SendEphemeralMessage(ctx, m.Chat.ID, m.From.ID, m.EphemeralMessageID, text, kb)
 		if err == nil {
 			return nil
 		}
@@ -606,7 +612,7 @@ func (f *Flow) reply(ctx context.Context, m *tg.Message, text string) error {
 		}
 		f.log.Warn("ephemeral reply refused; the chat sees it", "chat", m.Chat.ID, "error", err)
 	}
-	if _, err := f.cfg.Telegram.SendReply(ctx, m.Chat.ID, m.MessageID, threadOf(m), text, nil); err != nil {
+	if _, err := f.cfg.Telegram.SendReply(ctx, m.Chat.ID, m.MessageID, threadOf(m), text, kb); err != nil {
 		return fmt.Errorf("reply in %d: %w", m.Chat.ID, err)
 	}
 	return nil

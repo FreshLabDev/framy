@@ -196,7 +196,7 @@ func (v view) home(admin bool, groupLang string) (string, *tg.InlineKeyboardMark
 	text := panel(productName, "", v.t("home.hint"), quote(append(v.accountLines(), v.t("home.direct"))...))
 	var rows []row
 	if v.account.appURL != "" {
-		rows = append(rows, row{v.openButton(v.account.appURL)})
+		rows = append(rows, row{v.openButton(v.account.appURL, v.account.openText)})
 	}
 	rows = append(rows,
 		row{v.button("btn.language", actLang), v.button("btn.help", actHelp)},

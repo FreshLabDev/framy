@@ -5,7 +5,7 @@ import { $, h, ic } from "./dom.js";
 import { anim, placeSegs } from "./motion.js";
 import { setTexts, t, lang, warmFormats } from "./i18n.js";
 import { session, setToken } from "./api.js";
-import { loadCatalog } from "./catalog.js";
+import { loadCatalog, PNAME } from "./catalog.js";
 import { S, initModels, useDefaults } from "./state.js";
 import { mountComposer, wireComposer, wireTuneSwipe, render, renderBar, tuneClosed } from "./composer.js";
 import { mountPicker, prefetchPicker } from "./picker.js";
@@ -150,10 +150,13 @@ async function main() {
   if (si) { toast(t("auth." + (["cancelled", "expired", "failed", "unavailable"].includes(si) ? si : "failed"))); history.replaceState(null, "", location.pathname + location.hash); }
   // Back from OpenRouter: the address says how the connect ended.
   if (sp.get("connect") === "openrouter") { history.replaceState(null, "", location.pathname + location.hash); oauthResult(sp.get("result") || ""); }
+  // From a refusal or an error card in Telegram: the settings open at the key that fixes it.
+  const at = sp.has("settings") ? sp.get("settings") : null;
+  if (at !== null) { history.replaceState(null, "", location.pathname + location.hash); if (S.signed) openPrefs(PNAME[at] ? at : undefined); }
   // Reloaded for a new language from the settings: they open again.
   let back = null;
   try { back = sessionStorage.getItem("framy.prefs"); sessionStorage.removeItem("framy.prefs"); } catch {}
-  if (back && S.signed && !sp.get("connect")) openPrefs();
+  if (back && S.signed && !sp.get("connect") && at === null) openPrefs();
   if (refused) toast(t(authFail.error === "init_data_expired" ? "auth.mini_expired" : "auth.mini_failed"), { ms: 8000 });
   if (meLost) meAgain();
 

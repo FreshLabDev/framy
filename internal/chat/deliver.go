@@ -600,7 +600,7 @@ func (f *Flow) failed(ctx context.Context, run db.ChatRun, key string) {
 		return
 	}
 	text := failureText(run, key)
-	kb := failureKeyboard(run)
+	kb := withRow(failureKeyboard(run), f.keyFix(run))
 	card, err := f.cfg.Renderer.ErrorCard(ctx, text, run.Lang)
 	if err == nil {
 		line := ""

@@ -31,6 +31,9 @@ const homeReadTimeout = 3 * time.Second
 type account struct {
 	// appURL is where "Open framy" goes; empty: no button.
 	appURL string
+	// openText names that button when it opens the settings at a key, for
+	// /start settings_<provider>; empty: "Open framy".
+	openText string
 
 	usage    free.Usage
 	hasUsage bool
@@ -165,6 +168,26 @@ func (v view) statusWord(s keys.Status) string {
 // only in a direct chat, which is why a group's panel has none. It is the one
 // Primary button of the panel (R4): the site is where framy makes things, and
 // it is the only button that leads there.
-func (v view) openButton(appURL string) tg.InlineKeyboardButton {
-	return tg.InlineKeyboardButton{Text: v.t("btn.open"), WebApp: &tg.WebAppInfo{URL: appURL}, Style: tg.StylePrimary}
+func (v view) openButton(appURL, text string) tg.InlineKeyboardButton {
+	if text == "" {
+		text = v.t("btn.open")
+	}
+	return tg.InlineKeyboardButton{Text: text, WebApp: &tg.WebAppInfo{URL: appURL}, Style: tg.StylePrimary}
+}
+
+// atKey points the panel's button at provider's key in the settings: the
+// person came from a refusal or an error card in a group or a guest's chat
+// (internal/chat, settings.go) that a key of theirs would fix. The button
+// says what it is for, connecting the key or replacing the one connected. A
+// provider framy does not know leaves the panel as it is.
+func (a *account) atKey(provider string, lang string) {
+	if a.appURL == "" || !slices.Contains(keys.Providers, provider) {
+		return
+	}
+	a.appURL = keys.SettingsURL(a.appURL, provider)
+	key := "web.go.connect"
+	if slices.ContainsFunc(a.connections, func(c keys.Connection) bool { return c.Provider == provider }) {
+		key = "web.go.rekey"
+	}
+	a.openText = i18n.T(lang, key, "provider", connectionName(provider))
 }

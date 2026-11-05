@@ -77,7 +77,7 @@ func (b *Bot) onMessage(ctx context.Context, m *tg.Message) error {
 		if !private && m.EphemeralMessageID == 0 {
 			return nil
 		}
-		return b.sendScreen(ctx, m, actHome)
+		return b.sendScreen(ctx, m, actHome, rest)
 	case "help", "about", "language":
 		// Tabs of the direct chat's panel. They answer for anyone who types
 		// them from memory and are not advertised.
@@ -88,7 +88,7 @@ func (b *Bot) onMessage(ctx context.Context, m *tg.Message) error {
 		if cmd == "language" {
 			action = actLang
 		}
-		return b.sendScreen(ctx, m, action)
+		return b.sendScreen(ctx, m, action, "")
 	}
 	return nil
 }
@@ -107,9 +107,16 @@ func tooLate(err error) bool {
 	return errors.As(err, &apiErr) && apiErr.ErrorCode == 400 && strings.Contains(apiErr.Description, "REPLY_TO_INVALID")
 }
 
+// startSettings starts the /start parameter of the button under a refusal
+// or an error card that a key of the person's would fix, in a group or a
+// guest's chat (internal/chat, settings.go): "settings_openrouter". The home
+// panel it opens has its button at that key in the settings. Messages
+// already sent carry it, so it is read for good.
+const startSettings = "settings_"
+
 // sendScreen answers a command with a panel: in place in a direct chat, as an
-// ephemeral reply in a group.
-func (b *Bot) sendScreen(ctx context.Context, m *tg.Message, action string) error {
+// ephemeral reply in a group. payload is what /start came with.
+func (b *Bot) sendScreen(ctx context.Context, m *tg.Message, action, payload string) error {
 	raw, err := b.personLang(ctx, *m.From)
 	if err != nil {
 		return err
@@ -147,6 +154,9 @@ func (b *Bot) sendScreen(ctx context.Context, m *tg.Message, action string) erro
 		text, keyboard = v.language()
 	default:
 		v.account = b.readAccount(ctx, m.From.ID, v.lang)
+		if provider, ok := strings.CutPrefix(payload, startSettings); ok {
+			v.account.atKey(provider, v.lang)
+		}
 		text, keyboard = v.home(false, "")
 	}
 	if _, err := b.tg.SendMessage(ctx, m.Chat.ID, text, keyboard); err != nil {

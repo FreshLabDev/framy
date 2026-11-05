@@ -118,6 +118,30 @@ func TestDirectHomeSaysWhatIsLeftWhatIsConnectedAndWhatPricesAreIn(t *testing.T)
 	}
 }
 
+// A refusal or an error card outside the DM links here with /start
+// settings_<provider> (internal/chat, settings.go): the panel's button opens
+// the settings at that key and says what it is for. A provider framy does
+// not know leaves the panel as it is.
+func TestStartAtAKeyOpensTheSettingsThere(t *testing.T) {
+	conns := &fakeConnections{list: []keys.Connection{connection(catalog.OpenAI, keys.Invalid)}}
+	for _, tc := range []struct{ payload, url, text string }{
+		{"settings_openrouter", testSite + "/?settings=openrouter", "Connect OpenRouter"},
+		{"settings_openai", testSite + "/?settings=openai", "Replace the OpenAI key"},
+		{"settings_bogus", testSite, "Open framy"},
+		{"something_else", testSite, "Open framy"},
+	} {
+		b, _, client := newBotWith(WithConnections(conns), WithSiteURL(testSite))
+		if err := b.onMessage(context.Background(), message(dmChat, 7, "/start "+tc.payload)); err != nil {
+			t.Fatal(err)
+		}
+		got := client.last()
+		first := got.markup.InlineKeyboard[0]
+		if len(first) != 1 || first[0].WebApp == nil || first[0].WebApp.URL != tc.url || first[0].Text != tc.text || first[0].Style != tg.StylePrimary {
+			t.Errorf("%s: first row = %+v", tc.payload, first)
+		}
+	}
+}
+
 // What the strings say about the windows is written in each language; the
 // numbers come from the allowance, the words must follow the constants.
 func TestHomeStringsNameTheWindowsOfTheAllowance(t *testing.T) {

@@ -464,6 +464,28 @@ func TestBrowserPrefs(t *testing.T) {
 		t.Errorf("expired: %v", s)
 	}
 
+	// A refusal in Telegram opens the Mini App with ?settings=<provider>: the
+	// settings open at that key, and the address forgets it. A provider the
+	// site does not know opens them at the top.
+	for _, tc := range []struct{ query, focus string }{{"openrouter", "Connect"}, {"bogus", ""}} {
+		if err := chromedp.Do(ctx, chromedp.Navigate(ts.URL+"/?settings="+tc.query)); err != nil {
+			t.Fatal(err)
+		}
+		ready(t, ctx)
+		s = prefs(t, ctx, `
+	await until(() => !sheet().hidden);
+	await wait(400);
+	const row = document.activeElement.closest("[data-p]");
+	return { url: location.search, focus: row ? row.dataset.p + ":" + document.activeElement.textContent.trim() : "" };`)
+		want := ""
+		if tc.focus != "" {
+			want = tc.query + ":" + tc.focus
+		}
+		if s["url"] != "" || s["focus"] != want {
+			t.Errorf("settings=%s: %v", tc.query, s)
+		}
+	}
+
 	// The composer without a key leads to it: the button says Connect and opens the settings there.
 	s = prefs(t, ctx, `
 	document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));

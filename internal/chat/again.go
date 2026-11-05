@@ -87,15 +87,15 @@ func (f *Flow) again(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun, 
 		ids[i] = a.ID
 	}
 	// The press is the update: a replayed one makes no second draft.
-	refusal, err := f.queueDraft(ctx, run.Lang, newJob(m, stackKey(f.cfg.Stack, "tg:cb:"+cq.ID), run.Prompt, ids, &d), &d, true)
+	refused, err := f.queueDraft(ctx, run.Lang, newJob(m, stackKey(f.cfg.Stack, "tg:cb:"+cq.ID), run.Prompt, ids, &d), &d, true)
 	switch {
 	case errors.Is(err, jobs.ErrNoInput):
 		return alert("result.gone")
 	case err != nil:
 		_ = answer("")
 		return err
-	case refusal != "":
-		return f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, refusal)
+	case refused.text != "":
+		return f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, refused.text)
 	case d.id == 0:
 		return answer("")
 	}

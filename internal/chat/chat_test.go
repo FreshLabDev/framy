@@ -833,6 +833,9 @@ func TestAnSVGIsADocumentWithItsName(t *testing.T) {
 
 func TestAFailedRunShowsTheCard(t *testing.T) {
 	retry, other := []string{actRetry}, []string{actOther}
+	const topUp = "url:https://openrouter.ai/settings/credits"
+	// Outside the DM the way to the settings is framy's DM (settings.go).
+	const rekey = "url:https://t.me/framyin_bot?start=settings_openrouter"
 	for _, tc := range []struct {
 		status jobs.Status
 		class  jobs.Class
@@ -849,18 +852,18 @@ func TestAFailedRunShowsTheCard(t *testing.T) {
 		// run had no sound to turn off.
 		{jobs.Failed, jobs.Sound, false, "err.sound", retry, false},
 		// The person's key out of money: a link to top it up, then another
-		// try ("" is the link, which carries no data), each on its own row
-		// since "Top up OpenRouter" is too long to share one.
-		{jobs.Failed, jobs.Money, false, "err.money", []string{"", actRetry}, true},
+		// try, each on its own row since "Top up OpenRouter" is too long to
+		// share one.
+		{jobs.Failed, jobs.Money, false, "err.money", []string{topUp, actRetry}, true},
 		{jobs.Failed, jobs.Money, true, "err.failed", retry, false},
-		// A refused key needs the site.
-		{jobs.Failed, jobs.Key, false, "err.key", nil, false},
+		// A refused key is replaced in the settings.
+		{jobs.Failed, jobs.Key, false, "err.key", []string{rekey}, false},
 		// A free run is paid by framy's key, not the person's.
 		{jobs.Failed, jobs.Key, true, "err.failed", retry, false},
 		{jobs.Expired, "", true, "err.timeout", []string{actRetry, actOther}, false},
 		// A video whose key stopped working while framy asked about it.
-		{jobs.Expired, jobs.Key, false, "err.key", nil, false},
-		{jobs.Expired, jobs.Money, false, "err.money", []string{"", actRetry}, true},
+		{jobs.Expired, jobs.Key, false, "err.key", []string{rekey}, false},
+		{jobs.Expired, jobs.Money, false, "err.money", []string{topUp, actRetry}, true},
 		{jobs.Expired, jobs.Key, true, "err.failed", retry, false},
 		{jobs.Expired, jobs.ProviderFailed, false, "err.timeout", []string{actRetry, actOther}, false},
 		{jobs.Failed, jobs.Internal, true, "err.failed", []string{actRetry, actOther}, false},
@@ -883,8 +886,8 @@ func TestAFailedRunShowsTheCard(t *testing.T) {
 		if tc.acts != nil {
 			want = [][]string{{}}
 			for i, a := range tc.acts {
-				data := ""
-				if a != "" {
+				data := a
+				if !strings.HasPrefix(a, "url:") {
 					data = callback(id, a)
 				}
 				if tc.apart && i > 0 {
@@ -915,7 +918,14 @@ func buttons(kb *tg.InlineKeyboardMarkup) [][]string {
 	for _, row := range kb.InlineKeyboard {
 		var r []string
 		for _, b := range row {
-			r = append(r, b.CallbackData)
+			switch {
+			case b.URL != "":
+				r = append(r, "url:"+b.URL)
+			case b.WebApp != nil:
+				r = append(r, "app:"+b.WebApp.URL)
+			default:
+				r = append(r, b.CallbackData)
+			}
 		}
 		out = append(out, r)
 	}

@@ -270,21 +270,21 @@ func (f *Flow) command(ctx context.Context, m *tg.Message, command, prompt strin
 
 	var (
 		d       draft
-		refusal string
+		refused refusal
 	)
 	switch {
 	case edit:
-		d, refusal, err = f.draftVideo(ctx, m, *src.clip, cutPrompt(prompt), key, dir)
+		d, refused, err = f.draftVideo(ctx, m, *src.clip, cutPrompt(prompt), key, dir)
 	case motion:
-		d, refusal, err = f.draftMotion(ctx, m, src, cutPrompt(prompt), key, dir)
+		d, refused, err = f.draftMotion(ctx, m, src, cutPrompt(prompt), key, dir)
 	default:
-		d, refusal, err = f.draft(ctx, m, src, cutPrompt(prompt), key, dir)
+		d, refused, err = f.draft(ctx, m, src, cutPrompt(prompt), key, dir)
 	}
 	if err != nil {
 		return f.fail(ctx, m, lang, err)
 	}
-	if refusal != "" {
-		return f.reply(ctx, m, refusal)
+	if refused.text != "" {
+		return f.replyWith(ctx, m, refused.text, f.refusalKeyboard(lang, m.Chat.Type == "private", refused))
 	}
 	if d.id == 0 {
 		// The same command came again while its draft was being made.
@@ -334,10 +334,10 @@ func (f *Flow) fail(ctx context.Context, m *tg.Message, lang string, err error) 
 }
 
 // draft collects the photos, keeps them, prices the run and makes the job.
-// A refusal is the text to answer with instead, when the run cannot start:
-// the free tier is used up and the person has no key. A zero id with no
-// refusal is a job the same command made already.
-func (f *Flow) draft(ctx context.Context, m *tg.Message, src found, prompt, key, dir string) (draft, string, error) {
+// A refusal is what to answer with instead, when the run cannot start: the
+// free tier is used up and the person has no key. A zero id with no refusal
+// is a job the same command made already.
+func (f *Flow) draft(ctx context.Context, m *tg.Message, src found, prompt, key, dir string) (draft, refusal, error) {
 	lang := f.langOf(ctx, m)
 	user := m.From.ID
 	var d draft
@@ -352,28 +352,28 @@ func (f *Flow) draft(ctx context.Context, m *tg.Message, src found, prompt, key,
 	}
 	plan, err := free.ForImages(len(photos))
 	if err != nil {
-		return d, "", err
+		return d, refusal{}, err
 	}
 	model, offer, err := f.cfg.Store.Offer(ctx, plan.Offer)
 	if err != nil {
-		return d, "", fmt.Errorf("the free model %s: %w", plan.Offer, err)
+		return d, refusal{}, fmt.Errorf("the free model %s: %w", plan.Offer, err)
 	}
 	inputs, sizes, paths, err := f.keep(ctx, user, dir, photos)
 	if err != nil {
-		return d, "", err
+		return d, refusal{}, err
 	}
 	settings := plan.SettingsFor(len(inputs))
 	d.model, d.offer, d.paths, d.taken, d.settings, d.images = model, offer, paths, len(inputs), settings, sizes
 	d.estimate = price.Of(model, offer, priceRequest(prompt, settings, sizes, nil))
 	if d.quote, err = f.quote(ctx, user, lang); err != nil {
-		return d, "", err
+		return d, refusal{}, err
 	}
 	d.pay = payFree
 	if e, ok := f.ownModel(ctx, user, lang, prompt, d); ok {
 		d.onOwn(e)
 	}
-	if refusal, err := f.queueDraft(ctx, lang, newJob(m, key, prompt, inputs, &d), &d, false); refusal != "" || err != nil || d.id == 0 {
-		return draft{}, refusal, err
+	if r, err := f.queueDraft(ctx, lang, newJob(m, key, prompt, inputs, &d), &d, false); r.text != "" || err != nil || d.id == 0 {
+		return draft{}, r, err
 	}
 	if d.pay == payFree {
 		u, err := f.cfg.Allowance.Usage(ctx, user)
@@ -382,19 +382,19 @@ func (f *Flow) draft(ctx context.Context, m *tg.Message, src found, prompt, key,
 		}
 		d.usage = u.Images
 	}
-	return d, "", nil
+	return d, refusal{}, nil
 }
 
 // draftMotion keeps the photo, if there is one, and makes the job of a
 // video from the prompt with the photo as its start frame: on the free
 // video while the week's is left, on the person's key past it. A video
 // takes one start frame, so of more photos the first goes.
-func (f *Flow) draftMotion(ctx context.Context, m *tg.Message, src found, prompt, key, dir string) (draft, string, error) {
+func (f *Flow) draftMotion(ctx context.Context, m *tg.Message, src found, prompt, key, dir string) (draft, refusal, error) {
 	lang := f.langOf(ctx, m)
 	user := m.From.ID
 	plan, model, offer, err := f.videoPlan(ctx)
 	if err != nil {
-		return draft{}, "", err
+		return draft{}, refusal{}, err
 	}
 	photos := src.photos
 	if len(photos) > plan.MaxInputs {
@@ -402,19 +402,19 @@ func (f *Flow) draftMotion(ctx context.Context, m *tg.Message, src found, prompt
 	}
 	inputs, sizes, paths, err := f.keep(ctx, user, dir, photos)
 	if err != nil {
-		return draft{}, "", err
+		return draft{}, refusal{}, err
 	}
 	settings := plan.SettingsFor(len(inputs))
 	d := draft{model: model, offer: offer, pay: payFree, paths: paths, taken: len(inputs), settings: settings, images: sizes}
 	d.estimate = price.Of(model, offer, priceRequest(prompt, settings, sizes, nil))
 	if d.quote, err = f.quote(ctx, user, lang); err != nil {
-		return draft{}, "", err
+		return draft{}, refusal{}, err
 	}
 	if e, ok := f.ownModel(ctx, user, lang, prompt, d); ok {
 		d.onOwn(e)
 	}
-	if refusal, err := f.queueDraft(ctx, lang, newJob(m, key, prompt, inputs, &d), &d, false); refusal != "" || err != nil || d.id == 0 {
-		return draft{}, refusal, err
+	if r, err := f.queueDraft(ctx, lang, newJob(m, key, prompt, inputs, &d), &d, false); r.text != "" || err != nil || d.id == 0 {
+		return draft{}, r, err
 	}
 	if d.pay == payFree {
 		u, err := f.cfg.Allowance.Usage(ctx, user)
@@ -423,7 +423,7 @@ func (f *Flow) draftMotion(ctx context.Context, m *tg.Message, src found, prompt
 		}
 		d.usage = u.Videos
 	}
-	return d, "", nil
+	return d, refusal{}, nil
 }
 
 // errNoVideoModel: neither free video model is in the catalog.
@@ -515,9 +515,10 @@ func newJob(m *tg.Message, key, prompt string, inputs []int64, d *draft) jobs.Ne
 // no key for its provider but one for another, the run goes on a model that
 // key runs (keyEntry), which the preview shows with its price before
 // anything runs. With neither the reason is the answer, worded for an alert
-// when alert is true and for a message otherwise. A zero id with no refusal
-// is a job the same command made already.
-func (f *Flow) queueDraft(ctx context.Context, lang string, n jobs.New, d *draft, alert bool) (string, error) {
+// when alert is true and for a message otherwise, with the provider whose
+// key would run it. A zero id with no refusal is a job the same command made
+// already.
+func (f *Flow) queueDraft(ctx context.Context, lang string, n jobs.New, d *draft, alert bool) (refusal, error) {
 	id, created, err := f.cfg.Queue.Draft(ctx, n)
 	var (
 		limit  *free.LimitError
@@ -526,23 +527,25 @@ func (f *Flow) queueDraft(ctx context.Context, lang string, n jobs.New, d *draft
 	if n.Free && (errors.As(err, &limit) || errors.As(err, &closed)) {
 		has, kerr := f.hasKey(ctx, n.UserID, n.Offer.Provider)
 		if kerr != nil {
-			return "", kerr
+			return refusal{}, kerr
 		}
 		if !has {
 			e, ok, kerr := f.keyEntry(ctx, n.UserID, lang, n.Prompt, *d)
 			if kerr != nil {
-				return "", kerr
+				return refusal{}, kerr
 			}
+			r := refusal{text: closedText(lang, n.Offer.Kind), connect: n.Offer.Provider}
 			switch {
 			case ok:
 				d.model, d.offer, d.settings, d.estimate = e.model, e.offer, e.settings, e.estimate
 				n.Offer, n.Settings, n.Estimate = e.offer, e.settings, &d.estimate
 			case limit != nil && alert:
-				return f.limitText(lang, limit), nil
+				r.text = f.limitText(lang, limit)
 			case limit != nil:
-				return f.limitMessage(lang, limit), nil
-			default:
-				return closedText(lang, n.Offer.Kind), nil
+				r.text = f.limitMessage(lang, limit)
+			}
+			if !ok {
+				return r, nil
 			}
 		}
 		// The queue just said no to the free run, whatever the meter said.
@@ -550,12 +553,12 @@ func (f *Flow) queueDraft(ctx context.Context, lang string, n jobs.New, d *draft
 		id, created, err = f.cfg.Queue.Draft(ctx, n)
 	}
 	if err != nil {
-		return "", err
+		return refusal{}, err
 	}
 	if created {
 		d.id = id
 	}
-	return "", nil
+	return refusal{}, nil
 }
 
 // keyEntry is the model a run goes on past the free tier when the person
@@ -604,13 +607,13 @@ const clipSlack = 0.05
 // first, as for images, and takes the first seconds its plan allows; past
 // it, the person's key takes as much as the model does. A refusal is the
 // text to answer with instead.
-func (f *Flow) draftVideo(ctx context.Context, m *tg.Message, c clip, prompt, key, dir string) (draft, string, error) {
+func (f *Flow) draftVideo(ctx context.Context, m *tg.Message, c clip, prompt, key, dir string) (draft, refusal, error) {
 	lang := f.langOf(ctx, m)
 	user := m.From.ID
 	plan := free.VideoEdit
 	model, offer, err := f.cfg.Store.Offer(ctx, plan.Offer)
 	if err != nil {
-		return draft{}, "", fmt.Errorf("the free model %s: %w", plan.Offer, err)
+		return draft{}, refusal{}, fmt.Errorf("the free model %s: %w", plan.Offer, err)
 	}
 	d := draft{clip: true, source: c, model: model, offer: offer, pay: payFree, settings: plan.SettingsFor(1), taken: 1}
 	// The meter tells ahead whether the week's free video is left, so the
@@ -623,12 +626,12 @@ func (f *Flow) draftVideo(ctx context.Context, m *tg.Message, c clip, prompt, ke
 	case u.Videos.Limit > 0 && u.Videos.Left() == 0:
 		has, err := f.hasKey(ctx, user, offer.Provider)
 		if err != nil {
-			return draft{}, "", err
+			return draft{}, refusal{}, err
 		}
 		if !has {
-			return draft{}, f.limitMessage(lang, &free.LimitError{
+			return draft{}, refusal{text: f.limitMessage(lang, &free.LimitError{
 				Kind: catalog.Video, Limit: u.Videos.Limit, Window: u.Videos.Window, FreesAt: u.Videos.FreesAt,
-			}), nil
+			}), connect: offer.Provider}, nil
 		}
 		d.pay, d.hasKey = payKey, true
 	default:
@@ -636,18 +639,18 @@ func (f *Flow) draftVideo(ctx context.Context, m *tg.Message, c clip, prompt, ke
 	}
 	src := filepath.Join(dir, media.In)
 	if err := f.download(ctx, c.fileID, c.size, f.cfg.MaxVideo, src); err != nil {
-		return draft{}, "", err
+		return draft{}, refusal{}, err
 	}
 	v, err := f.cfg.Clips.ProbeVideo(ctx, src)
 	if err != nil {
-		return draft{}, "", err
+		return draft{}, refusal{}, err
 	}
 	var limits catalog.SourceVideo
 	if s := model.Traits.SourceVideo; s != nil {
 		limits = *s
 	}
 	if v.Seconds < limits.MinSeconds {
-		return draft{}, t(lang, "edit.too_short", "min", strconv.Itoa(int(math.Ceil(limits.MinSeconds)))), nil
+		return draft{}, refusal{text: t(lang, "edit.too_short", "min", strconv.Itoa(int(math.Ceil(limits.MinSeconds))))}, nil
 	}
 	longest := plan.MaxSourceSeconds
 	if d.pay == payKey {
@@ -662,28 +665,28 @@ func (f *Flow) draftVideo(ctx context.Context, m *tg.Message, c clip, prompt, ke
 	if d.pay == payFree && v.Seconds > plan.MaxSourceSeconds+clipSlack {
 		// The preview offers the clip on the key, marked when there is none.
 		if d.hasKey, err = f.hasKey(ctx, user, offer.Provider); err != nil {
-			return draft{}, "", err
+			return draft{}, refusal{}, err
 		}
 	}
 	a, err := f.cfg.Files.KeepVideo(ctx, user, src, cut)
 	if err != nil {
-		return draft{}, "", err
+		return draft{}, refusal{}, err
 	}
 	if limits.MaxMiB > 0 && a.Bytes > int64(limits.MaxMiB)<<20 {
-		return draft{}, "", errTooBig
+		return draft{}, refusal{}, errTooBig
 	}
 	d.keptSeconds = a.Seconds
 	poster, err := f.cfg.Clips.Poster(ctx, dir)
 	if err != nil {
-		return draft{}, "", err
+		return draft{}, refusal{}, err
 	}
 	d.paths = []string{poster}
 	d.estimate = price.Of(model, offer, priceRequest(prompt, d.settings, nil, &price.Video{Seconds: a.Seconds, Width: a.Width, Height: a.Height, FPS: a.FPS}))
 	if d.quote, err = f.quote(ctx, user, lang); err != nil {
-		return draft{}, "", err
+		return draft{}, refusal{}, err
 	}
-	if refusal, err := f.queueDraft(ctx, lang, newJob(m, key, prompt, []int64{a.ID}, &d), &d, false); refusal != "" || err != nil || d.id == 0 {
-		return draft{}, refusal, err
+	if r, err := f.queueDraft(ctx, lang, newJob(m, key, prompt, []int64{a.ID}, &d), &d, false); r.text != "" || err != nil || d.id == 0 {
+		return draft{}, r, err
 	}
 	if d.pay == payFree {
 		u, err := f.cfg.Allowance.Usage(ctx, user)
@@ -692,7 +695,7 @@ func (f *Flow) draftVideo(ctx context.Context, m *tg.Message, c clip, prompt, ke
 		}
 		d.usage = u.Videos
 	}
-	return d, "", nil
+	return d, refusal{}, nil
 }
 
 // chatAction is what the chat sees framy doing while a run of the kind is
