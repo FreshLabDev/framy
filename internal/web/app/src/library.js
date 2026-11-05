@@ -15,7 +15,7 @@ import { known, priceEl, priceText, onPrices, sumOf, knownTotal, needTotal } fro
 import { thumbMedia } from "./clips.js";
 import { player } from "./player.js";
 import { openSheet, closeSheets, toast, ask } from "./ui.js";
-import { view, B, ticking, renderStage, refit } from "./stage.js";
+import { view, B, actRow, ticking, renderStage, refit } from "./stage.js";
 import { runOfJob, runOfBatch, frameRun, again, removeJob, signIn, shownOf, onLeave, copyPrompt, refreshMe } from "./run.js";
 
 /* Views and addresses. */
@@ -685,7 +685,7 @@ function fill() {
   const line = h("p", { class: "jline" }, [m ? vname(m) : nameOf(j.model), cost].filter(Boolean).join(" · "));
   const [text, note] = v.why || [];
   const why = text || note ? h("div", { class: "jwhy" }, h("p", {}, text, text && note ? " " : "", note ? h("span", { class: "note" }, note) : null)) : null;
-  const acts = h("div", { class: "jacts acts" }, v.acts.filter(Boolean), isFinal(j.status) ? B("trash", t("view.delete"), del, "sq") : null);
+  const acts = h("div", { class: "jacts acts" }, actRow([...v.acts, isFinal(j.status) ? B("trash", t("view.delete"), del, "sq") : null], true));
   const prompt = j.prompt ? h("p", { class: "jprompt" }, h("span", { class: "tx" }, j.prompt),
     h("button", { type: "button", class: "cp", "aria-label": t("act.copy"), title: t("act.copy"), onclick: () => copyPrompt(j.prompt) }, ic("copy"))) : null;
   $("#viewBody").replaceChildren(h("div", { class: "vrun", "data-run": j.id },
@@ -765,7 +765,7 @@ export function openFull(at = 0, items = null) {
     if (nav.length) { nav[0].disabled = c === 0; nav[1].disabled = c === n - 1; }
     dots?.querySelectorAll("i").forEach((e, i) => e.classList.toggle("on", i === c));
     const it = items[c];
-    acts.replaceChildren(...view(it.run, { res: outsOf(it.j).indexOf(it.res), again: it.again }).acts.filter(Boolean));
+    acts.replaceChildren(...actRow(view(it.run, { res: outsOf(it.j).indexOf(it.res), again: it.again }).acts, true));
     cells.forEach((cell, i) => { const v = cell.querySelector("video"); if (v && i === c) v.play().catch(() => {}); else v?.pause(); });
   };
   let raf = 0;

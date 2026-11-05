@@ -413,7 +413,7 @@ const stage = () => {
   const st = document.querySelector("#stage");
   return { label: st.querySelector(".jbox .c b")?.textContent || "", sub: st.querySelector(".jbox .c small")?.textContent || "",
     why: st.querySelector(".jwhy")?.textContent || "", said: st.querySelector(".jbox .c .said")?.textContent || "",
-    acts: [...st.querySelectorAll(".jacts > button, .jacts > a, .jacts > .busy")].map((b) => b.textContent.trim()),
+    acts: [...st.querySelectorAll(".jacts button, .jacts a, .jacts .busy")].map((b) => b.textContent.trim()),
     failed: !!st.querySelector(".jbox.failed"), done: !!st.querySelector(".jbox.done img"), line: st.querySelector(".jline")?.textContent || "",
     dots: !!st.querySelector(".jbox > canvas.ht"),
     text: st.textContent };
@@ -479,7 +479,7 @@ func TestBrowserRuns(t *testing.T) {
 	// JSON, and offers another model; Another model opens the picker.
 	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
 	const s = await press("faces", (s) => s.failed);
-	const other = [...document.querySelectorAll("#stage .jacts > button")].find((b) => b.textContent.trim() === "Another model");
+	const other = [...document.querySelectorAll("#stage .jacts button")].find((b) => b.textContent.trim() === "Another model");
 	other?.click();
 	await wait(500);
 	s.picker = !document.querySelector("#picker").hidden;
@@ -509,7 +509,7 @@ func TestBrowserRuns(t *testing.T) {
 	const before = s.sub;
 	let after = before;
 	for (let i = 0; i < 30 && after === before; i++) { await wait(100); after = stage().sub; }
-	const cancel = [...document.querySelectorAll("#stage .jacts > button")].find((b) => b.textContent.trim() === "Cancel");
+	const cancel = [...document.querySelectorAll("#stage .jacts button")].find((b) => b.textContent.trim() === "Cancel");
 	cancel?.click();
 	for (let i = 0; i < 40 && stage().label !== "Cancelled"; i++) await wait(100);
 	return { ...s, before, after, can: !!cancel, end: stage() };`)
@@ -569,7 +569,7 @@ func TestBrowserRuns(t *testing.T) {
 	document.querySelector("#prompt").value = "";
 	document.querySelector("#prompt").dispatchEvent(new Event("input", { bubbles: true }));
 	s.once = !document.querySelector("#stage .jprompt").hidden;
-	[...document.querySelectorAll("#stage .jacts > button")].find((b) => b.textContent.trim() === "Edit the prompt").click();
+	[...document.querySelectorAll("#stage .jacts button")].find((b) => b.textContent.trim() === "Edit the prompt").click();
 	await wait(600);
 	return { ...s, prompt: document.querySelector("#prompt").value, ghost: !!document.querySelector("#stage .ghost") };`)
 	if acts := fmt.Sprint(s["acts"]); s["done"] != true || !strings.HasPrefix(acts, "[Download Again Edit the prompt") || s["prompt"] != "done" || s["ghost"] != true ||
@@ -675,12 +675,12 @@ func TestBrowserMiniShare(t *testing.T) {
 		await wait(80);
 		window.__tg.main();
 		for (let i = 0; i < 140 && !stage().done; i++) await wait(100);
-		return [...document.querySelectorAll("#stage .jacts > button")].find((b) => b.getAttribute("aria-label") === "Share");
+		return [...document.querySelectorAll("#stage .jacts button")].find((b) => b.getAttribute("aria-label") === "Share");
 	};
 	const b1 = await go("done");
 	b1?.click();
 	for (let i = 0; i < 30 && !window.__tg.shared.length; i++) await wait(100);
-	document.querySelector("#stage .jacts > button[aria-label='Make another']")?.click();
+	document.querySelector("#stage .jacts button[aria-label='Make another']")?.click();
 	await wait(300);
 	const b2 = await go("done:big");
 	b2?.click();
@@ -851,7 +851,7 @@ func TestBrowserRunSound(t *testing.T) {
 	([...row.querySelectorAll(".pill:not(.old)")].find((b) => b.textContent.trim() === "2.0 Mini") || row.querySelector(".fhit")).click();
 	await wait(900);
 	const s = await press("fail:sound", (s) => s.failed);
-	[...document.querySelectorAll("#stage .jacts > button")].find((b) => b.textContent.trim() === "Try without sound")?.click();
+	[...document.querySelectorAll("#stage .jacts button")].find((b) => b.textContent.trim() === "Try without sound")?.click();
 	for (let i = 0; i < 40 && sent.length < 2; i++) await wait(100);
 	s.sound = sent.map((b) => b.settings.generate_audio);
 	s.offers = sent.map((b) => b.offer);
@@ -927,7 +927,7 @@ func TestBrowserJoined(t *testing.T) {
 	for (let i = 0; i < 100 && !cont; i++) { await wait(100); cont = document.querySelector("#stage .jacts button[aria-label=Continue]"); }
 	const st = document.querySelector("#stage");
 	const video = st.querySelector(".jbox video")?.getAttribute("src") || "";
-	const links = [...st.querySelectorAll(".jacts > a")].map((a) => [a.getAttribute("href").replace(location.origin, ""), a.getAttribute("download"), a.textContent.trim(), a.getAttribute("aria-label") || ""].join(" | "));
+	const links = [...st.querySelectorAll(".jacts a")].map((a) => [a.getAttribute("href").replace(location.origin, ""), a.getAttribute("download"), a.textContent.trim(), a.getAttribute("aria-label") || ""].join(" | "));
 	cont?.click();
 	for (let i = 0; i < 30 && !frames.length; i++) await wait(100);
 	return { video: video.replace(location.origin, ""), links, frames };`)

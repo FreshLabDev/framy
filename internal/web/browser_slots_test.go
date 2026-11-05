@@ -86,7 +86,7 @@ func TestBrowserVideoSlots(t *testing.T) {
 	out.job = j ? { inputs: j.inputs, frames: j.settings.frame_images, offer: j.offer } : null;
 	await wait(1500);
 	// Back to the composer: without the start frame, the end frame becomes the start.
-	[...document.querySelectorAll("#stage .jacts > button")].find((b) => b.textContent.trim() === "Edit")?.click();
+	[...document.querySelectorAll("#stage .jacts button")].find((b) => b.textContent.trim() === "Edit")?.click();
 	await wait(900);
 	document.querySelector('#files [data-k="g-start"] .thumb .rm').click();
 	await wait(900);

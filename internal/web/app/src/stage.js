@@ -288,9 +288,31 @@ const REFFIG = { price_changed: "coin", not_free: "coin", free_limit: "clock", f
   network: "link", shutting_down: "link", http_429: "hush", busy: "hush", wrong_inputs: "bang", unknown_input: "bang", unknown_offer: "bang", cannot_continue: "bang",
   not_a_video: "cross", unsupported_type: "cross", unreadable: "cross", frame_too_large: "cross", too_large: "cross", picture_too_large: "cross", storage_unavailable: "cross" };
 
+// The actions of a run in a row. The square ones that stand together go as one group, which a phone
+// keeps on one line, beside the buttons with words or under them; a square on its own goes with the
+// button before it, so it never stands alone on a line. Where Again says its price (the viewer), it is
+// a button with words, not a square.
+export function actRow(items, priced = false) {
+  const out = [];
+  let g = null;
+  for (const b of items) {
+    if (!b) continue;
+    if (!(b.classList.contains("sq") || (!priced && b.classList.contains("sq2")))) { g = null; out.push(b); continue; }
+    if (!g) {
+      const prev = out.at(-1), one = prev?.matches("button, a") ? h("span", { class: "sqs pair" }, prev) : null;
+      if (one) out.pop();
+      out.push((g = one || h("span", { class: "sqs" })));
+    } else if (g.classList.contains("pair")) {
+      // A second square: the button with words stands on its own again, and the squares go together.
+      out.splice(out.length - 1, 1, g.firstElementChild, (g = h("span", { class: "sqs" }, g.lastElementChild)));
+    }
+    g.append(b);
+  }
+  return out;
+}
 // The buttons of a run, the first of them the one that helps most.
 // A square one shows only its icon on a phone, so each says its name.
-export const B = (icon, label, fn, cls = "") => h("button", { type: "button", class: cls || null, "aria-label": cls.startsWith("sq") ? label : null, onclick: fn }, ic(icon), h("span", { class: "t" }, label));
+export const B =(icon, label, fn, cls = "") => h("button", { type: "button", class: cls || null, "aria-label": cls.startsWith("sq") ? label : null, onclick: fn }, ic(icon), h("span", { class: "t" }, label));
 const againActs = (run) => [B("again", t("act.retry"), () => again(run), "primary"), B("edit", t("act.edit"), () => editPrompt(run))];
 function keyBtn(run) {
   const p = keyFor(run);
@@ -410,7 +432,7 @@ function renderPress(st, run) {
       h("button", { type: "button", class: "sq", "aria-label": t("stage.next"), title: t("stage.next"), onclick: () => drop() }, ic("plus"), h("span", { class: "t" }, t("stage.next")))];
   const prompt = run.prompt ? h("p", { class: "jprompt", "data-k": "j-prompt", hidden: samePrompt(run) }, h("span", { class: "tx" }, run.prompt),
     h("button", { type: "button", class: "cp", "aria-label": t("act.copy"), title: t("act.copy"), onclick: () => copyPrompt(run.prompt) }, ic("copy"))) : null;
-  st.replaceChildren(h("div", { class: "preview", "data-k": "pvbox" }, box), h("div", { class: "jfoot", "data-k": "j-foot" }, line, why, h("div", { class: "jacts acts", "data-k": "j-acts" }, acts.filter(Boolean)), prompt));
+  st.replaceChildren(h("div", { class: "preview", "data-k": "pvbox" }, box), h("div", { class: "jfoot", "data-k": "j-foot" }, line, why, h("div", { class: "jacts acts", "data-k": "j-acts" }, actRow(acts)), prompt));
 }
 // Every result of the press saved, one after another: a browser asks once to allow them, Telegram asks for each.
 function allDown(items) {
@@ -455,8 +477,8 @@ function renderRun(st, run) {
     : null;
   const prompt = run.prompt ? h("p", { class: "jprompt", "data-k": "j-prompt", hidden: samePrompt(run) }, h("span", { class: "tx" }, run.prompt),
     h("button", { type: "button", class: "cp", "aria-label": t("act.copy"), title: t("act.copy"), onclick: () => copyPrompt(run.prompt) }, ic("copy"))) : null;
-  const acts = h("div", { class: "jacts acts", "data-k": "j-acts" }, v.acts.filter(Boolean),
-    runOver(run) ? h("button", { type: "button", class: "sq", "aria-label": t("stage.next"), title: t("stage.next"), onclick: () => drop() }, ic("plus"), h("span", { class: "t" }, t("stage.next"))) : null);
+  const acts = h("div", { class: "jacts acts", "data-k": "j-acts" }, actRow([...v.acts,
+    runOver(run) ? h("button", { type: "button", class: "sq", "aria-label": t("stage.next"), title: t("stage.next"), onclick: () => drop() }, ic("plus"), h("span", { class: "t" }, t("stage.next"))) : null]));
   st.replaceChildren(h("div", { class: "preview", "data-k": "pvbox" }, box), h("div", { class: "jfoot", "data-k": "j-foot" }, line, why, acts, prompt));
 }
 

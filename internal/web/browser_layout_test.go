@@ -428,7 +428,7 @@ func TestBrowserLowWindow(t *testing.T) {
 	await wait(900);
 	if (s.label !== "No money on the key") bad.push("the run: " + s.label);
 	for (const q of ["#stage [data-k=pv]", "#stage .jbox .c b", "#stage .jacts"]) if (!inView(document.querySelector(q))) bad.push(q + " out of sight: " + JSON.stringify(spot(document.querySelector(q))));
-	[...document.querySelectorAll("#stage .jacts > button")].find((b) => b.textContent.trim() === "Edit the prompt").click();
+	[...document.querySelectorAll("#stage .jacts button")].find((b) => b.textContent.trim() === "Edit the prompt").click();
 	await wait(900);
 	if (document.activeElement !== document.querySelector("#prompt") || !inView(document.querySelector("#prompt"))) bad.push("Edit the prompt leaves the prompt out of sight");
 	return { bad, page: document.documentElement.scrollWidth - innerWidth };`)
@@ -465,7 +465,7 @@ func TestBrowserLowWindow(t *testing.T) {
 	await wait(900);
 	if (!inView(document.querySelector("#stage .jbox .c b"))) bad.push("the reason is out of sight");
 	const end = document.documentElement.scrollHeight;
-	for (const b of document.querySelectorAll("#stage .jacts > button")) if (spot(b).abs + b.offsetHeight > end) bad.push(b.textContent.trim() + " cannot be reached");
+	for (const b of document.querySelectorAll("#stage .jacts button")) if (spot(b).abs + b.offsetHeight > end) bad.push(b.textContent.trim() + " cannot be reached");
 	return { bad, page: document.documentElement.scrollWidth - innerWidth };`)
 	if bad := got["bad"].([]any); len(bad) > 0 || got["page"].(float64) > 0 {
 		t.Errorf("400%% zoom: %v, %v px wider than the window", bad, got["page"])
@@ -867,5 +867,81 @@ func TestBrowserPhoneNames(t *testing.T) {
 			t.Errorf("%s at %d: the viewer's title: %v", c.lang, c.w, got)
 		}
 		noErrors(t, ctx)
+	}
+}
+
+// rowHelpers read a row of actions as a person sees it: lines() groups its
+// buttons by the line they stand on, and rowFaults says what is wrong with
+// it: a line that does not reach both ends of the row, a group of squares
+// split over two lines, a square alone on a line, a button whose words are
+// cut.
+const rowHelpers = `
+function rowFaults() {
+  const row = [...document.querySelectorAll("#viewBody .jacts, #stage .jacts")].find((e) => e.offsetParent);
+  if (!row) return ["no row of actions"];
+  const r = row.getBoundingClientRect(), bad = [], lines = [];
+  const items = [...row.querySelectorAll(":scope > :is(button, a), :scope > .sqs > *")];
+  for (const b of items) {
+    const br = b.getBoundingClientRect();
+    let l = lines.find((x) => Math.abs(x.top - br.top) < 4);
+    if (!l) lines.push((l = { top: br.top, items: [] }));
+    l.items.push(b);
+    const t = b.querySelector(".t");
+    if (t && t.offsetParent && t.scrollWidth > t.clientWidth + 1) bad.push("cut: " + t.textContent);
+  }
+  const name = (b) => b.getAttribute("aria-label") || b.textContent.trim();
+  for (const l of lines) {
+    const left = Math.min(...l.items.map((b) => b.getBoundingClientRect().left)), right = Math.max(...l.items.map((b) => b.getBoundingClientRect().right));
+    if (left > r.left + 1 || right < r.right - 1) bad.push("not flush: " + l.items.map(name).join(", "));
+    if (l.items.length === 1 && l.items[0].matches(".sqs:not(.pair) > *") && lines.length > 1) bad.push("alone: " + name(l.items[0]));
+  }
+  for (const g of row.querySelectorAll(":scope > .sqs")) {
+    const tops = new Set([...g.children].map((b) => Math.round(b.getBoundingClientRect().top)));
+    if (tops.size > 1) bad.push("split: " + [...g.children].map(name).join(", "));
+  }
+  return bad;
+}
+`
+
+// TestBrowserActionRows checks the rows of actions on a phone, under a
+// result, a failed run and a refused one on the stage and in the viewer:
+// every line reaches both ends of the row, the squares stand together, on
+// the line of the buttons with words while they fit and on their own line
+// when not, a square is never alone on a line, and no words are cut.
+func TestBrowserActionRows(t *testing.T) {
+	for _, c := range []struct {
+		lang string
+		w    int64
+	}{{"de", 360}, {"ar", 360}, {"en", 390}} {
+		runs := &fakeRuns{lang: c.lang}
+		ts := fakeSite(t, runs.mount)
+		ctx := browserAs(t, ts.URL, c.w, 844, opened{lang: c.lang, phone: true})
+		inLang(t, ctx, c.lang)
+		for _, p := range []string{"done", "done:joined", "fail:money", "refuse:free_limit", "fail:key"} {
+			bad := js[[]string](t, ctx, pageHelpers+runHelpers+rowHelpers+`
+			const s = await press(`+jsString(p)+`, () => document.querySelector("#stage .jbox.done, #stage .jbox.failed"));
+			if (s.timeout) return ["no end"];
+			await wait(900);
+			return rowFaults();`)
+			if len(bad) > 0 {
+				t.Errorf("%s at %d, the stage after %s: %v", c.lang, c.w, p, bad)
+			}
+		}
+		noErrors(t, ctx)
+
+		lib := newFakeLibrary()
+		lib.lang = c.lang
+		ls := fakeSite(t, lib.mount)
+		for _, id := range []string{"60", "62", "68"} {
+			ctx := browserAs(t, ls.URL+"/r/"+id, c.w, 844, opened{lang: c.lang, phone: true})
+			bad := js[[]string](t, ctx, pageHelpers+rowHelpers+`
+			for (let i = 0; i < 40 && !document.querySelector("#viewer:not([hidden]) .vrun"); i++) await wait(100);
+			await wait(1000);
+			return rowFaults();`)
+			if len(bad) > 0 {
+				t.Errorf("%s at %d, the viewer of %s: %v", c.lang, c.w, id, bad)
+			}
+			noErrors(t, ctx)
+		}
 	}
 }

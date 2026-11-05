@@ -512,20 +512,27 @@ input.search::placeholder {color: var(--muted);}
 .jwhy .note {color: var(--soft);}
 .jprompt[hidden] {display: none;}
 .jacts {display: flex; flex-wrap: wrap; gap: var(--gap);}
-.jacts > button, .jacts > a {height: 42px; padding: 0 14px; display: inline-flex; align-items: center; gap: 8px; background: var(--deep); color: var(--ink); text-decoration: none; font-weight: 600; font-size: 15px;}
+.jacts > .sqs {display: contents;}
+:is(.jacts, .sqs) > :is(button, a) {height: 42px; padding: 0 14px; display: inline-flex; align-items: center; gap: 8px; background: var(--deep); color: var(--ink); text-decoration: none; font-weight: 600; font-size: 15px;}
 .jacts > .primary {background: var(--ink); color: var(--field);}
-.jacts > .wait {opacity: .5; pointer-events: none;}
+.jacts .wait {opacity: .5; pointer-events: none;}
 .jacts > .busy {display: inline-flex; align-items: center; gap: 8px; min-height: 42px; font-size: 14px; color: var(--muted);}
 .jacts > .busy .ic {width: 16px; height: 16px;}
+/* A row of actions stands flush on a phone. The buttons with words take the room left in their line,
+   and the square ones go as one group: beside them while it fits, and on a line of their own, in equal
+   columns, when it does not. A square on its own keeps to the button before it, so a square never
+   stands alone under the others. */
 @media (max-width: 959px) {
-  .jacts > .primary {flex: 1 1 auto; min-width: 0; justify-content: center;}
-  .jacts > .primary > .t {overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
-  .jacts > .sq {flex: none; width: 42px; padding: 0; justify-content: center;}
-  .jacts > .sq > .t {display: none;}
+  .jacts > :is(button, a), .sqs.pair > :first-child {flex: 100000 1 auto; min-width: 0; justify-content: center;}
+  :is(.jacts, .sqs.pair) > :is(button, a) > .t {overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
+  .jacts > .sqs {display: flex; flex: 1 1 auto; gap: var(--gap); min-width: 0;}
+  .sqs > * {flex: 1 1 auto;}
+  .sqs > .sq {width: 42px; padding: 0; justify-content: center;}
+  .sqs > .sq > .t {display: none;}
 }
 @media (max-width: 389.98px) {
-  .jacts > .sq2 {flex: none; width: 42px; padding: 0; justify-content: center;}
-  .jacts > .sq2 > .t {display: none;}
+  .sqs > .sq2 {width: 42px; padding: 0; justify-content: center;}
+  .sqs > .sq2 > .t {display: none;}
 }
 .jprompt {display: flex; align-items: flex-start; gap: 8px; min-width: 0; font-size: 15px; color: var(--muted);}
 .jprompt > .tx {flex: 1; min-width: 0; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;}
@@ -533,10 +540,10 @@ input.search::placeholder {color: var(--muted);}
 .jprompt > .cp .ic {width: 14px; height: 14px;}
 .stage > .link.back {justify-self: start;}
 @media (prefers-reduced-motion: no-preference) {
-  .jacts > button, .jacts > a, .jprompt > .cp {transition: background-color .16s, color .16s;}
+  :is(.jacts, .sqs) > :is(button, a), .jprompt > .cp {transition: background-color .16s, color .16s;}
 }
 @media (hover: hover) {
-  .jacts > button:not(.primary):hover, .jacts > a:not(.primary):hover, .jprompt > .cp:hover {background-color: var(--line); color: var(--ink);}
+  :is(.jacts, .sqs) > :is(button, a):not(.primary):hover, .jprompt > .cp:hover {background-color: var(--line); color: var(--ink);}
 }
 
 /* Clips in the composer: the length on the thumbnail, the part picked, the video a run goes on from. */
@@ -779,12 +786,12 @@ main.library {display: grid; gap: 18px; padding: 6px 0 calc(48px + env(safe-area
 .vins .thumb {width: 52px; height: 52px;}
 #viewBody .jprompt > .tx {display: block; overflow: visible; -webkit-line-clamp: none; color: var(--soft);}
 #viewBody .jacts, #full .jacts {flex-wrap: wrap;}
-#viewBody .jacts > button:disabled, #full .jacts > button:disabled {opacity: .55;}
+#viewBody .jacts button:disabled, #full .jacts button:disabled {opacity: .55;}
 #viewBody .jacts > button > .t .usd, #full .jacts > button > .t .usd {font-weight: 600;}
 @media (max-width: 959px) {
   /* Again says its price: it keeps its words on a phone. */
-  #viewBody .jacts > .sq2, #full .jacts > .sq2 {width: auto; padding: 0 14px;}
-  #viewBody .jacts > .sq2 > .t, #full .jacts > .sq2 > .t {display: inline;}
+  #viewBody :is(.jacts, .sqs) > .sq2, #full :is(.jacts, .sqs) > .sq2 {width: auto; padding: 0 14px;}
+  #viewBody :is(.jacts, .sqs) > .sq2 > .t, #full :is(.jacts, .sqs) > .sq2 > .t {display: inline;}
 }
 .vbox.zoom > img {cursor: zoom-in;}
 .vexp {position: absolute; right: 0; top: 0; z-index: 1; width: 44px; height: 44px; display: grid; place-items: center; background: rgba(0, 69, 79, .85);}
@@ -906,7 +913,7 @@ html.full-on {overflow: hidden;}
   .seg.kind > button:first-of-type::after {inset-inline: -3px -1px;}
   .seg.kind > button:last-of-type::after {inset-inline: -1px -3px;}
   .thumb .rm::after {content: ""; position: absolute; inset: -8px -3px -3px;}
-  .jacts > button, .jacts > a {height: 44px;}
+  :is(.jacts, .sqs) > :is(button, a) {height: 44px;}
   .jacts > .busy {min-height: 44px;}
   .libhead .seg > button {min-height: 44px;}
   .lsearch input {height: 44px; padding-inline-end: 44px;}
@@ -917,10 +924,10 @@ html.full-on {overflow: hidden;}
   .ptrack {height: 44px;}
 }
 @media (pointer: coarse) and (max-width: 959px) {
-  .jacts > .sq {width: 44px;}
+  .sqs > .sq {width: 44px;}
 }
 @media (pointer: coarse) and (max-width: 389.98px) {
-  .jacts > .sq2 {width: 44px;}
+  .sqs > .sq2 {width: 44px;}
 }
 
 /* The system's contrast colours (Windows contrast themes): the system paints every fill with its page
@@ -930,7 +937,7 @@ html.full-on {overflow: hidden;}
    fills of a hover and of a variant row, and the system draws no page colour behind its words. */
 @media (forced-colors: active) {
   .ind {display: none;}
-  :where(button, textarea, select, input:not([type="range"], [type="file"], [type="checkbox"], [type="radio"]), .tab, .jacts > a):not(.link-t, .mnote button, .dold button, .morebtn, .tog, .gap, .old, [tabindex="-1"]) {border: 1px solid;}
+  :where(button, textarea, select, input:not([type="range"], [type="file"], [type="checkbox"], [type="radio"]), .tab, .jacts a):not(.link-t, .mnote button, .dold button, .morebtn, .tog, .gap, .old, [tabindex="-1"]) {border: 1px solid;}
   :is([role="radio"][aria-checked="true"], .tab[aria-current="page"], .rcard[aria-current="true"], .pill[aria-pressed="true"]) {forced-color-adjust: none; background-color: Highlight !important; color: HighlightText !important; border-color: Highlight !important;}
   :is([role="radio"][aria-checked="true"], .tab[aria-current="page"], .rcard[aria-current="true"], .pill[aria-pressed="true"]):focus-visible {outline-color: CanvasText;}
   :is([role="radio"][aria-checked="true"], .tab[aria-current="page"], .rcard[aria-current="true"], .pill[aria-pressed="true"]) * {color: inherit !important;}

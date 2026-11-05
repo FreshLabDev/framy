@@ -491,7 +491,7 @@ func TestBrowserLibraryPhone(t *testing.T) {
 		  tabText: document.querySelector("#top .tab .t").getBoundingClientRect().width > 1, dock: vis(document.querySelector("#composer")) };
 		tiles()[6].click();
 		await wait(700);
-		const v = document.querySelector("#viewer"), acts = [...v.querySelectorAll(".jacts > *")];
+		const v = document.querySelector("#viewer"), acts = [...v.querySelectorAll(".jacts :is(button, a)")];
 		r.sheet = vis(v);
 		r.actsIn = acts.every((a) => { const b = a.getBoundingClientRect(); return b.left >= 0 && b.right <= innerWidth + 0.5; });
 		r.box = Math.round(v.querySelector(".vbox").getBoundingClientRect().width);
@@ -668,7 +668,7 @@ func TestBrowserViewerJoined(t *testing.T) {
 	await until(() => vis(document.querySelector("#viewer")) && document.querySelector("#viewBody .vbox video"));
 	const v = document.querySelector("#viewer");
 	r.video = v.querySelector(".vbox video")?.getAttribute("src");
-	r.links = [...v.querySelectorAll(".jacts > a")].map((a) => a.getAttribute("href") + " | " + a.textContent.trim());
+	r.links = [...v.querySelectorAll(".jacts a")].map((a) => a.getAttribute("href") + " | " + a.textContent.trim());
 	// The player's bar, in its parts, keeps the arrows: they seek, not go to the next run.
 	const tr = v.querySelector(".vbox .ptrack");
 	r.parts = tr?.querySelectorAll(".pseg").length; r.controls = v.querySelector(".vbox video").hasAttribute("controls"); r.exp = !!v.querySelector(".vexp");
