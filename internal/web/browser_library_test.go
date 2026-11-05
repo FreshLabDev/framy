@@ -239,7 +239,6 @@ func (f *fakeLibrary) state() (lists []string, created []map[string]any, deleted
 
 // libHelpers wait for the library and read what it shows.
 const libHelpers = pageHelpers + `
-const until = async (fn, ms = 6000) => { const end = Date.now() + ms; while (Date.now() < end) { const v = fn(); if (v) return v; await wait(50); } return fn(); };
 const tiles = () => [...document.querySelectorAll("#library .li")].filter((e) => !e.closest("[aria-hidden=true]"));
 const ids = () => tiles().map((e) => +e.getAttribute("href").split("/").pop());
 const settled = () => until(() => tiles().length && !document.querySelector("#library .lspin"));

@@ -10,7 +10,8 @@
 //
 //	go test -tags=browser ./internal/web/
 //
-// CHROME_PATH names the browser when it is not on the PATH.
+// CHROME_PATH names the browser when it is not on the PATH, and
+// FRAMY_BROWSER_ARTIFACTS a directory to keep the page of a failed test in.
 package web
 
 import (
@@ -22,7 +23,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -136,12 +139,40 @@ func fakeQuote(w http.ResponseWriter, r *http.Request) {
 
 // watch collects CSP violations, errors and long tasks from the first line of
 // every document; the page reads them back as window.__errs and __long.
+//
+// It also counts what the page is still doing: requests and their bodies in
+// flight, timers of a second or less, and animations that end. window.__idle
+// is true when there is none, which is how settle (pageHelpers) knows the page
+// is done rather than guessing how long that takes on this machine. The
+// checks' own pauses go through __sleep, the timer from before, so they do
+// not count.
 const watch = `
 window.__errs = []; window.__long = [];
 addEventListener("securitypolicyviolation", (e) => __errs.push("csp: " + e.violatedDirective + " " + e.blockedURI));
 addEventListener("error", (e) => __errs.push("error: " + e.message));
 addEventListener("unhandledrejection", (e) => __errs.push("rejection: " + (e.reason && e.reason.message || e.reason)));
 try { new PerformanceObserver((l) => { for (const e of l.getEntries()) __long.push([e.startTime, Math.round(e.duration)]); }).observe({ type: "longtask", buffered: true }); } catch (e) {}
+(() => {
+  const st = window.setTimeout, ct = window.clearTimeout, timers = new Set();
+  let busy = 0;
+  window.__sleep = (ms) => new Promise((r) => st(r, ms));
+  window.setTimeout = function (fn, ms, ...args) {
+    if (typeof fn !== "function" || (ms || 0) > 1000) return st(fn, ms, ...args);
+    const id = st(() => { timers.delete(id); fn(...args); }, ms);
+    timers.add(id);
+    return id;
+  };
+  window.clearTimeout = (id) => { timers.delete(id); ct(id); };
+  const counted = (p) => { busy++; return p.finally(() => busy--); };
+  const fetch0 = window.fetch;
+  window.fetch = (...a) => counted(fetch0.apply(window, a));
+  for (const m of ["json", "text", "blob", "arrayBuffer"]) {
+    const read = Response.prototype[m];
+    Response.prototype[m] = function () { return counted(read.call(this)); };
+  }
+  const moving = (a) => a.playState === "running" && a.effect && a.effect.getComputedTiming().endTime !== Infinity;
+  window.__idle = () => busy === 0 && timers.size === 0 && !document.getAnimations().some(moving);
+})();
 `
 
 // browser opens the page in a fresh headless Chrome of the given size.
@@ -155,6 +186,7 @@ func browser(t *testing.T, url string, w, h int64, phone bool) context.Context {
 	actx, cancelA := chromedp.NewExecAllocator(context.Background(), opts...)
 	ctx, cancelC := chromedp.NewContext(actx)
 	t.Cleanup(func() { cancelC(); cancelA() })
+	keepOnFailure(t, ctx)
 	vp := []chromedp.EmulateViewportOption{}
 	if phone {
 		vp = append(vp, chromedp.EmulateMobile, chromedp.EmulateTouch, chromedp.EmulateScale(2))
@@ -174,6 +206,57 @@ func browser(t *testing.T, url string, w, h int64, phone bool) context.Context {
 	return ctx
 }
 
+// kept numbers the pages keepOnFailure saved, for a test that opens several.
+var kept atomic.Int32
+
+// keepOnFailure saves the page as it was when the test failed, into the
+// directory FRAMY_BROWSER_ARTIFACTS names: a screenshot of the whole page,
+// its document, and what it reported. On a runner the page is gone by the
+// time anyone reads the log, and a line saying a bar is 3 px off says
+// nothing of why. Without the variable it does nothing.
+func keepOnFailure(t *testing.T, ctx context.Context) {
+	dir := os.Getenv("FRAMY_BROWSER_ARTIFACTS")
+	if dir == "" {
+		return
+	}
+	// Registered after the browser's own cleanup, so it runs before it.
+	t.Cleanup(func() {
+		if !t.Failed() || ctx.Err() != nil {
+			return
+		}
+		name := strings.Map(func(r rune) rune {
+			if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' {
+				return r
+			}
+			return '_'
+		}, t.Name())
+		base := filepath.Join(dir, fmt.Sprintf("%s-%d", name, kept.Add(1)))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Logf("keep the failed page: %v", err)
+			return
+		}
+		c, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		if png, err := chromedp.Run(c, chromedp.FullScreenshot(100)); err == nil {
+			_ = os.WriteFile(base+".png", png, 0o644)
+		} else {
+			t.Logf("keep the failed page's screenshot: %v", err)
+		}
+		state, err := chromedp.Run(c, chromedp.Evaluate[map[string]any](`({url: location.href, errs: window.__errs || [], html: document.documentElement.outerHTML})`))
+		if err != nil {
+			t.Logf("keep the failed page's document: %v", err)
+			return
+		}
+		html, _ := state["html"].(string)
+		_ = os.WriteFile(base+".html", []byte(html), 0o644)
+		delete(state, "html")
+		if b, err := json.MarshalIndent(state, "", "  "); err == nil {
+			_ = os.WriteFile(base+".json", b, 0o644)
+		}
+		t.Logf("the failed page is kept as %s.{png,html,json}", base)
+	})
+}
+
 // ready waits until the app has replaced the skeleton and the prices are in.
 func ready(t *testing.T, ctx context.Context) {
 	t.Helper()
@@ -185,6 +268,32 @@ func ready(t *testing.T, ctx context.Context) {
 	if err != nil {
 		t.Fatalf("the app did not come up: %v", err)
 	}
+}
+
+// leave marks the document about to go, for reloaded: put it in the same
+// step as what makes the page load again.
+const leave = `window.__left = true;`
+
+// reloaded waits until a document marked with leave has been replaced and the
+// app on the new one is up. A fixed pause is a guess: on a slow machine the
+// old page is still there after it, up and looking the same.
+func reloaded(t *testing.T, ctx context.Context) {
+	t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		// Between two documents an evaluation can fail; it is asked again.
+		c, cancel := context.WithTimeout(ctx, 2*time.Second)
+		gone, err := chromedp.Run(c, chromedp.Evaluate[bool](`!window.__left && document.readyState !== "loading"`))
+		cancel()
+		if err == nil && gone {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the page did not load again: %v", err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	ready(t, ctx)
 }
 
 // js runs an async page function and decodes its result.
@@ -208,8 +317,23 @@ func noErrors(t *testing.T, ctx context.Context) {
 }
 
 // pageHelpers are shared by the checks below.
+//
+// wait(ms) gives the page at least ms and then as long as it is still busy
+// (settle), so a pause tuned on a laptop is not too short on a runner four
+// times slower; it never returns sooner than ms, so a check that nothing
+// happens in that time still waits it out. until polls a condition.
 const pageHelpers = `
-const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const sleep = window.__sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
+const settle = async (most = 4000) => {
+  const end = Date.now() + most;
+  for (let calm = 0; Date.now() < end; await sleep(20)) {
+    calm = !window.__idle || window.__idle() ? calm + 1 : 0;
+    if (calm >= 2) return true;
+  }
+  return false;
+};
+const wait = async (ms) => { await sleep(ms); await settle(); };
+const until = async (fn, ms = 8000) => { const end = Date.now() + ms; while (Date.now() < end) { const v = fn(); if (v) return v; await sleep(50); } return fn(); };
 const vis = (el) => !!el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== "hidden";
 // Where a button starts across and how big it is. Its top may move when a
 // line above it changes, as the facts of another variant do.

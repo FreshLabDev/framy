@@ -116,9 +116,10 @@ func TestBrowserFramesPhone(t *testing.T) {
 	const whole = (k) => { const s = document.querySelector("#stage .strip"), c = s.querySelectorAll(":scope > .cell")[k], r = s.getBoundingClientRect(), b = c.getBoundingClientRect();
 	  return b.left >= r.left - 1 && b.right <= r.right + 1; };
 	const at = () => { const k = dot(); return k >= 0 && whole(k) ? k : -1; };
-	const settle = async (k) => { for (let i = 0; i < 25 && at() !== k; i++) await wait(100); await wait(200); };
+	// A strip scrolled smoothly is no animation the page counts: wait for the frame itself.
+	const settleAt = async (k) => { await until(() => at() === k, 4000); await wait(200); };
 	document.querySelector("#stage .addf").click(); await wait(900);
-	document.querySelector("#stage .addf").click(); await settle(2);
+	document.querySelector("#stage .addf").click(); await settleAt(2);
 	const plus = document.querySelector("#stage .shead .addf").getBoundingClientRect(), strip = document.querySelector("#stage .strip").getBoundingClientRect();
 	const added = { n: cells().length, at: at(), dot: dot(), plus: Math.round(plus.height), over: plus.bottom <= strip.top,
 	  dock: Math.round(document.querySelector("#composer").getBoundingClientRect().top - strip.bottom) };
@@ -130,7 +131,7 @@ func TestBrowserFramesPhone(t *testing.T) {
 	  tg.dispatchEvent(new TouchEvent("touchstart", { touches: [touch(180)], changedTouches: [touch(180)], bubbles: true }));
 	  await wait(100);
 	  tg.dispatchEvent(new TouchEvent("touchend", { touches: [], changedTouches: [touch(180 + dx)], bubbles: true }));
-	  await wait(300); await settle(k);
+	  await wait(300); await settleAt(k);
 	  return { title: document.querySelector("#tuneTitle").textContent, at: at(), dot: dot() };
 	}
 	const back = await swipe(120, 1), next = await swipe(-120, 2);

@@ -73,9 +73,28 @@ jobs:
             echo "$changed"
             exit 1
           fi
-      # The runner has Google Chrome.
+      # Chrome at a fixed version, not whichever the runner image carries this
+      # week: a test that starts failing then failed for a change of ours.
+      # Raise it on purpose, to a version of Chrome for Testing.
+      - uses: browser-actions/setup-chrome@48ad923757ca74d66703209fe939badbdf80f2f4 # v2.2.0
+        id: chrome
+        with:
+          chrome-version: 157.0.8103.38
+      # A failed test keeps its page (screenshot, document, what it reported)
+      # in FRAMY_BROWSER_ARTIFACTS, uploaded below.
       - name: Browser tests
-        run: go test -tags=browser -run Browser -v ./internal/web/
+        env:
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
+          FRAMY_BROWSER_ARTIFACTS: ${{ runner.temp }}/browser
+        run: go test -tags=browser -run Browser -v -timeout 20m ./internal/web/
+      - name: Pages of the failed browser tests
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: browser-failures
+          path: ${{ runner.temp }}/browser
+          if-no-files-found: ignore
+          retention-days: 14
 
   database:
     name: Database tests

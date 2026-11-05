@@ -280,7 +280,6 @@ const rowText = (p) => { const r = rowOf(p); return r ? { sub: r.querySelector("
 const form = (p) => document.querySelector('#prefsBody [data-k="pk-' + p + '"]');
 const note = (k) => document.querySelector('#prefsBody [data-k="' + k + '"]')?.textContent || "";
 const btn = (root, label) => [...(root || document).querySelectorAll("button")].find((b) => b.textContent.trim() === label);
-async function until(f, n = 80) { for (let i = 0; i < n; i++) { const v = f(); if (v) return v; await wait(100); } return null; }
 async function typeKey(p, v) {
   const i = form(p).querySelector("input");
   i.value = v; i.dispatchEvent(new Event("input"));
@@ -358,7 +357,7 @@ func TestBrowserPrefs(t *testing.T) {
 	await typeKey("openai", "sk-test-down-000000000000");
 	await until(() => /did not answer/.test(kerr("openai")));
 	const b = form("openai").querySelector("[data-wait]"), during = [b.textContent, b.disabled];
-	await until(() => !form("openai").querySelector("[data-wait]").disabled, 40);
+	await until(() => !form("openai").querySelector("[data-wait]").disabled, 4000);
 	const a = form("openai").querySelector("[data-wait]");
 	return { err: kerr("openai"), during, after: [a.textContent, a.disabled] };`)
 	if s["err"] != "OpenAI did not answer. The key is not saved; try again in 2 seconds." || fmt.Sprint(s["during"]) != "[In 2 s true]" || fmt.Sprint(s["after"]) != "[Check false]" {
@@ -443,11 +442,10 @@ func TestBrowserPrefs(t *testing.T) {
 
 	// Connect goes to OpenRouter and back: the address loses the result, the
 	// settings open on the new key.
-	if _, err := chromedp.Run(ctx, chromedp.Evaluate[any](`document.querySelector('#prefsBody [data-p="openrouter"] button.primary').click()`)); err != nil {
+	if _, err := chromedp.Run(ctx, chromedp.Evaluate[any](leave+`document.querySelector('#prefsBody [data-p="openrouter"] button.primary').click()`)); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(500 * time.Millisecond)
-	ready(t, ctx)
+	reloaded(t, ctx)
 	s = prefs(t, ctx, `
 	await until(() => !sheet().hidden && rowText("openrouter")?.sub.startsWith("Key"));
 	return { url: location.pathname + location.search, row: rowText("openrouter"), toast: toastText() };`)
@@ -687,10 +685,10 @@ func TestBrowserPrefsLanguage(t *testing.T) {
 	document.querySelector("#meBtn").click();
 	await until(() => !sheet().hidden);
 	const sel = sheet().querySelector("select.pick");
+	`+leave+`
 	sel.value = "ru"; sel.dispatchEvent(new Event("change"));
 	return {};`)
-	time.Sleep(800 * time.Millisecond)
-	ready(t, ctx)
+	reloaded(t, ctx)
 	s := prefs(t, ctx, `
 	await until(() => !sheet().hidden);
 	await wait(300);
@@ -707,10 +705,10 @@ func TestBrowserPrefsLanguage(t *testing.T) {
 	// Automatic again: the language core resolves, and the list says Automatic.
 	prefs(t, ctx, `
 	const sel = sheet().querySelector("select.pick");
+	`+leave+`
 	sel.value = ""; sel.dispatchEvent(new Event("change"));
 	return {};`)
-	time.Sleep(800 * time.Millisecond)
-	ready(t, ctx)
+	reloaded(t, ctx)
 	s = prefs(t, ctx, `
 	await until(() => !sheet().hidden);
 	return { lang: document.documentElement.lang, sel: sheet().querySelector("select.pick").value, shown: sheet().querySelector("select.pick").selectedOptions[0].textContent };`)
@@ -834,9 +832,8 @@ func TestBrowserPrefsDefaults(t *testing.T) {
 
 	// The next visit opens on the person's models.
 	f.with(func() { f.defaults["video"] = "google/veo-3.1" })
-	prefs(t, ctx, `setTimeout(() => location.reload(), 50); return {};`)
-	time.Sleep(800 * time.Millisecond)
-	ready(t, ctx)
+	prefs(t, ctx, leave+`setTimeout(() => location.reload(), 50); return {};`)
+	reloaded(t, ctx)
 	s = prefs(t, ctx, name+`
 	const image = name();
 	document.querySelectorAll("#kind > button")[1].click();
