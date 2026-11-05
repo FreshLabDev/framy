@@ -194,6 +194,8 @@ Two tabs, Images and Video, with search. The suggestions for what is attached co
 - the price for the current settings in USD and the person's currency;
 - one line per connected provider.
 
+What a model can do is never cut short: the facts of a row wrap, and only between two facts, and on a phone the line under the price ("or from $0.095 with a key") takes two lines rather than the facts' room. On a phone the suggestions are rows as the families are, in the same type: the name a label, the price a figure.
+
 On a wide screen the card on the right shows the family under the mouse or the one the keyboard is on: its row, a variant or a suggestion. With a mouse the picker opens with the search in focus, to type in at once; on a touch screen it does not, so no keyboard comes up over the list. A screen reader hears a row with its facts and price, and a variant by its whole name ("FLUX 2 Max") with its price, an outdated one also that it is outdated. A model chosen gives the focus back to the model in the composer.
 
 Proposal: models that need a provider the person has not connected stay in the list, dimmed, with "Connect OpenRouter", so it is visible what a key would unlock.

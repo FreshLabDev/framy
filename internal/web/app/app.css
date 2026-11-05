@@ -284,11 +284,11 @@ input.search::placeholder {color: var(--muted);}
 .ghead > .ic {width: 15px; height: 15px;}
 .ghead .cnt {margin-left: auto; font-weight: 400; color: var(--muted);}
 .recs {display: grid; gap: var(--gap);}
-.rcard {display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "lg nm pr" "lg why pr"; column-gap: 14px; row-gap: 3px; align-items: center; padding: 12px 14px; background: var(--deep); text-align: left;}
+.rcard {display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "lg nm pr" "lg why pr"; column-gap: 14px; row-gap: 3px; align-items: center; padding: 12px 14px; background: var(--deep); text-align: start;}
 .rcard .lg {grid-area: lg;}
 .rcard .nm {grid-area: nm; font: 700 24px/1 var(--display);}
 .rcard .why {grid-area: why; font-size: 14px; color: var(--soft);}
-.rcard .pr {grid-area: pr; font: 700 20px/1 var(--display); text-align: right;}
+.rcard .pr {grid-area: pr; font: 700 20px/1 var(--display); text-align: end;}
 @media (min-width: 640px) {
   .recs {grid-template-columns: repeat(3, minmax(0, 1fr));}
   .rcard {grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "lg pr" "nm nm" "why why"; align-items: start; row-gap: 6px; padding: 16px;}
@@ -305,10 +305,11 @@ input.search::placeholder {color: var(--muted);}
 .frow > .lg {width: 40px; height: 40px;}
 .fbody {display: grid; gap: 2px; min-width: 0;}
 .fbody .nm {font-size: 16px; font-weight: 700; line-height: 1.2;}
-.fsub {font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+.fsub {font-size: 13px; color: var(--muted);}
+.fsub .fact, .rcard .why .fact {display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: top;}
 .fsub.why {display: inline-flex; align-items: center; gap: 6px; color: var(--ink); white-space: normal;}
 .fsub .ic {width: 14px; height: 14px;}
-.fprice {display: grid; gap: 2px; justify-items: end; text-align: right;}
+.fprice {display: grid; gap: 2px; justify-items: end; text-align: end;}
 .fprice b {font: 700 18px/1 var(--display); white-space: nowrap;}
 .fprice small {font-size: 12px; color: var(--muted); white-space: nowrap;}
 .fvars {grid-column: 2 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 4px;}
@@ -322,7 +323,20 @@ input.search::placeholder {color: var(--muted);}
 @media (max-width: 520px) {
   .frow {padding: 10px 12px;}
   .fvars {grid-column: 1 / -1;}
+  /* The line under the price ("or from $0.095 with a key") takes two lines
+     rather than the room of the facts beside it. */
+  .fprice small {max-width: 9em; white-space: normal; text-wrap: balance;}
 }
+/* On a phone the suggestions are rows as the families are, in the same
+   type: the name a label, the price a figure. */
+@media (max-width: 639px) {
+  .rcard {column-gap: 12px; row-gap: 2px; padding: 10px 14px;}
+  .rcard .lg {width: 40px; height: 40px;}
+  .rcard .nm {font: 700 16px/1.2 var(--text);}
+  .rcard .why {font-size: 13px; color: var(--muted);}
+  .rcard .pr {font-size: 18px;}
+}
+@media (max-width: 520px) { .rcard {padding: 10px 12px;} }
 .pkd {display: none;}
 @media (min-width: 900px) {
   .pkd {display: block; position: sticky; top: 0;}

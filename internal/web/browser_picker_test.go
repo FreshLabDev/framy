@@ -306,3 +306,50 @@ func TestBrowserPickerDescriptionInEnglishOnly(t *testing.T) {
 		})
 	}
 }
+
+// TestBrowserPickerPhoneRows checks the picker's rows on a phone: what a
+// family can do is not cut short by the price beside it ("Up to 10 photos ·
+// Up t…" beside "or from $0.095 with a key"), and the suggestions are set
+// in the same type as the families under them.
+func TestBrowserPickerPhoneRows(t *testing.T) {
+	ts := fakeAPI(t)
+	for _, lang := range []string{"en", "de", "ru", "ar"} {
+		t.Run(lang, func(t *testing.T) {
+			ctx := browserInit(t, ts.URL, 390, 844, true, catalogInit(lang, `(c) => c`))
+			got := js[map[string]any](t, ctx, pageHelpers+pickerHelpers+`
+			await openPicker();
+			for (let i = 0; i < 40 && document.querySelector("#pkrows .q.wait"); i++) await wait(100);
+			const cut = [...document.querySelectorAll("#pkrows .fsub, #pkrows .fact, #pkrows .rcard .why")].filter(vis)
+			  .filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent);
+			const type = (sel) => { const s = getComputedStyle(document.querySelector(sel)); return [s.fontFamily, s.fontSize, s.fontWeight].join(" "); };
+			return { cut, rec: [type("#pkrows .rcard .nm"), type("#pkrows .rcard .why"), type("#pkrows .rcard .pr")],
+			  fam: [type("#pkrows .frow .nm"), type("#pkrows .frow .fsub"), type("#pkrows .frow .fprice b")] };`)
+			if cut, _ := got["cut"].([]any); len(cut) > 0 {
+				t.Errorf("cut short on a phone: %v", cut)
+			}
+			rec, fam := got["rec"].([]any), got["fam"].([]any)
+			for i, what := range []string{"name", "facts", "price"} {
+				if rec[i] != fam[i] {
+					t.Errorf("a suggestion's %s is set in %v, a family's in %v", what, rec[i], fam[i])
+				}
+			}
+			noErrors(t, ctx)
+		})
+	}
+	// The picker's facts are words alone; the composer's are each an icon
+	// and its words, and keep their own look: the icon beside the words,
+	// with a gap.
+	t.Run("composer", func(t *testing.T) {
+		ctx := browser(t, ts.URL, 1440, 900, false)
+		got := js[map[string]any](t, ctx, pageHelpers+pickerHelpers+`
+		await chooseFam("FLUX");
+		const f = document.querySelector("#how .facts .fact"), ic = f.querySelector(".ic").getBoundingClientRect(), r = document.createRange();
+		r.selectNodeContents(f.lastChild);
+		const w = r.getBoundingClientRect();
+		return { gap: w.left - ic.right, middle: Math.abs((w.top + w.bottom) / 2 - (ic.top + ic.bottom) / 2) };`)
+		if got["gap"].(float64) < 5 || got["middle"].(float64) > 2 {
+			t.Errorf("a fact in the composer is %v, want its icon 6 px before its words and level with them", got)
+		}
+		noErrors(t, ctx)
+	})
+}

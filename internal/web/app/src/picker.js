@@ -136,9 +136,12 @@ function famPrice(f, id) {
   return h("span", { class: "fprice", id }, h("b", {}, minEl(items)), h("small", {}, minEl(items, { wait: "", text: (e) => (e.kind === "unknown" ? t("pick.no_price") : (e.discount ? "−" + Math.round(e.discount * 100) + "% · " : "") + perWord(f)) })));
 }
 const priceTextShort = (e) => (e.kind === "from" ? t("price.from", { p: e.label }) : e.kind === "about" ? t("price.about", { p: e.label }) : e.kind === "up_to" ? t("price.up_to", { p: e.label }) : e.label);
+// What a model can do, fact by fact: a line that has to wrap breaks between
+// two facts, never inside one, which left a lone "5" of "Fotos: bis zu 5".
+const factLine = (xs) => xs.flatMap((x, i) => [i ? " · " : "", h("span", { class: "fact" }, x)]);
 function recCard(m, wide) {
   const f = C.famOf[m.id], why = fit(m), plan = freePlan(m);
-  const reason = why || [plan ? freePer(m.kind) : "", ...facts(m, 4).filter((x) => x[0] !== "ticket").map((x) => x[1])].filter(Boolean).slice(0, 2).join(" · ");
+  const reason = why || factLine([plan ? freePer(m.kind) : "", ...facts(m, 4).filter((x) => x[0] !== "ticket").map((x) => x[1])].filter(Boolean).slice(0, 2));
   return h("button", { type: "button", class: "rcard" + (why ? " dim" : ""), "aria-current": String(focusId() === m.id), onclick: (e) => choose(C.varOf[m.id], e.currentTarget), onpointermove: hoverFam(f, wide, m.id), onfocus: focusFam(f, m.id) },
     lg(famLogo(f), f.maker), h("span", { class: "nm" }, vname(m)), h("span", { class: "why" }, reason), h("span", { class: "pr" }, plan ? t("pay.free") : minEl(bestItems(m))));
 }
@@ -148,7 +151,7 @@ function recCard(m, wide) {
 function famRow(f, wide) {
   const cur = focusId(), mine = C.famOf[cur] === f, why = famFit(f), vs = shown(f), id = "pk" + f.idx;
   const want = C.varOf[mine ? cur : S.lastVar[f.idx]] || f.def, pick = vs.includes(want) || (f.old.includes(want) && ok(want)) ? want : vs[0];
-  const sub = why ? [ic("warn"), why] : facts(vs.map((v) => v.m), 3).filter((x) => x[0] !== "ticket").map((x) => x[1]).join(" · ");
+  const sub = why ? [ic("warn"), why] : factLine(facts(vs.map((v) => v.m), 3).filter((x) => x[0] !== "ticket").map((x) => x[1]));
   const olds = S.sort === "price" || query.trim() ? oldShown(f) : [];
   // A pill's price is written when the pill gets the focus, where it is
   // heard: the picker opens without a price to keep for every variant. An
