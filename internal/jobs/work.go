@@ -54,13 +54,40 @@ func (w *generateWorker) Work(ctx context.Context, rj *river.Job[generateArgs]) 
 		// stay queued or running for nobody.
 		ctx, done := detach(ctx)
 		defer done()
-		if endErr := w.q.end(ctx, rj.Args.JobID, ending{status: Failed, class: Internal, msg: err.Error()}); endErr != nil {
+		if endErr := w.q.end(ctx, rj.Args.JobID, w.q.givenUp(ctx, rj.Args.JobID, err)); endErr != nil {
 			return endErr
 		}
 		return river.JobCancel(err)
 	}
 	return err
 }
+
+// givenUp is how job id ends when its last attempt failed with err, by what
+// is known of the money: a finished run whose results could not be copied
+// is storage, a run whose paid request went out is interrupted, and only a
+// job for which nothing was sent is internal. The cost written down so far
+// stays on the job, and so the free budget counts it.
+func (q *Queue) givenUp(ctx context.Context, id int64, err error) ending {
+	var ke *keepError
+	if errors.As(err, &ke) {
+		return ending{status: Failed, class: Storage, msg: err.Error()}
+	}
+	var sent bool
+	if qerr := q.pool.QueryRow(ctx, `SELECT submitted_at IS NOT NULL FROM job WHERE id=$1`, id).Scan(&sent); qerr == nil && sent {
+		return ending{status: Failed, class: Interrupted, msg: "framy could not finish the run after the paid request went out: " + err.Error()}
+	}
+	return ending{status: Failed, class: Internal, msg: err.Error()}
+}
+
+// keepError: the provider finished the run and its results could not be
+// copied. The provider still holds them, so the next attempt asks again.
+type keepError struct {
+	id  int64
+	err error
+}
+
+func (e *keepError) Error() string { return fmt.Sprintf("keep the results of job %d: %v", e.id, e.err) }
+func (e *keepError) Unwrap() error { return e.err }
 
 // work moves job id as far as it can go in one attempt.
 func (q *Queue) work(ctx context.Context, id int64) error {
@@ -295,7 +322,7 @@ func (q *Queue) settle(ctx context.Context, j Job, out Outcome) error {
 		if err != nil {
 			if j.ProviderJobID != "" {
 				// The provider still holds the result: ask for it again.
-				return fmt.Errorf("keep the results of job %d: %w", j.ID, err)
+				return &keepError{id: j.ID, err: err}
 			}
 			e.status, e.class, e.msg = Failed, Storage, err.Error()
 			break

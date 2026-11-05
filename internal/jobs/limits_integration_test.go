@@ -5,10 +5,14 @@ package jobs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 )
 
 // deadlines records how long each step of a job was given.
@@ -163,4 +167,61 @@ func TestResultsKeptBeforeAStopMakeTheRunDone(t *testing.T) {
 			t.Fatalf("%s %s, %d results, cost %v, sent %d more times", j.Status, j.ErrorClass, results, j.ActualUSD, f.count(f.submits, id))
 		}
 	})
+}
+
+// River's last attempt ends a job by what is known of the money: a video
+// the provider made that framy could not copy is storage with its cost,
+// which the free budget counts; a paid request out with no answer is
+// interrupted; only a job nothing was sent for is internal.
+func TestTheLastAttemptKeepsTheTruthAboutTheMoney(t *testing.T) {
+	ctx := context.Background()
+	last := func(id int64, video bool) *river.Job[generateArgs] {
+		return &river.Job[generateArgs]{JobRow: &rivertype.JobRow{Attempt: maxAttempts, MaxAttempts: maxAttempts}, Args: generateArgs{JobID: id, Video: video}}
+	}
+	t.Run("a video that could not be kept", func(t *testing.T) {
+		f := newFake()
+		f.submit = func(context.Context, Job) (Submission, error) { return Submission{ProviderJobID: "gen-1"}, nil }
+		f.poll = func(context.Context, Job) (Outcome, error) {
+			cost := 0.18
+			return Outcome{Results: []Result{{ContentType: "video/mp4", Data: []byte("mp4")}}, CostUSD: &cost}, nil
+		}
+		f.onKeep = func(context.Context, Job) error { return errors.New("the bucket did not answer") }
+		q, _ := testQueue(t, f)
+		w := &generateWorker{q: q}
+		id := enqueue(t, q, job(alice, videoOffer))
+		if err := q.work(ctx, id); !isSnooze(err) {
+			t.Fatalf("the submit: %v", err)
+		}
+		// An attempt before the last leaves the job for River to try again.
+		if err := q.work(ctx, id); err == nil || get(t, q, id).Status != Running {
+			t.Fatalf("an attempt that could not keep the video: %v, %s", err, get(t, q, id).Status)
+		}
+		var cancel *rivertype.JobCancelError
+		if err := w.Work(ctx, last(id, true)); !errors.As(err, &cancel) {
+			t.Fatalf("the last attempt: %v", err)
+		}
+		if j := get(t, q, id); j.Status != Failed || j.ErrorClass != Storage || j.ActualUSD == nil || *j.ActualUSD != 0.18 {
+			t.Fatalf("%s %s, cost %v; want failed storage with the cost", j.Status, j.ErrorClass, j.ActualUSD)
+		}
+	})
+	// Any other error of framy's own, as the database not answering.
+	for _, c := range []struct {
+		name  string
+		sent  bool
+		class Class
+	}{
+		{"a paid request out", true, Interrupted},
+		{"nothing sent", false, Internal},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			q, pool := testQueue(t, newFake())
+			id := enqueue(t, q, job(alice, imageOffer))
+			if _, err := pool.Exec(ctx, `UPDATE framy.job SET status='running', started_at=now(), submitted_at=CASE WHEN $2 THEN now() END WHERE id=$1`, id, c.sent); err != nil {
+				t.Fatal(err)
+			}
+			if e := q.givenUp(ctx, id, errors.New("the database did not answer")); e.status != Failed || e.class != c.class {
+				t.Fatalf("%s %s, want failed %s", e.status, e.class, c.class)
+			}
+		})
+	}
 }

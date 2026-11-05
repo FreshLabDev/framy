@@ -233,6 +233,8 @@ type row struct {
 	actual   *float64
 	// own marks a run on the person's own key.
 	own bool
+	// sent marks a run whose paid request went out (submitted_at).
+	sent bool
 }
 
 func ptr(f float64) *float64 { return &f }
@@ -266,11 +268,11 @@ func (h *harness) insert(r row) (id int64, queuedAt time.Time) {
 	}
 	err := h.pool.QueryRow(context.Background(), `
 		INSERT INTO framy.job (user_id, surface, offer_id, model_id, provider, kind, free, status, queued_at, finished_at,
-		                       estimate_usd, actual_usd, error_class)
-		VALUES ($1, $2, $3, $4, 'openrouter', $5, $6, $7, $8, $9, $10, $11, NULLIF($12, ''))
+		                       estimate_usd, actual_usd, error_class, submitted_at)
+		VALUES ($1, $2, $3, $4, 'openrouter', $5, $6, $7, $8, $9, $10, $11, NULLIF($12, ''), CASE WHEN $13 THEN $8::timestamptz END)
 		RETURNING id`,
 		r.user, r.surface, r.plan.Offer, r.plan.Model, r.plan.Kind, !r.own, r.status, queued, finished,
-		r.estimate, r.actual, r.class).Scan(&id)
+		r.estimate, r.actual, r.class, r.sent).Scan(&id)
 	if err != nil {
 		h.t.Fatalf("insert %+v: %v", r, err)
 	}

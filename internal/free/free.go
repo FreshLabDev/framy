@@ -23,8 +23,9 @@
 //     job while it is queued or running, the actual cost once it ended, and
 //     the estimate for a run that ended without a cost on the books but may
 //     have been paid (done with no reported cost, expired, or failed as a
-//     timeout, an interruption or an unreadable answer). A run that failed
-//     before anything went out costs nothing. The day is the UTC day of the
+//     timeout, an interruption, an unreadable answer or results that could
+//     not be kept after the request went out). A run that failed before
+//     anything went out costs nothing. The day is the UTC day of the
 //     moment the run was queued.
 package free
 
@@ -225,7 +226,8 @@ func (a *Allowance) taken(ctx context.Context, c conn, userID int64, kind catalo
 const cost = `CASE
 	WHEN status IN ('queued', 'running') THEN COALESCE(estimate_usd, 0)
 	WHEN actual_usd IS NOT NULL THEN actual_usd
-	WHEN status IN ('done', 'expired') OR error_class IN ('timeout', 'interrupted', 'provider') THEN COALESCE(estimate_usd, 0)
+	WHEN status IN ('done', 'expired') OR error_class IN ('timeout', 'interrupted', 'provider')
+	     OR (error_class = 'storage' AND submitted_at IS NOT NULL) THEN COALESCE(estimate_usd, 0)
 	ELSE 0
 END`
 
