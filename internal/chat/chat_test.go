@@ -129,6 +129,29 @@ func TestAnAlbumIsTakenWholeWhenFramyIsAnAdmin(t *testing.T) {
 	}
 }
 
+// An album of pictures sent as files, uncompressed, is taken whole as well:
+// the cache notes each as a photo.
+func TestAnAlbumOfFilesIsTakenWhole(t *testing.T) {
+	h := newHarness(t)
+	var items []db.AlbumItem
+	for i := range 4 {
+		items = append(items, db.AlbumItem{MessageID: int64(20 + i), Kind: db.AlbumPhoto, FileID: "file-" + string(rune('a'+i))})
+	}
+	h.flow.SetAlbums(fakeAlbums{items: items, admin: true})
+	m := command("/img one style")
+	m.ReplyToMessage = &tg.Message{MessageID: 20, Chat: group, MediaGroupID: "g1",
+		Document: &tg.Document{FileID: "file-a", MimeType: "image/png", FileSize: 9 << 20}}
+	if err := h.command(m, CommandImage, "one style"); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(h.store.jobs[1].n.Inputs); n != 4 {
+		t.Fatalf("%d inputs", n)
+	}
+	if run, _ := h.store.ChatRun(context.Background(), 1); run.Note != "" || run.Taken != 4 {
+		t.Fatalf("run = %+v", run)
+	}
+}
+
 func TestWithoutAdminRightsThePreviewSaysWhatItSaw(t *testing.T) {
 	h := newHarness(t)
 	h.flow.SetAlbums(fakeAlbums{items: []db.AlbumItem{{MessageID: 9, Kind: db.AlbumPhoto, FileID: "big"}}})

@@ -592,7 +592,7 @@ Later: "Pick in framy", and Model and Settings for the video editors.
 Telegram sends each photo of an album as its own message with a shared `media_group_id`, and `reply_to_message` holds only the photo that was answered. There is no method to fetch a message by id, and a bot in privacy mode does not see the other photos at all.
 
 1. **framy as a group admin with no rights.** An admin bot receives every message. framy caches album items in `album_item` for 48 hours, counted from the first time it saw the item, and production deletes the older ones of both bots every hour:
-   - `chat_id`, `media_group_id`, `message_id`, `file_id`, `file_unique_id`, size, author and date, and the kind: `photo` (the largest size; a live photo is its still frame), `video`, or `document` when its MIME type is an image or a video;
+   - `chat_id`, `media_group_id`, `message_id`, `file_id`, `file_unique_id`, size, author and date, and the kind: `photo` (the largest size; a live photo is its still frame, and an image sent as a file is a photo too, since people send files so as not to lose quality), `video`, or `document` for a video sent as a file;
    - never the text or the caption, and nothing from a DM that looks like a key;
    - every message of an album is noted, a command or not, in a group, a supergroup or a DM. An edited message is noted again, since an edit can swap the file, and a replayed update changes nothing.
 

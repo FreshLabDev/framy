@@ -83,13 +83,13 @@ func TestAlbumItemIsPickedFromTheMessage(t *testing.T) {
 			},
 			&db.AlbumItem{Kind: db.AlbumVideo, FileID: "vid", FileUniqueID: "u-vid", Width: 1920, Height: 1080, FileSize: 2_000_000},
 		},
-		"an image document": {
+		"an image sent as a file, which /img takes as a photo": {
 			func() *tg.Message {
 				m := inAlbum(groupChat, 11, "g")
-				m.Document = &tg.Document{FileID: "doc", FileUniqueID: "u-doc", MimeType: "image/png", FileSize: 800_000}
+				m.Document = &tg.Document{FileID: "doc", FileUniqueID: "u-doc", MimeType: "Image/PNG", FileSize: 800_000}
 				return m
 			},
-			&db.AlbumItem{Kind: db.AlbumDocument, FileID: "doc", FileUniqueID: "u-doc", FileSize: 800_000},
+			&db.AlbumItem{Kind: db.AlbumPhoto, FileID: "doc", FileUniqueID: "u-doc", FileSize: 800_000},
 		},
 		"a video document, whatever the case of its type": {
 			func() *tg.Message {

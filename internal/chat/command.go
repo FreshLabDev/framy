@@ -619,7 +619,8 @@ func (f *Flow) album(ctx context.Context, chatID int64, group string, one []phot
 	}
 	var photos []photo
 	for _, it := range items {
-		// A video or a file in the album is not a photo to edit.
+		// A video in the album is not a photo to edit; a picture sent as a
+		// file is one (db.AlbumPhoto).
 		if it.Kind == db.AlbumPhoto {
 			photos = append(photos, photo{fileID: it.FileID, size: it.FileSize, w: it.Width, h: it.Height})
 		}
