@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/db"
@@ -224,11 +225,68 @@ func TestDeletingTheAccount(t *testing.T) {
 	if status != http.StatusNoContent {
 		t.Fatalf("%d", status)
 	}
-	if len(r.files.all) != 1 || len(r.data.forgot) != 1 || len(r.store.cleared) != 1 || len(r.revoked) != 1 || r.revoked[0] != alice {
+	if len(r.files.all) == 0 || len(r.data.forgot) != 1 || len(r.store.cleared) != 1 || len(r.revoked) != 1 || r.revoked[0] != alice {
 		t.Fatalf("files %v, forgot %v, language %v, revoked %v", r.files.all, r.data.forgot, r.store.cleared, r.revoked)
 	}
 	if got := idsOf(t, jsonOf(t, r.do(bob, http.MethodGet, "/api/jobs", nil))); len(got) != 1 {
 		t.Errorf("bob's history %v", got)
+	}
+}
+
+// A run pressed in the bot while the account is being deleted, after its
+// files went and before its rows did, keeps its results then; Forget clears
+// its job, and the results go with the rest. A run of a person who came back
+// after the deletion keeps its own.
+func TestFilesARunKeptDuringTheDeletionGoToo(t *testing.T) {
+	r := newRig(t)
+	r.files.keep(alice)
+	r.files.keep(bob)
+	r.data.beforeForget = func() {
+		time.Sleep(2 * time.Millisecond)
+		r.files.keep(alice)
+	}
+	if status, m := r.send(alice, http.MethodDelete, "/api/me", `{"confirm":true}`); status != http.StatusNoContent {
+		t.Fatalf("%d %v", status, m)
+	}
+	if n := r.files.left(alice); n != 0 {
+		t.Errorf("%d of alice's files left", n)
+	}
+	if n := r.files.left(bob); n != 1 {
+		t.Errorf("%d of bob's files left, want 1", n)
+	}
+	time.Sleep(2 * time.Millisecond)
+	r.files.keep(alice)
+	if n := r.files.left(alice); n != 1 {
+		t.Errorf("a run after the deletion: %d files", n)
+	}
+}
+
+// When the storage fails after the rows went, the sessions stay: the
+// person is told to try again, and the second try takes the rest.
+func TestADeletionWhoseLastFilesWouldNotGoCanBeTriedAgain(t *testing.T) {
+	r := newRig(t)
+	r.data.beforeForget = func() {
+		time.Sleep(2 * time.Millisecond)
+		r.files.keep(alice)
+		r.files.mu.Lock()
+		r.files.err = errors.New("r2 is down")
+		r.files.mu.Unlock()
+	}
+	status, m := r.send(alice, http.MethodDelete, "/api/me", `{"confirm":true}`)
+	if status != http.StatusServiceUnavailable || m["error"] != "storage_unavailable" {
+		t.Fatalf("%d %v", status, m)
+	}
+	if len(r.revoked) != 0 {
+		t.Fatalf("revoked %v: a second try has to be possible", r.revoked)
+	}
+	r.files.mu.Lock()
+	r.files.err = nil
+	r.files.mu.Unlock()
+	if status, m := r.send(alice, http.MethodDelete, "/api/me", `{"confirm":true}`); status != http.StatusNoContent {
+		t.Fatalf("again: %d %v", status, m)
+	}
+	if n := r.files.left(alice); n != 0 || len(r.revoked) != 1 {
+		t.Errorf("%d files left, revoked %v", n, r.revoked)
 	}
 }
 

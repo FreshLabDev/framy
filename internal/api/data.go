@@ -151,8 +151,9 @@ type data interface {
 	Remove(ctx context.Context, userID, id int64) error
 	// Active reports whether the person has a job queued or running.
 	Active(ctx context.Context, userID int64) (bool, error)
-	// Forget removes what framy keeps of the person, once their files are
-	// gone: ErrActive while a job is queued or running.
+	// Forget removes what framy keeps of the person but their files, which
+	// the deletion takes before and after it: ErrActive while a job is
+	// queued or running.
 	Forget(ctx context.Context, userID int64) error
 }
 
@@ -466,9 +467,9 @@ func (d pgData) Active(ctx context.Context, userID int64) (bool, error) {
 // every job that ended is cleared as Remove clears one, the ids of the DM
 // messages framy sent the site's results in are dropped, and the keys, the
 // pending connections to OpenRouter, the profile (currency, name and photo)
-// and the photos of albums framy saw the person send in a chat are deleted. The jobs are
-// cleared first: their rows are what a result being sent to the DM holds
-// (db.SentSiteResult), so its chat run is either written before and
+// and the photos of albums framy saw the person send in a chat are deleted.
+// The jobs are cleared first: their rows are what a result being sent to the
+// DM holds (db.SentSiteResult), so its chat run is either written before and
 // deleted here, or not written at all. The sessions go through
 // Config.Revoke, which also drops what internal/auth remembers of them.
 // The person stays in core: that row is the family's, not framy's.

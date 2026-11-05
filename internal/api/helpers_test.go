@@ -60,6 +60,9 @@ type fakeData struct {
 	// afterRead runs once, right after a read has taken its answer and
 	// before the reader has it: a change landing in that gap.
 	afterRead func()
+	// beforeForget runs once as Forget starts: what lands while the
+	// account's files are being deleted.
+	beforeForget func()
 }
 
 func newFakeData() *fakeData {
@@ -205,6 +208,13 @@ func (d *fakeData) Active(_ context.Context, userID int64) (bool, error) {
 }
 
 func (d *fakeData) Forget(ctx context.Context, userID int64) error {
+	d.mu.Lock()
+	hook := d.beforeForget
+	d.beforeForget = nil
+	d.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
 	if active, _ := d.Active(ctx, userID); active {
 		return ErrActive
 	}
@@ -599,6 +609,26 @@ type fakeFiles struct {
 	all     []int64
 	usage   storage.Usage
 	allLeft int
+	// kept is when each of a person's files was kept, by user; DeleteAll
+	// takes those kept by its before.
+	kept map[int64][]time.Time
+}
+
+// keep gives user a file kept now.
+func (f *fakeFiles) keep(user int64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.kept == nil {
+		f.kept = map[int64][]time.Time{}
+	}
+	f.kept[user] = append(f.kept[user], time.Now())
+}
+
+// left is how many files user still has.
+func (f *fakeFiles) left(user int64) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.kept[user])
 }
 
 func (f *fakeFiles) DeleteJobFiles(_ context.Context, _, jobID int64) (int, error) {
@@ -608,11 +638,24 @@ func (f *fakeFiles) DeleteJobFiles(_ context.Context, _, jobID int64) (int, erro
 	return 1, f.err
 }
 
-func (f *fakeFiles) DeleteAll(_ context.Context, userID int64, _ time.Time) (int, error) {
+func (f *fakeFiles) DeleteAll(_ context.Context, userID int64, before time.Time) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.all = append(f.all, userID)
-	return 3, f.err
+	if f.err != nil {
+		return 0, f.err
+	}
+	var later []time.Time
+	for _, at := range f.kept[userID] {
+		if at.After(before) {
+			later = append(later, at)
+		}
+	}
+	n := len(f.kept[userID]) - len(later)
+	if f.kept != nil {
+		f.kept[userID] = later
+	}
+	return n, nil
 }
 
 func (f *fakeFiles) Usage(context.Context, int64) (storage.Usage, error) {

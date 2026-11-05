@@ -288,14 +288,10 @@ func (a *API) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	// A client that leaves does not stop the deletion half way.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), accountDeadline)
 	defer cancel()
-	started := a.now()
-	if a.cfg.Files != nil {
-		n, err := a.cfg.Files.DeleteAll(ctx, user, started)
-		if err != nil {
-			a.log.Error("delete the files of an account", "deleted", n, "error", err)
-			newError(http.StatusServiceUnavailable, codeStorageDown, "not every file could be deleted just now; try again to delete the rest").write(w)
-			return
-		}
+	// The files go first, so a storage that fails leaves the account whole
+	// for a second try.
+	if !a.deleteFiles(ctx, w, user, a.now()) {
+		return
 	}
 	switch err := a.data.Forget(ctx, user); {
 	case errors.Is(err, ErrActive):
@@ -303,6 +299,15 @@ func (a *API) deleteAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	case err != nil:
 		a.internal(w, r, err)
+		return
+	}
+	// A run pressed in the bot or another tab after the check above and
+	// ended before Forget kept its results after the first pass, and Forget
+	// has just cleared its job: they go now. Forget held the lock a job
+	// takes to be made and found nothing queued or running, so whatever is
+	// kept from here on is a new run of a person who came back, and stays.
+	// A failure here leaves the sessions, and a second try carries on.
+	if !a.deleteFiles(ctx, w, user, a.now()) {
 		return
 	}
 	if err := a.cfg.Store.ClearUserLang(ctx, user); err != nil {
@@ -314,4 +319,19 @@ func (a *API) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	a.log.Info("account deleted")
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// deleteFiles deletes the person's files kept by before and answers 503
+// when the storage would not let every one go.
+func (a *API) deleteFiles(ctx context.Context, w http.ResponseWriter, user int64, before time.Time) bool {
+	if a.cfg.Files == nil {
+		return true
+	}
+	n, err := a.cfg.Files.DeleteAll(ctx, user, before)
+	if err != nil {
+		a.log.Error("delete the files of an account", "deleted", n, "error", err)
+		newError(http.StatusServiceUnavailable, codeStorageDown, "not every file could be deleted just now; try again to delete the rest").write(w)
+		return false
+	}
+	return true
 }

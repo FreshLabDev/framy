@@ -855,10 +855,11 @@ const deleteWorkers = 8
 
 // DeleteAll removes every file of the person's kept before before, uploads
 // and results, the object first and then its row, and returns how many went.
-// A file kept later, by a run that started while the account was being
-// deleted, is left. It stops at the first object that would not go; what
-// went stays gone, so a second call carries on. The clips the person put
-// into incoming/ and framy never took go too.
+// A file kept later is left: the account's deletion calls it once before
+// its rows go and once after, and what is kept after that belongs to a run
+// of a person who came back. It stops at the first object that would not
+// go; what went stays gone, so a second call carries on. The clips the
+// person put into incoming/ and framy never took go too.
 func (s *Store) DeleteAll(ctx context.Context, userID int64, before time.Time) (int, error) {
 	s.dropIncomingOf(ctx, userID)
 	n := 0
