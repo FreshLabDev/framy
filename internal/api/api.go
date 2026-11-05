@@ -215,6 +215,10 @@ type Config struct {
 	// session ended in another process is not believed here from memory.
 	// Nil leaves the sessions to their cache's TTL.
 	SessionsEnded func()
+	// Renew keeps the site session of a request going: internal/auth's
+	// Renew, which may set the cookie again. GET /api/me calls it, since
+	// the site loads the person at every visit. Nil renews nothing.
+	Renew func(http.ResponseWriter, *http.Request)
 	// Notify tells the operator chat, once a day, that something everyone
 	// shares was full (busy.go). Nil only logs it.
 	Notify func(ctx context.Context, text string) error

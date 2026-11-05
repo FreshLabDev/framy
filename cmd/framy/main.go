@@ -317,6 +317,7 @@ func run(log *slog.Logger) error {
 			return err
 		},
 		SessionsEnded: signIn.ForgetAll,
+		Renew:         signIn.Renew,
 		Notify:        operator,
 	})
 	if err != nil {

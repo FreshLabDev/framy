@@ -47,6 +47,7 @@ type memSessions struct {
 	mu      sync.Mutex
 	rows    map[[32]byte]Session
 	lookups int
+	extends int
 	err     error
 	// inLookup, when set, is called after a lookup read its row and before it
 	// answers.
@@ -81,6 +82,22 @@ func (m *memSessions) Lookup(_ context.Context, hash [32]byte, kind Kind, now ti
 		return Session{}, false, nil
 	}
 	return s, true, nil
+}
+
+func (m *memSessions) Extend(_ context.Context, hash [32]byte, expires, now time.Time) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.err != nil {
+		return false, m.err
+	}
+	m.extends++
+	s, ok := m.rows[hash]
+	if !ok || s.Kind != KindSite || !s.Expires.After(now) {
+		return false, nil
+	}
+	s.Expires = expires
+	m.rows[hash] = s
+	return true, nil
 }
 
 func (m *memSessions) Delete(_ context.Context, hash [32]byte) error {
@@ -247,12 +264,14 @@ func newHarness(t *testing.T, opts ...func(*harnessOpts)) *harness {
 		t.Fatal(err)
 	}
 	a.Mount(srv)
-	// What other code does with the contract.
+	// What other code does with the contract. The API's /api/me renews the
+	// session as this one does.
 	srv.Handle("GET /api/me", a.Require(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id, ok := a.Person(r)
 		if !ok {
 			t.Error("Person said nobody inside Require")
 		}
+		a.Renew(w, r)
 		writeJSON(w, http.StatusOK, map[string]int64{"id": id})
 	})))
 	srv.Handle("GET /api/open", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -7,8 +7,9 @@
 //     at oauth.telegram.org: GET /auth/login sends the browser there, GET
 //     /auth/callback checks what comes back and starts a session. The session
 //     is a random value in a `__Host-framy_session` cookie; the database holds
-//     only its SHA-256. Telegram issues no refresh token, so a session lasts
-//     SessionLife and then the person signs in again.
+//     only its SHA-256. Telegram issues no refresh token, so framy keeps the
+//     session going itself: it lasts SessionLife from the last time the site
+//     loaded the person (Renew), and then the person signs in again.
 //   - The Mini App posts its initData to POST /auth/miniapp, which checks the
 //     HMAC and answers a bearer token that lasts MiniAppTokenLife. Cookies in
 //     the Telegram Web iframe are unreliable, so the Mini App carries
@@ -54,10 +55,15 @@ const (
 	// makes a browser refuse it unless it is Secure, has Path=/ and no Domain,
 	// so no other host of the domain can set one for the site.
 	SessionCookie = "__Host-framy_session"
-	// SessionLife is how long a site session lasts, counted from sign-in. It
-	// is fixed, not extended by use: the cookie's Max-Age is set once, and
-	// Telegram would make the person sign in again with one tap.
+	// SessionLife is how long a site session lasts after it was last used:
+	// Renew moves its end, in the database and in the cookie's Max-Age, when
+	// the site loads the person. Someone who comes back within a month is
+	// never signed out in the middle of their work; a session nobody uses
+	// ends.
 	SessionLife = 30 * 24 * time.Hour
+	// renewEvery is how stale a session's end may get before Renew moves it:
+	// at most one write per session a day, however often the site loads.
+	renewEvery = 24 * time.Hour
 	// MiniAppTokenLife is how long a Mini App's bearer token lasts. It matches
 	// MaxInitDataAge: the same initData cannot be exchanged again after an
 	// hour, so a Mini App left open longer has to be opened again.
@@ -147,9 +153,11 @@ type Auth struct {
 }
 
 type cached struct {
-	user  int64
-	kind  Kind
-	until time.Time
+	user int64
+	kind Kind
+	// until is when the entry stops being believed; expires is when the
+	// session itself ends.
+	until, expires time.Time
 }
 
 // New checks the settings and builds the Auth. It makes no network call:
@@ -337,12 +345,18 @@ func bearer(r *http.Request) (token string, present bool) {
 }
 
 func (a *Auth) lookup(ctx context.Context, kind Kind, hash [32]byte) (int64, bool, error) {
+	e, ok, err := a.find(ctx, kind, hash)
+	return e.user, ok, err
+}
+
+// find is lookup with the session's end.
+func (a *Auth) find(ctx context.Context, kind Kind, hash [32]byte) (cached, bool, error) {
 	now := a.now()
 	a.cacheMu.Lock()
 	if e, ok := a.cache[hash]; ok {
 		if e.kind == kind && now.Before(e.until) {
 			a.cacheMu.Unlock()
-			return e.user, true, nil
+			return e, true, nil
 		}
 		delete(a.cache, hash)
 	}
@@ -351,17 +365,73 @@ func (a *Auth) lookup(ctx context.Context, kind Kind, hash [32]byte) (int64, boo
 
 	s, found, err := a.sessions.Lookup(ctx, hash, kind, now)
 	if err != nil || !found {
-		return 0, false, err
+		return cached{}, false, err
 	}
+	e := cached{user: s.UserID, kind: kind, until: minTime(s.Expires, now.Add(cacheTTL)), expires: s.Expires}
 	a.cacheMu.Lock()
 	if a.gen == gen {
 		if len(a.cache) >= maxCached {
 			clear(a.cache)
 		}
-		a.cache[hash] = cached{user: s.UserID, kind: kind, until: minTime(s.Expires, now.Add(cacheTTL))}
+		a.cache[hash] = e
 	}
 	a.cacheMu.Unlock()
-	return s.UserID, true, nil
+	return e, true, nil
+}
+
+// Renew keeps the site session of the request going while it is used. The
+// site calls it when it loads the person (GET /api/me), at every visit and
+// on coming back to the tab: a session renewed more than renewEvery ago
+// lasts SessionLife from now, in the database and in the cookie, whose
+// Max-Age is set again. A bearer token is not renewed; the Mini App's ends
+// with the initData it came from. A failure is only logged: the session
+// still lasts until its old end.
+//
+// A renewal also tells core the person was here, as a sign-in does: with
+// the session kept going, the site may see no sign-in for months, and the
+// family's presence would stop at the last one. Only the id goes, so the
+// names and the language core holds stay as they are.
+func (a *Auth) Renew(w http.ResponseWriter, r *http.Request) {
+	if _, present := bearer(r); present {
+		return
+	}
+	c, err := r.Cookie(SessionCookie)
+	if err != nil {
+		return
+	}
+	hash, ok := hashToken(c.Value)
+	if !ok {
+		return
+	}
+	e, ok, err := a.find(r.Context(), KindSite, hash)
+	if err != nil || !ok {
+		return
+	}
+	now := a.now()
+	if e.expires.Sub(now) > SessionLife-renewEvery {
+		return
+	}
+	expires := now.Add(SessionLife)
+	found, err := a.sessions.Extend(r.Context(), hash, expires, now)
+	if err != nil {
+		a.log.Warn("renew a session", "error", err)
+		return
+	}
+	if !found {
+		// Ended meanwhile: logged out in another tab, or everywhere.
+		a.forget(hash)
+		return
+	}
+	a.cacheMu.Lock()
+	if e, ok := a.cache[hash]; ok {
+		e.expires = expires
+		a.cache[hash] = e
+	}
+	a.cacheMu.Unlock()
+	a.setSessionCookie(w, c.Value, expires)
+	if err := a.people.Touch(r.Context(), tg.User{ID: e.user}, nil); err != nil {
+		a.log.Warn("record the person in core at a renewal", "error", err)
+	}
 }
 
 // ForgetAll drops every session this process remembers, so each is looked

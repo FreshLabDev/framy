@@ -112,6 +112,32 @@ func TestPGSessions(t *testing.T) {
 		t.Error("a session for a person core has not seen was stored")
 	}
 
+	// Extend moves the end of a live site session, and of nothing else.
+	later := now.Add(SessionLife)
+	if ok, err := sessions.Extend(ctx, live.Hash, later, now); err != nil || !ok {
+		t.Fatalf("Extend = %v, %v", ok, err)
+	}
+	if got, ok, _ := sessions.Lookup(ctx, live.Hash, KindSite, now); !ok || !got.Expires.Equal(later) {
+		t.Errorf("after Extend: %+v, %v", got, ok)
+	}
+	token := mk("token", pgAnn, KindMiniApp, now.Add(time.Hour))
+	ended := mk("ended", pgAnn, KindSite, now.Add(-time.Minute))
+	for _, s := range []Session{token, ended} {
+		if err := sessions.Create(ctx, s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, hash := range map[string][32]byte{"a Mini App token": token.Hash, "an ended session": ended.Hash, "no session": sha256.Sum256([]byte("nobody"))} {
+		if ok, err := sessions.Extend(ctx, hash, later, now); err != nil || ok {
+			t.Errorf("Extend of %s = %v, %v", name, ok, err)
+		}
+	}
+	for _, s := range []Session{token, ended} {
+		if err := sessions.Delete(ctx, s.Hash); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	// Delete, DeleteUser, DeleteExpired.
 	if err := sessions.Delete(ctx, live.Hash); err != nil {
 		t.Fatal(err)

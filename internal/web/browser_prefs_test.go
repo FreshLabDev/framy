@@ -46,6 +46,8 @@ type fakePrefs struct {
 	// outAllDown times; after one that went, nobody is signed in.
 	outAll, outAllDown int
 	allOut             bool
+	// photo is the person's photo_url, none when empty.
+	photo string
 }
 
 func (f *fakePrefs) me() map[string]any {
@@ -62,7 +64,8 @@ func (f *fakePrefs) me() map[string]any {
 			"images": map[string]any{"used": 5, "limit": 5, "left": 0, "window_seconds": 86400, "frees_at": time.Now().Add(3 * time.Hour).UTC()},
 			"videos": map[string]any{"used": 0, "limit": 1, "left": 1, "window_seconds": 604800},
 		},
-		"storage": map[string]any{"files": 12, "bytes": 31457280},
+		"storage":   map[string]any{"files": 12, "bytes": 31457280},
+		"photo_url": f.photo,
 	}
 }
 
@@ -492,6 +495,22 @@ func TestBrowserPrefs(t *testing.T) {
 		}
 	})
 	noErrors(t, ctx)
+}
+
+// The photo of the last sign-in that no longer loads, its link outlived by
+// a session kept going for months, gives way to the initial of the name.
+func TestBrowserAPhotoThatDoesNotLoadIsTheInitial(t *testing.T) {
+	f := &fakePrefs{}
+	ts := fakeSite(t, f.mount)
+	f.photo = ts.URL + "/no-such-photo.jpg"
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := prefs(t, ctx, `
+	await until(() => document.querySelector("#meBtn span.av"));
+	const av = document.querySelector("#meBtn .av");
+	return { tag: av.tagName, text: av.textContent };`)
+	if s["tag"] != "SPAN" || s["text"] != "A" {
+		t.Errorf("the avatar: %v", s)
+	}
 }
 
 // Back from a sign-in that could not start (Telegram out of reach, or too

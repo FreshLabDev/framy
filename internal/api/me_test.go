@@ -76,6 +76,32 @@ func TestMeWithoutACard(t *testing.T) {
 	}
 }
 
+// The site loads the person at every visit and on coming back to the tab,
+// which is when the session is kept going: /api/me renews it, and only for
+// someone signed in.
+func TestMeRenewsTheSession(t *testing.T) {
+	var renewed []int64
+	r := newRig(t, func(o *rigOptions) {
+		o.cfg = func(c *Config) {
+			c.Renew = func(w http.ResponseWriter, req *http.Request) {
+				id, _, _ := c.Person(req)
+				renewed = append(renewed, id)
+				http.SetCookie(w, &http.Cookie{Name: "renewed", Value: "yes"})
+			}
+		}
+	})
+	resp := r.do(alice, "GET", "/api/me", nil)
+	if resp.StatusCode != http.StatusOK || len(resp.Cookies()) != 1 || resp.Cookies()[0].Name != "renewed" {
+		t.Fatalf("%d, cookies %v", resp.StatusCode, resp.Header.Values("Set-Cookie"))
+	}
+	if resp := r.do(0, "GET", "/api/me", nil); resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("nobody: %d", resp.StatusCode)
+	}
+	if len(renewed) != 1 || renewed[0] != alice {
+		t.Errorf("renewed for %v", renewed)
+	}
+}
+
 func TestMeNeedsASignIn(t *testing.T) {
 	r := newRig(t)
 	resp := r.do(0, "GET", "/api/me", nil)

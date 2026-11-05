@@ -31,7 +31,10 @@ function fatal() {
 function account() {
   const me = S.me;
   if (me) {
-    const av = me.photo_url ? h("img", { class: "av", src: me.photo_url, alt: "", referrerpolicy: "no-referrer" }) : h("span", { class: "av" }, (me.name || "?").slice(0, 1).toUpperCase());
+    const letter = () => h("span", { class: "av" }, (me.name || "?").slice(0, 1).toUpperCase());
+    // The photo is the link of the last sign-in, which a session kept going for months may outlive
+    // (a changed username): the initial takes its place.
+    const av = me.photo_url ? h("img", { class: "av", src: me.photo_url, alt: "", referrerpolicy: "no-referrer", onerror: (e) => e.currentTarget.replaceWith(letter()) }) : letter();
     return h("button", { type: "button", class: "me", id: "meBtn", onclick: () => openPrefs(), "aria-label": t("prefs.title"), "aria-haspopup": "dialog" }, av, h("span", { class: "t" }, t("prefs.title")));
   }
   return S.mini ? null : h("button", { type: "button", class: "signin", onclick: signIn }, ic("send"), h("span", {}, t("auth.signin")));

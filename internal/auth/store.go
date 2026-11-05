@@ -40,6 +40,10 @@ type Sessions interface {
 	// Lookup finds the live session with this hash and kind: one that has not
 	// expired at now. Not finding one is (zero, false, nil).
 	Lookup(ctx context.Context, hash [32]byte, kind Kind, now time.Time) (Session, bool, error)
+	// Extend moves the end of the live site session with this hash to
+	// expires, and reports whether there was one: a session that ended at
+	// now or was deleted stays ended.
+	Extend(ctx context.Context, hash [32]byte, expires, now time.Time) (bool, error)
 	// Delete ends one session. Ending one that is gone is not an error.
 	Delete(ctx context.Context, hash [32]byte) error
 	// DeleteUser ends every session of a person and says how many there were.
@@ -97,6 +101,15 @@ func (p *PGSessions) Lookup(ctx context.Context, hash [32]byte, kind Kind, now t
 		return Session{}, false, err
 	}
 	return s, true, nil
+}
+
+// Extend implements Sessions: a site session of this stack that has not
+// expired lasts until expires.
+func (p *PGSessions) Extend(ctx context.Context, hash [32]byte, expires, now time.Time) (bool, error) {
+	tag, err := p.pool.Exec(ctx,
+		`UPDATE session SET expires_at = $2 WHERE token_hash = $1 AND kind = 'site' AND expires_at > $3 AND stack = $4`,
+		hash[:], expires, now, p.stack)
+	return tag.RowsAffected() == 1, err
 }
 
 // Delete implements Sessions, and tells every process of framy

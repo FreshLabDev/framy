@@ -3,6 +3,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -10,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -258,6 +260,8 @@ func TestOnlyTheHashOfASessionIsStored(t *testing.T) {
 	}
 }
 
+// A session the site never loads the person with ends SessionLife after
+// sign-in.
 func TestSessionExpires(t *testing.T) {
 	h := newHarness(t)
 	b := h.browser()
@@ -269,6 +273,112 @@ func TestSessionExpires(t *testing.T) {
 	h.clock.Advance(2 * time.Minute)
 	if _, ok := b.signedIn(); ok {
 		t.Fatal("a session older than SessionLife is accepted")
+	}
+}
+
+// A session is renewed while the site is used, so someone who comes back
+// within a month is never signed out in the middle of their work, and the
+// cookie lasts as long as the session. It is written at most once a day,
+// and one nobody uses still ends.
+func TestSessionIsRenewedWhileUsed(t *testing.T) {
+	h := newHarness(t)
+	b := h.browser()
+	b.signIn("")
+	mem := h.sessions.(*memSessions)
+	secret := b.cookies[SessionCookie]
+
+	h.clock.Advance(time.Hour)
+	if r := b.me(); r.code != http.StatusOK || r.cookie(SessionCookie) != nil {
+		t.Fatalf("an hour after sign-in: %d, cookie %v", r.code, r.header.Values("Set-Cookie"))
+	}
+	// A visit every 20 days for 100 days: the old fixed 30 days would have
+	// signed the person out at the second.
+	for i := range 5 {
+		h.clock.Advance(20 * 24 * time.Hour)
+		r := b.me()
+		if r.code != http.StatusOK {
+			t.Fatalf("visit %d: %d, signed out", i+1, r.code)
+		}
+		line := r.rawSetCookie(SessionCookie)
+		if !strings.Contains(line, SessionCookie+"="+secret+";") || !strings.Contains(line, "Max-Age=2592000") || !strings.Contains(line, "HttpOnly") {
+			t.Fatalf("visit %d set the cookie as %q", i+1, line)
+		}
+		mem.mu.Lock()
+		got := mem.rows[sha(secret)].Expires
+		mem.mu.Unlock()
+		if !got.Equal(h.clock.Now().Add(SessionLife)) {
+			t.Fatalf("visit %d: the session ends %v, want %v", i+1, got, h.clock.Now().Add(SessionLife))
+		}
+	}
+	mem.mu.Lock()
+	writes := mem.extends
+	mem.mu.Unlock()
+	if writes != 5 {
+		t.Errorf("%d renewals written for 5 visits", writes)
+	}
+	// Each renewal tells core the person was here, as the sign-in did, with
+	// the id alone: what core holds of the names and the language stays.
+	touched := h.people.(*memPeople).users()
+	if len(touched) != 6 {
+		t.Fatalf("%d touches for a sign-in and 5 renewals", len(touched))
+	}
+	if u := touched[5]; u.ID != testUserID || u.Username != "" || u.FirstName != "" || u.LastName != "" || u.LanguageCode != "" {
+		t.Errorf("a renewal touched %+v", u)
+	}
+	// Loading again the same day writes nothing more.
+	h.clock.Advance(3 * time.Hour)
+	if r := b.me(); r.code != http.StatusOK || r.cookie(SessionCookie) != nil {
+		t.Errorf("the same day: %d, cookie %v", r.code, r.header.Values("Set-Cookie"))
+	}
+	mem.mu.Lock()
+	writes = mem.extends
+	mem.mu.Unlock()
+	if writes != 5 || len(h.people.(*memPeople).users()) != 6 {
+		t.Errorf("a second load in a day wrote again: %d renewals, %d touches", writes, len(h.people.(*memPeople).users()))
+	}
+	// A Mini App token is not renewed by a site load.
+	mini := h.browser()
+	tok := h.mini(mini, signInitData(testBotToken, miniAppFields(h.clock.Now(), testUserID)), http.StatusOK)
+	h.clock.Advance(30 * time.Minute)
+	if r := mini.me(); r.code != http.StatusOK || r.cookie(SessionCookie) != nil {
+		t.Errorf("a token's /api/me: %d, cookie %v", r.code, r.header.Values("Set-Cookie"))
+	}
+	if s := mem.rows[sha(tok)]; s.Expires.After(h.clock.Now().Add(MiniAppTokenLife)) {
+		t.Errorf("the token was renewed to %v", s.Expires)
+	}
+	// Then nobody comes for a month.
+	h.clock.Advance(SessionLife)
+	if _, ok := b.signedIn(); ok {
+		t.Fatal("a session nobody used for SessionLife is accepted")
+	}
+}
+
+// A session ended in another tab is not brought back by a load that was
+// already on its way.
+func TestARenewalDoesNotRaiseAnEndedSession(t *testing.T) {
+	h := newHarness(t)
+	b := h.browser()
+	b.signIn("")
+	h.clock.Advance(2 * 24 * time.Hour)
+	if _, ok := b.signedIn(); !ok {
+		t.Fatal("not signed in")
+	}
+	// Ended in the database behind the cache's back.
+	if err := h.sessions.Delete(context.Background(), sha(b.cookies[SessionCookie])); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, testSiteURL+"/api/me", nil)
+	req.AddCookie(&http.Cookie{Name: SessionCookie, Value: b.cookies[SessionCookie]})
+	rec := httptest.NewRecorder()
+	h.auth.Renew(rec, req)
+	if len(rec.Result().Cookies()) != 0 {
+		t.Errorf("an ended session's cookie was set again: %v", rec.Header().Values("Set-Cookie"))
+	}
+	if n := h.sessions.(*memSessions).count(); n != 0 {
+		t.Errorf("%d sessions after the renewal", n)
+	}
+	if _, ok := b.signedIn(); ok {
+		t.Error("still signed in")
 	}
 }
 

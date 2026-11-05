@@ -102,6 +102,9 @@ func (a *API) me(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if a.cfg.Renew != nil {
+		a.cfg.Renew(w, r)
+	}
 	ctx := r.Context()
 	card, err := a.cfg.Store.Card(ctx, user)
 	if err != nil {
