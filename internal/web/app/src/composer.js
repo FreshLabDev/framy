@@ -8,7 +8,7 @@ import { C, PNAME, vname, famLogo, lg, provMark, freePlan, pays, offerOf, facts,
   label, show, ordered, ratioNum, ratioOfSize, sizeK, resScore, needsVideo } from "./catalog.js";
 import { S, M, images, clip, payOf, usable, keyOk, connection, freeLeft, freeLimit, freesAt, freePer, settings, route, runItem, altItem, next, sourceRatio, quoteNow,
   maxSecs, needsCut, contFits, slotOf, sources, inputsOf, placeFiles, refuses,
-  FR, MAXFR, scopeFr, newFrame, common, wanted, setModelHere, setPayHere, setWantedHere, tidy, ownBits, hasOwn, plan, paidItems, cutLimits, cutNeeded } from "./state.js";
+  FR, MAXFR, scopeFr, newFrame, common, wanted, setModelHere, setPayHere, setWantedHere, tidy, ownBits, hasOwn, plan, paidItems, cutLimits, cutNeeded, renewFiles, renewRefused } from "./state.js";
 import { priceEl, priceText, known, need, priced, onPrices, usd, needTotal, knownTotal } from "./price.js";
 import { renderStage, stageFrom, refit, runOver, ratioOf, syncStrip } from "./stage.js";
 import { openPicker } from "./picker.js";
@@ -88,7 +88,11 @@ export function wireComposer() {
     if (fs.length) { e.preventDefault(); addFiles(fs); }
   });
   // A price can make a row of tiles stack, and its marker has to follow.
-  onPrices(() => { renderBar(); for (const g of fitSegs($$("#how [data-seg]"))) placeSeg(g, false, true); });
+  onPrices(() => {
+    // A file framy no longer keeps goes up again, and the composer is priced without its id.
+    if (renewRefused()) { render(); return; }
+    renderBar(); for (const g of fitSegs($$("#how [data-seg]"))) placeSeg(g, false, true);
+  });
   // A clip turned the composer to video: the form slides over as on a switch.
   addEventListener("framy:kind", (e) => anim($("#how"), [{ opacity: 0, transform: `translateX(${e.detail === "video" ? 36 : -36}px)` }, { opacity: 1, transform: "none" }], { duration: 420, easing: EASE }));
   // On a phone the composer is a dock: the page keeps room for it under the stage.
@@ -98,6 +102,7 @@ export function wireComposer() {
 
 export function render() {
   if (!M()) return;
+  renewFiles();
   tidy();
   const m = M(), pay = payOf(m);
   // A part picked for a model that takes more than the next one does is picked again.

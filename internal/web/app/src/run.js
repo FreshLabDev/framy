@@ -4,7 +4,7 @@
 import { $ } from "./dom.js";
 import { t } from "./i18n.js";
 import { api, watchJob, isFinal, outsOf } from "./api.js";
-import { S, M, payOf, settings, fastOf, going, clip, contFits, keyOk, runItem, plan, paidItems, newFrame, next } from "./state.js";
+import { S, M, payOf, settings, fastOf, going, clip, contFits, keyOk, runItem, plan, paidItems, newFrame, next, renewFiles, holdFiles } from "./state.js";
 import { C, offerOf, PNAME, framesOf, photoLimit } from "./catalog.js";
 import { priced, knownTotal, priceText, clearPrices } from "./price.js";
 import { act, render, renderBar } from "./composer.js";
@@ -116,19 +116,14 @@ async function start(base, key = newKey()) {
   renderBar(); runChanged();
   let resend = false;
   try {
-    const inputs = await prepare(run);
-    if (run.stop.signal.aborted) throw new DOMException("stopped", "AbortError");
-    // Once the request is out it is not called back: the job may exist already.
-    run.sending = true; setStep(run, { fig: "start", text: () => t("step.starting") });
-    if (run.multi) { await sendPress(run, inputs); return; }
-    const body = { offer: run.offer, prompt: run.prompt, settings: run.settings, inputs, pay: run.pay === "free" ? "free" : "key", surface: S.mini ? "mini_app" : "site" };
-    if (run.shown != null) body.shown_usd = run.shown;
-    if (run.cont) body.continues = run.cont.job;
-    const job = await api("/api/jobs", { method: "POST", body, headers: { "Idempotency-Key": run.key } });
-    run.phase = "job"; run.job = job; run.step = null;
-    told(job);
-    follow(run);
-    if (run.pay === "free") refreshMe();
+    // framy no longer had a file the run named by id (an upload waits an
+    // hour for a job): the files go up again, and the run is sent once more.
+    try { await send(run); }
+    catch (err) {
+      if (err.code !== "unknown_input" || run.stop.signal.aborted || !renewFiles(run.files, true)) throw err;
+      run.sending = false;
+      await send(run);
+    }
   } catch (err) {
     run.step = null;
     if (err.name === "AbortError") run.phase = "cancelled";
@@ -154,6 +149,24 @@ async function start(base, key = newKey()) {
   }
 }
 
+// The files of a run go up, and the run goes to framy.
+async function send(run) {
+  const inputs = await prepare(run);
+  if (run.stop.signal.aborted) throw new DOMException("stopped", "AbortError");
+  // Once the request is out it is not called back: the job may exist already.
+  run.sending = true; setStep(run, { fig: "start", text: () => t("step.starting") });
+  if (run.multi) { await sendPress(run, inputs); return; }
+  const body = { offer: run.offer, prompt: run.prompt, settings: run.settings, inputs, pay: run.pay === "free" ? "free" : "key", surface: S.mini ? "mini_app" : "site" };
+  if (run.shown != null) body.shown_usd = run.shown;
+  if (run.cont) body.continues = run.cont.job;
+  const job = await api("/api/jobs", { method: "POST", body, headers: { "Idempotency-Key": run.key } });
+  run.phase = "job"; run.job = job; run.step = null;
+  holdFiles(run.files, inputs);
+  told(job);
+  follow(run);
+  if (run.pay === "free") refreshMe();
+}
+
 // The press goes as one request: each frame names its files when they are not
 // the first frame's, and framy says which job makes which frame. All or none.
 async function sendPress(run, ids) {
@@ -170,6 +183,7 @@ async function sendPress(run, ids) {
   if (run.shown != null) body.shown_usd = run.shown;
   const r = await api("/api/batches", { method: "POST", body, headers: { "Idempotency-Key": run.key } });
   run.phase = "job"; run.batch = r.batch; run.jobs = r.jobs || []; run.job = run.jobs[0] || null; run.step = null;
+  holdFiles(run.files, ids);
   run.jobs.forEach(told);
   followAll(run);
   if (run.frames.some((fm) => fm.pay === "free")) refreshMe();
@@ -186,12 +200,19 @@ function followAll(run) {
   stopWatch = () => stops.forEach((f) => f?.());
 }
 
-// The files of a run go up: photos to framy, a clip or a sound to the bucket and then to framy.
+// The files of a run go up: photos to framy, a clip or a sound to the bucket
+// and then to framy. One held too long goes up again (renewFiles), and a
+// clip's last frame framy no longer keeps is taken from the clip again.
 async function prepare(run) {
+  renewFiles(run.files);
   const sig = run.stop.signal, pics = run.files.filter((f) => f.kind === "image" && !f.upload);
   if (pics.length) {
     setStep(run, { fig: "up", text: () => t("step.photos", { n: pics.length }) });
-    await upload(pics, sig);
+    for (const f of pics.filter((x) => !x.file && x.frameOf?.result)) {
+      try { f.upload = (await api(`/api/files/${f.frameOf.result}/last-frame`, { method: "POST", signal: sig })).id; f.upAt = Date.now(); }
+      catch (e) { e.file = f; throw e; }
+    }
+    await upload(pics.filter((f) => f.file), sig);
   }
   const ids = [];
   for (const f of run.files) {
@@ -442,8 +463,8 @@ export async function fromLastFrame(src = S.cont) {
     S.kind = "video";
     if (id) S.model.video = id;
     S.cont = null; S.cut = null;
-    S.files = [{ id: "lf" + shot.id, kind: "image", slot: "start", server: true, name: "", upload: shot.id, w: shot.width, h: shot.height,
-      frameOf: { url: src.url, at: Math.max(0, (src.secs || 0) - 0.05) },
+    S.files = [{ id: "lf" + shot.id, kind: "image", slot: "start", server: true, name: "", upload: shot.id, upAt: Date.now(), w: shot.width, h: shot.height,
+      frameOf: { url: src.url, at: Math.max(0, (src.secs || 0) - 0.05), result: src.result },
       meta: { content_type: shot.content_type, bytes: shot.bytes, width: shot.width, height: shot.height } }];
     S.showJob = false;
     render();

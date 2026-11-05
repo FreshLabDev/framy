@@ -284,7 +284,7 @@ Nobody reports progress in percent. The wait shows elapsed time and the model's 
 - **On Generate** the files go up. The browser first scales a photo above 2048 px on the long side down to it, as the server would anyway, so a 48 MP photo does not cross the home uplink whole. Video goes by presigned PUT into `incoming/` (see Storage).
 - **The server trusts no number from the browser.** It checks the real files as it does any upload (Storage) and prices the run again. When the real price is higher than the one shown, the run does not start: the composer shows the new price and waits for another press. A lower price runs as it is.
 - A file picked from the history is already in R2 and goes by its id, with no upload. The Mini App works the same way.
-- An upload that no job took within an hour (a Generate that failed half way, a chat command that failed after keeping its photos) is deleted with its object.
+- An upload that no job took within an hour (a Generate that failed half way, a chat command that failed after keeping its photos) is deleted with its object. The site holds one by its id for 50 minutes at most: after that, or when framy answers `unknown_input` for it, a file the browser still has goes up again with the next press, a part of a clip is cut again and a clip's last frame (Continue) is taken from the clip again, and a run refused that way is sent once more. A file a job took is kept with that job, so time alone does not send it again. A person who comes back to the composer after an hour presses Create as before.
 
 ### Fitting a file to the model
 

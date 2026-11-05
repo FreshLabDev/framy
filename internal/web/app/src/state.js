@@ -358,6 +358,45 @@ export function misfit(m) {
 }
 export const famMisfit = (f) => (f.cur.every((v) => misfit(v.m)) ? misfit(f.def.m) : "");
 
+/* Uploads. framy keeps one an hour for a job to take it (storage.UploadTTL),
+   and the composer holds one by its id for at most RENEW (upAt: when the
+   oldest of the file's ids that no job took went up). Past that, or when
+   framy says it no longer has one (unknown_input), a file the browser still
+   has goes up again with the next press, a part of a clip is cut again and a
+   clip's last frame is taken from it again; the prices go meanwhile by what
+   the browser read of it. An id a job took (held) lives as long as that job,
+   so time alone does not send it again: an Again an hour later does not
+   upload the clip twice. A file of a run framy made stays with that run. */
+const RENEW = 50 * 60e3;
+// What the page can send again: a file still in the browser, or a clip's last frame.
+const renewable = (f) => !!(f.file || f.frameOf?.result);
+export function renewFiles(fs = S.files, all = false) {
+  let any = false;
+  for (const f of fs) {
+    if (!renewable(f) || (!all && !(f.upAt && Date.now() - f.upAt >= RENEW))) continue;
+    const keep = (id) => !all && !!f.held?.includes(id);
+    for (const [k, id] of Object.entries(f.cuts || {})) if (!keep(id)) { delete f.cuts[k]; any = true; }
+    if (f.upload && !keep(f.upload)) { f.upload = 0; f.token = ""; any = true; }
+    delete f.upAt;
+    if (all) delete f.held;
+  }
+  return any;
+}
+// A job took these files, ids[i] of fs[i]: framy keeps them with it.
+export function holdFiles(fs, ids) {
+  fs.forEach((f, i) => {
+    if (!ids[i] || !renewable(f)) return;
+    f.held = [...new Set([...(f.held || []), ids[i]])];
+    if ([f.upload, ...Object.values(f.cuts || {})].every((id) => !id || f.held.includes(id))) delete f.upAt;
+  });
+}
+// The prices found a file framy no longer keeps among the composer's: they go up again.
+export function renewRefused() {
+  // Only a file the site sent and can send again can be one framy swept; without one there is nothing to look for.
+  if (!M() || !S.signed || !S.files.some((f) => renewable(f) && (f.upload || Object.keys(f.cuts || {}).length))) return false;
+  return plan().some((it) => known(runItem(it.m, it.pay, it.set))?.refusal?.error === "unknown_input") && renewFiles(S.files, true);
+}
+
 /* What the one button does now: it always names the next step, for every frame of the press. */
 export function next(prompt) {
   if (!M()) return { label: t("go.create"), on: false };

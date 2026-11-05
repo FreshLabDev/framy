@@ -143,7 +143,7 @@ export async function upload(files, signal) {
     try {
       const b = await body(f);
       const r = await api("/api/uploads", { method: "POST", body: b, headers: { "Content-Type": b.type || f.file.type }, signal });
-      f.upload = r.id;
+      f.upload = r.id; f.upAt = Date.now();
     } catch (e) { e.file = f; throw e; }
   }
 }

@@ -178,6 +178,7 @@ export async function takeClip(f, cut, { signal, step, again = false }) {
   }
   if (body.upload) f.token = "";
   if (cut) f.cuts[key] = file.id; else f.upload = file.id;
+  f.upAt ||= Date.now();
   if (!f.secs && file.seconds) { f.secs = file.seconds; f.meta.seconds = file.seconds; }
   // How long the clip framy keeps came out, to tell a part a frame too long.
   if (file.seconds) (f.secsOf ||= {})[file.id] = file.seconds;

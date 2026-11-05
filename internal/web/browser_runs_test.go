@@ -890,6 +890,112 @@ func TestBrowserRunSound(t *testing.T) {
 	noErrors(t, ctx)
 }
 
+// TestBrowserUploadsGoAgain checks an upload framy no longer keeps: a file
+// it swept an hour after a refused press goes up again on its own, when the
+// prices find it gone, when the press finds it gone, and when the composer
+// held it too long; a clip's last frame is taken from the clip again. A file
+// a job took stays with the job and is not sent twice.
+func TestBrowserUploadsGoAgain(t *testing.T) {
+	runs := &fakeRuns{}
+	var mu sync.Mutex
+	next := 500
+	ts := fakeSite(t, func(srv *Server) {
+		runs.mount(srv)
+		srv.HandleFunc("POST /api/uploads", func(w http.ResponseWriter, _ *http.Request) {
+			mu.Lock()
+			id := next
+			next++
+			mu.Unlock()
+			writeTestJSON(w, http.StatusCreated, map[string]any{"id": id, "content_type": "image/png", "bytes": 100, "width": 64, "height": 36})
+		})
+	})
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	// framy's sweep, played by the page: a file it no longer has is refused
+	// by the run (unknown_input) and by its price.
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const until = async (fn, ms = 4000) => { const end = Date.now() + ms; while (Date.now() < end) { if (fn()) return true; await wait(50); } return !!fn(); };
+	const gone = new Set(), sent = [], frames = [], fetch0 = window.fetch;
+	const json = (status, b) => new Response(JSON.stringify(b), { status, headers: { "Content-Type": "application/json" } });
+	window.fetch = async (u, o) => {
+	  const s = String(u);
+	  if (/\/last-frame$/.test(s)) frames.push(s);
+	  if (s.endsWith("/api/jobs") && o?.method === "POST") {
+	    const b = JSON.parse(o.body);
+	    sent.push((b.inputs || []).join("+") || "-");
+	    if ((b.inputs || []).some((i) => gone.has(i))) return json(422, { error: "unknown_input", message: "an input is not one of your files" });
+	  }
+	  if (s.endsWith("/api/quote")) {
+	    const items = JSON.parse(o.body).items, r = await fetch0(u, o), a = await r.json();
+	    items.forEach((it, i) => { if ((it.inputs || []).some((x) => gone.has(x)) && a.items?.[i]) a.items[i].refusal = { error: "unknown_input", status: 422 }; });
+	    return json(200, a);
+	  }
+	  return fetch0(u, o);
+	};
+	const go = () => document.querySelector("#go");
+	const settled = () => until(() => !document.querySelector("#composer .q.wait") && !go().disabled);
+	const out = {};
+	await settled();
+	const cv = document.createElement("canvas"); cv.width = 64; cv.height = 36;
+	const png = await new Promise((r) => cv.toBlob(r, "image/png"));
+	const dt = new DataTransfer(); dt.items.add(new File([png], "p.png", { type: "image/png" }));
+	const inp = document.querySelector("#file"); inp.files = dt.files; inp.dispatchEvent(new Event("change", { bubbles: true }));
+	await wait(800);
+	// A refused press keeps the photo framy took: 500.
+	await press("refuse:free_limit", (s) => s.failed);
+	await settled();
+	// An hour later framy swept it, and the next price says so: the composer prices the photo as the browser read it, and Create stays.
+	gone.add(500);
+	const tried = new Set([document.querySelector("#how .ratios .rt[aria-checked=true]")?.dataset.v]);
+	[...document.querySelectorAll("#how .ratios .rt")].find((b) => !tried.has(b.dataset.v) && !b.classList.contains("more")).click();
+	await wait(1200);
+	out.priced = [go().textContent.includes("do not fit"), go().disabled];
+	await press("done", (s) => s.done);
+	// The press finds it gone (its job was deleted): the photo goes up again, and the run once more.
+	gone.add(501);
+	await settled();
+	await press("done", (s) => s.done);
+	// An hour on, the job that took 502 still holds it: it goes as it is.
+	const now0 = Date.now;
+	Date.now = () => now0() + 51 * 60e3;
+	try { await settled(); await press("done", (s) => s.done); } finally { Date.now = now0; }
+	// A new photo of a refused press, held for longer than framy keeps it: it goes up again before the press.
+	document.querySelector("#files .thumb .rm")?.click();
+	await wait(300);
+	const dt2 = new DataTransfer(); dt2.items.add(new File([png], "q.png", { type: "image/png" }));
+	inp.files = dt2.files; inp.dispatchEvent(new Event("change", { bubbles: true }));
+	await wait(800);
+	await settled();
+	out.photos = document.querySelectorAll("#files .thumb").length;
+	await press("refuse:free_limit", (s) => s.failed);
+	await settled();
+	Date.now = () => now0() + 51 * 60e3;
+	try { await press("done", (s) => s.done); } finally { Date.now = now0; }
+	out.sent = sent.join(" ");
+	// A clip's last frame, held too long, is taken from the clip again.
+	document.querySelector("#files .thumb .rm")?.click();
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(700);
+	await press("done:video", (s) => !!document.querySelector("#stage .jacts button[aria-label=Continue]"));
+	document.querySelector("#stage .jacts button[aria-label=Continue]").click();
+	await until(() => document.querySelector("#files .thumb[data-k=flf72]"));
+	const was = frames.length, n = sent.length;
+	Date.now = () => now0() + 51 * 60e3;
+	try { await press("done", () => sent.length > n); } finally { Date.now = now0; }
+	out.frame = [frames.length - was, sent[n]];
+	return out;`)
+	want := map[string]string{
+		// refused, the price found 500 gone, a new upload; 501 refused, sent again as 502; 502 held by its job;
+		// a new photo refused as 503, held too long, 504.
+		"priced": "[false false]", "sent": "500 501 501 502 502 503 504", "photos": "1", "frame": "[1 72]",
+	}
+	for k, w := range want {
+		if got := fmt.Sprint(s[k]); got != w {
+			t.Errorf("%s = %s, want %s", k, got, w)
+		}
+	}
+	noErrors(t, ctx)
+}
+
 // TestBrowserLastFrame checks Continue from a model that cannot go on from a
 // video: the clip's last frame comes to the composer marked with Continue's
 // icon and no words, and its price is asked again with that frame, never
