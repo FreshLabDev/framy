@@ -60,6 +60,8 @@ func (f *Flow) sendSite(ctx context.Context) {
 		}
 		return
 	}
+	// One person's DM that Telegram asked to wait for holds up nobody else's.
+	ctx = noWait(ctx)
 	var wg sync.WaitGroup
 	slot := make(chan struct{}, following)
 	for _, press := range pressesOf(results, len(results) == siteBatch) {
@@ -96,6 +98,10 @@ func pressesOf(results []db.SiteResult, full bool) [][]db.SiteResult {
 // sendSitePress claims the results of one press and sends them, at most
 // once: one alone as any result, several as one album.
 func (f *Flow) sendSitePress(ctx context.Context, press []db.SiteResult) {
+	if f.pace.held(press[0].UserID) {
+		// Telegram asked to wait: a round after the hold sends it.
+		return
+	}
 	var claimed []db.SiteResult
 	for _, r := range press {
 		ok, err := f.cfg.Store.ClaimSiteResult(ctx, r.JobID)
@@ -232,8 +238,7 @@ func (f *Flow) sendSiteResult(ctx context.Context, r db.SiteResult) {
 	}
 	if err != nil {
 		if ctx.Err() == nil {
-			f.log.Error("site result not sent", "job", r.JobID, "error", err)
-			f.endSite(ctx, db.DeliveryFailed, r)
+			f.notSent(ctx, err, r)
 		}
 		return
 	}
@@ -343,8 +348,7 @@ func (f *Flow) sendSiteAlbum(ctx context.Context, press []db.SiteResult) {
 	}
 	if err != nil {
 		if ctx.Err() == nil {
-			f.log.Error("site result not sent", "jobs", jobIDs(sending), "error", err)
-			f.endSite(ctx, db.DeliveryFailed, sending...)
+			f.notSent(ctx, err, sending...)
 		}
 		return
 	}
@@ -399,6 +403,19 @@ func shortPrompt(prompt string) string {
 		prompt = strings.TrimSpace(string([]rune(prompt)[:albumPrompt])) + "…"
 	}
 	return prompt
+}
+
+// notSent records results whose send failed. Telegram asking to wait (429)
+// took nothing, so they are given back and go once the wait is over;
+// before, a busy minute lost them for good. Any other failure may have
+// delivered them, and they are not sent again.
+func (f *Flow) notSent(ctx context.Context, err error, rs ...db.SiteResult) {
+	if tg.IsTooManyRequests(err) || errors.Is(err, errHeld) {
+		f.releaseSite(ctx, "site result held back: Telegram asked to wait", err, rs...)
+		return
+	}
+	f.log.Error("site result not sent", "jobs", jobIDs(rs), "error", err)
+	f.endSite(ctx, db.DeliveryFailed, rs...)
 }
 
 // mayNotWrite tells a refusal that says the bot may not write to the

@@ -259,9 +259,11 @@ func (f *Flow) command(ctx context.Context, m *tg.Message, command, prompt strin
 	}
 	thread := threadOf(m)
 	// A run a reply started sends no chat action: the chat would see framy
-	// sending a picture that only one person gets.
+	// sending a picture that only one person gets. The action is a nicety:
+	// a chat Telegram asked to wait for goes without it rather than holding
+	// the command up.
 	if !isQuiet(ctx) {
-		if err := f.cfg.Telegram.SendChatAction(ctx, m.Chat.ID, thread, chatAction(edit || motion)); err != nil {
+		if err := f.cfg.Telegram.SendChatAction(noWait(ctx), m.Chat.ID, thread, chatAction(edit || motion)); err != nil {
 			f.log.Debug("chat action not sent", "chat", m.Chat.ID, "error", err)
 		}
 	}
@@ -876,13 +878,42 @@ func (f *Flow) deleteEphemeral(ctx context.Context, chatID, userID, ephemeralID 
 	}
 }
 
+// cleanupTries is how many holds of a chat a delete waits out before it
+// gives up.
+const cleanupTries = 3
+
+// deleteMessage deletes a message of framy's that is done with: the loop
+// under a result, a preview that expired, a question that was answered.
+// Left out, it would sit in the chat for good; waited for in the call, a
+// chat Telegram asked to wait for would hold up the round, and with it every
+// other chat, or be refused past maxHold. So a delete to a held chat, or one
+// that Telegram answers with a 429, goes in the background once the wait is
+// over.
 func (f *Flow) deleteMessage(ctx context.Context, chatID, messageID int64) {
-	if messageID == 0 {
+	if messageID == 0 || f.tryDelete(ctx, chatID, messageID) {
 		return
 	}
-	if err := f.cfg.Telegram.DeleteMessage(ctx, chatID, messageID); err != nil {
+	f.wg.Go(func() {
+		for range cleanupTries {
+			if f.pace.sleep(ctx, f.pace.left(chatID)) != nil || f.tryDelete(ctx, chatID, messageID) {
+				return
+			}
+		}
+		f.log.Warn("message not deleted: Telegram kept asking to wait", "chat", chatID, "message", messageID)
+	})
+}
+
+// tryDelete deletes a message unless Telegram asks to wait first. It
+// reports false when the delete is still to be done.
+func (f *Flow) tryDelete(ctx context.Context, chatID, messageID int64) bool {
+	err := f.cfg.Telegram.DeleteMessage(noWait(ctx), chatID, messageID)
+	if errors.Is(err, errHeld) || tg.IsTooManyRequests(err) {
+		return false
+	}
+	if err != nil {
 		f.log.Warn("message not deleted", "chat", chatID, "message", messageID, "error", err)
 	}
+	return true
 }
 
 // detach lets the cleanup after a failure finish when the failure was the

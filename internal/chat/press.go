@@ -220,7 +220,11 @@ func (f *Flow) generate(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRu
 // reply to the command when the chat can see that.
 func (f *Flow) showLoop(ctx context.Context, run db.ChatRun) {
 	tk := f.ticker(run.JobID)
-	tk.action, tk.caption = f.now(), f.now()
+	tk.caption = f.now()
+	if !guest(run) {
+		// The loop is a message, which ends any action shown above it.
+		f.shown(run.ChatID, run.ThreadID)
+	}
 	if guest(run) {
 		f.guestLoop(ctx, run)
 		return

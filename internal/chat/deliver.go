@@ -37,8 +37,16 @@ const (
 	// actionEvery repeats the chat action, which Telegram shows for 5 s.
 	actionEvery = 4500 * time.Millisecond
 	// captionEvery is how often the caption tells the time taken; a group
-	// takes about 20 bot messages a minute.
+	// takes about 20 bot messages a minute. captionShare is the least time
+	// between two captions of the same chat, whichever runs they are of: a
+	// chat with three runs going has each told every 18 s, so the captions
+	// take about 10 of those 20 and leave the rest to previews and results.
 	captionEvery = 10 * time.Second
+	captionShare = 6 * time.Second
+	// cosmetic bounds a call that only shows progress. tg waits out a 429
+	// inside the call, which would hold up the round for every chat; cut
+	// short, the call still tells the wait, and the chat is held for it.
+	cosmetic = 5 * time.Second
 	// inPlaceWithin: an image ready this soon after Generate replaces the
 	// loop; a later one comes as a reply, which notifies, and the loop goes.
 	inPlaceWithin = 25 * time.Second
@@ -53,10 +61,10 @@ const (
 	maxPhotoRatio = 20
 )
 
-// ticker is when a running job last told its chat something.
+// ticker is when a running job last told its chat its time.
 type ticker struct {
-	mu              sync.Mutex
-	action, caption time.Time
+	mu      sync.Mutex
+	caption time.Time
 }
 
 func (f *Flow) ticker(jobID int64) *ticker {
@@ -88,6 +96,8 @@ func (f *Flow) Run(ctx context.Context) {
 }
 
 // follow takes down the runs of deleted jobs and works every open run once.
+// A chat Telegram asked to wait for gets no call in the round: its runs move
+// on in a round after the hold.
 func (f *Flow) follow(ctx context.Context) {
 	f.takeDown(ctx)
 	runs, err := f.cfg.Store.OpenChatRuns(ctx)
@@ -97,6 +107,23 @@ func (f *Flow) follow(ctx context.Context) {
 		}
 		return
 	}
+	busy := map[int64]int{}
+	for _, r := range runs {
+		if r.Stage == db.StageGenerating && !guest(r) {
+			busy[r.ChatID]++
+		}
+	}
+	f.busyMu.Lock()
+	f.busy = busy
+	f.busyMu.Unlock()
+	// A chat with nothing going needs no pace kept.
+	f.chats.Range(func(k, _ any) bool {
+		if busy[k.(int64)] == 0 {
+			f.chats.Delete(k)
+		}
+		return true
+	})
+	ctx = noWait(ctx)
 	var wg sync.WaitGroup
 	slot := make(chan struct{}, following)
 	for _, r := range runs {
@@ -124,6 +151,9 @@ func (f *Flow) step(ctx context.Context, jobID int64) {
 	}
 	if err != nil {
 		f.log.Warn("chat run unread", "job", jobID, "error", err)
+		return
+	}
+	if !guest(run) && f.pace.held(run.ChatID) {
 		return
 	}
 	switch run.Stage {
@@ -176,6 +206,11 @@ func (f *Flow) takeDown(ctx context.Context) {
 		f.swept = now
 	}
 	for _, run := range runs {
+		if (run.Stage == db.StagePreview || run.Stage == db.StageGenerating) && !guest(run) && f.pace.held(run.ChatID) {
+			// Its preview or loop is taken down after the hold Telegram
+			// asked this chat for.
+			continue
+		}
 		unlock, ok := f.tryLock(run.JobID)
 		if !ok {
 			continue
@@ -217,7 +252,25 @@ func (f *Flow) deletedRun(ctx context.Context, run db.ChatRun) {
 	f.guestCaption(ctx, run, text, nil)
 }
 
-// progress keeps the chat action going and the time on the caption.
+// chatTick is when a chat last had the chat action, a topic's own, and a
+// caption of any of its runs.
+type chatTick struct {
+	mu      sync.Mutex
+	actions map[int]time.Time // by topic; 0 is the chat itself
+	caption time.Time
+}
+
+func (f *Flow) chatTick(chat int64) *chatTick {
+	v, _ := f.chats.LoadOrStore(chat, &chatTick{actions: map[int]time.Time{}})
+	return v.(*chatTick)
+}
+
+// progress keeps the chat action going and the time on the caption. The
+// action says the same for every run of a chat's topic, so it goes once for
+// all of them. A run's caption is due every captionEvery, or later when the
+// chat has more runs going than leaves room for, and a chat takes one
+// caption every captionShare at most, so several runs take turns instead of
+// editing at the same moment.
 func (f *Flow) progress(ctx context.Context, run db.ChatRun) {
 	tk := f.ticker(run.JobID)
 	tk.mu.Lock()
@@ -231,17 +284,31 @@ func (f *Flow) progress(ctx context.Context, run db.ChatRun) {
 		}
 		return
 	}
-	if now.Sub(tk.action) >= actionEvery {
-		tk.action = now
-		if err := f.cfg.Telegram.SendChatAction(ctx, run.ChatID, run.ThreadID, chatAction(catalog.Kind(run.Kind) == catalog.Video)); err != nil {
+	ct := f.chatTick(run.ChatID)
+	ct.mu.Lock()
+	action := now.Sub(ct.actions[run.ThreadID]) >= actionEvery
+	if action {
+		ct.actions[run.ThreadID] = now
+	}
+	caption := !run.GenerateAt.IsZero() && now.Sub(tk.caption) >= f.captionEvery(run.ChatID) && now.Sub(ct.caption) >= captionShare
+	if caption {
+		ct.caption, tk.caption = now, now
+	}
+	ct.mu.Unlock()
+	if action {
+		cctx, cancel := context.WithTimeout(ctx, cosmetic)
+		err := f.cfg.Telegram.SendChatAction(cctx, run.ChatID, run.ThreadID, chatAction(catalog.Kind(run.Kind) == catalog.Video))
+		cancel()
+		if err != nil {
 			f.log.Debug("chat action not sent", "chat", run.ChatID, "error", err)
 		}
 	}
-	if now.Sub(tk.caption) >= captionEvery && !run.GenerateAt.IsZero() {
-		tk.caption = now
-		caption := generatingCaption(run.Lang, run.Prompt, run.Model, now.Sub(run.GenerateAt))
-		_, err := f.cfg.Telegram.EditMessageCaption(ctx, run.ChatID, run.PreviewMessageID, caption,
+	if caption {
+		text := generatingCaption(run.Lang, run.Prompt, run.Model, now.Sub(run.GenerateAt))
+		cctx, cancel := context.WithTimeout(ctx, cosmetic)
+		_, err := f.cfg.Telegram.EditMessageCaption(cctx, run.ChatID, run.PreviewMessageID, text,
 			tg.EditCaptionOptions{Markup: generatingKeyboard(run.Lang, run.JobID)})
+		cancel()
 		if err != nil && !tg.IsMessageNotModified(err) {
 			f.log.Debug("caption not updated", "job", run.JobID, "error", err)
 		}
@@ -252,6 +319,25 @@ func (f *Flow) progress(ctx context.Context, run db.ChatRun) {
 // the person's DM with framy, where they come as one album. In a group one
 // run makes one result, and a guest run's answer is one message.
 func severalResults(run db.ChatRun) bool { return !guest(run) && run.ChatID == run.UserID }
+
+// shown marks the chat action of a chat's topic as just shown: a message
+// went there, which ends any action above it.
+func (f *Flow) shown(chat int64, topic int) {
+	ct := f.chatTick(chat)
+	ct.mu.Lock()
+	ct.actions[topic] = f.now()
+	ct.mu.Unlock()
+}
+
+// captionEvery is how often a run of chat tells its time: every
+// captionEvery, or less often when the chat has more runs going than
+// captionShare leaves room for.
+func (f *Flow) captionEvery(chat int64) time.Duration {
+	f.busyMu.Lock()
+	n := f.busy[chat]
+	f.busyMu.Unlock()
+	return max(captionEvery, time.Duration(n)*captionShare)
+}
 
 // deliver puts the result in the chat: in place of the loop when it came
 // quickly, as a reply to the command otherwise. Several results of a DM's

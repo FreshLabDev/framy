@@ -207,8 +207,16 @@ type Flow struct {
 	// files are the file_ids of the pictures every run shares, by their
 	// anim key: Telegram keeps the upload, and the next run sends the id.
 	files sync.Map // anim key → file_id
-	// ticks are when a running job last told its chat something.
+	// ticks are when a running job last told its chat something; chats
+	// when a chat last had the chat action and a caption, whichever run
+	// they were of (deliver.go).
 	ticks sync.Map // job id → *ticker
+	chats sync.Map // chat id → *chatTick
+	// pace holds a chat Telegram asked to wait for (telegram.go); busy is
+	// how many runs each chat has generating, as the last round read them.
+	pace   *pace
+	busyMu sync.Mutex
+	busy   map[int64]int
 	// made is when a button of a result or an error card last made a draft,
 	// so a second tap makes no second one.
 	made sync.Map // "<job>:<action>" → time.Time
@@ -266,8 +274,9 @@ func New(cfg Config) (*Flow, error) {
 		cfg.MaxVideo = storage.DefaultMaxVideo
 	}
 	cfg.AppURL = miniAppURL(cfg.AppURL)
-	cfg.Telegram = guarded{cfg.Telegram}
-	f := &Flow{cfg: cfg, log: cfg.Log, now: time.Now, slot: make(chan struct{}, cfg.Commands),
+	p := newPace()
+	cfg.Telegram = guarded{Telegram: cfg.Telegram, pace: p}
+	f := &Flow{cfg: cfg, log: cfg.Log, now: time.Now, pace: p, slot: make(chan struct{}, cfg.Commands),
 		shareKey: newShareKey(), shareSlots: make(chan struct{}, shareSlots)}
 	if name := strings.TrimPrefix(cfg.Username, "@"); name != "" {
 		f.mention = regexp.MustCompile(`(?i)[ \t]*@` + regexp.QuoteMeta(name) + `\b[ \t]*`)
