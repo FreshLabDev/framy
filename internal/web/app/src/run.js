@@ -52,11 +52,14 @@ export async function refreshMe() {
     S.me = me; S.signed = known = true;
     if (was && was !== me.currency) clearPrices();
   } catch (e) {
-    if (e.status === 401) { S.me = null; S.signed = known = false; }
+    // The session is gone (signed out everywhere, the account deleted): the page forgets the person.
+    if (e.status === 401) { forget(); return false; }
   }
   window.dispatchEvent(new Event("framy:me"));
   return known;
 }
+// A job's stream or reads refused for want of a session: is anyone still signed in here?
+const lost = (e) => { if (e?.status === 401) refreshMe(); };
 
 /* A run: what was pressed, and where it stands. phase is "prep" while the
    files go up, "job" once the server made the job, "refused" when it would
@@ -182,7 +185,7 @@ function followAll(run) {
     if (S.run !== run) return;
     if (!was && run.jobs.every((x) => isFinal(x.status))) ended(run);
     runChanged();
-  }, () => {}, (net) => { run.net = net; netState(net); if (S.run === run) runChanged(); }));
+  }, lost, (net) => { run.net = net; netState(net); if (S.run === run) runChanged(); }));
   stopWatch = () => stops.forEach((f) => f?.());
 }
 
@@ -214,7 +217,7 @@ function follow(run) {
     if (S.run !== run) return;
     if (isFinal(j.status) && !isFinal(was)) ended(run);
     runChanged();
-  }, () => {}, (net) => { run.net = net; netState(net); if (S.run === run) runChanged(); });
+  }, lost, (net) => { run.net = net; netState(net); if (S.run === run) runChanged(); });
 }
 // What the end of a job changes beyond the stage: the free counts, and a key
 // or the free tier found not to work.

@@ -74,7 +74,7 @@ export function watchJob(id, onJob, onError, onNet = () => {}) {
   async function poll() {
     while (!stop.signal.aborted) {
       try { const j = await api(`/api/jobs/${id}`, { signal: stop.signal }); say("poll"); deliver(j); }
-      catch (e) { if (e.name === "AbortError") return; if (e.status === 404) { onError?.(e); return; } if (e.code === "network") say("lost"); }
+      catch (e) { if (e.name === "AbortError") return; if (e.status === 404 || e.status === 401) { onError?.(e); return; } if (e.code === "network") say("lost"); }
       await wait(5000, stop.signal);
     }
   }

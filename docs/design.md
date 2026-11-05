@@ -458,7 +458,8 @@ draft ──Generate──> queued ──> running ──> done
 - flushes after every event through `http.NewResponseController`;
 - writes a `: ping` comment every 15–20 s;
 - has no `WriteTimeout` on this route: `web.Stream()` removes the read and write deadlines, and the handler sets a write deadline of its own before each write, so a client that stops reading cannot hold it;
-- resumes from `Last-Event-ID`.
+- resumes from `Last-Event-ID`;
+- asks the sign-in again at every wake and ping, so signing out, here or everywhere, or a Mini App token running out ends the stream within a ping (sign-in remembers a session for 30 s at most, and forgets it at once when it ends in this process). The reconnect gets 401, and the page forgets the person and the run with them. A lookup that failed keeps the stream.
 
 Every event is `id: <n>`, `event: job` and the whole job as `data`, as `GET /api/jobs/{id}` gives it. `n` is the job's `event_seq` (migration 009), which grows with every change a person can see, so a stream that reconnects gets only what is newer than its id, and one that comes back to a finished job it has seen to the end gets 204, which stops `EventSource`. The first event is the state now; the stream ends after the final one. A burst of changes may arrive as one event: each is the whole state, never a difference. At most 3 streams per person; the 4th gets 429 `too_many_streams`. `EventSource` cannot send an `Authorization` header, so the Mini App streams with `fetch`.
 

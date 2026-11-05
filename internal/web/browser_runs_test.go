@@ -58,6 +58,24 @@ type fakeRuns struct {
 	jobs    map[int64]*fakeJob
 	shares  int              // how many results were prepared for sharing
 	batches []map[string]any // the bodies of POST /api/batches, in order
+	// out is closed when the person signs out elsewhere: the open streams
+	// end, as the server ends them, and every route answers 401 after.
+	out     chan struct{}
+	outOnce sync.Once
+}
+
+// signOutElsewhere is "Sign out everywhere" pressed on another device.
+func (f *fakeRuns) signOutElsewhere() { f.outOnce.Do(func() { close(f.out) }) }
+
+// signedOut answers 401 sign_in once the person signed out elsewhere.
+func (f *fakeRuns) signedOut(w http.ResponseWriter) bool {
+	select {
+	case <-f.out:
+		writeTestJSON(w, http.StatusUnauthorized, map[string]any{"error": "sign_in"})
+		return true
+	default:
+		return false
+	}
 }
 
 type fakeJob struct {
@@ -68,7 +86,11 @@ type fakeJob struct {
 
 func (f *fakeRuns) mount(srv *Server) {
 	f.jobs = map[int64]*fakeJob{}
+	f.out = make(chan struct{})
 	srv.HandleFunc("GET /api/me", func(w http.ResponseWriter, _ *http.Request) {
+		if f.signedOut(w) {
+			return
+		}
 		writeTestJSON(w, http.StatusOK, map[string]any{
 			"user_id": 1, "name": "Ada", "language": "en", "currency": "USD",
 			"connections": []map[string]any{{"id": "c1", "provider": "openrouter", "last4": "abcd", "status": "ok"}},
@@ -81,6 +103,9 @@ func (f *fakeRuns) mount(srv *Server) {
 	srv.HandleFunc("POST /api/jobs", f.create)
 	srv.HandleFunc("POST /api/batches", f.batch)
 	srv.HandleFunc("GET /api/jobs/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if f.signedOut(w) {
+			return
+		}
 		j, id := f.job(r)
 		if j == nil {
 			writeTestJSON(w, http.StatusNotFound, map[string]any{"error": "not_found"})
@@ -344,6 +369,9 @@ func (f *fakeRuns) batch(w http.ResponseWriter, r *http.Request) {
 // events says the job's steps a moment apart, then holds the stream open
 // until the job is cancelled or the page goes.
 func (f *fakeRuns) events(w http.ResponseWriter, r *http.Request) {
+	if f.signedOut(w) {
+		return
+	}
 	j, id := f.job(r)
 	if j == nil {
 		writeTestJSON(w, http.StatusNotFound, map[string]any{"error": "not_found"})
@@ -375,9 +403,12 @@ func (f *fakeRuns) events(w http.ResponseWriter, r *http.Request) {
 		case <-time.After(150 * time.Millisecond):
 		case <-r.Context().Done():
 			return
+		case <-f.out:
+			return
 		}
 	}
 	select {
+	case <-f.out:
 	case <-j.stop:
 		f.mu.Lock()
 		last := j.steps[len(j.steps)-1]
@@ -584,6 +615,26 @@ func TestBrowserRuns(t *testing.T) {
 		t.Errorf("result: %v", s)
 	}
 	noErrors(t, ctx)
+}
+
+// Signed out everywhere from another device while a run goes: the server
+// ends the run's stream, and the reconnect is refused. The page forgets the
+// person, the run with them, and offers to sign in.
+func TestBrowserASignOutElsewhereEndsTheRunOnThePage(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`return await press("running", (s) => s.acts.includes("Cancel"));`)
+	if s["timeout"] == true {
+		t.Fatalf("the run never ran: %v", s)
+	}
+	runs.signOutElsewhere()
+	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	for (let i = 0; i < 80 && !document.querySelector(".top .signin"); i++) await wait(100);
+	return { signin: !!document.querySelector(".top .signin"), me: !!document.querySelector("#meBtn"), ...stage() };`)
+	if acts, _ := s["acts"].([]any); s["signin"] != true || s["me"] != false || s["label"] != "" || len(acts) != 0 {
+		t.Errorf("after a sign-out elsewhere: %v", s)
+	}
 }
 
 // TestBrowserRunsPhone checks a failure on a phone: the reason and its
