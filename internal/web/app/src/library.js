@@ -6,7 +6,7 @@
 // address and walks back with Telegram's back button instead.
 import { $, $$, h, ic, isWide, isPhone } from "./dom.js";
 import { anim, morph, opt, placeSegs, leadSeg, motion, OUT } from "./motion.js";
-import { t, lang, fmtNum, fmtSecs } from "./i18n.js";
+import { t, lang, fmtNum, fmtSecs, fmtRel, fmtDay, fmtWhen } from "./i18n.js";
 import { api, isFinal, outsOf } from "./api.js";
 import { C, vname, famLogo, lg, show, SICON, SHOWN, factEl, ratioNum, ratioOfSize } from "./catalog.js";
 import { S, reopenText } from "./state.js";
@@ -219,17 +219,14 @@ function find(v) {
 }
 
 // Days: today and yesterday by name, the others by date, with the year when it is another.
-const fmts = new Map();
-const fmtOf = (k, make) => { let f = fmts.get(k); if (!f) fmts.set(k, (f = make())); return f; };
 const dayStart = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
 function dayName(d) {
   const now = new Date(), ago = Math.max(0, Math.round((dayStart(now) - dayStart(d)) / 864e5));
   if (ago < 2) {
-    const s = fmtOf("r" + lang, () => new Intl.RelativeTimeFormat(lang, { numeric: "auto" })).format(-ago, "day");
+    const s = fmtRel(-ago, "day");
     return s.charAt(0).toLocaleUpperCase(lang) + s.slice(1);
   }
-  const year = d.getFullYear() !== now.getFullYear();
-  return fmtOf("d" + lang + year, () => new Intl.DateTimeFormat(lang, { day: "numeric", month: "long", ...(year ? { year: "numeric" } : {}) })).format(d);
+  return fmtDay(d.getTime(), d.getFullYear() !== now.getFullYear());
 }
 // The runs of the list: a press of several frames is one run, its jobs in the
 // order of their frames (the server never cuts a press across pages).
@@ -813,7 +810,7 @@ const WHERE = new Set(["mini_app", "dm", "group", "guest"]);
 function facts(j) {
   const s = j.settings || {}, out = [];
   for (const n of SHOWN) if (s[n] != null && s[n] !== "") out.push(factEl([SICON[n] || "info", show(n, s[n])]));
-  const when = fmtOf("w" + lang, () => new Intl.DateTimeFormat(lang, { dateStyle: "long", timeStyle: "short" })).format(new Date(j.created_at));
+  const when = fmtWhen(Date.parse(j.created_at));
   const where = WHERE.has(j.surface) ? t("view.where_" + j.surface) : "";
   return [out.length ? h("div", { class: "facts vfacts" }, out) : null, h("p", { class: "vwhen" }, when, where ? h("br") : null, where)];
 }

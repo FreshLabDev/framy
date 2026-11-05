@@ -2,7 +2,7 @@
 // the DM, the currency, the language and the account. Each change goes to
 // the server first; the sheet shows what it said.
 import { $, $$, h, ic } from "./dom.js";
-import { t, lang, fmtNum, fmtIn, fmtTime } from "./i18n.js";
+import { t, lang, fmtNum, fmtIn, fmtTime, fmtCurrency } from "./i18n.js";
 import { api } from "./api.js";
 import { S, connection, autoModel, ownDefault, reopenText } from "./state.js";
 import { C, PNAME, provMark, vname } from "./catalog.js";
@@ -94,9 +94,6 @@ function size(bytes) {
   const mb = bytes / 1048576;
   if (mb >= 1024) return t("unit.gb", { n: fmtNum(mb / 1024, { maximumFractionDigits: 1 }) });
   return t("unit.mb", { n: fmtNum(mb, { maximumFractionDigits: mb < 10 ? 1 : 0 }) });
-}
-function curName(c) {
-  try { return new Intl.DisplayNames([lang], { type: "currency" }).of(c) || c; } catch { return c; }
 }
 
 /* Keys. */
@@ -451,7 +448,7 @@ export function renderPrefs() {
     deliverRow(),
     h("div", { class: "group", "data-k": "g-cur" }, t("prefs.currency")),
     h("div", { class: "seg wrapping cur", role: "radiogroup", "aria-label": t("prefs.currency"), "data-seg": "cur", "data-dur": 360, "data-k": "s-cur" },
-      CURRENCIES.map((c) => opt({ key: "cur", v: c, on: S.me.currency === c, pick: () => setCurrency(c) }, c, h("small", {}, curName(c))))),
+      CURRENCIES.map((c) => opt({ key: "cur", v: c, on: S.me.currency === c, pick: () => setCurrency(c) }, c, h("small", {}, fmtCurrency(c))))),
     h("p", { class: "note", "data-k": "n-cur" }, t("prefs.currency_note")),
     h("div", { class: "group", "data-k": "g-lang" }, t("prefs.language")),
     sheetRow("lang", ic("info"), t("prefs.lang_row"), t("prefs.lang_sub"), sel),

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -509,6 +510,33 @@ func TestBrowserPrefsLanguage(t *testing.T) {
 	return { lang: document.documentElement.lang, sel: sheet().querySelector("select.pick").value, shown: sheet().querySelector("select.pick").selectedOptions[0].textContent };`)
 	if s["lang"] != "en" || s["sel"] != "" || s["shown"] != "Automatic" {
 		t.Errorf("automatic: %v", s)
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserPrefsBelarusian checks the settings and the composer in
+// Belarusian, whose data Chromium's Intl lacks: when the next free run comes,
+// the names of the currencies and the numbers are Belarusian, not English.
+func TestBrowserPrefsBelarusian(t *testing.T) {
+	f := &fakePrefs{}
+	ts := fakeSite(t, f.mount)
+	f.with(func() { f.language = "be" })
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	ready(t, ctx)
+	s := prefs(t, ctx, `
+	const back = document.querySelector("#composer").innerText;
+	document.querySelector("#meBtn").click();
+	await until(() => !sheet().hidden && rowOf("gemini"));
+	await wait(300);
+	return { lang: document.documentElement.lang, back, free: note("p-free-image"), store: note("p-store"), text: sheet().innerText };`)
+	month := `(студзеня|лютага|сакавіка|красавіка|мая|чэрвеня|ліпеня|жніўня|верасня|кастрычніка|лістапада|снежня)`
+	text := fmt.Sprint(s["text"])
+	if s["lang"] != "be" || !strings.Contains(fmt.Sprint(s["free"]), "праз 3 гадзіны") || !strings.Contains(fmt.Sprint(s["store"]), "30") ||
+		!strings.Contains(text, "долар ЗША") || !strings.Contains(text, "беларускі рубель") || strings.Contains(text, "Dollar") {
+		t.Errorf("settings in Belarusian: %v", s)
+	}
+	if !regexp.MustCompile(`\d{1,2} ` + month + ` у \d{1,2}:\d\d`).MatchString(fmt.Sprint(s["back"])) {
+		t.Errorf("when the next free run comes, in Belarusian: %q", s["back"])
 	}
 	noErrors(t, ctx)
 }

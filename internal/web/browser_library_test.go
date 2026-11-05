@@ -6,6 +6,7 @@ package web
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -37,6 +38,7 @@ type fakeLibrary struct {
 	lists   []string         // the query of every GET /api/jobs
 	created []map[string]any // the bodies of POST /api/jobs
 	deleted []int64
+	lang    string // the person's language; English when empty
 }
 
 const libTotal = 70
@@ -122,7 +124,7 @@ func (f *fakeLibrary) find(id int64) (int, map[string]any) {
 func (f *fakeLibrary) mount(srv *Server) {
 	srv.HandleFunc("GET /api/me", func(w http.ResponseWriter, _ *http.Request) {
 		writeTestJSON(w, http.StatusOK, map[string]any{
-			"user_id": 1, "name": "Ada", "language": "en", "currency": "USD",
+			"user_id": 1, "name": "Ada", "language": cmp.Or(f.lang, "en"), "currency": "USD",
 			"connections": []map[string]any{{"id": "c1", "provider": "openrouter", "last4": "abcd", "status": "ok"}},
 			"free": map[string]any{
 				"images": map[string]any{"used": 2, "limit": 5, "left": 3, "window_seconds": 86400},
@@ -472,6 +474,32 @@ func TestBrowserViewer(t *testing.T) {
 	return { msg, path: location.pathname, open: vis(document.querySelector("#viewer")) };`)
 	if got["msg"] != "There is no such run in your library." || got["path"] != "/library" || got["open"] != false {
 		t.Errorf("missing run: %v", got)
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserLibraryBelarusian checks the library in Belarusian, whose data
+// Chromium's Intl lacks: its days and the date of a run are in Belarusian,
+// not in English.
+func TestBrowserLibraryBelarusian(t *testing.T) {
+	f := newFakeLibrary()
+	f.lang = "be"
+	ts := fakeSite(t, f.mount)
+	ctx := browser(t, ts.URL+"/library", 1440, 900, false)
+	got := js[map[string]any](t, ctx, libHelpers+`
+	await settled();
+	const r = { lang: document.documentElement.lang, days: [...document.querySelectorAll("#library .lday > h2")].slice(0, 3).map((e) => e.textContent) };
+	tiles()[6].click();
+	await until(() => vis(document.querySelector("#viewer")) && document.querySelector("#viewer .vwhen"));
+	r.when = document.querySelector("#viewer .vwhen").innerText.split("\n")[0];
+	return r;`)
+	month := `(студзеня|лютага|сакавіка|красавіка|мая|чэрвеня|ліпеня|жніўня|верасня|кастрычніка|лістапада|снежня)`
+	days, _ := got["days"].([]any)
+	if got["lang"] != "be" || len(days) != 3 || days[0] != "Сёння" || days[1] != "Учора" || !regexp.MustCompile(`^\d{1,2} `+month+`( \d{4} г\.)?$`).MatchString(fmt.Sprint(days[2])) {
+		t.Errorf("days in Belarusian: %v", got)
+	}
+	if !regexp.MustCompile(`^\d{1,2} ` + month + ` \d{4} г\. у \d\d:\d\d$`).MatchString(fmt.Sprint(got["when"])) {
+		t.Errorf("when a run was made, in Belarusian: %q", got["when"])
 	}
 	noErrors(t, ctx)
 }
