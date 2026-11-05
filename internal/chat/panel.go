@@ -206,6 +206,7 @@ func (f *Flow) choices(ctx context.Context, run db.ChatRun, current catalog.Offe
 	if err != nil {
 		return nil, err
 	}
+	left := f.freeLeft(ctx, run.UserID, catalog.Image)
 	order := append([]string{current.Provider}, providerOrder...)
 	rank := func(provider string) int {
 		if i := slices.Index(order, provider); i >= 0 {
@@ -222,7 +223,7 @@ func (f *Flow) choices(ctx context.Context, run db.ChatRun, current catalog.Offe
 		if !listed(m, catalog.Image, byID) || (!m.Free && !m.Featured) {
 			continue
 		}
-		if c, ok := freeChoice(m, run.Taken, have); ok {
+		if c, ok := freeChoice(m, run.Taken, have); ok && left {
 			out = append(out, c)
 			continue
 		}
@@ -250,6 +251,23 @@ func boolRank(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// freeLeft tells whether the person has a free run of kind left, which is
+// when a list says a free model is free: past it the model goes, and is
+// priced, as their key would run it. A meter that cannot be read says yes,
+// as the list did before; the free tier still checks the pick.
+func (f *Flow) freeLeft(ctx context.Context, user int64, kind catalog.Kind) bool {
+	u, err := f.cfg.Allowance.Usage(ctx, user)
+	if err != nil {
+		f.log.Warn("free usage unread", "user", user, "error", err)
+		return true
+	}
+	m := u.Images
+	if kind == catalog.Video {
+		m = u.Videos
+	}
+	return m.Limit == 0 || m.Left() > 0
 }
 
 // freeChoice is a free model on its plan, when the plan takes the photos.

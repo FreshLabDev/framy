@@ -317,6 +317,58 @@ func TestPastTheFreeTierAnotherProvidersKeyRunsItsModel(t *testing.T) {
 	}
 }
 
+// Past the free tier no model is listed as free: a free model goes on the
+// person's key, at its price, or needs one, as a pick of it would run.
+func TestPastTheFreeTierNoModelIsListedAsFree(t *testing.T) {
+	limit := &free.LimitError{Kind: catalog.Image, Limit: 5, Window: free.ImageWindow, FreesAt: clock.Add(2 * time.Hour)}
+	freeLabel := " · " + i18n.T("en", "card.free")
+	for _, c := range []struct {
+		name, provider, flux string
+	}{
+		{"an OpenRouter key", catalog.OpenRouter, `<tg-button type="callback_data" data="j:1:` + actPickModel + modelHash("black-forest-labs/flux-3-image-klein") + `">FLUX 3 Image Klein</tg-button>`},
+		{"an OpenAI key", catalog.OpenAI, `<tg-button type="disabled">FLUX 3 Image Klein · ` + i18n.T("en", "run.need_key", "provider", "OpenRouter") + `</tg-button>`},
+	} {
+		h := newHarness(t)
+		h.store.models = panelCatalog()
+		h.flow.cfg.Keys = fakeKeys{conns: []keys.Connection{{Provider: c.provider, Status: keys.Valid}}}
+		h.flow.cfg.Allowance = fakeAllowance{left: 0}
+		h.queue.refuse = limit
+		if err := h.command(command("/img a fox"), CommandImage, "a fox"); err != nil {
+			t.Fatal(err)
+		}
+		body := h.tg.methods("sendRichMessage")[0].text
+		if strings.Contains(body, freeLabel) || !strings.Contains(body, c.flux) {
+			t.Fatalf("%s: preview = %s", c.name, body)
+		}
+	}
+
+	// A pick of the free model goes on the key, as its button said.
+	h := newHarness(t)
+	h.store.models = panelCatalog()
+	h.flow.cfg.Keys = fakeKeys{conns: []keys.Connection{{Provider: catalog.OpenRouter, Status: keys.Valid}}}
+	h.flow.cfg.Allowance = fakeAllowance{left: 0}
+	h.queue.refuse = limit
+	if err := h.command(photoReply("/img make it night"), CommandImage, "make it night"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.press(1, 7, pick("black-forest-labs/flux-3-image-klein")); err != nil {
+		t.Fatal(err)
+	}
+	if n := h.queue.revised[len(h.queue.revised)-1]; n.Free || n.Offer.ID != "openrouter:black-forest-labs/flux-3-image-klein" {
+		t.Fatalf("revision = %+v", n)
+	}
+	// The keyboard's list says the same.
+	h.tg.reset()
+	if err := h.pressPhoto(1, 7, actModel); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range labels(h.tg.cards()[0].markup) {
+		if strings.Contains(strings.Join(row, "|"), freeLabel) {
+			t.Fatalf("list = %v", labels(h.tg.cards()[0].markup))
+		}
+	}
+}
+
 func TestARefusedKeyDoesNotRunIt(t *testing.T) {
 	h := newHarness(t)
 	h.flow.cfg.Keys = fakeKeys{conns: []keys.Connection{{Provider: catalog.OpenRouter, Status: keys.Invalid}}}

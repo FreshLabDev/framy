@@ -148,13 +148,14 @@ func (f *Flow) listing(ctx context.Context, user int64, lang, prompt string, d d
 		return m.Name
 	}
 	providers := append([]string{d.offer.Provider}, providerOrder...)
+	left := f.freeLeft(ctx, user, d.offer.Kind)
 	l := listing{current: name(d.model), currentID: d.model.ID, quote: d.quote}
 	byMaker := map[string]int{}
 	for _, m := range models {
 		if !listed(m, d.offer.Kind, byID) {
 			continue
 		}
-		p := pickOf(lang, prompt, d, m, have, providers)
+		p := pickOf(lang, prompt, d, m, have, providers, left)
 		p.name = name(m)
 		i, ok := byMaker[m.Maker]
 		if !ok {
@@ -176,18 +177,19 @@ func (f *Flow) listing(ctx context.Context, user int64, lang, prompt string, d d
 }
 
 // pickOf is how the run would go on m: the run as it is for its own model;
-// on the free tier when m is free and its plan takes the run's photos; else
-// on the person's key, the offers ranked by providers. The settings that go
-// to another model are framy's defaults with what the run set and the model
-// takes, and a video's photo is its first frame where the model has frames.
-func pickOf(lang, prompt string, d draft, m catalog.Model, have map[string]bool, providers []string) entry {
+// on the free tier when m is free, the person has a free run of the kind
+// left and its plan takes the run's photos; else on the person's key, the
+// offers ranked by providers. The settings that go to another model are
+// framy's defaults with what the run set and the model takes, and a video's
+// photo is its first frame where the model has frames.
+func pickOf(lang, prompt string, d draft, m catalog.Model, have map[string]bool, providers []string, freeLeft bool) entry {
 	if m.ID == d.model.ID {
 		return entry{
 			choice:   choice{model: m, offer: d.offer, free: d.pay == payFree, key: d.pay != payFree},
 			settings: d.settings, estimate: d.estimate,
 		}
 	}
-	if m.Free {
+	if m.Free && freeLeft {
 		for _, o := range m.Offers {
 			plan, ok := free.PlanOf(o.ID)
 			if ok && d.taken >= plan.MinInputs && d.taken <= plan.MaxInputs && misfit(lang, m, o, d.taken) == "" {
