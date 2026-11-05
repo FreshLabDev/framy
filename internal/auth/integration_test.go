@@ -431,15 +431,36 @@ func TestPGMiniAppTokenExpiresAndIsSwept(t *testing.T) {
 	if _, ok := app.signedIn(); ok {
 		t.Error("an expired token works")
 	}
-	// The row stays a day, then the next sign-in sweeps it.
+	// The row stays a day, then the sweep takes it.
 	var n int
 	if err := store.Pool().QueryRow(ctx, `SELECT count(*) FROM framy.session`).Scan(&n); err != nil || n != 1 {
 		t.Fatalf("%d rows, %v", n, err)
 	}
 	h.clock.Advance(sweepGrace + time.Hour)
 	h.mini(h.browser(), signInitData(testBotToken, miniAppFields(h.clock.Now(), pgAnn)), http.StatusOK)
+	if swept, err := h.auth.Sweep(ctx); err != nil || swept != 1 {
+		t.Fatalf("Sweep = %d, %v", swept, err)
+	}
 	if err := store.Pool().QueryRow(ctx, `SELECT count(*) FROM framy.session`).Scan(&n); err != nil || n != 1 {
 		t.Errorf("%d rows after the sweep, want the new token only, %v", n, err)
+	}
+}
+
+// One launch traded again is one row in the database.
+func TestPGALaunchGetsOneToken(t *testing.T) {
+	ctx := context.Background()
+	store := testStore(t)
+	h := newHarness(t, withSessions(NewPGSessions(store.Pool(), "")), withPeople(store))
+	raw := signInitData(testBotToken, miniAppFields(h.clock.Now(), pgBob))
+	token := h.mini(h.browser(), raw, http.StatusOK)
+	for range 3 {
+		if again := h.mini(h.browser(), raw, http.StatusOK); again != token {
+			t.Fatal("the same launch got another token")
+		}
+	}
+	var n int
+	if err := store.Pool().QueryRow(ctx, `SELECT count(*) FROM framy.session`).Scan(&n); err != nil || n != 1 {
+		t.Errorf("%d rows, %v", n, err)
 	}
 }
 

@@ -355,9 +355,10 @@ func run(log *slog.Logger) error {
 			}
 		})
 	}
-	// The catalog, the rates, the uploads no job took and the thumbnails
-	// are shared by every stack on the schema: production keeps them, so
-	// two releases never write their own versions over each other.
+	// The catalog, the rates, the uploads no job took, the thumbnails and
+	// the expired sessions are shared by every stack on the schema:
+	// production keeps them, so two releases never write their own versions
+	// over each other.
 	if cfg.CatalogEvery > 0 && cfg.Primary() {
 		syncer := &catalog.Syncer{
 			Source: &catalog.OpenRouterSource{
@@ -386,6 +387,7 @@ func run(log *slog.Logger) error {
 	workers.Go(func() { sweepWork(ctx, work, log) })
 	if cfg.Primary() {
 		workers.Go(func() { sweepUnused(ctx, queue, files, log) })
+		workers.Go(func() { sweepSessions(ctx, signIn, log) })
 	}
 	if files != nil && cfg.Primary() {
 		workers.Go(func() { fillThumbs(ctx, files, log) })
@@ -587,6 +589,26 @@ func sweepUnused(ctx context.Context, queue *jobs.Queue, files *storage.Store, l
 			} else if n > 0 {
 				log.Info("swept uploads no job took", "count", n)
 			}
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
+}
+
+// sweepSessions removes the sessions and Mini App tokens that expired a day
+// ago: at start and every hour. An expired one is never accepted; this keeps
+// the table, which every stack on the schema shares, from growing.
+func sweepSessions(ctx context.Context, signIn *auth.Auth, log *slog.Logger) {
+	tick := time.NewTicker(time.Hour)
+	defer tick.Stop()
+	for {
+		if n, err := signIn.Sweep(ctx); err != nil && ctx.Err() == nil {
+			log.Warn("sweep expired sessions", "error", err)
+		} else if n > 0 {
+			log.Info("swept expired sessions", "count", n)
 		}
 		select {
 		case <-ctx.Done():

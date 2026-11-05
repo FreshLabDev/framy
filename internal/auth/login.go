@@ -215,7 +215,7 @@ func (a *Auth) Callback() http.Handler {
 			return
 		}
 		expires := a.now().Add(SessionLife)
-		secret, err := a.newSession(r.Context(), userID, KindSite, expires)
+		secret, _, err := a.newSession(r.Context(), userID, KindSite, expires)
 		if err != nil {
 			a.log.Error("start a session", "error", err)
 			metrics.AuthResults.Inc("site_error")

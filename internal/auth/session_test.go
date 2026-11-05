@@ -3,6 +3,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -293,7 +294,9 @@ func TestRevocationDuringALookupIsNotUndone(t *testing.T) {
 	}
 }
 
-func TestExpiredSessionsAreSweptOnSignIn(t *testing.T) {
+// Sweep removes what expired a day ago and keeps the rest, whether or not
+// anyone signs in.
+func TestSweepRemovesExpiredSessions(t *testing.T) {
 	mem := newMemSessions()
 	h := newHarness(t, withSessions(mem))
 	h.signInAs(testUserID)
@@ -301,10 +304,18 @@ func TestExpiredSessionsAreSweptOnSignIn(t *testing.T) {
 	if mem.count() != 2 {
 		t.Fatal("setup")
 	}
-	h.clock.Advance(SessionLife + sweepGrace + time.Hour)
-	h.signInAs(8) // the first sign-in after an hour sweeps
-	if n := mem.count(); n != 1 {
-		t.Errorf("%d rows after the sweep, want only the new one", n)
+	h.clock.Advance(SessionLife + time.Hour)
+	h.signInAs(8)
+	// Expired an hour ago: kept a day, for whoever looks at why.
+	if n, err := h.auth.Sweep(context.Background()); err != nil || n != 0 || mem.count() != 3 {
+		t.Fatalf("Sweep = %d, %v with %d rows; want nothing removed yet", n, err, mem.count())
+	}
+	h.clock.Advance(sweepGrace)
+	if n, err := h.auth.Sweep(context.Background()); err != nil || n != 2 {
+		t.Fatalf("Sweep = %d, %v; want the two expired", n, err)
+	}
+	if mem.count() != 1 {
+		t.Errorf("%d rows after the sweep, want the live one", mem.count())
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/FreshLabDev/framy/internal/metrics"
 )
@@ -26,7 +27,10 @@ import (
 // left is too old already.
 //
 // The person is recorded in core before the token is made, as a bot update
-// would. The token is stored as a hash, like the site's cookie.
+// would. The token is stored as a hash, like the site's cookie. One launch
+// gets one token: the same initData sent again while its token lasts is
+// answered with that token, with nothing written, so trading it again and
+// again neither adds rows nor writes to core.
 func (a *Auth) MiniApp() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
@@ -55,6 +59,14 @@ func (a *Auth) MiniApp() http.Handler {
 			writeError(w, http.StatusUnauthorized, "init_data_invalid")
 			return
 		}
+		lock := &a.mintLocks[data.Hash[0]%byte(len(a.mintLocks))]
+		lock.Lock()
+		defer lock.Unlock()
+		if t, ok := a.mintedFor(r.Context(), data.Hash, data.User.ID); ok {
+			metrics.AuthResults.Inc("miniapp_again")
+			answerToken(w, t.secret, t.expires.Sub(now), data.User.ID)
+			return
+		}
 		if err := a.people.Touch(r.Context(), data.User, nil); err != nil {
 			a.log.Error("record the person in core", "error", err)
 			metrics.AuthResults.Inc("miniapp_error")
@@ -66,19 +78,24 @@ func (a *Auth) MiniApp() http.Handler {
 			name = data.User.Username
 		}
 		a.setCard(r.Context(), data.User.ID, name, data.PhotoURL)
-		token, err := a.newSession(r.Context(), data.User.ID, KindMiniApp, expires)
+		token, hash, err := a.newSession(r.Context(), data.User.ID, KindMiniApp, expires)
 		if err != nil {
 			a.log.Error("start a Mini App session", "error", err)
 			metrics.AuthResults.Inc("miniapp_error")
 			writeError(w, http.StatusServiceUnavailable, "unavailable")
 			return
 		}
+		a.mint(data.Hash, mintedToken{secret: token, hash: hash, user: data.User.ID, expires: expires})
 		metrics.AuthResults.Inc("miniapp_ok")
-		writeJSON(w, http.StatusOK, map[string]any{
-			"token":      token,
-			"token_type": "Bearer",
-			"expires_in": int(expires.Sub(now).Seconds()),
-			"user_id":    data.User.ID,
-		})
+		answerToken(w, token, expires.Sub(now), data.User.ID)
+	})
+}
+
+func answerToken(w http.ResponseWriter, token string, left time.Duration, userID int64) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"token":      token,
+		"token_type": "Bearer",
+		"expires_in": int(left.Seconds()),
+		"user_id":    userID,
 	})
 }

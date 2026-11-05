@@ -11,8 +11,10 @@
 //     session going itself: it lasts SessionLife from the last time the site
 //     loaded the person (Renew), and then the person signs in again.
 //   - The Mini App posts its initData to POST /auth/miniapp, which checks the
-//     HMAC and answers a bearer token that lasts MiniAppTokenLife. Cookies in
-//     the Telegram Web iframe are unreliable, so the Mini App carries
+//     HMAC and answers a bearer token that ends with the initData, at most
+//     MiniAppTokenLife from now. One launch gets one token: it is kept while
+//     it lasts and given again to the same initData. Cookies in the Telegram
+//     Web iframe are unreliable, so the Mini App carries
 //     `Authorization: Bearer <token>`.
 //
 // Other code asks two things of an *Auth: Person for who a request is from,
@@ -86,10 +88,8 @@ const (
 	// maxCached bounds the cache. Only live sessions are cached, so it takes
 	// that many signed-in people to reach it; it is then emptied.
 	maxCached = 10_000
-	// sweepEvery is how often a new session removes the expired ones.
-	sweepEvery = time.Hour
-	// sweepGrace keeps an expired row a day before it goes, for whoever looks
-	// at why a person was signed out.
+	// sweepGrace keeps an expired row a day before Sweep removes it, for
+	// whoever looks at why a person was signed out.
 	sweepGrace = 24 * time.Hour
 )
 
@@ -154,8 +154,22 @@ type Auth struct {
 	cache   map[[32]byte]cached
 	gen     uint64
 
-	sweepMu sync.Mutex
-	sweepAt time.Time
+	// minted is the Mini App token each launch got, by its initData's
+	// hash, while the token lasts: the same launch asking again gets the
+	// same token instead of a new row. mintLocks keep two exchanges of one
+	// launch from both making one; a launch takes the lock its hash falls
+	// on.
+	mintMu    sync.Mutex
+	minted    map[[32]byte]mintedToken
+	mintLocks [64]sync.Mutex
+}
+
+// mintedToken is a Mini App token kept for the launch it was made for.
+type mintedToken struct {
+	secret  string
+	hash    [32]byte
+	user    int64
+	expires time.Time
 }
 
 type cached struct {
@@ -186,6 +200,7 @@ func New(cfg Config) (*Auth, error) {
 		log:          cfg.Log,
 		now:          cfg.Now,
 		cache:        map[[32]byte]cached{},
+		minted:       map[[32]byte]mintedToken{},
 	}
 	if a.issuer == "" {
 		a.issuer = DefaultIssuer
@@ -452,56 +467,102 @@ func (a *Auth) ForgetAll() {
 }
 
 // forget drops one session from the cache; forgetUser drops a person's.
+// A Mini App token kept for its launch goes with its session, so the launch
+// asking again gets a new one, and a token that ended stays ended.
 func (a *Auth) forget(hash [32]byte) {
 	a.cacheMu.Lock()
-	defer a.cacheMu.Unlock()
 	a.gen++
 	delete(a.cache, hash)
+	a.cacheMu.Unlock()
+	a.unmint(func(t mintedToken) bool { return t.hash == hash })
 }
 
 func (a *Auth) forgetUser(userID int64) {
 	a.cacheMu.Lock()
-	defer a.cacheMu.Unlock()
 	a.gen++
 	for h, e := range a.cache {
 		if e.user == userID {
 			delete(a.cache, h)
 		}
 	}
+	a.cacheMu.Unlock()
+	a.unmint(func(t mintedToken) bool { return t.user == userID })
+}
+
+// mintedFor returns the token kept for a Mini App launch, if it is still
+// worth giving out: its session is live and has at least minTokenLife left.
+// One that is not is dropped.
+func (a *Auth) mintedFor(ctx context.Context, launch [32]byte, userID int64) (mintedToken, bool) {
+	a.mintMu.Lock()
+	t, ok := a.minted[launch]
+	a.mintMu.Unlock()
+	if !ok {
+		return mintedToken{}, false
+	}
+	if t.user == userID && t.expires.Sub(a.now()) >= minTokenLife {
+		if e, live, err := a.find(ctx, KindMiniApp, t.hash); err == nil && live && e.user == userID {
+			return t, true
+		}
+	}
+	a.mintMu.Lock()
+	if a.minted[launch] == t {
+		delete(a.minted, launch)
+	}
+	a.mintMu.Unlock()
+	return mintedToken{}, false
+}
+
+// mint keeps the token made for a Mini App launch. The map holds a token
+// per launch of the last hour; past maxCached the ended ones go, and if that
+// is not enough, all of them, which costs a row per launch asking again.
+func (a *Auth) mint(launch [32]byte, t mintedToken) {
+	now := a.now()
+	a.mintMu.Lock()
+	defer a.mintMu.Unlock()
+	if len(a.minted) >= maxCached {
+		for k, m := range a.minted {
+			if !now.Before(m.expires) {
+				delete(a.minted, k)
+			}
+		}
+		if len(a.minted) >= maxCached {
+			clear(a.minted)
+		}
+	}
+	a.minted[launch] = t
+}
+
+func (a *Auth) unmint(match func(mintedToken) bool) {
+	a.mintMu.Lock()
+	defer a.mintMu.Unlock()
+	for k, t := range a.minted {
+		if match(t) {
+			delete(a.minted, k)
+		}
+	}
 }
 
 // newSession stores a session for the person that ends at expires and
-// returns the secret that opens it, which is the only copy there will ever
-// be.
-func (a *Auth) newSession(ctx context.Context, userID int64, kind Kind, expires time.Time) (secret string, err error) {
-	secret, hash, err := newToken()
+// returns the secret that opens it, with its hash. The site's secret lives
+// only in the cookie; a Mini App's is also kept for its launch while it
+// lasts (mint).
+func (a *Auth) newSession(ctx context.Context, userID int64, kind Kind, expires time.Time) (secret string, hash [32]byte, err error) {
+	secret, hash, err = newToken()
 	if err != nil {
-		return "", err
+		return "", hash, err
 	}
-	now := a.now()
-	if err := a.sessions.Create(ctx, Session{Hash: hash, UserID: userID, Kind: kind, Created: now, Expires: expires}); err != nil {
-		return "", err
+	if err := a.sessions.Create(ctx, Session{Hash: hash, UserID: userID, Kind: kind, Created: a.now(), Expires: expires}); err != nil {
+		return "", hash, err
 	}
-	a.sweep(ctx, now)
-	return secret, nil
+	return secret, hash, nil
 }
 
-// sweep removes expired sessions, at most once an hour and only when someone
-// signs in, so there is no goroutine to stop. A row that has expired is never
-// accepted, so a failed sweep costs nothing.
-func (a *Auth) sweep(ctx context.Context, now time.Time) {
-	a.sweepMu.Lock()
-	due := !now.Before(a.sweepAt)
-	if due {
-		a.sweepAt = now.Add(sweepEvery)
-	}
-	a.sweepMu.Unlock()
-	if !due {
-		return
-	}
-	if _, err := a.sessions.DeleteExpired(ctx, now.Add(-sweepGrace)); err != nil {
-		a.log.Warn("sweep expired sessions", "error", err)
-	}
+// Sweep removes the sessions and tokens that expired more than sweepGrace
+// ago, and says how many. A row that has expired is never accepted, so this
+// only keeps the table small; the service calls it at start and every hour
+// on the stack that keeps the shared tables.
+func (a *Auth) Sweep(ctx context.Context) (int64, error) {
+	return a.sessions.DeleteExpired(ctx, a.now().Add(-sweepGrace))
 }
 
 // newToken makes a secret of 256 random bits and its hash. The secret is

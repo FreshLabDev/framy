@@ -46,6 +46,10 @@ type InitData struct {
 	// StartParam is the signed startapp value of the link that opened the Mini
 	// App, if any.
 	StartParam string
+	// Hash is the signature Telegram made of this launch. It names the
+	// launch: the same initData sent again, however its fields are ordered
+	// or escaped, has the same Hash.
+	Hash [32]byte
 }
 
 // Verifier checks the initData of a Mini App against the bot's token, the way
@@ -113,7 +117,7 @@ func (v *Verifier) Verify(raw string) (InitData, error) {
 		URL string `json:"photo_url"`
 	}
 	_ = json.Unmarshal([]byte(values.Get("user")), &photo)
-	return InitData{User: user, PhotoURL: photo.URL, AuthDate: authDate, StartParam: values.Get("start_param")}, nil
+	return InitData{User: user, PhotoURL: photo.URL, AuthDate: authDate, StartParam: values.Get("start_param"), Hash: [32]byte(got)}, nil
 }
 
 func hmacSHA256(key, msg []byte) []byte {

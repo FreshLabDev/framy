@@ -122,8 +122,8 @@ func (r R2) Enabled() bool { return r.AccessKeyID != "" }
 var stackPattern = regexp.MustCompile(`^[a-z][a-z0-9]{0,15}$`)
 
 // Primary: this process is production, which runs the upkeep of the shared
-// tables (the catalog, the rates, the uploads no job took, the thumbnails)
-// and tells the operator chat.
+// tables (the catalog, the rates, the uploads no job took, the thumbnails,
+// the expired sessions) and tells the operator chat.
 func (c Config) Primary() bool { return c.Stack == "" }
 
 func Load() (Config, error) {
