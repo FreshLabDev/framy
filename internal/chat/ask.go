@@ -144,10 +144,13 @@ func (f *Flow) plain(ctx context.Context, m *tg.Message) error {
 
 // ownSources leaves out what a message answers when that is framy's own
 // message and not a result: a reply to a preview, a question or a panel
-// takes none of its pictures, and one to a result changes it.
+// takes none of its pictures, and one to a result changes it. framy sends
+// an album only of results (several of a DM's run, a press of frames from
+// the site), whose run notes its first picture alone, so a reply to any
+// picture of one is a reply to a result.
 func (f *Flow) ownSources(ctx context.Context, m *tg.Message) (*tg.Message, error) {
 	r := m.ReplyToMessage
-	if r == nil || r.From == nil || !r.From.IsBot {
+	if r == nil || !fromBot(r) || r.MediaGroupID != "" {
 		return m, nil
 	}
 	if _, result, err := f.cfg.Store.ResultRun(ctx, m.Chat.ID, r.MessageID); err != nil || result {

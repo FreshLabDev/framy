@@ -369,6 +369,31 @@ func TestAReplyToFramyTakesOnlyAResult(t *testing.T) {
 	}
 }
 
+// framy's albums are results, and their run notes the first picture
+// alone: a reply to any picture of one is about that picture, as a reply
+// to one result is, and asks the same question.
+func TestAReplyToAPictureOfFramysAlbumIsAboutThatPicture(t *testing.T) {
+	bot := &tg.User{ID: 1, IsBot: true}
+	h := dmHarness(t)
+	h.flow.SetAlbums(fakeAlbums{admin: true})
+	h.store.runs[5] = &db.ChatRun{JobID: 5, ChatID: 7, Stage: db.StageDone, ResultMessageID: 8}
+	m := said("now at night")
+	m.ReplyToMessage = &tg.Message{MessageID: 9, Chat: dm, From: bot, MediaGroupID: "framy-album", Photo: []tg.Photo{{FileID: "album-file-1"}}}
+	q := h.ask(t, m)
+	if q == 0 || len(h.store.jobs) != 0 {
+		t.Fatalf("not asked: jobs %d, calls %+v", len(h.store.jobs), h.tg.calls)
+	}
+	if err := h.answer(q, "d:10:i", 7, nil); err != nil {
+		t.Fatal(err)
+	}
+	if job := h.store.jobs[1]; job == nil || len(job.n.Inputs) != 1 {
+		t.Fatalf("job = %+v", job)
+	}
+	if got := h.tg.methods("getFile"); len(got) != 1 || got[0].file != "album-file-1" {
+		t.Fatalf("getFile = %+v", got)
+	}
+}
+
 // Plain is for a person in a DM only.
 func TestPlainIsForADirectChat(t *testing.T) {
 	h := dmHarness(t)

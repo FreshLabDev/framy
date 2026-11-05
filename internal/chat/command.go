@@ -94,7 +94,12 @@ func sourcesOf(m *tg.Message) found {
 	}
 	if r := m.ReplyToMessage; r != nil {
 		if s, ok := mediaOf(r.Photo, r.Document, r.Animation, r.Video, r.VideoNote); ok {
-			s.group = r.MediaGroupID
+			// A reply to one picture of a bot's album is about that picture:
+			// no bot gets another bot's messages, nor its own, so the album
+			// is never noted to be taken whole.
+			if !fromBot(r) {
+				s.group = r.MediaGroupID
+			}
 			return s
 		}
 		return found{}
@@ -105,6 +110,21 @@ func sourcesOf(m *tg.Message) found {
 		}
 	}
 	return found{}
+}
+
+// Telegram names a bot as the sender of a person's message in a group when
+// it hides who sent it: GroupAnonymousBot for an anonymous admin, and
+// Channel_Bot for a message sent on behalf of a channel. framy gets those
+// messages as anyone's, and notes their albums.
+const (
+	groupAnonymousBot = 1087968824
+	channelBot        = 136817688
+)
+
+// fromBot tells whether a bot sent m: no bot gets such a message, another
+// bot's or its own.
+func fromBot(m *tg.Message) bool {
+	return m.From != nil && m.From.IsBot && m.From.ID != groupAnonymousBot && m.From.ID != channelBot
 }
 
 // mediaOf is the picture or the clip among a message's attachments. An

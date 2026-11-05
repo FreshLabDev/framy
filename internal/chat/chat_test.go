@@ -131,6 +131,37 @@ func TestAnAlbumIsTakenWholeWhenFramyIsAnAdmin(t *testing.T) {
 	}
 }
 
+// A reply to one picture of a bot's album is about that picture: framy is
+// never sent the album, so it waits for nothing and says nothing of it.
+// Telegram names a bot as the sender of an anonymous admin's album, or one
+// sent on behalf of a channel, and those framy is sent: they go whole.
+func TestABotsAlbumIsOnePictureAndAPersonsIsWhole(t *testing.T) {
+	items := []db.AlbumItem{{MessageID: 20, Kind: db.AlbumPhoto, FileID: "pa"}, {MessageID: 21, Kind: db.AlbumPhoto, FileID: "pb"}, {MessageID: 22, Kind: db.AlbumPhoto, FileID: "pc"}}
+	for _, c := range []struct {
+		name   string
+		sender tg.User
+		taken  int
+	}{
+		{"a bot", tg.User{ID: 5, IsBot: true, Username: "some_bot"}, 1},
+		{"an anonymous admin", tg.User{ID: 1087968824, IsBot: true, Username: "GroupAnonymousBot"}, 3},
+		{"a channel", tg.User{ID: 136817688, IsBot: true, Username: "Channel_Bot"}, 3},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.flow.SetAlbums(fakeAlbums{items: items})
+			m := photoReply("/img one style")
+			m.ReplyToMessage.MediaGroupID, m.ReplyToMessage.From = "g1", &c.sender
+			if err := h.command(m, CommandImage, "one style"); err != nil {
+				t.Fatal(err)
+			}
+			run, _ := h.store.ChatRun(context.Background(), 1)
+			if run.Taken != c.taken || (c.taken == 1) != (run.Note == "") {
+				t.Fatalf("run = %+v", run)
+			}
+		})
+	}
+}
+
 // An album of pictures sent as files, uncompressed, is taken whole as well:
 // the cache notes each as a photo.
 func TestAnAlbumOfFilesIsTakenWhole(t *testing.T) {

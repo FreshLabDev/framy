@@ -298,7 +298,8 @@ func (f *Flow) deliver(ctx context.Context, run db.ChatRun) {
 // the first, and the loop goes: an album cannot take the loop's place. An
 // album takes no keyboard either, so there is no Animate, Again or Original
 // under it, as under a press of frames from the site. The run keeps the
-// first picture as its message.
+// first picture as its message; a reply to any of them changes that one
+// (ownSources).
 func (f *Flow) deliverAlbum(ctx context.Context, run db.ChatRun, results []storage.Asset) {
 	caption := resultCaption(run.Prompt, run.Model)
 	var (
