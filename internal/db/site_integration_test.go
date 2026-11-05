@@ -175,6 +175,12 @@ func TestAPressComesWholeAfterItsLastJob(t *testing.T) {
 	pressJobOf(t, store, user, "p-old", []int32{1}, "done", 70*time.Minute)
 	kept := pressJobOf(t, store, user, "p-failed", []int32{0}, "done", 3*time.Minute)
 	pressJobOf(t, store, user, "p-failed", []int32{1}, "failed", time.Minute)
+	// Presses that took longer than an hour: every frame comes, the first
+	// ended long before the last, done or failed.
+	longFirst := pressJobOf(t, store, user, "p-long", []int32{0}, "done", 3*time.Hour)
+	longLast := pressJobOf(t, store, user, "p-long", []int32{1}, "done", 20*time.Minute)
+	longDone := pressJobOf(t, store, user, "p-long-failed", []int32{0}, "done", 4*time.Hour)
+	pressJobOf(t, store, user, "p-long-failed", []int32{1}, "failed", 30*time.Second)
 	gone := pressJobOf(t, store, user, "p-deleted", []int32{0}, "done", 4*time.Minute)
 	deleted := pressJobOf(t, store, user, "p-deleted", []int32{1}, "running", 0)
 	if _, err := store.pool.Exec(ctx, `UPDATE job SET deleted_at = now() WHERE id = $1`, deleted); err != nil {
@@ -199,17 +205,18 @@ func TestAPressComesWholeAfterItsLastJob(t *testing.T) {
 		}
 		return ids
 	}
-	// The press p-now waits for its slow job; p-slow comes whole, by its
-	// last end; p-old ended over an hour ago; a failed or deleted job holds
-	// nothing back, and p-failed comes when its failed job ended.
-	if got, want := listed(), []int64{early, late, gone, alone, kept}; !reflect.DeepEqual(got, want) {
+	// The press p-now waits for its slow job; p-slow and p-long come whole,
+	// by their last end; p-old ended over an hour ago; a failed or deleted
+	// job holds nothing back, and p-failed and p-long-failed come when their
+	// failed job ended.
+	if got, want := listed(), []int64{longFirst, longLast, early, late, gone, alone, kept, longDone}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("listed %v, want %v", got, want)
 	}
 
 	if _, err := store.pool.Exec(ctx, `UPDATE job SET status = 'done', finished_at = now() WHERE id = $1`, slow); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := listed(), []int64{early, late, gone, alone, kept, first, slow}; !reflect.DeepEqual(got, want) {
+	if got, want := listed(), []int64{longFirst, longLast, early, late, gone, alone, kept, longDone, first, slow}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("listed %v, want %v", got, want)
 	}
 }
