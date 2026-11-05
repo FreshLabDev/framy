@@ -231,10 +231,11 @@ type Flow struct {
 	busyMu sync.Mutex
 	busy   map[int64]int
 	// made is when a button of a result or an error card last made a draft,
-	// so a second tap makes no second one.
-	made sync.Map // "<job>:<action>" → time.Time
-	// originals are the results whose file went out, once each.
-	originals sync.Map // job id → struct{}
+	// so a second tap makes no second one; kept for tapAgain.
+	made marks // "<job>:<action>"
+	// originals are the results whose file went out, once each; kept for
+	// originalOnce.
+	originals marks // job id
 	// drafting are the keys of the commands being worked (claim).
 	drafting sync.Map // dedupe key → struct{}
 	// asks are the plain messages of a DM waiting for their answer, by the
@@ -473,6 +474,53 @@ func (f *Flow) Callback(ctx context.Context, cq *tg.CallbackQuery) {
 type runLock struct {
 	mu   sync.Mutex
 	refs int
+}
+
+// marks remember when something was done, for as long as that matters
+// (keep), and forget it after: every mark ever made would stay in memory
+// until a restart otherwise.
+type marks struct {
+	mu    sync.Mutex
+	at    map[string]time.Time
+	swept time.Time
+}
+
+// put marks key as done at now, unless it is marked within keep already,
+// and tells whether it marked it.
+func (m *marks) put(key string, now time.Time, keep time.Duration) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.at == nil {
+		m.at = map[string]time.Time{}
+	}
+	if at, ok := m.at[key]; ok && now.Sub(at) < keep {
+		return false
+	}
+	m.at[key] = now
+	if now.Sub(m.swept) >= keep {
+		for k, at := range m.at {
+			if now.Sub(at) >= keep {
+				delete(m.at, k)
+			}
+		}
+		m.swept = now
+	}
+	return true
+}
+
+// within tells whether key was marked less than keep before now.
+func (m *marks) within(key string, now time.Time, keep time.Duration) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	at, ok := m.at[key]
+	return ok && now.Sub(at) < keep
+}
+
+// drop forgets key.
+func (m *marks) drop(key string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.at, key)
 }
 
 // lock holds the run's mutex, and returns what lets it go.

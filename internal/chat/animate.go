@@ -27,13 +27,12 @@ const tapAgain = 5 * time.Second
 
 // tapped tells whether the button made a draft a moment ago.
 func (f *Flow) tapped(jobID int64, action string) bool {
-	at, ok := f.made.Load(strconv.FormatInt(jobID, 10) + ":" + action)
-	return ok && f.now().Sub(at.(time.Time)) < tapAgain
+	return f.made.within(strconv.FormatInt(jobID, 10)+":"+action, f.now(), tapAgain)
 }
 
 // madeBy notes that the button made a draft.
 func (f *Flow) madeBy(jobID int64, action string) {
-	f.made.Store(strconv.FormatInt(jobID, 10)+":"+action, f.now())
+	f.made.put(strconv.FormatInt(jobID, 10)+":"+action, f.now(), tapAgain)
 }
 
 // resultKeyboard are the buttons under a result a: Animate under a picture

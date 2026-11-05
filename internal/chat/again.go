@@ -6,7 +6,9 @@ import (
 	"errors"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/FreshLabDev/tg"
 
@@ -25,6 +27,11 @@ import (
 // the person's key past it (another provider's key runs a model of its own,
 // see keyEntry), and a run on the key needs the key still there.
 // Nothing runs until Generate, so the preview shows the price first.
+
+// originalOnce is how long a result's file goes out once: a second press
+// of Original, from a keyboard Telegram had not changed yet, sends nothing
+// within it.
+const originalOnce = time.Hour
 
 // soundSetting is the setting that has a video model make its sound.
 const soundSetting = "generate_audio"
@@ -163,7 +170,8 @@ func (f *Flow) original(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRu
 		return answer()
 	}
 	a := results[0]
-	if _, sent := f.originals.LoadOrStore(run.JobID, struct{}{}); sent {
+	key := strconv.FormatInt(run.JobID, 10)
+	if !f.originals.put(key, f.now(), originalOnce) {
 		return answer()
 	}
 	_ = answer()
@@ -174,7 +182,7 @@ func (f *Flow) original(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRu
 	if _, err := f.withResult(ctx, a, func(file tg.InputFile) (tg.Message, error) {
 		return f.cfg.Telegram.SendDocument(ctx, run.ChatID, file, opts)
 	}); err != nil {
-		f.originals.Delete(run.JobID)
+		f.originals.drop(key)
 		return err
 	}
 	kb := resultKeyboard(run.Lang, run.JobID, a, fromChat(run), false)
