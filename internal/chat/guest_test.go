@@ -4,6 +4,7 @@ package chat
 import (
 	"context"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -314,8 +315,9 @@ func TestAGuestVideoTooBigToFetchStaysInTheHistory(t *testing.T) {
 }
 
 // What a guest message cannot start gets one text answer: no prompt, a
-// video, the free tier used up without a key. A replayed message, and one
-// with no https site to fetch from, get none.
+// video, the free tier used up without a key, no https site to fetch the
+// pictures from, with the way to the direct chat. A replayed message gets
+// none. Before, a guest message with no site was met with silence.
 func TestWhatAGuestMessageCannotStartIsSaidOnce(t *testing.T) {
 	text := func(h *harness) string {
 		t.Helper()
@@ -355,9 +357,42 @@ func TestWhatAGuestMessageCannotStartIsSaidOnce(t *testing.T) {
 	}
 
 	h = guestHarness(t)
-	h.flow.cfg.AppURL = ""
-	if err := h.flow.guest(ctx, guestReply("gq-1"), "make it snow"); err != nil || len(h.tg.calls) != 0 {
-		t.Errorf("no site: %v, %+v", err, h.tg.calls)
+	h.flow.cfg.AppURL, h.flow.cfg.Username = "", "framytest_bot"
+	if err := h.flow.guest(ctx, guestReply("gq-1"), "make it snow"); err != nil || text(h) != i18n.T("en", "guest.unavailable") || len(h.store.jobs) != 0 {
+		t.Errorf("no site: %v, %d jobs", err, len(h.store.jobs))
+	}
+	a := h.tg.guestAnswers[0].(tg.InlineQueryResultArticle)
+	if kb := buttons(a.ReplyMarkup); !reflect.DeepEqual(kb, [][]string{{"url:https://t.me/framytest_bot"}}) {
+		t.Errorf("no site: buttons %v", kb)
+	}
+}
+
+// An answer whose run could not be told its inline message would have
+// buttons no press finds a run by. A database hiccup is tried again; one
+// that lasts turns the answer into the failure, with no buttons, and leaves
+// no run to follow.
+func TestAGuestAnswerNotLinkedToItsRunLosesItsButtons(t *testing.T) {
+	linkWaits = []time.Duration{0, 0}
+	t.Cleanup(func() { linkWaits = []time.Duration{50 * time.Millisecond, 250 * time.Millisecond} })
+
+	h := guestHarness(t)
+	h.store.inlineErrs = 2
+	run := h.guestRun(t, "make it snow")
+	if run.InlineMessageID != "inline-gq-1" || run.Stage != db.StagePreview {
+		t.Fatalf("a hiccup lost the run: %+v", run)
+	}
+
+	h = guestHarness(t)
+	h.store.inlineErrs = 3
+	if err := h.flow.guest(context.Background(), guestReply("gq-1"), "make it snow"); err == nil {
+		t.Fatal("no error")
+	}
+	edits := h.tg.methods("editInlineMessageText")
+	if len(edits) != 1 || edits[0].inline != "inline-gq-1" || edits[0].text != i18n.T("en", "run.failed") || edits[0].markup != nil {
+		t.Fatalf("the answer was left %+v", edits)
+	}
+	if h.store.jobs[1].status != jobs.Cancelled || h.store.stage(1) != db.StageGone {
+		t.Fatalf("job %s, run %s", h.store.jobs[1].status, h.store.stage(1))
 	}
 }
 

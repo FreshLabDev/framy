@@ -953,6 +953,24 @@
     "ja": "停止しました。",
     "ar": "تم الإيقاف."
   },
+  "guest.unavailable": {
+    "en": "framy can’t answer here right now. Send the same to framy in a direct chat.",
+    "ru": "Здесь framy сейчас не может ответить. Отправь то же самое framy в личный чат.",
+    "uk": "Тут framy зараз не може відповісти. Надішли те саме framy в особистий чат.",
+    "es": "Aquí framy no puede responder ahora. Envíale lo mismo a framy por chat privado.",
+    "fr": "Ici, framy ne peut pas répondre pour le moment. Envoie la même chose à framy en message privé.",
+    "de": "Hier kann framy gerade nicht antworten. Schick dasselbe framy im Direktchat.",
+    "it": "Qui framy non può rispondere in questo momento. Invia lo stesso a framy in chat privata.",
+    "pl": "Tutaj framy nie może teraz odpowiedzieć. Wyślij to samo framy na czacie prywatnym.",
+    "cs": "Tady framy teď nemůže odpovědět. Pošli totéž framy do soukromého chatu.",
+    "tr": "framy şu anda burada yanıt veremiyor. Aynısını framy’ye özel sohbetten gönder.",
+    "sv": "Här kan framy inte svara just nu. Skicka samma sak till framy i en privat chatt.",
+    "be": "Тут framy зараз не можа адказаць. Дашлі тое ж самае framy ў асабісты чат.",
+    "ca": "Aquí framy no pot respondre ara mateix. Envia el mateix a framy en un xat privat.",
+    "zh": "framy 现在无法在这里回复。请在私聊中把同样的内容发给 framy。",
+    "ja": "framy は今ここでは返信できません。同じ内容を framy との個別チャットに送ってください。",
+    "ar": "لا يستطيع framy الرد هنا الآن. أرسل الشيء نفسه إلى framy في محادثة خاصة."
+  },
   "guest.video": {
     "en": "Here framy works with pictures. To change a video, send it to framy in a direct chat.",
     "ru": "Здесь framy работает с картинками. Чтобы изменить видео, отправь его framy в личный чат.",

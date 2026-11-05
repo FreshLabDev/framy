@@ -547,8 +547,10 @@ type fakeStore struct {
 	previewErr error
 	// settings are each person's settings of the site, by user id.
 	settings map[int64]db.Settings
-	// finishErr fails the next FinishChatRun, as a database hiccup would.
-	finishErr error
+	// finishErr fails the next FinishChatRun, as a database hiccup would;
+	// inlineErrs fail as many SetChatRunInline.
+	finishErr  error
+	inlineErrs int
 }
 
 func (s *fakeStore) Settings(_ context.Context, userID int64) (db.Settings, error) {
@@ -829,6 +831,10 @@ func (s *fakeStore) SetChatRunPreview(_ context.Context, jobID, messageID int64,
 func (s *fakeStore) SetChatRunInline(_ context.Context, jobID int64, inlineMessageID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.inlineErrs > 0 {
+		s.inlineErrs--
+		return errBoom
+	}
 	if r, ok := s.runs[jobID]; ok {
 		r.InlineMessageID = inlineMessageID
 	}

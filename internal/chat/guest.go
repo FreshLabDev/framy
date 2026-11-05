@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/FreshLabDev/tg"
 
@@ -68,9 +69,16 @@ func (f *Flow) guest(ctx context.Context, m *tg.Message, prompt string) error {
 	}
 	lang := f.langOf(ctx, m)
 	if f.cfg.AppURL == "" {
-		// Telegram fetches every picture of the run from the site.
+		// Telegram fetches every picture of the run from the site, so no run
+		// can be shown here; the direct chat needs none.
 		f.log.Warn("a guest message with no https site to show it from")
-		return nil
+		var kb *tg.InlineKeyboardMarkup
+		if f.cfg.Username != "" {
+			kb = &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{{
+				{Text: t(lang, "btn.open"), URL: "https://t.me/" + f.cfg.Username, Style: tg.StylePrimary},
+			}}}
+		}
+		return f.guestAnswer(ctx, m, t(lang, "guest.unavailable"), kb)
 	}
 	if prompt == "" {
 		return f.guestText(ctx, m, t(lang, "guest.empty"))
@@ -123,12 +131,40 @@ func (f *Flow) guest(ctx context.Context, m *tg.Message, prompt string) error {
 		}
 		return fmt.Errorf("answer the guest message: %w", err)
 	}
-	if err := f.cfg.Store.SetChatRunInline(ctx, d.id, sent.InlineMessageID); err != nil {
-		// Nothing can reach the answer now; the draft expires.
+	if err := f.linkGuest(ctx, d.id, sent.InlineMessageID); err != nil {
+		// The presses on the answer find their run by this id, and none
+		// can now: the answer says it failed and loses its buttons, rather
+		// than keep buttons that do nothing.
 		f.cancel(ctx, d.id)
+		if _, merr := f.cfg.Store.MoveChatRun(ctx, d.id, db.StagePreview, db.StageGone); merr != nil {
+			f.log.Warn("unlinked guest run not closed", "job", d.id, "error", merr)
+		}
+		if eerr := f.cfg.Telegram.EditInlineMessageTextWithPreview(context.WithoutCancel(ctx), sent.InlineMessageID, t(lang, "run.failed"), nil, nil); eerr != nil {
+			f.log.Warn("unlinked guest answer left with its buttons", "job", d.id, "error", eerr)
+		}
 		return err
 	}
 	return nil
+}
+
+// linkWaits are the waits before the tries again of linkGuest.
+var linkWaits = []time.Duration{50 * time.Millisecond, 250 * time.Millisecond}
+
+// linkGuest records the inline message of a guest run's answer, which its
+// presses find the run by. The answer is out already, so a database hiccup
+// is tried again, and a stop does not cut the record short.
+func (f *Flow) linkGuest(ctx context.Context, jobID int64, inlineMessageID string) error {
+	ctx = context.WithoutCancel(ctx)
+	err := f.cfg.Store.SetChatRunInline(ctx, jobID, inlineMessageID)
+	for _, wait := range linkWaits {
+		if err == nil {
+			return nil
+		}
+		f.log.Warn("guest answer not linked to its run; trying again", "job", jobID, "error", err)
+		time.Sleep(wait)
+		err = f.cfg.Store.SetChatRunInline(ctx, jobID, inlineMessageID)
+	}
+	return err
 }
 
 // guestSources is what a guest message works on, as sourcesOf reads a
