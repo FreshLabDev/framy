@@ -936,6 +936,52 @@ func TestBrowserJoined(t *testing.T) {
 	noErrors(t, ctx)
 }
 
+// TestBrowserResultStays checks a result on the stage is drawn once: the end
+// of the run reads the account again, and a new state of the account (the
+// settings opened, the page back from another tab) leaves the picture, the
+// video and the frames of a press as they were, a video with its sound on.
+func TestBrowserResultStays(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	let mes = 0;
+	addEventListener("framy:me", () => mes++);
+	const out = {};
+	await press("done", (s) => s.done);
+	document.querySelector("#stage .jbox img").__mark = 1;
+	for (let i = 0; i < 30 && !mes; i++) await wait(100);
+	out.ended = [mes > 0, document.querySelector("#stage .jbox img")?.__mark === 1];
+	window.dispatchEvent(new Event("framy:me"));
+	out.me = document.querySelector("#stage .jbox img")?.__mark === 1;
+
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(700);
+	mes = 0;
+	await press("done:video", () => document.querySelector("#stage .player video"));
+	document.querySelector("#stage .player video").__mark = 1;
+	document.querySelector("#stage .player [aria-label='Sound on']").click();
+	for (let i = 0; i < 30 && !mes; i++) await wait(100);
+	window.dispatchEvent(new Event("framy:me"));
+	const v = document.querySelector("#stage .player video");
+	out.video = [mes > 0, v?.__mark === 1, v?.muted];
+
+	document.querySelectorAll("#kind > button")[0].click();
+	await wait(700);
+	document.querySelector("#stage .addf").click(); await wait(500);
+	mes = 0;
+	await press("frames:done,done", () => document.querySelectorAll("#stage .jbox.cell.done img").length === 2);
+	document.querySelectorAll("#stage .jbox.cell.done img").forEach((e) => { e.__mark = 1; });
+	for (let i = 0; i < 30 && !mes; i++) await wait(100);
+	window.dispatchEvent(new Event("framy:me"));
+	out.press = [mes > 0, [...document.querySelectorAll("#stage .jbox.cell.done img")].map((e) => e.__mark === 1).join(",")];
+	return out;`)
+	if fmt.Sprint(s["ended"]) != "[true true]" || s["me"] != true || fmt.Sprint(s["video"]) != "[true true false]" || fmt.Sprint(s["press"]) != "[true true,true]" {
+		t.Errorf("the result drawn again: %v", s)
+	}
+	noErrors(t, ctx)
+}
+
 // TestBrowserPlayer checks the site's own player on a joined clip, on a wide
 // screen and a phone: no browser controls, the bar cut into the clip's parts
 // by their length, the part under a press lit with the time there, the sound,

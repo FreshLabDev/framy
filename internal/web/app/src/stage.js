@@ -96,7 +96,19 @@ export function stageFrom() { return snap($("#stage"), CELLS); }
 // A run has ended: refused, stopped before the job, or every job of it final.
 export const runOver = (run) => !!run && (run.phase === "refused" || run.phase === "cancelled" || (run.phase === "job" && jobsOf(run).every((j) => isFinal(j.status))));
 
+/* A result on the stage stays the same element while the stage is drawn
+   again, as it is for a new state of the account (the free counts after a
+   run, the settings opened, the page back from another tab): a video goes on
+   where it was, paused, sought or with its sound, and a picture is not loaded
+   and shown again. Only what the stage draws now is kept. */
+let kept = new Map(), keeping = new Map();
+const keepMedia = (key, make) => { const el = kept.get(key) || make(); keeping.set(key, el); return el; };
+
 export function renderStage() {
+  keeping = new Map();
+  try { drawStage(); } finally { kept = keeping; }
+}
+function drawStage() {
   const st = $("#stage");
   if (!st) return;
   const run = S.run;
@@ -360,8 +372,11 @@ function runCell(run, c, mixed, items) {
   let media = null;
   if (v.done) {
     const res = v.res, vid = res.content_type?.startsWith("video/");
-    media = vid ? h("video", { src: res.url, poster: res.thumb?.url || null, loop: true, playsinline: true, autoplay: true, preload: "auto" }) : h("img", { src: res.url, alt: run.prompt || "", decoding: "async" });
-    if (vid) media.muted = true;
+    media = keepMedia(`p${run.n}-${i}-${res.id}`, () => {
+      const el = vid ? h("video", { src: res.url, poster: res.thumb?.url || null, loop: true, playsinline: true, autoplay: true, preload: "auto" }) : h("img", { src: res.url, alt: run.prompt || "", decoding: "async" });
+      if (vid) el.muted = true;
+      return el;
+    });
   }
   if (going && run.net === "lost" && v.status) {
     const lost = h("small", { class: "lost" }, t("net.lost_line")), sub2 = v.status.querySelector("small");
@@ -428,9 +443,12 @@ function renderRun(st, run) {
   let media = null;
   if (v.done) {
     const res = v.res;
-    media = res.content_type?.startsWith("video/") ? player(res) : h("img", { src: res.url, alt: run.prompt || "", decoding: "async" });
-    const pic = media.tagName === "IMG" ? media : media.querySelector("video");
-    pic.addEventListener(media === pic ? "load" : "loadeddata", () => anim(pic, [{ opacity: 0 }, { opacity: 1 }], { duration: 420 }), { once: true });
+    media = keepMedia(`r${run.n}-${res.id}`, () => {
+      const el = res.content_type?.startsWith("video/") ? player(res) : h("img", { src: res.url, alt: run.prompt || "", decoding: "async" });
+      const pic = el.tagName === "IMG" ? el : el.querySelector("video");
+      pic.addEventListener(el === pic ? "load" : "loadeddata", () => anim(pic, [{ opacity: 0 }, { opacity: 1 }], { duration: 420 }), { once: true });
+      return el;
+    });
   }
   // While the page cannot reach framy, the frame says so; it hears again by itself.
   const going = run.phase === "job" && !isFinal(j.status);
