@@ -22,11 +22,12 @@ import (
 // start, and True-Client-IP is an Enterprise header.
 //
 // What makes this safe is the network, not the header: the port is reachable
-// only from cloudflared's Docker network, and TRUSTED_PROXIES names that
-// network. If the list is empty, or the port is published to the host and the
-// userland proxy makes every visitor look like the Docker gateway, the worst
-// case is that everyone shares one bucket, never that someone can pick their
-// own address.
+// only over the container's Docker networks, and TRUSTED_PROXIES names
+// cloudflared's own address there. A network's whole range would trust
+// every other container on it, and a shared network holds many. If the list
+// is empty, or the port is published to the host and the userland proxy
+// makes every visitor look like the Docker gateway, the worst case is that
+// everyone shares one bucket, never that someone can pick their own address.
 
 type clientKey struct{}
 

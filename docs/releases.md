@@ -237,8 +237,8 @@ stays in `.env` while a rollback to it may be wanted.
 | Backups | The host's daily `ws04-backup`: `pg_dumpall` of `core-postgres`, which holds the `framy` schema, and a copy of `/opt/stacks`, both in restic on Google Drive. The KEK must stay out of it: the copy of `/opt/stacks` has to leave out `secrets/kek` of `framy` and `framy-test` and any copy of it beside them, and the KEK's own copy is kept apart (docs/design.md, Backups). On 6 November it does not leave them out yet. A restore of the schema has not been tried yet (#28) |
 | Database | core migration `019_framy.sql` applied; `secrets/database-url` holds framy_core's URL, with the password `FRAMY_CORE_PASSWORD` of core's `.env`. It is a file, not a variable, so `docker inspect` does not show it |
 | Test bot | `framy-test` (`deploy/ws04-test/compose.yaml`) on the same schema with `FRAMY_STACK=test`, the same KEK and the same R2 bucket; it applies the migrations of `dev` before production does, so they are additive (docs/design.md, Stacks) |
-| Ports | `8080` for the tunnel, never published to the host; `9090` for `/metrics`, reachable on the Docker networks only and never routed by the tunnel |
-| Proxies | `TRUSTED_PROXIES` in `.env`: the subnet of the Cloudflare Tunnel network. Without it the rate limits see cloudflared's address instead of the visitor, and the log says so once |
+| Ports | `8080` for the tunnel, never published to the host; `9090` for `/metrics` on `127.0.0.1` inside the container, never on a network |
+| Proxies | `TRUSTED_PROXIES` in `.env`: the address of `cloudflared-ws04-management` on `management`, fixed in the tunnel's own stack (`ipv4_address`; Docker 29.0.4 and newer give one on a network whose subnet was never set, as `management`'s was not), the same in both stacks' `.env`. Not the network's range: every site of the host is on it, and any of them could name a visitor's address. Without it the rate limits see cloudflared's address instead of the visitor, and the log says so once |
 | Outbound | HTTPS to `openrouter.ai` for the hourly catalog sync, which needs no key |
 
 framy talks to the family's own `telegram-bot-api` in `--local` mode. The cloud
@@ -278,6 +278,12 @@ commit, and nothing else: a whole `inspect` prints the environment and the
 mounts too, which is more than a terminal or a transcript should hold. The
 service reports its own version on `/healthz`. The two should agree; if they
 do not, something was deployed by hand.
+
+The metrics answer inside the container only:
+
+```sh
+ws04 container exec framy-bot -- wget -qO- http://127.0.0.1:9090/metrics
+```
 
 ## Verification
 
