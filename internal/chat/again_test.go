@@ -10,9 +10,12 @@ import (
 
 	"github.com/FreshLabDev/tg"
 
+	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/db"
+	"github.com/FreshLabDev/framy/internal/free"
 	"github.com/FreshLabDev/framy/internal/i18n"
 	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/FreshLabDev/framy/internal/keys"
 	"github.com/FreshLabDev/framy/internal/storage"
 )
 
@@ -118,6 +121,39 @@ func TestAgainOnAKeyRunNeedsTheKey(t *testing.T) {
 	}
 	if job := h.store.jobs[2]; job == nil || job.n.Free {
 		t.Fatalf("job = %+v", job)
+	}
+}
+
+// Again on a free run past the free tier, with a key only for another
+// provider than the free model's, goes on a model that key runs, as a
+// command's draft does: the preview shows it and its price before anything
+// runs.
+func TestAgainPastTheFreeTierGoesOnAnotherProvidersKey(t *testing.T) {
+	h := newHarness(t)
+	h.store.models = panelCatalog()
+	if err := h.command(photoReply("/img make it snow"), CommandImage, "make it snow"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.press(1, 7, actGenerate); err != nil {
+		t.Fatal(err)
+	}
+	h.delivered(t, 1, picture)
+	h.flow.cfg.Keys = fakeKeys{conns: []keys.Connection{{Provider: catalog.Gemini, Status: keys.Valid}}}
+	h.queue.refuse = &free.LimitError{Kind: catalog.Image, Limit: 5, Window: free.ImageWindow, FreesAt: clock.Add(time.Hour)}
+	h.tg.reset()
+	if err := h.onResult(1, 7, actAgain, "cq-1"); err != nil {
+		t.Fatal(err)
+	}
+	job := h.store.jobs[2]
+	if job == nil || job.status != jobs.Draft || job.n.Free || job.n.Offer.ID != "gemini:google/nano-banana-pro" || job.n.Estimate == nil {
+		t.Fatalf("job = %+v", job)
+	}
+	sent := h.tg.methods("sendRichMessage")
+	if len(sent) != 1 || !strings.Contains(sent[0].text, "Model: <b>Nano Banana Pro</b>") {
+		t.Fatalf("preview = %+v", sent)
+	}
+	if len(h.tg.answers) != 1 || h.tg.answers[0] != "" {
+		t.Fatalf("answers = %v", h.tg.answers)
 	}
 }
 

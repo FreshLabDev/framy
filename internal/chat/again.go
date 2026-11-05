@@ -21,7 +21,8 @@ import (
 // and its settings, and a preview that replies to the message pressed. In a
 // group the preview goes to the requester alone, as Animate's does. Who
 // pays is asked again: a free run goes free while the tier has a slot and on
-// the person's key past it, and a run on the key needs the key still there.
+// the person's key past it (another provider's key runs a model of its own,
+// see keyEntry), and a run on the key needs the key still there.
 // Nothing runs until Generate, so the preview shows the price first.
 
 // soundSetting is the setting that has a video model make its sound.

@@ -34,7 +34,7 @@ func (f *Flow) toVideo(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun
 		// An album is not one start frame; its preview has no such button.
 		return answer("")
 	}
-	return f.revise(ctx, cq, run, on, model, offer, plan.SettingsFor(run.Taken), true, viewMain)
+	return f.revise(ctx, cq, run, on, model, offer, plan.SettingsFor(run.Taken), true, true, viewMain)
 }
 
 // toImage turns a video from a prompt back into an image, on the free plan
@@ -63,5 +63,5 @@ func (f *Flow) toImage(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun
 		_ = answer("")
 		return fmt.Errorf("the free model %s: %w", plan.Offer, err)
 	}
-	return f.revise(ctx, cq, run, on, model, offer, plan.SettingsFor(len(inputs)), true, viewMain)
+	return f.revise(ctx, cq, run, on, model, offer, plan.SettingsFor(len(inputs)), true, true, viewMain)
 }

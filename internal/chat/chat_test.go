@@ -223,6 +223,67 @@ func TestPastTheFreeTierTheKeyRunsIt(t *testing.T) {
 	}
 }
 
+// Past the free tier a key of another provider than the free model's runs
+// the command on a model it runs: the one the picker suggests first for the
+// run, else the first the list shows. The preview shows it, on that key and
+// at its price, before anything runs.
+func TestPastTheFreeTierAnotherProvidersKeyRunsItsModel(t *testing.T) {
+	limit := &free.LimitError{Kind: catalog.Image, Limit: 5, Window: free.ImageWindow, FreesAt: clock.Add(2 * time.Hour)}
+	for _, c := range []struct {
+		name      string
+		keys      []string
+		suggested string
+		offer     string
+		provider  string
+	}{
+		{"the only model the key runs", []string{catalog.OpenAI}, "", "openai:openai/gpt-image-2.5", "OpenAI"},
+		{"the first the list shows", []string{catalog.OpenAI, catalog.Gemini}, "", "gemini:google/nano-banana-pro", "Google Gemini"},
+		{"the suggested one first", []string{catalog.OpenAI, catalog.Gemini}, "openai/gpt-image-2.5", "openai:openai/gpt-image-2.5", "OpenAI"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.store.models = panelCatalog()
+			for i, m := range h.store.models {
+				if m.ID == c.suggested {
+					h.store.models[i].Traits.Recommend = map[string]int{catalog.ForImage: 1}
+				}
+			}
+			var conns []keys.Connection
+			for _, p := range c.keys {
+				conns = append(conns, keys.Connection{Provider: p, Status: keys.Valid})
+			}
+			h.flow.cfg.Keys = fakeKeys{conns: conns}
+			h.queue.refuse = limit
+			if err := h.command(command("/img a fox"), CommandImage, "a fox"); err != nil {
+				t.Fatal(err)
+			}
+			if got := h.tg.methods("sendMessage"); len(got) != 0 {
+				t.Fatalf("refused: %+v", got)
+			}
+			job := h.store.jobs[1]
+			if job == nil || job.n.Free || job.n.Offer.ID != c.offer || job.n.Estimate == nil {
+				t.Fatalf("job = %+v", job)
+			}
+			card := h.renderer.previews[0]
+			if card.Free || card.Label != i18n.T("en", "card.key", "provider", c.provider) {
+				t.Fatalf("card = %+v", card)
+			}
+		})
+	}
+
+	// With no model a key of theirs runs, the reason stays the answer.
+	h := newHarness(t)
+	h.store.models = panelCatalog()[2:] // without Nano Banana Pro and GPT Image 2.5
+	h.flow.cfg.Keys = fakeKeys{conns: []keys.Connection{{Provider: catalog.OpenAI, Status: keys.Valid}}}
+	h.queue.refuse = limit
+	if err := h.command(command("/img a fox"), CommandImage, "a fox"); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.store.jobs) != 0 || len(h.tg.methods("sendMessage")) != 1 {
+		t.Fatalf("jobs %+v, calls %+v", h.store.jobs, h.tg.calls)
+	}
+}
+
 func TestARefusedKeyDoesNotRunIt(t *testing.T) {
 	h := newHarness(t)
 	h.flow.cfg.Keys = fakeKeys{conns: []keys.Connection{{Provider: catalog.OpenRouter, Status: keys.Invalid}}}

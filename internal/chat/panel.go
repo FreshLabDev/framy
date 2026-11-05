@@ -460,7 +460,7 @@ func (f *Flow) pickModel(ctx context.Context, cq *tg.CallbackQuery, run db.ChatR
 	case p.why != "":
 		return f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, p.why)
 	}
-	return f.revise(ctx, cq, run, on, p.model, p.offer, p.settings, p.free, viewMain)
+	return f.revise(ctx, cq, run, on, p.model, p.offer, p.settings, p.free, false, viewMain)
 }
 
 // carried are the settings that go to another model: those it takes.
@@ -509,13 +509,17 @@ func (f *Flow) pickSetting(ctx context.Context, cq *tg.CallbackQuery, run db.Cha
 		return answer("")
 	}
 	settings[name] = v
-	return f.revise(ctx, cq, run, on, model, offer, settings, false, viewSettings)
+	return f.revise(ctx, cq, run, on, model, offer, settings, false, false, viewSettings)
 }
 
 // revise moves the draft to the offer and settings given, on the free tier
 // when free says so and the tier allows it, on the person's key otherwise,
-// and draws the card again.
-func (f *Flow) revise(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun, on place, model catalog.Model, offer catalog.Offer, settings map[string]any, onFree bool, v view) error {
+// and draws the card again. With anyKey, a free run the tier refuses and no
+// key of the model's provider runs goes on a model of its kind that another
+// key of the person's runs (keyEntry), as a command's would: Make a video
+// and Make an image ask for a kind, not for the free model. A pick of the
+// free model itself is told why it cannot run instead.
+func (f *Flow) revise(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun, on place, model catalog.Model, offer catalog.Offer, settings map[string]any, onFree, anyKey bool, v view) error {
 	inputs, err := f.cfg.Files.JobInputs(ctx, run.JobID)
 	if err != nil {
 		_ = f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, "")
@@ -541,6 +545,21 @@ func (f *Flow) revise(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun,
 		if kerr != nil {
 			_ = f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, "")
 			return kerr
+		}
+		if !has && anyKey {
+			d := draft{model: model, offer: offer, pay: payFree, settings: settings, taken: run.Taken, quote: q}
+			for _, a := range inputs {
+				d.images = append(d.images, price.Image{Width: a.Width, Height: a.Height})
+			}
+			e, ok, kerr := f.keyEntry(ctx, run.UserID, run.Lang, run.Prompt, d)
+			if kerr != nil {
+				_ = f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, "")
+				return kerr
+			}
+			if ok {
+				est = e.estimate
+				n.Offer, n.Settings, has = e.offer, e.settings, true
+			}
 		}
 		if !has {
 			text := closedText(run.Lang, offer.Kind)

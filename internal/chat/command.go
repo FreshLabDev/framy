@@ -460,10 +460,12 @@ func newJob(m *tg.Message, key, prompt string, inputs []int64, d *draft) jobs.Ne
 }
 
 // queueDraft makes the job and puts its id in d. Past the free tier the
-// person's own key runs the same model, at the price the preview shows;
-// without one the reason is the answer, worded for an alert when alert is
-// true and for a message otherwise. A zero id with no refusal is a job the
-// same command made already.
+// person's own key runs the same model, at the price the preview shows. With
+// no key for its provider but one for another, the run goes on a model that
+// key runs (keyEntry), which the preview shows with its price before
+// anything runs. With neither the reason is the answer, worded for an alert
+// when alert is true and for a message otherwise. A zero id with no refusal
+// is a job the same command made already.
 func (f *Flow) queueDraft(ctx context.Context, lang string, n jobs.New, d *draft, alert bool) (string, error) {
 	id, created, err := f.cfg.Queue.Draft(ctx, n)
 	var (
@@ -476,13 +478,21 @@ func (f *Flow) queueDraft(ctx context.Context, lang string, n jobs.New, d *draft
 			return "", kerr
 		}
 		if !has {
+			e, ok, kerr := f.keyEntry(ctx, n.UserID, lang, n.Prompt, *d)
+			if kerr != nil {
+				return "", kerr
+			}
 			switch {
+			case ok:
+				d.model, d.offer, d.settings, d.estimate = e.model, e.offer, e.settings, e.estimate
+				n.Offer, n.Settings, n.Estimate = e.offer, e.settings, &d.estimate
 			case limit != nil && alert:
 				return f.limitText(lang, limit), nil
 			case limit != nil:
 				return f.limitMessage(lang, limit), nil
+			default:
+				return closedText(lang, n.Offer.Kind), nil
 			}
-			return closedText(lang, n.Offer.Kind), nil
 		}
 		// The queue just said no to the free run, whatever the meter said.
 		n.Free, d.pay, d.hasKey, d.freeLeft = false, payKey, true, false
@@ -495,6 +505,43 @@ func (f *Flow) queueDraft(ctx context.Context, lang string, n jobs.New, d *draft
 		d.id = id
 	}
 	return "", nil
+}
+
+// keyEntry is the model a run goes on past the free tier when the person
+// has no key for the free model's provider but has one for another, such as
+// OpenAI or Gemini. It is framy's own pick, as the site's composer opens on
+// one (autoModel in state.js), among the models their keys run: the first
+// the picker suggests for the run, else the first the Model list shows, on
+// the offer, the settings and the price the list would give it. ok is false
+// when no key of theirs runs a model that takes the run, and for an edit of
+// a clip, which keeps its model.
+func (f *Flow) keyEntry(ctx context.Context, user int64, lang, prompt string, d draft) (e entry, ok bool, err error) {
+	l, err := f.listing(ctx, user, lang, prompt, d)
+	if err != nil {
+		return entry{}, false, err
+	}
+	sit := situation(d.taken)
+	if d.video() {
+		sit = catalog.ForVideo
+	}
+	place := func(p entry) int {
+		if at := p.model.Traits.Recommend[sit]; at > 0 {
+			return at
+		}
+		return math.MaxInt
+	}
+	for _, g := range l.groups {
+		for _, p := range g.picks {
+			// A free model is what the free tier just refused.
+			if p.free || !p.key || p.why != "" {
+				continue
+			}
+			if !ok || place(p) < place(e) {
+				e, ok = p, true
+			}
+		}
+	}
+	return e, ok, nil
 }
 
 // clipSlack is how much longer than a run takes a clip may be and still go
