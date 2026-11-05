@@ -366,8 +366,10 @@ func run(log *slog.Logger) error {
 		workers.Go(func() { rates.Run(ctx) })
 	}
 	workers.Go(func() { sweepWork(ctx, work, log) })
+	if cfg.Primary() {
+		workers.Go(func() { sweepUnused(ctx, queue, files, log) })
+	}
 	if files != nil && cfg.Primary() {
-		workers.Go(func() { sweepUploads(ctx, files, log) })
 		workers.Go(func() { fillThumbs(ctx, files, log) })
 	}
 	if keyWatch != nil {
@@ -534,16 +536,24 @@ func openFlow(ctx context.Context, cfg config.Config, client *tg.Client, store *
 	})
 }
 
-// sweepUploads deletes the uploads no job took within storage.UploadTTL:
-// at start and every hour.
-func sweepUploads(ctx context.Context, files *storage.Store, log *slog.Logger) {
+// sweepUnused clears the drafts that ended without running and then
+// deletes the uploads no job takes within storage.UploadTTL, theirs among
+// them: at start and every hour. files is nil without R2.
+func sweepUnused(ctx context.Context, queue *jobs.Queue, files *storage.Store, log *slog.Logger) {
 	tick := time.NewTicker(time.Hour)
 	defer tick.Stop()
 	for {
-		if n, err := files.SweepUploads(ctx, storage.UploadTTL); err != nil {
-			log.Error("sweep uploads no job took", "swept", n, "error", err)
+		if n, err := queue.ClearDrafts(ctx); err != nil {
+			log.Error("clear drafts that never ran", "error", err)
 		} else if n > 0 {
-			log.Info("swept uploads no job took", "count", n)
+			log.Info("cleared drafts that never ran", "count", n)
+		}
+		if files != nil {
+			if n, err := files.SweepUploads(ctx, storage.UploadTTL); err != nil {
+				log.Error("sweep uploads no job took", "swept", n, "error", err)
+			} else if n > 0 {
+				log.Info("swept uploads no job took", "count", n)
+			}
 		}
 		select {
 		case <-ctx.Done():

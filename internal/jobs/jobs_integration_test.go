@@ -839,3 +839,94 @@ func TestAPersonsJobsStartInOrder(t *testing.T) {
 		t.Fatalf("the third job: %s", j.Status)
 	}
 }
+
+// A draft that ended without running keeps nothing of the person's: once
+// its preview is closed, its prompt, settings and chat are cleared and the
+// places of its files go, so the sweep of uploads deletes the files. A
+// draft still open, one whose preview the chat has not closed yet, and a
+// run that was queued stay as they are.
+func TestADraftThatNeverRanLetsItsFilesGo(t *testing.T) {
+	q, pool := testQueue(t, newFake())
+	ctx := context.Background()
+	file := func() int64 {
+		var id int64
+		err := pool.QueryRow(ctx, `
+			INSERT INTO framy.asset (user_id, kind, object_key, content_type, bytes, sha256)
+			VALUES ($1, 'upload', $2, 'image/jpeg', 10, 'x') RETURNING id`, alice, fmt.Sprintf("u/%d/in/%d", alice, time.Now().UnixNano())).Scan(&id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	draft := func(inputs ...int64) int64 {
+		n := job(alice, imageOffer)
+		n.Inputs, n.Settings = inputs, map[string]any{"aspect_ratio": "1:1"}
+		id, _, err := q.Draft(ctx, n)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	preview := func(id int64, stage string) {
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO framy.chat_run (job_id, chat_id, command_message_id, lang, stage) VALUES ($1, $2, 1, 'en', $3)`, id, alice, stage); err != nil {
+			t.Fatal(err)
+		}
+	}
+	shared := file()
+	closed, open, stale, live := draft(file(), shared), draft(file()), draft(file()), draft(file())
+	n := job(alice, imageOffer)
+	n.Inputs = []int64{shared}
+	ran := enqueue(t, q, n)
+	for _, id := range []int64{closed, open, stale, ran} {
+		if err := q.Cancel(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	preview(closed, "gone")
+	preview(open, "preview")
+	preview(stale, "preview")
+	preview(live, "preview")
+	if _, err := pool.Exec(ctx, `UPDATE framy.job SET finished_at = now() - interval '3 days' WHERE id = $1`, stale); err != nil {
+		t.Fatal(err)
+	}
+
+	if n, err := q.ClearDrafts(ctx); err != nil || n != 2 {
+		t.Fatalf("cleared %d: %v", n, err)
+	}
+	type row struct {
+		deleted       bool
+		prompt        string
+		inputs, runs  int
+		settingsEmpty bool
+	}
+	read := func(id int64) row {
+		t.Helper()
+		var r row
+		if err := pool.QueryRow(ctx, `
+			SELECT deleted_at IS NOT NULL, prompt, settings = '{}',
+			       (SELECT count(*) FROM framy.job_input WHERE job_id = j.id), (SELECT count(*) FROM framy.chat_run WHERE job_id = j.id)
+			FROM framy.job j WHERE id = $1`, id).Scan(&r.deleted, &r.prompt, &r.settingsEmpty, &r.inputs, &r.runs); err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	for _, id := range []int64{closed, stale} {
+		if r := read(id); !r.deleted || r.prompt != "" || !r.settingsEmpty || r.inputs != 0 || r.runs != 0 {
+			t.Errorf("the draft %d that never ran keeps %+v", id, r)
+		}
+	}
+	for id, inputs := range map[int64]int{open: 1, live: 1, ran: 1} {
+		if r := read(id); r.deleted || r.prompt == "" || r.inputs != inputs {
+			t.Errorf("job %d was cleared: %+v", id, r)
+		}
+	}
+	// The upload a queued run shares with a cleared draft stays taken.
+	var taken bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM framy.job_input WHERE asset_id = $1)`, shared).Scan(&taken); err != nil || !taken {
+		t.Errorf("the shared upload is no longer taken: %v", err)
+	}
+	if n, err := q.ClearDrafts(ctx); err != nil || n != 0 {
+		t.Errorf("a second pass cleared %d: %v", n, err)
+	}
+}

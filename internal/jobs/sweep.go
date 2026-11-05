@@ -85,3 +85,30 @@ func (q *Queue) sweep(ctx context.Context) (int64, error) {
 	}
 	return n, err
 }
+
+// ClearDrafts clears the drafts that ended without running, as a deleted
+// job is cleared: the prompt, the settings and the chat go, and so do their
+// rows of job_input, so the sweep of uploads no job took
+// (storage.Store.SweepUploads) deletes the files only they took next.
+// Nobody can come back to such a draft: Generate refuses it, and its
+// preview is gone. A draft whose preview the chat has not closed yet waits
+// for it, up to two days, after which Telegram would not let the bot delete
+// the preview anyway. It returns how many drafts it cleared.
+func (q *Queue) ClearDrafts(ctx context.Context) (int64, error) {
+	var n int64
+	err := q.pool.QueryRow(ctx, `
+		WITH cleared AS (
+			UPDATE job j SET deleted_at = now(), prompt = '', settings = '{}', error = NULL, grounding = NULL,
+			       chat_id = NULL, message_id = NULL, updated_at = now()
+			WHERE j.status = 'cancelled' AND j.queued_at IS NULL AND j.deleted_at IS NULL
+			  AND (j.finished_at <= now() - interval '2 days' OR NOT EXISTS (
+			    SELECT 1 FROM chat_run r WHERE r.job_id = j.id AND r.stage IN ('preview', 'generating')))
+			RETURNING j.id
+		), inputs AS (
+			DELETE FROM job_input WHERE job_id IN (SELECT id FROM cleared)
+		), runs AS (
+			DELETE FROM chat_run WHERE job_id IN (SELECT id FROM cleared)
+		)
+		SELECT count(*) FROM cleared`).Scan(&n)
+	return n, err
+}
