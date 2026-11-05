@@ -20,9 +20,12 @@
 // is exchanged until all of these hold:
 //
 //   - the browser has the cookie, and the state in the URL is the cookie's;
+//     a callback with another state answers a flow this browser no longer
+//     holds (one a newer start replaced, in another tab) and touches neither
+//     the cookie nor the flow, which stay for the callback they belong to;
 //   - the store has the flow of the cookie's state, and has not yet spent it:
 //     the callback spends it before it checks anything else, so no callback
-//     can use a state twice, and a wrong one burns the flow it hit;
+//     can use a state twice;
 //   - the flow has not expired;
 //   - the person signed in now is the person the flow was started for.
 //
@@ -37,8 +40,8 @@
 // cannot be finished in the session of another account. The cookie: only the
 // browser that started the flow can finish it, so a state that leaked in a URL
 // or a log, or a second browser of the same person, finishes nothing. The
-// single use: whatever a callback finds wrong, it has spent the flow, so there
-// is nothing left to retry or guess at.
+// single use: whatever a callback of the cookie's flow finds wrong, it has
+// spent the flow, so there is nothing left to retry or guess at.
 package oauth
 
 import (
@@ -300,9 +303,12 @@ func (c *Connector) authRedirect(state, challenge string) string {
 	return c.authURL + "?" + q.Encode()
 }
 
-// Callback ends a flow. Whatever happens, the cookie is cleared and the
-// browser is sent to the site with a Result; the details of a refusal go to
-// the log without anything secret in them.
+// Callback ends a flow. The browser is sent to the site with a Result, and
+// the details of a refusal go to the log without anything secret in them.
+// The cookie is cleared whatever happens, unless the callback is for another
+// flow than the cookie's: two tabs, the older one's flow replaced by the
+// newer start, end as Expired and Connected, in either order, instead of
+// the older one spending the newer one's flow and both ending Expired.
 func (c *Connector) Callback(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", http.MethodGet)
@@ -311,17 +317,36 @@ func (c *Connector) Callback(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), callbackTimeout)
 	defer cancel()
-	result, reason := c.complete(ctx, r)
+	var result Result
+	var reason string
+	other := otherFlow(r)
+	if other {
+		result, reason = Expired, "the state of another flow than the cookie's"
+	} else {
+		result, reason = c.complete(ctx, r)
+	}
 	metrics.OAuthCallbacks.Inc(string(result))
 	level := slog.LevelWarn
 	if result == Connected || result == Cancelled {
 		level = slog.LevelInfo
 	}
 	c.log.Log(ctx, level, "OpenRouter connect ended", "result", result, "reason", reason)
-	http.SetCookie(w, &http.Cookie{
-		Name: cookieName, Path: "/", MaxAge: -1, HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
-	})
+	if !other {
+		http.SetCookie(w, &http.Cookie{
+			Name: cookieName, Path: "/", MaxAge: -1, HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
+		})
+	}
 	c.finish(w, r, result)
+}
+
+// otherFlow reports a callback that names a state, and not the one of the
+// browser's cookie. A denial carries no state (see complete), so it is never
+// one.
+func otherFlow(r *http.Request) bool {
+	state := r.URL.Query().Get("state")
+	cookie, err := r.Cookie(cookieName)
+	return state != "" && err == nil && cookie.Value != "" &&
+		subtle.ConstantTimeCompare([]byte(state), []byte(cookie.Value)) != 1
 }
 
 // finish sends the browser to the site with the result.

@@ -277,10 +277,13 @@ func TestRefusalsSaveNothingInTheDatabase(t *testing.T) {
 			if d.count("connection") != 0 {
 				t.Error("a connection was saved")
 			}
-			// The flow of the cookie is spent. (A browser with no cookie
-			// spends nothing: the flow it never had is still the owner's.)
-			if name != "no cookie" && d.count("oauth_state") != 0 {
-				t.Error("the flow outlived the callback")
+			// The flow of the cookie is spent. A browser with no cookie
+			// spends nothing: the flow it never had is still the owner's.
+			// Nor does a callback of another state: it is a flow this
+			// browser no longer holds, and the cookie's stays for its own.
+			kept := name == "no cookie" || name == "a wrong state"
+			if n := d.count("oauth_state"); kept != (n == 1) {
+				t.Errorf("%d flows left after the callback", n)
 			}
 			d.assertNoSecrets(code, verifier, d.or.lastKey())
 		})
