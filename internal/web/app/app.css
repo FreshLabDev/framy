@@ -175,7 +175,10 @@ textarea#prompt::placeholder {color: var(--muted);}
 .seg:not(.stack) small .free .fw {display: none;}
 .sets .ratios {display: grid; grid-template-columns: repeat(auto-fit, minmax(44px, 1fr));}
 .sets .ratios.one {grid-template-columns: repeat(var(--n), minmax(0, 1fr));}
+.sets .ratios.one.lead {grid-template-columns: fit-content(40%) repeat(var(--m), minmax(0, 1fr));}
 .sets .rt {width: auto; height: 44px; gap: 4px;}
+.sets .ratios.lead > .rt:first-child {padding: 0 6px;}
+.rt .rl {max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
 @media (min-width: 960px) {
   .how {padding-top: 4px;}
   .composer {gap: 12px;}

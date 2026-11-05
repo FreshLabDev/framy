@@ -7,6 +7,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"regexp"
 	"strings"
@@ -411,4 +412,83 @@ func TestBrowserPriceHint(t *testing.T) {
 		}
 		noErrors(t, ctx)
 	})
+}
+
+// TestBrowserRatios checks the row of aspect ratios with a photo attached:
+// "As photo" is a word among figures, its column as wide as the word in the
+// longest languages too, every tile keeps its whole label on one line, and
+// the other columns are as wide as each other, at 1440 px and on a phone of
+// 320 px. The ratios past the common ones open with "+N" and close with
+// "−N", which fit as well.
+func TestBrowserRatios(t *testing.T) {
+	ts := fakeAPI(t)
+	for _, tc := range []struct {
+		lang  string
+		w, h  int64
+		phone bool
+	}{
+		{"en", 1440, 900, false}, {"de", 1440, 900, false}, {"fr", 1440, 900, false}, {"fr", 320, 568, true}, {"ru", 320, 568, true},
+	} {
+		t.Run(fmt.Sprintf("%s-%d", tc.lang, tc.w), func(t *testing.T) {
+			ctx := browserInit(t, ts.URL, tc.w, tc.h, tc.phone, priceInit(tc.lang, `(e) => e`))
+			got := js[map[string]any](t, ctx, pageHelpers+priceHelpers+`
+			const cv = document.createElement("canvas"); cv.width = 64; cv.height = 36;
+			const dt = new DataTransfer(); dt.items.add(new File([await new Promise((r) => cv.toBlob(r, "image/png"))], "p.png", { type: "image/png" }));
+			const inp = document.querySelector("#file"); inp.files = dt.files; inp.dispatchEvent(new Event("change", { bubbles: true }));
+			await wait(1200);
+			await paid();
+			const sheet = document.querySelector("#dtools .chipbtn.set");
+			if (sheet && vis(sheet)) { sheet.click(); await wait(700); }
+			const row = () => [...document.querySelectorAll("#how .ratios")].find(vis);
+			const look = () => {
+			  const rb = row(), r = rb.getBoundingClientRect(), tiles = [...rb.querySelectorAll(":scope > button")];
+			  const cut = tiles.filter((b) => b.scrollWidth > b.clientWidth + 1 || b.scrollHeight > b.clientHeight + 1 || [...b.querySelectorAll(".rl")].some((l) => l.scrollWidth > l.clientWidth + 1));
+			  const lines = tiles.map((b) => b.querySelector(".rl")).filter(Boolean).map((l) => Math.round(l.getBoundingClientRect().height));
+			  // The ratios share the room the word leaves: past its column they are all as wide.
+			  const widths = [...new Set(tiles.filter((b) => b.getBoundingClientRect().left > r.left + 1).map((b) => Math.round(b.getBoundingClientRect().width)))];
+			  return { first: tiles[0].textContent, cut: cut.map((b) => b.textContent), lines, widths, out: Math.round(Math.max(0, r.right - rb.parentElement.getBoundingClientRect().right)), more: tiles.find((b) => b.classList.contains("more"))?.textContent || "" };
+			};
+			const out = { common: look() };
+			// FLUX 3 has more ratios than the common ones.
+			if (sheet && vis(sheet)) { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })); await wait(700); }
+			const opener = [...document.querySelectorAll("#how .mhead, #dtools .chipbtn:not(.set)")].find(vis);
+			opener.click();
+			await wait(700);
+			const q = document.querySelector("#pksearch");
+			q.value = "FLUX"; q.dispatchEvent(new Event("input", { bubbles: true }));
+			await wait(800);
+			const fam = [...document.querySelectorAll("#pkrows .frow")].find((r) => /^FLUX/.test(r.textContent) && !/Klein|Flex|Max|Pro|2/.test(r.querySelector(".fhit")?.textContent || ""));
+			fam.querySelector(".fhit").click();
+			await wait(500);
+			const choose = [...document.querySelectorAll("#picker .det .choose")].find(vis);
+			if (choose && !choose.disabled) choose.click();
+			await wait(900);
+			const again = document.querySelector("#dtools .chipbtn.set");
+			if (again && vis(again)) { again.click(); await wait(700); }
+			out.closed = look();
+			row().querySelector(".rt.more").click();
+			await wait(700);
+			out.open = look();
+			return out;`)
+			for name, v := range got {
+				r := v.(map[string]any)
+				if r["first"] == "" || len(r["cut"].([]any)) > 0 || r["out"].(float64) > 0 {
+					t.Errorf("%s: %v", name, r)
+				}
+				for _, h := range r["lines"].([]any) {
+					if h.(float64) > 14 {
+						t.Errorf("%s: a label on two lines: %v", name, r)
+					}
+				}
+				if w := r["widths"].([]any); len(w) > 2 || len(w) == 2 && math.Abs(w[0].(float64)-w[1].(float64)) > 1 {
+					t.Errorf("%s: the ratios differ in width: %v", name, r)
+				}
+			}
+			closed, open := got["closed"].(map[string]any)["more"].(string), got["open"].(map[string]any)["more"].(string)
+			if !strings.HasPrefix(closed, "+") || "−"+closed[1:] != open {
+				t.Errorf("more and fewer: %q, then %q", closed, open)
+			}
+			noErrors(t, ctx)
+		})
+	}
 }

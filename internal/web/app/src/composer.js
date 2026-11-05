@@ -595,15 +595,20 @@ function ratioControl(name, p, v, set, src, gapOf = () => null) {
   const tiles = list.map((x) => {
     const auto = x === "auto", r = auto ? src || 1 : ratioNum(x), gap = gapOf(x);
     const b = opt({ key, v: x, on: String(x) === String(v), cls: "rt" + (gap ? " gap" : ""), title: gap || (auto ? t(src ? "set.as_photo" : "val.auto") : String(x)), pick: () => set(x) },
-      shape(r, auto), auto ? t(src ? "val.photo" : "val.auto") : String(x));
+      shape(r, auto), auto ? h("span", { class: "rl" }, t(src ? "val.photo" : "val.auto")) : String(x));
     b.dataset.k = `h-rt-${name}-${x}`; b.dataset.km = "stay";
     return b;
   });
+  // The ratios beyond the common ones open with "+3" and close with "−3": figures fit a tile in any language.
   const hidden = p.values.length - list.length;
+  const few = p.values.filter((x) => COMMON.includes(String(x))), back = p.values.length - few.length - (few.some((x) => String(x) === String(v)) ? 0 : 1);
   if (hidden > 0) tiles.push(h("button", { type: "button", class: "rt more", "data-k": `h-rt-${name}-more`, "data-km": "stay", onclick: () => act(() => { S.allRatios = true; render(); }) }, "+" + hidden));
-  else if (S.allRatios && p.values.length > 8) tiles.push(h("button", { type: "button", class: "rt more", "data-k": `h-rt-${name}-more`, "data-km": "stay", onclick: () => act(() => { S.allRatios = false; render(); }) }, t("set.fewer")));
-  const box = h("div", { class: "ratios one", role: "radiogroup", "aria-label": label("aspect_ratio"), "data-seg": key, "data-dur": 360 }, tiles);
-  box.style.setProperty("--n", Math.ceil(tiles.length / Math.ceil(tiles.length / 8)));
+  else if (S.allRatios && p.values.length > 8 && back > 0) tiles.push(h("button", { type: "button", class: "rt more", "data-k": `h-rt-${name}-more`, "data-km": "stay", title: t("set.fewer"), "aria-label": t("set.fewer"), onclick: () => act(() => { S.allRatios = false; render(); }) }, "−" + back));
+  // "As photo" is a word among figures: its column takes the word's width, and the ratios share the rest.
+  const n = Math.ceil(tiles.length / Math.ceil(tiles.length / 8)), lead = String(list[0]) === "auto" && n > 1;
+  const box = h("div", { class: "ratios one" + (lead ? " lead" : ""), role: "radiogroup", "aria-label": label("aspect_ratio"), "data-seg": key, "data-dur": 360 }, tiles);
+  box.style.setProperty("--n", n);
+  if (lead) box.style.setProperty("--m", n - 1);
   return box;
 }
 
