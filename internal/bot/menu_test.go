@@ -233,7 +233,7 @@ func TestLanguageGridMarksTheCurrentOne(t *testing.T) {
 func TestAboutCardIsExactly(t *testing.T) {
 	text, m := view{lang: "en", owner: 1, sc: scopePrivate}.about("v0.1.0-alpha.1")
 	want := "<b>framy</b> · <i>v0.1.0-alpha.1</i>\n" +
-		"<i>Images from OpenRouter, OpenAI and Google models.</i>\n\n" +
+		"<i>Images and videos from OpenRouter, OpenAI and Google models.</i>\n\n" +
 		"<blockquote>Models · OpenRouter · OpenAI · Google\n" +
 		"Source · <a href=\"https://github.com/FreshLabDev/framy\">FreshLabDev/framy</a> · Apache-2.0\n" +
 		"Admin · <a href=\"https://t.me/amtiyo\">@amtiyo</a></blockquote>"

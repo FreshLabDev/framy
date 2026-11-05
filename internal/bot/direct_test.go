@@ -91,7 +91,7 @@ func TestDirectHomeSaysWhatIsLeftWhatIsConnectedAndWhatPricesAreIn(t *testing.T)
 	}
 	got := client.last()
 	want := "<b>framy</b>\n" +
-		"<i>Images at the provider’s price.</i>\n\n" +
+		"<i>Images and videos at the provider’s price.</i>\n\n" +
 		"<blockquote>Free images · 4 of 5 left in any 24 hours\n" +
 		"Free videos · 1 of 1 left in any 7 days\n" +
 		"Your keys · OpenRouter, OpenAI (no credits), Gemini\n" +
@@ -144,9 +144,13 @@ func TestStartAtAKeyOpensTheSettingsThere(t *testing.T) {
 
 // What the strings say about the windows is written in each language; the
 // numbers come from the allowance, the words must follow the constants.
+// The bot's description writes the counts in words too ("Five images").
 func TestHomeStringsNameTheWindowsOfTheAllowance(t *testing.T) {
 	if free.ImageWindow != 24*time.Hour || free.VideoWindow != 7*24*time.Hour {
-		t.Fatal("the allowance's windows changed: update home.free_images_left and home.free_videos_left in every language")
+		t.Fatal("the allowance's windows changed: update home.free_images_left, home.free_videos_left and bot.description in every language")
+	}
+	if free.ImagesPerWindow != 5 || free.VideosPerWindow != 1 {
+		t.Fatal("the allowance's counts changed: update bot.description in every language")
 	}
 }
 
