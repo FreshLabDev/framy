@@ -156,6 +156,8 @@ export function openTune(id = null) {
   placeSegs($("#tune"));
 }
 // In the sheet a swipe to the side goes to the next frame, or back, in the order of the switch: All, 1, 2...
+// The frames follow the finger, as the strip over the sheet does: right to
+// left the next one stands to the left, and a swipe to the right brings it.
 // What scrolls or slides sideways itself keeps its swipe.
 export function wireTuneSwipe() {
   const body = $("#tuneBody");
@@ -170,16 +172,18 @@ export function wireTuneSwipe() {
     on = false;
     const p = e.changedTouches[0], dx = p.clientX - x0, dy = p.clientY - y0;
     if (Math.abs(dx) < 56 || Math.abs(dx) < Math.abs(dy) * 1.6 || e.timeStamp - t0 > 700) return;
-    stepScope(dx < 0 ? 1 : -1);
+    stepScope((dx < 0) !== (document.dir === "rtl") ? 1 : -1);
   }, { passive: true });
 }
 function sideways(el, stop) {
   for (let a = el; a && a !== stop; a = a.parentElement) if (a.scrollWidth > a.clientWidth + 1 && /auto|scroll/.test(getComputedStyle(a).overflowX)) return true;
   return false;
 }
+// The side the next frame stands on: right, or left in a language read right to left.
+const ahead = () => (document.dir === "rtl" ? -1 : 1);
 function stepScope(dir) {
   const ids = [null, ...FR().map((f) => f.id)], i = ids.indexOf(S.scope[S.kind]), to = ids[i + dir];
-  if (to === undefined) { anim($("#how"), [{ transform: "none" }, { transform: `translateX(${-dir * 10}px)` }, { transform: "none" }], { duration: 260 }); return; }
+  if (to === undefined) { anim($("#how"), [{ transform: "none" }, { transform: `translateX(${-dir * ahead() * 10}px)` }, { transform: "none" }], { duration: 260 }); return; }
   setScope(to, dir);
 }
 export function tuneClosed() { const how = $("#how"); if (how.parentElement !== $("#composer")) $("#composer").insertBefore(how, $("#bar")); placeSegs($("#composer")); }
@@ -347,7 +351,8 @@ export function setScope(id, dir = 0) {
   const old = vname(M());
   act(() => { S.scope[S.kind] = id; render(); });
   if (vname(M()) !== old) ticker(name(), old, dir || 1);
-  if (dir) anim($("#how"), [{ opacity: 0, transform: `translateX(${dir * 28}px)` }, { opacity: 1, transform: "none" }], { duration: 340, easing: EASE });
+  // The next frame's settings come in from its side, with the finger.
+  if (dir) anim($("#how"), [{ opacity: 0, transform: `translateX(${dir * ahead() * 28}px)` }, { opacity: 1, transform: "none" }], { duration: 340, easing: EASE });
   if (id != null) anim($(`#stage [data-k="pv-${id}"]`), [{ transform: "scale(.96)" }, { transform: "none" }], { duration: 380, easing: SPRING });
   syncStrip(id);
 }

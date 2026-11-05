@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chromedp/chromedp"
 )
 
 // framesHelpers read the frames on the stage and in the form.
@@ -145,6 +147,55 @@ func TestBrowserFramesPhone(t *testing.T) {
 		}
 		noErrors(t, ctx)
 	}
+}
+
+// TestBrowserFramesPhoneRTL checks the strip right to left, where the cards
+// go leftwards and the strip rolls to a negative scrollLeft: a new frame
+// rolls into view with its dot lit, and a swipe in the sheet follows the
+// finger, to the right for the next frame, whose settings come in from the
+// left.
+func TestBrowserFramesPhoneRTL(t *testing.T) {
+	ts := fakeAPI(t)
+	ctx := browser(t, ts.URL, 390, 844, true)
+	js[any](t, ctx, `localStorage.setItem("framy.lang", "ar");`)
+	if err := chromedp.Do(ctx, chromedp.Reload()); err != nil {
+		t.Fatal(err)
+	}
+	ready(t, ctx)
+	s := js[map[string]any](t, ctx, pageHelpers+framesHelpers+`
+	const dot = () => [...document.querySelectorAll("#stage .dots i")].findIndex((i) => i.classList.contains("on"));
+	const whole = (k) => { const s = document.querySelector("#stage .strip"), c = s.querySelectorAll(":scope > .cell")[k], r = s.getBoundingClientRect(), b = c.getBoundingClientRect();
+	  return b.left >= r.left - 1 && b.right <= r.right + 1; };
+	const at = () => { const k = dot(); return k >= 0 && whole(k) ? k : -1; };
+	const settle = async (k) => { for (let i = 0; i < 25 && at() !== k; i++) await wait(100); await wait(200); };
+	document.querySelector("#stage .addf").click(); await wait(900);
+	document.querySelector("#stage .addf").click(); await settle(2);
+	const strip = document.querySelector("#stage .strip");
+	const added = { dir: document.dir, at: at(), dot: dot(), roll: Math.sign(strip.scrollLeft) };
+	cells()[2].click(); await wait(800);
+	// Where the settings of the frame swiped to come in from: they move with the finger.
+	const animate0 = Element.prototype.animate;
+	let from = null;
+	Element.prototype.animate = function (kf, o) { if (this.id === "how" && !from) from = kf[0].transform; return animate0.call(this, kf, o); };
+	async function swipe(dx, k) {
+	  const tg = document.querySelector("#tuneBody .mcard .facts");
+	  const touch = (x) => new Touch({ identifier: 1, target: tg, clientX: x, clientY: 300 });
+	  from = null;
+	  tg.dispatchEvent(new TouchEvent("touchstart", { touches: [touch(180)], changedTouches: [touch(180)], bubbles: true }));
+	  await wait(100);
+	  tg.dispatchEvent(new TouchEvent("touchend", { touches: [], changedTouches: [touch(180 + dx)], bubbles: true }));
+	  await wait(300); await settle(k);
+	  return [at(), from];
+	}
+	const back = await swipe(-120, 1), next = await swipe(120, 2);
+	Element.prototype.animate = animate0;
+	return { added, back, next, overflow: document.documentElement.scrollWidth - innerWidth };`)
+	added, _ := s["added"].(map[string]any)
+	if added["dir"] != "rtl" || added["at"] != float64(2) || added["dot"] != float64(2) || added["roll"] != float64(-1) ||
+		fmt.Sprint(s["back"]) != "[1 translateX(28px)]" || fmt.Sprint(s["next"]) != "[2 translateX(-28px)]" || s["overflow"].(float64) > 0 {
+		t.Errorf("right to left: %v", s)
+	}
+	noErrors(t, ctx)
 }
 
 // TestBrowserLibraryPress checks a press of three frames in the library: one

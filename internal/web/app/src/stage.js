@@ -192,12 +192,15 @@ function stripOf(P) {
   return strip;
 }
 // The card the strip stands at: the last one once it can roll no further.
+// Right to left, the cards go leftwards from the first and the strip rolls
+// to negative scrollLeft: a card's distance from the first and the roll have
+// the same sign either way.
 function stripAt(s) {
-  const cs = [...s.querySelectorAll(":scope > .cell")], x = Math.abs(s.scrollLeft);
+  const cs = [...s.querySelectorAll(":scope > .cell")], x = s.scrollLeft;
   // On a short phone the cards are small and several stand whole: the one the strip was sent to stays the one.
   const r = s.getBoundingClientRect(), b = cs[s._at]?.getBoundingClientRect();
   if (b && b.left >= r.left - 1 && b.right <= r.right + 1) return s._at;
-  if (x > 0 && x >= s.scrollWidth - s.clientWidth - 2) return cs.length - 1;
+  if (x !== 0 && Math.abs(x) >= s.scrollWidth - s.clientWidth - 2) return cs.length - 1;
   let k = 0, d = Infinity;
   cs.forEach((c, i) => { const e = Math.abs(c.offsetLeft - cs[0].offsetLeft - x); if (e < d) { d = e; k = i; } });
   return k;
@@ -205,7 +208,7 @@ function stripAt(s) {
 function toCard(s, at, smooth = false) {
   const cs = [...s.querySelectorAll(":scope > .cell")], c = cs[at];
   if (!c) return;
-  s.scrollTo({ left: (c.offsetLeft - cs[0].offsetLeft) * (document.dir === "rtl" ? -1 : 1), behavior: smooth && motion() ? "smooth" : "auto" });
+  s.scrollTo({ left: c.offsetLeft - cs[0].offsetLeft, behavior: smooth && motion() ? "smooth" : "auto" });
 }
 function fitStrip(strip, rs) {
   const { W, H } = space(48), cw = Math.round(W * 0.86), cards = [...strip.querySelectorAll(":scope > .cell")];
