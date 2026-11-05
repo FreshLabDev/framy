@@ -443,3 +443,20 @@ func TestCalledWithReadsOnlyTheSitesT(t *testing.T) {
 		}
 	}
 }
+
+// The site writes "Free" for the free allowance on the price bar, the payer
+// and the model's card. A value of a setting in the same word reads as a
+// price: Creativity's "Free" next to the free tier was taken for one.
+func TestNoSettingValueReadsAsFree(t *testing.T) {
+	for _, code := range Codes() {
+		free := map[string]bool{}
+		for _, key := range []string{"web.bar.free", "web.det.free", "web.fact.free", "web.pay.free", "web.pay.free_short", "web.prefs.free"} {
+			free[strings.ToLower(strings.TrimSpace(translations[key][code]))] = true
+		}
+		for _, key := range Keys() {
+			if strings.HasPrefix(key, "web.val.") && free[strings.ToLower(strings.TrimSpace(translations[key][code]))] {
+				t.Errorf("%s [%s] is %q, the word for free", key, code, translations[key][code])
+			}
+		}
+	}
+}
