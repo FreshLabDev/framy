@@ -695,3 +695,49 @@ func TestBrowserPrefsPhone(t *testing.T) {
 	}
 	noErrors(t, ctx)
 }
+
+// TestBrowserPrefsRows checks where the buttons of the settings stand. On a
+// phone they go under the text in every row, at its edge, so the text has
+// the width and the buttons one place; the switch of the DM stays at the end
+// of its line. On a computer they stand at the end of the text's line, but
+// for a key with a problem, whose warning needs the width. Deleting the
+// account is framed and has the bin, unlike any other button.
+func TestBrowserPrefsRows(t *testing.T) {
+	f := &fakePrefs{}
+	ts := fakeSite(t, func(srv *Server) {
+		f.mount(srv)
+		f.connect("openrouter", "or42", "valid")
+		f.connect("openai", "dead", "invalid")
+	})
+	for _, c := range []struct {
+		w     int64
+		phone bool
+	}{{360, true}, {390, true}, {1440, false}} {
+		ctx := browserAs(t, ts.URL, c.w, 844, opened{phone: c.phone})
+		bad := js[[]string](t, ctx, pageHelpers+`
+		document.querySelector("#meBtn").click();
+		for (let i = 0; i < 40 && !document.querySelector("#prefsBody .srow"); i++) await wait(100);
+		await wait(900);
+		const bad = [], phone = `+fmt.Sprint(c.phone)+`;
+		for (const r of document.querySelectorAll("#prefsBody .srow")) {
+		  const l = r.querySelector(".l").getBoundingClientRect(), row = r.getBoundingClientRect(), name = r.querySelector(".l b").textContent;
+		  for (const b of r.querySelectorAll(":scope > button, :scope > select")) {
+		    const br = b.getBoundingClientRect(), under = br.top >= l.bottom - 1;
+		    if (b.matches(".tog")) { if (under || br.right < row.right - 12) bad.push(name + ": the switch is not at the end of its line"); continue; }
+		    if (phone && !under) bad.push(name + ": " + b.textContent + " beside the text");
+		    if (!phone && under !== r.matches(".bad")) bad.push(name + ": " + b.textContent + (under ? " under the text" : " beside a warning"));
+		  }
+		  const first = r.querySelector(":scope > button:not(.tog), :scope > select");
+		  if (first && phone && Math.abs(first.getBoundingClientRect().left - l.left) > 1) bad.push(name + ": the buttons are not at the text's edge");
+		}
+		const del = document.querySelector("#prefsBody .srow > button.danger"), cs = del && getComputedStyle(del);
+		const plain = [...document.querySelectorAll("#prefsBody .srow > button:not(.danger, .primary, .tog)")].map((b) => getComputedStyle(b));
+		if (!del || cs.borderTopWidth !== "2px" || cs.backgroundColor !== "rgba(0, 0, 0, 0)" || !del.querySelector(".ic.trash") ||
+		  plain.some((p) => p.borderTopWidth === cs.borderTopWidth || p.backgroundColor === cs.backgroundColor)) bad.push("the delete button looks like the others");
+		return bad;`)
+		if len(bad) > 0 {
+			t.Errorf("at %d: %v", c.w, bad)
+		}
+		noErrors(t, ctx)
+	}
+}

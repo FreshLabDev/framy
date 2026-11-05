@@ -613,7 +613,8 @@ input.search::placeholder {color: var(--muted);}
 .srow > button {flex: none; height: 40px; padding: 0 14px; display: flex; align-items: center; justify-content: center; gap: 6px; background: var(--field); font-weight: 600;}
 .srow > button .ic {width: 16px; height: 16px;}
 .srow > button.primary {background: var(--ink); color: var(--field);}
-.srow > button.danger {box-shadow: inset 0 0 0 1px var(--line);}
+/* Deleting the account is the one button framed rather than filled, with the bin: it ends everything else here. */
+.srow > button.danger {background: none; border: 2px solid var(--ink);}
 .srow > button:disabled, .kform button:disabled {opacity: .55; cursor: default;}
 .srow > button[data-wait] {min-width: 108px;}
 .srow > button.fixw {min-width: 148px;}
@@ -622,14 +623,14 @@ input.search::placeholder {color: var(--muted);}
 .srow select.pick {flex: none; height: 40px; max-width: 46%; padding: 0 10px; background: var(--field); color: var(--ink); font-weight: 600;}
 .srow .l .spent {display: block; margin-top: 2px; font-size: 13px; color: var(--soft);}
 .srow > button.tog {height: 44px; padding: 0 4px; background: none;}
-/* Narrow, or a key with a problem to read: the buttons go under the text. */
-.srow.two.bad {flex-wrap: wrap; row-gap: 10px;}
-.srow.two.bad .l {flex-basis: calc(100% - 50px);}
-.srow.two.bad > button:first-of-type {margin-inline-start: 50px;}
+/* Narrow, or a key with a problem to read: the buttons of every row go under the text, at its edge. */
+.srow.btns.bad {flex-wrap: wrap; row-gap: 10px;}
+.srow.btns.bad .l {flex-basis: calc(100% - 50px);}
+.srow.btns.bad > button:first-of-type {margin-inline-start: 50px;}
 @container prefs (max-width: 440px) {
-  .srow.two {flex-wrap: wrap; row-gap: 10px;}
-  .srow.two .l {flex-basis: calc(100% - 50px);}
-  .srow.two > button:first-of-type, .srow.two > select {margin-inline-start: 50px;}
+  .srow.btns {flex-wrap: wrap; row-gap: 10px;}
+  .srow.btns .l {flex-basis: calc(100% - 50px);}
+  .srow.btns > button:first-of-type, .srow.btns > select {margin-inline-start: 50px;}
 }
 .kform {display: grid; grid-template-columns: minmax(0, 1fr) auto 40px; gap: 6px; margin-top: calc(-1 * var(--gap)); padding: 0 10px 12px 12px; background: var(--deep);}
 .kform input {min-width: 0; height: 40px; padding: 0 12px; background: var(--field); color: var(--ink); letter-spacing: .04em;}
