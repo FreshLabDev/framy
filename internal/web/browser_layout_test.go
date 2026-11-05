@@ -103,3 +103,45 @@ func TestBrowserStepsRTL(t *testing.T) {
 		noErrors(t, ctx)
 	}
 }
+
+// barWhole is how the bar of a phone stands: the line under the price is
+// whole, inside the dock, and the price and the button do not cover each other.
+const barWhole = `
+const cap = document.querySelector("#pcap"), c = cap.getBoundingClientRect(), d = document.querySelector("#composer").getBoundingClientRect();
+const n = document.querySelector("#pnum").getBoundingClientRect(), g = document.querySelector("#go").getBoundingClientRect();
+return { text: cap.textContent, cut: cap.scrollWidth > cap.clientWidth + 1, inside: c.left >= d.left && c.right <= d.right && c.bottom <= d.bottom,
+  apart: document.dir === "rtl" ? g.right <= n.left : n.right <= g.left, page: document.documentElement.scrollWidth - innerWidth };`
+
+// TestBrowserPriceLine checks the line under the price on a narrow phone: how
+// many free runs a sign-in gives, in a long language, and when the next free
+// run comes, which is only the time when it is today.
+func TestBrowserPriceLine(t *testing.T) {
+	ts := fakeAPI(t)
+	for _, lang := range []string{"de", "uk", "en"} {
+		ctx := browserAs(t, ts.URL, 320, 568, opened{lang: lang, phone: true})
+		got := js[map[string]any](t, ctx, pageHelpers+`await wait(400);`+barWhole)
+		if got["text"] == "" || got["cut"] != false || got["inside"] != true || got["apart"] != true || got["page"].(float64) > 0 {
+			t.Errorf("%s, signed out: %v", lang, got)
+		}
+		noErrors(t, ctx)
+	}
+	runs := &fakeRuns{}
+	ts = fakeSite(t, runs.mount)
+	ctx := browserAs(t, ts.URL, 320, 568, opened{phone: true})
+	got := js[map[string]any](t, ctx, pageHelpers+`
+	document.querySelector("#dtools .chipbtn.set").click();
+	await wait(600);
+	document.querySelector("#tune [data-seg=pay] > button[data-v=free]").click();
+	await wait(600);
+	document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+	await wait(600);
+	const at = Date.parse((await (await fetch("/api/me")).json()).free.images.frees_at);
+	const today = new Date(at).toDateString() === new Date().toDateString();
+	const want = new Intl.DateTimeFormat("en", today ? { hour: "numeric", minute: "2-digit" } : { day: "numeric", month: "long", hour: "numeric", minute: "2-digit" }).format(at);
+	const r = (() => {`+barWhole+`})();
+	return { ...r, want: "Next free run: " + want };`)
+	if got["text"] != got["want"] || got["cut"] != false || got["inside"] != true || got["apart"] != true {
+		t.Errorf("free runs used up: %v", got)
+	}
+	noErrors(t, ctx)
+}

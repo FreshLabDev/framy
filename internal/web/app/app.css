@@ -214,8 +214,9 @@ input[type="range"]::-moz-range-thumb {width: 20px; height: 20px; background: va
 .pnum > .whole {position: absolute; left: 0; top: 0; white-space: pre; pointer-events: none;}
 #pcap s.was {color: var(--muted);}
 #pcap b.off {color: var(--ink); font-weight: 700;}
-#pcap {font-size: 14px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 1.4em;}
-#pcap.note {white-space: normal; color: var(--soft);}
+/* What the price means wraps rather than ends in an ellipsis: how many free runs a sign-in gives,
+   or when the next one comes, is why the line is there. */
+#pcap {font-size: 14px; color: var(--muted); min-height: 1.4em; text-wrap: pretty;}
 .go .kbd {font-size: 12px; font-weight: 500; opacity: .55; margin-left: 2px;}
 .go {flex: none; min-width: 150px; height: 52px; padding: 0 22px; display: flex; align-items: center; justify-content: center; gap: 10px; background: var(--ink); color: var(--field); font-size: 17px; font-weight: 700;}
 .go:disabled {background: var(--deep); color: var(--muted);}
@@ -409,6 +410,16 @@ input.search::placeholder {color: var(--muted);}
   .composer .fhint, .composer .fhint.cut {flex: 1 0 200px; padding-left: 4px; font-size: 13px;}
   .composer .bar {padding-top: 0;}
   .composer .pnum {font-size: 30px;}
+  /* On a phone the button leaves the price a narrow column: the line under the price runs on
+     under the button, the whole width of the dock, and a long name of the button takes two lines
+     rather than push into the price. */
+  @supports (grid-template-rows: subgrid) {
+    .composer .bar {display: grid; grid-template-columns: fit-content(calc(100% - 148px)) minmax(0, 1fr); column-gap: 12px; row-gap: 0;}
+    .composer .bar > .price {grid-column: 1 / -1; grid-row: 1 / span 2; grid-template-columns: subgrid; grid-template-rows: subgrid; gap: normal;}
+    .composer .bar > .price > .pnum {grid-column: 1; grid-row: 1; align-self: center; max-width: 100%;}
+    .composer .bar > .price > #pcap {grid-column: 1 / -1; grid-row: 2;}
+    .composer .bar > .go {grid-column: 2; grid-row: 1; justify-self: end; max-width: 100%; text-align: center; line-height: 1.15;}
+  }
   .composer .go {min-width: 136px;}
   .composer::after {inset: 0;}
   .top {height: 56px;}
