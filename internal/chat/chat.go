@@ -496,10 +496,13 @@ const (
 )
 
 // Owns reports whether callback data is a run's button or an answer to the
-// question of a DM.
-func (f *Flow) Owns(data string) bool {
+// question of a DM: the presses the bot hands to the flow.
+func Owns(data string) bool {
 	return strings.HasPrefix(data, callbackPrefix) || strings.HasPrefix(data, askPrefix)
 }
+
+// Owns is the package's Owns, for the bot.
+func (f *Flow) Owns(data string) bool { return Owns(data) }
 
 func callback(jobID int64, action string) string {
 	return callbackPrefix + strconv.FormatInt(jobID, 10) + ":" + action

@@ -4,12 +4,13 @@ package bot
 import (
 	"context"
 	"slices"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/FreshLabDev/tg"
+
+	"github.com/FreshLabDev/framy/internal/chat"
 )
 
 // fakeFlow records what the bot passes to the flow of /img.
@@ -58,9 +59,8 @@ func (f *fakeFlow) Reply(_ context.Context, m *tg.Message) {
 	f.replies = append(f.replies, m.Text)
 }
 
-func (f *fakeFlow) Owns(data string) bool {
-	return strings.HasPrefix(data, "j:") || strings.HasPrefix(data, "d:")
-}
+// Owns is the flow's own, so the routing tested here is the one framy runs.
+func (f *fakeFlow) Owns(data string) bool { return chat.Owns(data) }
 
 func (f *fakeFlow) Callback(_ context.Context, cq *tg.CallbackQuery) {
 	f.mu.Lock()
@@ -94,6 +94,36 @@ func TestAStopOnADraftIsLeftAlone(t *testing.T) {
 	b.handle(context.Background(), tg.Update{UpdateID: 1, StoppedMessageGeneration: &tg.MessageGenerationStopped{Chat: dmChat, DraftID: 41}})
 	if len(store.touches) != 0 || len(client.calls) != 0 || len(flow.callbacks) != 0 {
 		t.Fatalf("touches %+v, calls %+v, callbacks %v", store.touches, client.calls, flow.callbacks)
+	}
+}
+
+// The bot's own panels and the flow's buttons never take each other's
+// presses: every panel button stays the bot's, and the flow's two kinds of
+// press, a run's button and the DM's question, are the flow's.
+func TestThePanelsAndTheFlowEachKeepTheirPresses(t *testing.T) {
+	for _, action := range []string{actHome, actHelp, actAbout, actLang, actLang + ":uk", actLangAuto, actGroupLang + ":uk", actGroupAuto, actClose} {
+		data := cb(longOwner, action)
+		if chat.Owns(data) {
+			t.Errorf("the flow takes the panel's %q", data)
+		}
+		if _, _, ok := parseMenuCB(data); !ok {
+			t.Errorf("the panel does not read its own %q", data)
+		}
+	}
+	for _, data := range []string{"j:5:go", "d:10:i"} {
+		if !chat.Owns(data) {
+			t.Errorf("the flow does not take %q", data)
+		}
+		flow := &fakeFlow{}
+		b, _, client := newBotWith(WithFlow(flow))
+		cq := callback(groupChat, 7, 7, "", 99)
+		cq.Data = data
+		if err := b.onCallback(context.Background(), cq); err != nil {
+			t.Fatal(err)
+		}
+		if len(flow.callbacks) != 1 || flow.callbacks[0] != data || len(client.calls) != 0 {
+			t.Errorf("%q: flow got %v, the bot sent %+v", data, flow.callbacks, client.calls)
+		}
 	}
 }
 
