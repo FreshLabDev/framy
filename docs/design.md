@@ -53,7 +53,7 @@ Each run uses one **offer**: a model at a provider, paid either by the free allo
 
 | Provider | Connect | Check on save | What it unlocks |
 |:--|:--|:--|:--|
-| OpenRouter | "Connect" button: OAuth PKCE, no app registration; pasting a key as a fallback | `GET /api/v1/key` | 61 image models, 30 video models |
+| OpenRouter | "Connect" button: OAuth PKCE, no app registration; pasting a key as a fallback | `GET /api/v1/key` | about 60 image models and 30 video models (63 and 33 on 5 November 2026, Omni 1.1 and 1.2 Flash among them) |
 | OpenAI | Paste a key | `GET /v1/models` | `gpt-image-2.6-sunburst`, `gpt-image-2.6-flare`, `gpt-image-2.5-sunburst`, `gpt-image-2.5-flare`, `gpt-image-2`; no video, Sora closed on 24 September 2026 |
 | Gemini | Paste a key from a project with billing | `GET /v1beta/models` | Nano Banana 2.1, 3.1 Flash, 3.1 Flash Lite, 3 Pro; video only `gemini-omni-1.1-flash` |
 
@@ -139,18 +139,18 @@ Only the settings the composer draws get a default; the rest stay the provider's
 
 ### Effort
 
-The owner asked for effort settings. Four models have them, each under its own name; framy shows one "Effort" control and a caption with what it becomes:
+The owner asked for effort settings. Four families of model have them at their makers, each under its own name; framy shows one "Effort" control and a caption with what it becomes:
 
 | Model | Parameter | Values | Effect on price |
 |:--|:--|:--|:--|
 | GPT Image 2.5 and 2.6 (OpenAI) | `quality` | `low`, `medium`, `high`, `xhigh`, `max` | 1024×1024 from $0.006 to $0.21; 2.6 costs $0.025 at `low` and $0.043 at `medium`, as 2.5 from `high` up |
 | Nano Banana 2.1, 3.1 Flash, Lite (Gemini direct) | `thinking_level` | `minimal`, `medium`, `high` (2.1); `minimal`, `high` (3.1) | thinking tokens are billed |
 | Riverflow 2.5 | `reasoning` | `low`, `medium`, `high`; Pro also `xhigh` | dynamic price |
-| Krea K3 Edit | `thinking_mode` | values not documented | +$0.02 on high |
+| Krea K3 Edit | `thinking_mode` | `fast` (the default) and `high` through OpenRouter; `ultra` at Krea only | +$0.02 on `high` |
 
 `quality=auto` and `size=auto` of OpenAI are not offered: their price cannot be known before the run. Neither is `aspect_ratio=auto` of OpenAI's models on OpenRouter, for the same reason: an `exclude` rule of the overlay takes both from every `openai/gpt-image-*`, so a version OpenRouter adds comes without them before anyone writes it in. GPT Image 2.6's GIF output, its SVG output and its `complexity` are not offered yet: what a GIF's frames or an SVG's authoring model cost is not published.
 
-In the catalog of 27 October only GPT Image 2.5 and the direct Gemini models have effort: Riverflow's `reasoning` is on OpenRouter's Images API neither as a parameter nor as a pass-through, and Krea's values are not documented.
+In the catalog only GPT Image 2.5 and 2.6 and the direct Gemini models have effort (5 November 2026): Riverflow's `reasoning` is on OpenRouter's Images API neither as a parameter nor as a pass-through, and K3 Edit's `thinking_mode` is a pass-through the overlay does not declare yet, so the form has no control for it; its `high` is priced already (`high_thinking_surcharge`).
 
 ### Hidden
 
