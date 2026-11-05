@@ -8,6 +8,7 @@
 // several frames of one press have one each (o.id names it).
 import { h } from "./dom.js";
 import { motion } from "./motion.js";
+import { underSheet } from "./ui.js";
 
 const BG = [0, 69, 79];
 const HAZE = BG.map((v) => Math.round(v + (255 - v) * 0.62));
@@ -124,7 +125,23 @@ const distPx = (fig, sc, L, px, py, t, i, j) => { const s = sizeOf(fig, L); retu
 /* The canvases and what each shows. "stage" is the one of a lone frame. */
 const ALL = new Map();
 const inst = (id) => { let s = ALL.get(id); if (!s) ALL.set(id, (s = { id, cv: null, scene: null, from: null, at: 0, born: 0, lay: null, lostAt: 0, n: 0, img: null })); return s; };
-let raf = 0, last = 0;
+
+/* When the dots are drawn. A canvas is drawn while it can be seen: one off
+   the screen (the library over the stage) or under a sheet is left as it is,
+   and its figure goes on from where the time has got when it shows again.
+   The loop follows the screen's frames only while a canvas moves; with
+   nothing to draw, or with reduced motion, it looks twice a second, and in a
+   tab in the background not at all. A canvas coming into view, the tab
+   coming back and a sheet closing wake it at once. */
+let raf = 0, timer = 0, last = 0;
+const seen = new IntersectionObserver((es) => { for (const e of es) e.target._seen = e.isIntersecting; kick(); });
+function kick() {
+  if (raf || document.hidden) return;
+  clearTimeout(timer); timer = 0;
+  raf = requestAnimationFrame(frame);
+}
+document.addEventListener("visibilitychange", kick);
+addEventListener("framy:sheets", kick);
 const BOOT = 900, MORPH = 900, REVEAL = 1800;
 
 // halftone puts the stage's canvas into box with the figure fig. o: n, the
@@ -135,7 +152,7 @@ const BOOT = 900, MORPH = 900, REVEAL = 1800;
 export function halftone(box, fig, o = {}) {
   const ST = inst(o.id || "stage"), now = performance.now(), showing = !!ST.cv?.isConnected && !!ST.scene;
   if (fig === "reveal" && !(showing || ST.scene?.fig === "reveal")) { ST.scene = null; return false; }
-  if (!ST.cv) ST.cv = h("canvas", { class: "ht", "aria-hidden": "true" });
+  if (!ST.cv) { ST.cv = h("canvas", { class: "ht", "aria-hidden": "true" }); seen.observe(ST.cv); }
   const key = fig + "|" + (o.until || "") + "|" + (o.n || 0), was = ST.scene;
   if (!was || was.key !== key) {
     if (showing && o.n === ST.n) { ST.from = was; ST.at = now; }
@@ -150,25 +167,28 @@ export function halftone(box, fig, o = {}) {
   ST.lostAt = o.lost ? ST.lostAt || now : 0;
   box.classList.add("ht");
   box.prepend(ST.cv);
-  if (!raf) raf = requestAnimationFrame(frame);
+  kick();
   return true;
 }
 
 function frame(ts) {
-  raf = 0;
+  raf = 0; timer = 0;
   const on = [];
   for (const ST of ALL.values()) {
     if (ST.cv?.isConnected && ST.scene) on.push(ST);
     // A frame's canvas that left the page is forgotten; the stage's keeps its scene for the next render.
     else if (ST.id !== "stage") ALL.delete(ST.id);
+    // Its canvas is watched no more: a frame that comes back gets a new one.
+    if (!ALL.has(ST.id) && ST.cv) seen.unobserve(ST.cv);
   }
-  if (!on.length) return;
-  raf = requestAnimationFrame(frame);
-  // 30 frames a second, as the bot's loop; with reduced motion only what changes.
-  if (ts - last < (motion() ? 33 : 500)) return;
-  last = ts;
+  if (!on.length || document.hidden) return;
+  const shown = on.filter((ST) => ST.cv._seen !== false && !underSheet(ST.cv)), moving = motion() && shown.length > 0;
+  if (moving) raf = requestAnimationFrame(frame);
+  else timer = setTimeout(() => frame(performance.now()), 500);
+  // 30 frames a second, as the bot's loop; with reduced motion only what changes, twice a second.
+  if (moving) { if (ts - last < 33) return; last = ts; }
   const now = performance.now();
-  for (const ST of on) paint(ST, now);
+  for (const ST of shown) paint(ST, now);
 }
 
 function paint(ST, now) {

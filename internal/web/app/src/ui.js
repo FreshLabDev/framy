@@ -7,6 +7,17 @@ let backHook = () => {};
 export const onSheets = (fn) => { backHook = fn; };
 const open = [];
 export const sheetOpen = () => open.length > 0;
+// Whether an open sheet hides el whole. The scrim beside a sheet only dims
+// what is under it, and a sheet does not hide what is in it.
+export function underSheet(el) {
+  if (!open.length) return false;
+  const r = el.getBoundingClientRect();
+  return open.some((s) => {
+    if (s.contains(el)) return false;
+    const q = s.getBoundingClientRect();
+    return q.left <= r.left + 1 && q.right >= r.right - 1 && q.top <= r.top + 1 && q.bottom >= r.bottom - 1;
+  });
+}
 
 // o.back: a sheet opened from another one goes back to it when it closes;
 // back is what opens that one again.
@@ -38,6 +49,8 @@ export function closeSheets(quick) {
   const scrim = $("#scrim");
   const els = open.splice(0);
   if (!els.length) return;
+  // What was under them shows again: the dots on the stage move at once (halftone.js).
+  dispatchEvent(new Event("framy:sheets"));
   const wide = isWide();
   for (const el of els) {
     const a = quick ? null : anim(el, [{ transform: "none", opacity: 1 }, { transform: wide ? "translateX(64px)" : "translateY(100%)", opacity: wide ? 0 : 1 }], { duration: 260, easing: OUT, fill: "forwards" });

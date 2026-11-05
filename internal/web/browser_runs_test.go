@@ -769,6 +769,65 @@ func TestBrowserMiniShare(t *testing.T) {
 	}
 }
 
+// TestBrowserHalftoneRests checks that the dots are drawn only while they can
+// be seen: not under a sheet that hides the stage, not with the library over
+// it, and with reduced motion only twice a second, without following every
+// frame of the screen. A sheet closing brings them back at once.
+func TestBrowserHalftoneRests(t *testing.T) {
+	const count = `
+	const C2 = CanvasRenderingContext2D.prototype, fill0 = C2.fill, raf0 = window.requestAnimationFrame;
+	let fills = 0, rafs = 0;
+	C2.fill = function (...a) { fills++; return fill0.apply(this, a); };
+	window.requestAnimationFrame = (cb) => { rafs++; return raf0(cb); };
+	// What one second brings: frames asked for, and dots filled.
+	const second = async () => { const f = fills, r = rafs; await wait(1000); return [rafs - r, fills - f]; };
+	`
+	for _, reduce := range []bool{false, true} {
+		runs := &fakeRuns{}
+		ts := fakeSite(t, runs.mount)
+		ctx := browser(t, ts.URL, 390, 844, true)
+		if reduce {
+			err := chromedp.Do(ctx, chromedp.Func(func(ctx context.Context, tg *chromedp.Target) error {
+				_, err := cdp.Call(ctx, tg, emulation.SetEmulatedMedia, emulation.SetEmulatedMediaParams{Features: []*emulation.MediaFeature{{Name: "prefers-reduced-motion", Value: "reduce"}}})
+				return err
+			}), chromedp.Reload())
+			if err != nil {
+				t.Fatal(err)
+			}
+			ready(t, ctx)
+		}
+		s := js[map[string]any](t, ctx, pageHelpers+runHelpers+count+`
+	await press("running", (s) => s.dots && s.label === "Making it");
+	await wait(400);
+	const out = { open: await second() };
+	document.querySelector("#meBtn").click();
+	await wait(800);
+	out.sheet = await second();
+	document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+	// The dots move again as the sheet goes, not up to half a second later.
+	const f0 = fills;
+	await wait(200);
+	out.soon = fills - f0;
+	await wait(400);
+	out.back = await second();
+	document.querySelector(".tab[data-v=library]").click();
+	await wait(800);
+	out.library = await second();
+	return out;`)
+		get := func(k string, i int) float64 { return s[k].([]any)[i].(float64) }
+		if reduce {
+			// Twice a second, a fill per shade, and no frames followed.
+			if get("open", 0) > 2 || get("open", 1) == 0 || get("open", 1) > 3*9 || get("sheet", 1) > 0 || s["soon"].(float64) == 0 || get("back", 1) == 0 || get("library", 1) > 0 {
+				t.Errorf("reduced motion: %v", s)
+			}
+		} else if get("open", 0) < 20 || get("open", 1) == 0 || get("sheet", 0) > 2 || get("sheet", 1) > 0 || s["soon"].(float64) == 0 || get("back", 1) == 0 ||
+			get("library", 0) > 2 || get("library", 1) > 0 {
+			t.Errorf("motion: %v", s)
+		}
+		noErrors(t, ctx)
+	}
+}
+
 // TestBrowserRunSmooth checks the halftone on the stage keeps the main thread
 // free on the laptop's slow CPU (see TestBrowserSmooth): two seconds of the
 // generating loop, then the result showing through the dots.
