@@ -315,7 +315,7 @@ func TestBrowserPrefs(t *testing.T) {
 	return { or: rowText("openrouter"), oa: rowText("openai"), ge: rowText("gemini"), groups: [...document.querySelectorAll("#prefs .group")].map((g) => g.textContent),
 	  out: !!btn(sheet(), "Sign out"), store: note("p-store"), free: note("p-free-image") };`)
 	if fmt.Sprint(s["or"]) != "map[bad:false btns:[Connect] sub:Sign in through OpenRouter. Have a key? Paste it]" ||
-		fmt.Sprint(s["oa"]) != "map[bad:false btns:[Key] sub:Paste a key, framy checks it]" ||
+		fmt.Sprint(s["oa"]) != "map[bad:false btns:[Key] sub:Paste a key and framy checks it]" ||
 		fmt.Sprint(s["groups"]) != "[Model keys Free Default models Telegram Currency Language Account]" ||
 		s["out"] != true || s["store"] != "Files stored: 1230 MB · pictures, clips and uploads" || !strings.HasPrefix(s["free"].(string), "Pictures0 of 5 left in any 24 hours · next one in 3 hours") {
 		t.Errorf("settings: %v", s)
@@ -395,7 +395,7 @@ func TestBrowserPrefs(t *testing.T) {
 	btn(rowOf("openai"), "Disconnect").click();
 	await until(() => note("pr-openai"));
 	return { note: note("pr-openai"), row: rowText("openai") };`)
-	if s["note"] != "The key is gone from framy. Revoke it at OpenAI too: platform.openai.com/api-keys." || fmt.Sprint(s["row"]) != "map[bad:false btns:[Key] sub:Paste a key, framy checks it]" {
+	if s["note"] != "The key is gone from framy. Revoke it at OpenAI too: platform.openai.com/api-keys." || fmt.Sprint(s["row"]) != "map[bad:false btns:[Key] sub:Paste a key and framy checks it]" {
 		t.Errorf("disconnected: %v", s)
 	}
 
@@ -556,7 +556,7 @@ func TestBrowserPrefs(t *testing.T) {
 	await until(() => sheet().hidden && document.querySelector(".signin"));
 	return { q1, q2, failed, asked: !document.querySelector("#ask").hidden, toast: toastText(), top: document.querySelector("#top").textContent };`)
 	if s["q1"] != "Delete the account?" || s["q2"] != "Runs finish first: Some runs have not started yet and can be cancelled. Then the account can be deleted." ||
-		s["failed"] != "Delete the accountNot every file was deleted, the account is still here. Press again to finish deleting.Again" ||
+		s["failed"] != "Delete the accountNot every file was deleted, so the account is still here. Press again to finish deleting.Again" ||
 		s["asked"] != false || s["toast"] != "The account is deleted, and every session is closed." || s["top"] != "framySign in with Telegram" {
 		t.Errorf("delete: %v", s)
 	}

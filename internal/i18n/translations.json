@@ -7920,7 +7920,7 @@
     "ar": "الصقه"
   },
   "web.key.paste_sub": {
-    "en": "Paste a key, framy checks it",
+    "en": "Paste a key and framy checks it",
     "ru": "Вставь ключ, framy его проверит",
     "uk": "Встав ключ, framy його перевірить",
     "es": "Pega una clave y framy la comprueba",
@@ -8658,7 +8658,7 @@
     "ar": "framy مفتوح في عدة علامات تبويب: هذه العلامة تتحقق من النتيجة كل 5 ثوانٍ"
   },
   "web.oauth.cancelled": {
-    "en": "The OpenRouter sign-in was cancelled, no key is connected.",
+    "en": "The OpenRouter sign-in was cancelled. No key is connected.",
     "ru": "Вход в OpenRouter отменён, ключ не подключён.",
     "uk": "Вхід у OpenRouter скасовано, ключ не підключено.",
     "es": "Se canceló el inicio de sesión en OpenRouter; no hay ninguna clave conectada.",
@@ -9234,7 +9234,7 @@
     "ar": "الترتيب"
   },
   "web.pick.outdated": {
-    "en": "Outdated, {v} is newer",
+    "en": "Outdated: {v} is newer",
     "ru": "Устарела, новее: {v}",
     "uk": "Застаріла, новіша: {v}",
     "es": "Obsoleto, {v} es más reciente",
@@ -9828,7 +9828,7 @@
     "ar": "حذف"
   },
   "web.prefs.delete_failed": {
-    "en": "Not every file was deleted, the account is still here. Press again to finish deleting.",
+    "en": "Not every file was deleted, so the account is still here. Press again to finish deleting.",
     "ru": "Не все файлы удалились, аккаунт на месте. Нажми ещё раз, удаление продолжится.",
     "uk": "Не всі файли видалилися, акаунт на місці. Натисни ще раз, і видалення триватиме.",
     "es": "No se eliminaron todos los archivos y la cuenta sigue aquí. Pulsa de nuevo y la eliminación continuará.",
@@ -10098,7 +10098,7 @@
     "ar": "مفاتيح النماذج"
   },
   "web.prefs.keys_note": {
-    "en": "You pay the provider directly, framy adds nothing. A key shows only by its last 4 characters.",
+    "en": "You pay the provider directly, and framy adds nothing. A key shows only by its last 4 characters.",
     "ru": "Платишь провайдеру напрямую, framy ничего не добавляет. Ключ видно только по последним 4 символам.",
     "uk": "Ти платиш провайдеру напряму, framy нічого не додає. Ключ видно лише за останніми 4 символами.",
     "es": "Pagas directamente al proveedor, framy no añade nada. De cada clave solo se ven los últimos 4 caracteres.",
@@ -12942,7 +12942,7 @@
     "ar": "حذف هذا التشغيل؟"
   },
   "web.view.del_storage": {
-    "en": "The files were not deleted. The run is still here, try again.",
+    "en": "The files were not deleted, so the run is still here. Try again.",
     "ru": "Не получилось удалить файлы. Запись на месте, попробуй ещё раз.",
     "uk": "Не вдалося видалити файли. Запис на місці, спробуй ще раз.",
     "es": "No se pudieron eliminar los archivos. La ejecución sigue ahí, inténtalo de nuevo.",

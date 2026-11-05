@@ -421,7 +421,7 @@ func TestBrowserViewer(t *testing.T) {
 	return { q, q2, toast1, still, toast2, gone: !ids().includes(65), at: location.pathname, open: vis(document.querySelector("#viewer")) };`)
 	const delText = "Delete this run? The result and its files go from framy for good, on the site and in Telegram. What the bot already sent to chats stays there."
 	if got["q"] != delText || got["q2"] != delText+" The free run does not come back." ||
-		got["toast1"] != "The files were not deleted. The run is still here, try again." || got["still"] != true ||
+		got["toast1"] != "The files were not deleted, so the run is still here. Try again." || got["still"] != true ||
 		got["toast2"] != "Deleted" || got["gone"] != true || got["at"] != "/r/64" || got["open"] != true {
 		t.Errorf("delete: %v", got)
 	}
