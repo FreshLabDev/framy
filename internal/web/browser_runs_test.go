@@ -615,7 +615,7 @@ func TestBrowserRuns(t *testing.T) {
 	// Refusals before any job: what happened and what helps.
 	for code, w := range map[string][2]string{
 		"price_changed":   {"The price went up", "Create for ≈ $0.500"},
-		"free_closed":     {"Free runs paused", "On my OpenRouter key"},
+		"free_closed":     {"Free runs paused", "On your OpenRouter key"},
 		"wrong_inputs":    {"The files do not fit", "Edit the prompt"},
 		"unknown_setting": {"Not sent", "Edit the prompt"},
 		// A key pasted into the prompt: its settings, where it belongs.
