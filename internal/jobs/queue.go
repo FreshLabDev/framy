@@ -192,7 +192,8 @@ func NewQueue(pool *pgxpool.Pool, cfg Config) (*Queue, error) {
 		SoftStopTimeout:      cfg.StopGrace,
 		FetchPollInterval:    cfg.FetchPoll,
 		FetchCooldown:        min(cmp.Or(cfg.FetchPoll, 100*time.Millisecond), 100*time.Millisecond),
-		Logger:               cfg.Log,
+		Logger:               riverLog(cfg.Log),
+		ErrorHandler:         errorHandler{log: cfg.Log},
 		PeriodicJobs: []*river.PeriodicJob{
 			river.NewPeriodicJob(river.PeriodicInterval(time.Minute),
 				func() (river.JobArgs, *river.InsertOpts) { return sweepArgs{}, sweepOpts },
