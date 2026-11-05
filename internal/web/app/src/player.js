@@ -150,7 +150,9 @@ export function player(res, o = {}) {
   track.addEventListener("pointercancel", drop);
   track.addEventListener("click", (e) => e.stopPropagation());
   // Arrows move five seconds, Page keys go between parts, Home and End to the ends.
+  // Until the clip's length is known there is nothing to go to.
   track.addEventListener("keydown", (e) => {
+    if (!parts.length) return;
     const now = pos(), k = Math.max(0, cur);
     let to = null;
     if (e.key === "ArrowRight" || e.key === "ArrowUp") to = now + STEP;
@@ -159,7 +161,7 @@ export function player(res, o = {}) {
     else if (e.key === "End") to = dur;
     else if (e.key === "PageDown") to = parts[k + 1]?.[0] ?? dur;
     else if (e.key === "PageUp") to = now - parts[k][0] > 1 || k === 0 ? parts[k][0] : parts[k - 1][0];
-    if (to == null || !parts.length) return;
+    if (to == null) return;
     e.preventDefault(); e.stopPropagation();
     seekTo(to); wake();
   });

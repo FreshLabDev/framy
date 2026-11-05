@@ -226,6 +226,12 @@ func (f *fakeRuns) create(w http.ResponseWriter, r *http.Request) {
 		steps = append(steps, at("running", map[string]any{"kind": "video"}), at("done", map[string]any{"kind": "video",
 			"cost":    map[string]any{"usd": 0.04, "amount": 0.04, "currency": "USD", "label": "$0.040"},
 			"results": []map[string]any{{"id": 9, "content_type": "video/mp4", "url": url, "download": url + "?download=1", "width": 832, "height": 480, "seconds": 5}}}))
+	case p == "done:nolength":
+		// A video whose length neither framy nor the browser knows: the file gives nothing.
+		url := "http://" + r.Host + "/test/clip.mp4"
+		steps = append(steps, at("running", map[string]any{"kind": "video"}), at("done", map[string]any{"kind": "video",
+			"cost":    map[string]any{"usd": 0.04, "amount": 0.04, "currency": "USD", "label": "$0.040"},
+			"results": []map[string]any{{"id": 9, "content_type": "video/mp4", "url": url, "download": url + "?download=1", "width": 832, "height": 480}}}))
 	case p == "done:loop":
 		// A clip the browser plays.
 		url := "http://" + r.Host + "/test/loop.webm"
@@ -1441,6 +1447,28 @@ func TestBrowserVideoMotion(t *testing.T) {
 		}
 		noErrors(t, ctx)
 	}
+}
+
+// TestBrowserPlayerNoLength checks the keys of the player's bar before the
+// clip's length is known: they do nothing, and nothing breaks.
+func TestBrowserPlayerNoLength(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(700);
+	await press("done:nolength", () => document.querySelector("#stage .player .ptrack"));
+	const tr = document.querySelector("#stage .player .ptrack");
+	tr.focus();
+	const keys = ["PageUp", "PageDown", "Home", "End", "ArrowRight", "ArrowLeft"];
+	const kept = keys.map((key) => tr.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })));
+	await wait(100);
+	return { kept, time: document.querySelector("#stage .player .ptime").textContent };`)
+	if fmt.Sprint(s["kept"]) != "[true true true true true true]" || s["time"] != "0:00 / 0:00" {
+		t.Errorf("keys with no length: %v", s)
+	}
+	noErrors(t, ctx)
 }
 
 // TestBrowserPlayer checks the site's own player on a joined clip, on a wide
