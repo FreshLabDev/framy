@@ -19,10 +19,16 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Each job stops at about three times what it usually takes, so a hung
+# Chrome, database or docker gives the runner back within the half hour, not
+# after GitHub's six hours, and a release waiting on CI fails instead of
+# hanging. go test's own timeout is shorter, so a hung test ends with its
+# goroutines printed.
 jobs:
   test:
     name: Build, vet, test
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -56,6 +62,8 @@ jobs:
   web:
     name: Site assets and browser tests
     runs-on: ubuntu-latest
+    # The browser tests have 20 minutes of their own, below.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -99,6 +107,7 @@ jobs:
   database:
     name: Database tests
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:17-alpine
@@ -126,6 +135,7 @@ jobs:
   govulncheck:
     name: Vulnerability scan
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -140,6 +150,7 @@ jobs:
   image:
     name: Docker build and media
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:17-alpine

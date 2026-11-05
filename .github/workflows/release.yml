@@ -43,6 +43,9 @@ jobs:
     # the only way to publish without that, and it says so in the notes.
     if: ${{ !cancelled() && (needs.ci.result == 'success' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
+    # It takes a minute or two; a hung build or push fails instead of holding
+    # the release for six hours.
+    timeout-minutes: 20
     env:
       TAG: ${{ inputs.tag || github.ref_name }}
       SKIP_REASON: ${{ inputs.reason }}
