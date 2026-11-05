@@ -75,7 +75,7 @@ func TestAResultIsKeptWithItsThumbnail(t *testing.T) {
 	if err := h.store.Keep(ctx, jobs.Job{ID: job, UserID: alice}, results); err != nil {
 		t.Fatal(err)
 	}
-	base := "u/3001/out/" + strconv.FormatInt(job, 10)
+	base := "out/" + strconv.FormatInt(job, 10)
 	if w, hh := webpSize(t, h, base+"-0.thumb.webp"); w != media.ThumbLongSide || hh != media.ThumbLongSide/2 {
 		t.Errorf("the picture's thumbnail is %d×%d", w, hh)
 	}
@@ -298,7 +298,7 @@ func TestAnSVGIsKeptAsItCame(t *testing.T) {
 		t.Fatalf("%d results: %v", len(kept), err)
 	}
 	for i, a := range kept {
-		if want := "u/3001/out/" + strconv.FormatInt(job, 10) + "-" + strconv.Itoa(i) + ".svg"; a.Key != want ||
+		if want := "out/" + strconv.FormatInt(job, 10) + "-" + strconv.Itoa(i) + ".svg"; a.Key != want ||
 			a.ContentType != "image/svg+xml" || a.Width != 1365 || a.Height != 1024 || a.Thumb != nil {
 			t.Errorf("result %d: %+v", i, a)
 		}

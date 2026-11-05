@@ -281,7 +281,7 @@ func (s *Store) UploadCopy(ctx context.Context, userID int64, r io.Reader, copyT
 		}
 	}
 	a := Asset{
-		UserID: userID, Kind: "upload", Key: s.cfg.Prefix + fmt.Sprintf("u/%d/in/%s%s", userID, random(), ext(img.ContentType)),
+		UserID: userID, Kind: "upload", Key: s.uploadKey(img.ContentType),
 		ContentType: img.ContentType, Bytes: img.Bytes, Width: img.Width, Height: img.Height,
 	}
 	if err := s.putFile(ctx, &a, img.Path); err != nil {
@@ -500,7 +500,7 @@ func (s *Store) makeThumb(ctx context.Context, a Asset, fill func(dst string) er
 }
 
 // thumbKey is where the thumbnail of the object under key goes: next to it,
-// u/<person>/out/<job>-<n>.thumb.webp for a result.
+// out/<job>-<n>.thumb.webp for a result.
 func thumbKey(key string) string {
 	return strings.TrimSuffix(key, filepath.Ext(key)) + ".thumb.webp"
 }
@@ -1157,8 +1157,21 @@ func generic(contentType string) bool {
 	return contentType == "" || contentType == "application/octet-stream" || contentType == "binary/octet-stream"
 }
 
+// Keys of the files a person brings and those their runs make (docs/
+// design.md, Storage and retention). A provider gets the link to an input,
+// and the link names its key, so a key never holds the person's Telegram
+// id: an upload is named by chance, a result by its job, which is enough
+// for keeping it again after a crash to write the same object. Files kept
+// before had u/<person>/ in front; their rows keep those keys.
+
+// uploadKey is where a new upload of that type goes.
+func (s *Store) uploadKey(contentType string) string {
+	return s.cfg.Prefix + "in/" + random() + ext(contentType)
+}
+
+// resultKey is where the i-th result of job j goes.
 func resultKey(prefix string, j jobs.Job, i int, contentType string) string {
-	return prefix + fmt.Sprintf("u/%d/out/%d-%d%s", j.UserID, j.ID, i, ext(contentType))
+	return prefix + fmt.Sprintf("out/%d-%d%s", j.ID, i, ext(contentType))
 }
 
 var exts = map[string]string{

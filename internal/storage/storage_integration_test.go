@@ -188,7 +188,7 @@ func TestAnIPhonePhotoIsKeptNormalized(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.ContentType != "image/jpeg" || a.Width != 1200 || a.Height != 1600 || !strings.HasPrefix(a.Key, "u/3001/in/") || !strings.HasSuffix(a.Key, ".jpg") {
+	if a.ContentType != "image/jpeg" || a.Width != 1200 || a.Height != 1600 || !strings.HasPrefix(a.Key, "in/") || !strings.HasSuffix(a.Key, ".jpg") {
 		t.Errorf("%+v", a)
 	}
 	o, ok := h.bucket.Get(a.Key)
@@ -374,7 +374,7 @@ func TestAResultOutlivesItsProviderLink(t *testing.T) {
 	}
 	// The provider's link is gone; the results are not.
 	links.Close()
-	img, vid := "u/3001/out/"+strconv.FormatInt(id, 10)+"-0.png", "u/3001/out/"+strconv.FormatInt(id, 10)+"-1.mp4"
+	img, vid := "out/"+strconv.FormatInt(id, 10)+"-0.png", "out/"+strconv.FormatInt(id, 10)+"-1.mp4"
 	if o, ok := h.bucket.Get(img); !ok || !bytes.Equal(o.Data, made) || o.ContentType != "image/png" {
 		t.Errorf("the image result: %v %q", ok, o.ContentType)
 	}
@@ -904,7 +904,7 @@ func TestATestBotWritesUnderItsPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(a.Key, "test/u/3001/in/") {
+	if !strings.HasPrefix(a.Key, "test/in/") {
 		t.Fatalf("key = %q", a.Key)
 	}
 	if _, ok := h.bucket.Get(a.Key); !ok {

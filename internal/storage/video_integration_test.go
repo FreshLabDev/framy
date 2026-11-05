@@ -113,7 +113,7 @@ func TestAClipPutByLinkIsKeptWithItsLength(t *testing.T) {
 		t.Fatal(err)
 	}
 	if a.Kind != "upload" || a.ContentType != "video/mp4" || a.Width != 320 || a.Height != 180 ||
-		math.Abs(a.Seconds-2) > 0.1 || a.FPS != 30 || !a.Audio || !strings.HasPrefix(a.Key, "u/3001/in/") || !strings.HasSuffix(a.Key, ".mp4") {
+		math.Abs(a.Seconds-2) > 0.1 || a.FPS != 30 || !a.Audio || !strings.HasPrefix(a.Key, "in/") || !strings.HasSuffix(a.Key, ".mp4") {
 		t.Fatalf("%+v", a)
 	}
 	var secs, fps float64
@@ -375,7 +375,7 @@ func TestAClipGoesThroughItsOwnBucket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := h.bucket.Get(a.Key); !ok || !strings.HasPrefix(a.Key, "u/3001/in/") {
+	if _, ok := h.bucket.Get(a.Key); !ok || !strings.HasPrefix(a.Key, "in/") {
 		t.Fatalf("kept %s: %v", a.Key, ok)
 	}
 	if keys := clips.Keys(); len(keys) != 0 {

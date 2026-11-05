@@ -142,5 +142,5 @@ func startsFromFrame(settings map[string]any) bool {
 
 // joinedKey is where the joined clip of job j goes, beside its results.
 func joinedKey(prefix string, j jobs.Job) string {
-	return prefix + fmt.Sprintf("u/%d/out/%d-joined.mp4", j.UserID, j.ID)
+	return prefix + fmt.Sprintf("out/%d-joined.mp4", j.ID)
 }

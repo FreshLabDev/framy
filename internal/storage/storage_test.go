@@ -2,7 +2,10 @@
 package storage
 
 import (
+	"strings"
 	"testing"
+
+	"github.com/FreshLabDev/framy/internal/jobs"
 )
 
 func TestResultType(t *testing.T) {
@@ -76,5 +79,30 @@ func TestHeadBuffer(t *testing.T) {
 func TestNewNeedsItsParts(t *testing.T) {
 	if _, err := New(Config{}); err == nil {
 		t.Error("an empty config was accepted")
+	}
+}
+
+// A provider gets the links to a run's inputs, and a link names its key:
+// no key holds the person's Telegram id.
+func TestKeysHoldNoPersonsID(t *testing.T) {
+	const person = 987654321
+	s := &Store{cfg: Config{Prefix: "test/"}}
+	j := jobs.Job{ID: 42, UserID: person}
+	for _, c := range []struct{ got, want string }{
+		{resultKey("", j, 1, "image/png"), "out/42-1.png"},
+		{resultKey("test/", j, 0, "video/mp4"), "test/out/42-0.mp4"},
+		{joinedKey("", j), "out/42-joined.mp4"},
+		{thumbKey(resultKey("", j, 0, "image/png")), "out/42-0.thumb.webp"},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s, want %s", c.got, c.want)
+		}
+	}
+	up := s.uploadKey("image/jpeg")
+	if !strings.HasPrefix(up, "test/in/") || !strings.HasSuffix(up, ".jpg") || len(up) != len("test/in/")+32+len(".jpg") {
+		t.Errorf("an upload goes to %s", up)
+	}
+	if again := s.uploadKey("image/jpeg"); again == up {
+		t.Error("two uploads got one key")
 	}
 }

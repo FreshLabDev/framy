@@ -299,7 +299,7 @@ func (s *Store) keepClip(ctx context.Context, userID int64, dir string, cut *med
 		return Asset{}, err
 	}
 	a := Asset{
-		UserID: userID, Kind: "upload", Key: s.cfg.Prefix + fmt.Sprintf("u/%d/in/%s%s", userID, random(), ext(v.ContentType)),
+		UserID: userID, Kind: "upload", Key: s.uploadKey(v.ContentType),
 		ContentType: v.ContentType, Width: v.Width, Height: v.Height, Seconds: v.Seconds, FPS: v.FPS, Audio: v.Audio,
 	}
 	if err := s.putFile(ctx, &a, v.Path); err != nil {
