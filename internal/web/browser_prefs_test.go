@@ -42,6 +42,10 @@ type fakePrefs struct {
 	// meDown: GET /api/me answers this many times 503 unavailable first, as
 	// when the sessions cannot be read for a moment.
 	meDown int
+	// outAll counts POST /auth/logout/all, which answers 503 the first
+	// outAllDown times; after one that went, nobody is signed in.
+	outAll, outAllDown int
+	allOut             bool
 }
 
 func (f *fakePrefs) me() map[string]any {
@@ -71,7 +75,7 @@ func (f *fakePrefs) mount(srv *Server) {
 	f.conns = map[string]map[string]any{}
 	f.currency, f.language, f.defaults, f.deliver = "USD", "en", map[string]string{}, true
 	signIn := func(w http.ResponseWriter) bool {
-		if f.deleted {
+		if f.deleted || f.allOut {
 			writeTestJSON(w, http.StatusUnauthorized, map[string]any{"error": "sign_in"})
 			return false
 		}
@@ -227,6 +231,18 @@ func (f *fakePrefs) mount(srv *Server) {
 		f.connect("openrouter", "or42", "valid")
 		f.mu.Unlock()
 		http.Redirect(w, r, "/?connect=openrouter&result=connected", http.StatusSeeOther)
+	})
+	srv.HandleFunc("POST /auth/logout/all", func(w http.ResponseWriter, _ *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		f.outAll++
+		if f.outAllDown > 0 {
+			f.outAllDown--
+			writeTestJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "unavailable"})
+			return
+		}
+		f.allOut = true
+		w.WriteHeader(http.StatusNoContent)
 	})
 	srv.HandleFunc("POST /auth/miniapp", func(w http.ResponseWriter, _ *http.Request) {
 		writeTestJSON(w, http.StatusOK, map[string]any{"token": "test-token", "expires_in": 3600})
@@ -499,6 +515,39 @@ func TestBrowserASessionUnreadAtStartIsAskedAgain(t *testing.T) {
 	})
 }
 
+// A cookie or a token that got out is ended from the settings: every
+// session of the person's, this one too. One the server could not end is
+// no sign-out, and the page stays as it was; the next press goes.
+func TestBrowserSignOutEverywhere(t *testing.T) {
+	f := &fakePrefs{outAllDown: 1}
+	ts := fakeSite(t, f.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := prefs(t, ctx, `
+	document.querySelector("#meBtn").click();
+	await until(() => !sheet().hidden);
+	const row = [...document.querySelectorAll('#prefsBody [data-k="p-out"] > button')].map((b) => b.textContent.trim());
+	btn(sheet(), "Sign out everywhere").click();
+	const q = await yes();
+	await until(() => toastText());
+	const failed = { toast: toastText(), open: !sheet().hidden, me: !!document.querySelector("#meBtn") };
+	btn(sheet(), "Sign out everywhere").click();
+	await yes();
+	await until(() => sheet().hidden && document.querySelector(".signin"));
+	await wait(100);
+	return { row, q, failed, toast: toastText(), top: document.querySelector("#top").textContent };`)
+	if fmt.Sprint(s["row"]) != "[Sign out Sign out everywhere]" || s["q"] != "Sign out of framy on every device?" ||
+		fmt.Sprint(s["failed"]) != "map[me:true open:true toast:framy is busy right now. Try again in a minute.]" ||
+		s["toast"] != "You signed out." || s["top"] != "framySign in with Telegram" {
+		t.Errorf("sign out everywhere: %v", s)
+	}
+	f.with(func() {
+		if f.outAll != 2 || !f.allOut {
+			t.Errorf("logout/all asked %d times, everyone out %v", f.outAll, f.allOut)
+		}
+	})
+	noErrors(t, ctx)
+}
+
 // TestBrowserPrefsLanguage checks that a new language is the server's and
 // the page's: it reloads in it, with the settings open again.
 func TestBrowserPrefsLanguage(t *testing.T) {
@@ -692,8 +741,14 @@ func TestBrowserPrefsPhone(t *testing.T) {
 	const body = document.querySelector("#prefsBody"), w = body.getBoundingClientRect();
 	const out = [...body.querySelectorAll("button, input, select, .l, .kerr")].filter(vis).filter((el) => { const r = el.getBoundingClientRect(); return r.left < w.left - 0.5 || r.right > w.right + 0.5; })
 	  .map((el) => el.textContent.trim().slice(0, 30) || el.tagName);
-	return { out, scroll: body.scrollWidth - body.clientWidth, page: document.documentElement.scrollWidth - innerWidth };`)
-		if len(s["out"].([]any)) > 0 || s["scroll"].(float64) > 0 || s["page"].(float64) > 0 {
+	// A row's buttons that go under its text start where the text does, the one
+	// that did not fit beside the one before as well: Sign out everywhere.
+	const under = [...body.querySelectorAll(".srow.two")].filter(vis).flatMap((row) => {
+	  const l = row.querySelector(".l").getBoundingClientRect().left;
+	  return [...row.querySelectorAll(":scope > button, :scope > select")].filter(vis).filter((b) => b.getBoundingClientRect().left < l - 0.5).map((b) => b.textContent.trim().slice(0, 30));
+	});
+	return { out, under, scroll: body.scrollWidth - body.clientWidth, page: document.documentElement.scrollWidth - innerWidth };`)
+		if len(s["out"].([]any)) > 0 || len(s["under"].([]any)) > 0 || s["scroll"].(float64) > 0 || s["page"].(float64) > 0 {
 			t.Errorf("%dx%d: %v", size[0], size[1], s)
 		}
 		noErrors(t, ctx)

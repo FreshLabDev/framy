@@ -563,14 +563,17 @@ input.search::placeholder {color: var(--muted);}
 .srow select.pick {flex: none; height: 40px; max-width: 46%; padding: 0 10px; background: var(--field); color: var(--ink); font-weight: 600;}
 .srow .l .spent {display: block; margin-top: 2px; font-size: 13px; color: var(--soft);}
 .srow > button.tog {height: 44px; padding: 0 4px; background: none;}
-/* Narrow, or a key with a problem to read: the buttons go under the text. */
-.srow.two.bad {flex-wrap: wrap; row-gap: 10px;}
-.srow.two.bad .l {flex-basis: calc(100% - 50px);}
-.srow.two.bad > button:first-of-type {margin-inline-start: 50px;}
+/* Narrow, or a key with a problem to read: the buttons go under the text,
+   each line of them where the text starts. The row is indented by the mark's
+   place and the mark sits back in it, so a button that does not fit beside
+   the one before starts under the text too, not under the mark. */
+.srow.two.bad {flex-wrap: wrap; row-gap: 10px; padding-inline-start: 62px;}
+.srow.two.bad > .ic, .srow.two.bad > .lgi {margin-inline-start: -42px;}
+.srow.two.bad .l {flex-basis: 100%;}
 @container prefs (max-width: 440px) {
-  .srow.two {flex-wrap: wrap; row-gap: 10px;}
-  .srow.two .l {flex-basis: calc(100% - 50px);}
-  .srow.two > button:first-of-type, .srow.two > select {margin-inline-start: 50px;}
+  .srow.two {flex-wrap: wrap; row-gap: 10px; padding-inline-start: 62px;}
+  .srow.two > .ic, .srow.two > .lgi {margin-inline-start: -42px;}
+  .srow.two .l {flex-basis: 100%;}
 }
 .kform {display: grid; grid-template-columns: minmax(0, 1fr) auto 40px; gap: 6px; margin-top: calc(-1 * var(--gap)); padding: 0 10px 12px 12px; background: var(--deep);}
 .kform input {min-width: 0; height: 40px; padding: 0 12px; background: var(--field); color: var(--ink); letter-spacing: .04em;}

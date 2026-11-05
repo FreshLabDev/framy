@@ -10,7 +10,7 @@ import { openPicker } from "./picker.js";
 import { clearPrices } from "./price.js";
 import { openSheet, closeSheets, toast, ask } from "./ui.js";
 import { anim, morph, opt, placeSegs } from "./motion.js";
-import { signOut, forget, refreshMe } from "./run.js";
+import { signOut, signOutAll, forget, refreshMe } from "./run.js";
 import { LANGS, CURRENCIES } from "assets:lists";
 
 const PROVIDERS = ["openrouter", "openai", "gemini"];
@@ -447,7 +447,8 @@ export function renderPrefs() {
     h("div", { class: "group", "data-k": "g-acc" }, t("prefs.account")),
     st ? sheetRow("store", ic("stack"), t("prefs.stored", { n: fmtNum(st.files) }), t("prefs.stored_sub", { size: size(st.bytes) })) : null,
     S.mini ? null : sheetRow("out", ic("out"), t("prefs.signed_tg"), t("prefs.signed_sub"),
-      h("button", { type: "button", onclick: async () => { await signOut(); if (!S.signed) closeSheets(); } }, t("auth.signout"))),
+      h("button", { type: "button", onclick: async () => { await signOut(); if (!S.signed) closeSheets(); } }, t("auth.signout")),
+      h("button", { type: "button", onclick: async () => { await signOutAll(); if (!S.signed) closeSheets(); } }, t("auth.signout_all"))),
     sheetRow("del", ic("trash"), t("prefs.delete"), accSub,
       h("button", { type: "button", class: "danger", disabled: ACC === "busy", onclick: deleteAccount }, t(ACC === "busy" ? "prefs.deleting_btn" : ACC === "fail" ? "prefs.delete_again" : "prefs.delete_btn"))));
   placeSegs($("#prefs"));

@@ -31,6 +31,20 @@ export async function signOut() {
   forget();
   toast(t("auth.signed_out"));
 }
+// Every session of the person's ends, on the site and in the Mini App, on every device and
+// this one: what a cookie or a token that got out opens. It is no sign-out until the server
+// says so, since one kept elsewhere would go on working.
+export async function signOutAll() {
+  const yes = await ask({ title: t("auth.signout_all_q"), yes: t("auth.signout_all") });
+  if (!yes) return;
+  try { await api("/auth/logout/all", { method: "POST" }); }
+  catch (e) {
+    // Signed out already, here at least: the page says so.
+    if (e.status !== 401) { toast(t(e.code === "network" ? "err.network" : "err.busy")); return; }
+  }
+  forget();
+  toast(t("auth.signed_out"));
+}
 // Nobody is signed in any more: signed out, the account deleted, or the session gone.
 export function forget() {
   stopWatch?.();
