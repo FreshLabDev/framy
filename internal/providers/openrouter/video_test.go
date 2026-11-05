@@ -241,9 +241,7 @@ func TestSubmitSendsTheVideoRequestAndReturnsTheJobId(t *testing.T) {
 	if got := h.Get("Content-Type"); got != "application/json" {
 		t.Errorf("content type %q", got)
 	}
-	if got := h.Get("X-Title"); got != "framy" {
-		t.Errorf("X-Title %q", got)
-	}
+	attributed(t, h)
 	body := f.lastSubmit()
 	if body["model"] != "test/video" || body["resolution"] != "768p" {
 		t.Errorf("body %v", body)

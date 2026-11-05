@@ -512,7 +512,11 @@ func (p *Provider) newRequest(ctx context.Context, key, method, link string, bod
 		req.Header.Set("HTTP-Referer", p.cfg.Referer)
 	}
 	if p.cfg.Title != "" {
+		req.Header.Set("X-OpenRouter-Title", p.cfg.Title)
 		req.Header.Set("X-Title", p.cfg.Title)
+	}
+	if p.cfg.Categories != "" {
+		req.Header.Set("X-OpenRouter-Categories", p.cfg.Categories)
 	}
 	return req, nil
 }

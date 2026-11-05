@@ -219,11 +219,13 @@ func videoJobOf(settings map[string]any, inputs ...jobs.Input) jobs.Job {
 // fakeProvider is the adapter pointed at the fake; tweak changes its Config.
 func fakeProvider(f *fakeOR, cb Callbacks, tweak ...func(*Config)) *Provider {
 	cfg := Config{
-		Base:      f.base(),
-		HTTP:      f.srv.Client(),
-		Title:     "framy",
-		Callbacks: cb,
-		Key:       func(context.Context, jobs.Job) (string, error) { return fakeKey, nil },
+		Base:       f.base(),
+		HTTP:       f.srv.Client(),
+		Referer:    AppURL,
+		Title:      "framy",
+		Categories: AppCategories,
+		Callbacks:  cb,
+		Key:        func(context.Context, jobs.Job) (string, error) { return fakeKey, nil },
 	}
 	for _, t := range tweak {
 		t(&cfg)

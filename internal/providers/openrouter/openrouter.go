@@ -40,13 +40,16 @@ const imageTries = 3
 // clip of today's models is 10 to 30 MB.
 const DefaultMaxVideo = 128 << 20
 
-// AppURL and AppTitle are how framy appears in OpenRouter (HTTP-Referer and
-// X-Title): the production bot, from every stack, the test one included, so
-// the activity and the app rankings point people at the product and not at
-// the repository (owner, 28 October).
+// AppURL, AppTitle and AppCategories are how framy appears in OpenRouter's
+// app attribution (HTTP-Referer, X-OpenRouter-Title and
+// X-OpenRouter-Categories): the production bot, from every stack, the test
+// one included, so the activity and the app rankings point people at the
+// product and not at the repository (owner, 28 October). The categories
+// are two of OpenRouter's list, the most a request may name.
 const (
-	AppURL   = "https://t.me/framyin_bot"
-	AppTitle = "framy"
+	AppURL        = "https://t.me/framyin_bot"
+	AppTitle      = "framy"
+	AppCategories = "image-gen,video-gen"
 )
 
 // Config is how the adapter reaches OpenRouter.
@@ -57,10 +60,13 @@ type Config struct {
 	// client needs no timeout of its own.
 	HTTP      *http.Client
 	UserAgent string
-	// Referer and Title name framy in OpenRouter's app rankings
-	// (HTTP-Referer and X-Title).
-	Referer string
-	Title   string
+	// Referer, Title and Categories name framy in OpenRouter's app
+	// rankings and marketplace (HTTP-Referer, X-OpenRouter-Title and
+	// X-OpenRouter-Categories). A title goes also as X-Title, the name
+	// OpenRouter still takes for older apps.
+	Referer    string
+	Title      string
+	Categories string
 	// Key returns the key that pays for the job: framy's own for the free
 	// allowance, the person's connection otherwise. An *jobs.Error keeps its
 	// class; any other error fails the job as internal. The key never reaches
@@ -211,22 +217,11 @@ func (p *Provider) images(ctx context.Context, key string, body map[string]any) 
 	if err != nil {
 		return jobs.Outcome{}, &jobs.Error{Class: jobs.Internal, Err: err}
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.cfg.Base+"/images", bytes.NewReader(raw))
+	req, err := p.newRequest(ctx, key, http.MethodPost, p.cfg.Base+"/images", bytes.NewReader(raw))
 	if err != nil {
-		return jobs.Outcome{}, &jobs.Error{Class: jobs.Internal, Err: err}
+		return jobs.Outcome{}, err
 	}
-	req.Header.Set("Authorization", "Bearer "+key)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	if p.cfg.UserAgent != "" {
-		req.Header.Set("User-Agent", p.cfg.UserAgent)
-	}
-	if p.cfg.Referer != "" {
-		req.Header.Set("HTTP-Referer", p.cfg.Referer)
-	}
-	if p.cfg.Title != "" {
-		req.Header.Set("X-Title", p.cfg.Title)
-	}
 	resp, err := p.cfg.HTTP.Do(req)
 	if err != nil {
 		return jobs.Outcome{}, transportError(err)

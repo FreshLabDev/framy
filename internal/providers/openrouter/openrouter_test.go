@@ -117,12 +117,31 @@ func serve(t *testing.T, answer func(http.ResponseWriter)) (*Provider, *upstream
 	srv := httptest.NewServer(u)
 	t.Cleanup(srv.Close)
 	p := New(Config{
-		Base:  srv.URL + "/api/v1",
-		HTTP:  srv.Client(),
-		Title: "framy",
-		Key:   func(context.Context, jobs.Job) (string, error) { return "sk-or-v1-test", nil },
+		Base:       srv.URL + "/api/v1",
+		HTTP:       srv.Client(),
+		Referer:    AppURL,
+		Title:      "framy",
+		Categories: AppCategories,
+		Key:        func(context.Context, jobs.Job) (string, error) { return "sk-or-v1-test", nil },
 	})
 	return p, u
+}
+
+// attributed checks the headers that name framy in OpenRouter's app
+// rankings: the documented X-OpenRouter-Title and X-OpenRouter-Categories,
+// and X-Title, which OpenRouter keeps for older apps.
+func attributed(t *testing.T, h http.Header) {
+	t.Helper()
+	for name, want := range map[string]string{
+		"HTTP-Referer":            "https://t.me/framyin_bot",
+		"X-OpenRouter-Title":      "framy",
+		"X-Title":                 "framy",
+		"X-OpenRouter-Categories": "image-gen,video-gen",
+	} {
+		if got := h.Get(name); got != want {
+			t.Errorf("%s %q, want %q", name, got, want)
+		}
+	}
 }
 
 func classOf(t *testing.T, err error) *jobs.Error {
@@ -157,9 +176,7 @@ func TestAGenerationReturnsTheImageAndItsCost(t *testing.T) {
 	if got := u.header.Get("Authorization"); got != "Bearer sk-or-v1-test" {
 		t.Errorf("authorization %q", got)
 	}
-	if got := u.header.Get("X-Title"); got != "framy" {
-		t.Errorf("X-Title %q", got)
-	}
+	attributed(t, u.header)
 	b := u.body
 	if b["model"] != "test/image" || b["prompt"] != "a fox in the snow" {
 		t.Errorf("model and prompt: %v", b)
