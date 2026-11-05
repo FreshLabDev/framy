@@ -28,6 +28,7 @@ import (
 	"github.com/FreshLabDev/framy/internal/jobs"
 	"github.com/FreshLabDev/framy/internal/keys"
 	"github.com/FreshLabDev/framy/internal/media"
+	"github.com/FreshLabDev/framy/internal/price"
 	"github.com/FreshLabDev/framy/internal/storage"
 )
 
@@ -982,6 +983,8 @@ type fakeQueue struct {
 	cancelErr error
 	cancelled []int64
 	revised   []jobs.New
+	// repromptErr fails Reprompt.
+	repromptErr error
 }
 
 // Revise changes a draft as the queue does; refuse fails a free one.
@@ -1000,6 +1003,21 @@ func (q *fakeQueue) Revise(_ context.Context, id int64, n jobs.New) error {
 	if n.Inputs != nil {
 		j.n.Inputs = n.Inputs
 	}
+	return nil
+}
+
+// Reprompt gives a draft new words as the queue does; repromptErr fails it.
+func (q *fakeQueue) Reprompt(_ context.Context, id int64, prompt string, estimate *price.Estimate) error {
+	if q.repromptErr != nil {
+		return q.repromptErr
+	}
+	q.store.mu.Lock()
+	defer q.store.mu.Unlock()
+	j := q.store.jobs[id]
+	if j == nil || j.status != jobs.Draft {
+		return jobs.ErrNotDraft
+	}
+	j.n.Prompt, j.n.Estimate = prompt, estimate
 	return nil
 }
 

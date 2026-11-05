@@ -2,6 +2,7 @@
 package bot
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -129,6 +130,33 @@ func (b *Bot) onMessage(ctx context.Context, m *tg.Message) error {
 func (b *Bot) repliesToSelf(m *tg.Message) bool {
 	r := m.ReplyToMessage
 	return r != nil && r.From != nil && b.selfID != 0 && r.From.ID == b.selfID
+}
+
+// onEdit hands the flow an edit of a message that asks framy for a run, as
+// onMessage reads a new one: /img or /edit, framy's mention in a group, or
+// a plain direct message. A message sent on behalf of a chat started no
+// run, and an ephemeral one cannot be edited.
+func (b *Bot) onEdit(ctx context.Context, m *tg.Message) {
+	if b.flow == nil || m.From == nil || m.From.IsBot || m.MessageID == 0 {
+		return
+	}
+	if asChat, _ := sentAsChat(m); asChat {
+		return
+	}
+	if cmd, rest, ok := b.commandArgs(m); ok {
+		if cmd == "img" || cmd == "edit" {
+			b.flow.Edited(ctx, m, cmd, rest)
+		}
+		return
+	}
+	switch private := m.Chat.Type == "private"; {
+	case private && !strings.HasPrefix(strings.TrimSpace(m.Text), "/"):
+		b.flow.Edited(ctx, m, "", cmp.Or(m.Text, m.Caption))
+	case !private:
+		if prompt, ok := b.mentionArgs(m); ok {
+			b.flow.Edited(ctx, m, "", prompt)
+		}
+	}
 }
 
 // mentionArgs reads a group message that starts with framy's mention, in

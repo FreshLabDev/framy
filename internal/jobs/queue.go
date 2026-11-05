@@ -18,6 +18,7 @@ import (
 	"github.com/riverqueue/river/rivermigrate"
 
 	"github.com/FreshLabDev/framy/internal/catalog"
+	"github.com/FreshLabDev/framy/internal/price"
 )
 
 // Schema is where framy's and River's tables live.
@@ -462,6 +463,30 @@ func (q *Queue) Revise(ctx context.Context, id int64, n New) error {
 		}
 		return nil
 	})
+}
+
+// Reprompt gives a draft new words and the price shown for them, as an edit
+// of the chat message that asked for it does. Nothing else of the draft
+// changes, and the allowance is not asked: Generate asks it, with this
+// price. A job that is not a draft any more, or that its person deleted,
+// gives ErrNotDraft.
+func (q *Queue) Reprompt(ctx context.Context, id int64, prompt string, estimate *price.Estimate) error {
+	var estimateUSD *float64
+	if estimate != nil {
+		estimateUSD = &estimate.USD
+	}
+	tag, err := q.pool.Exec(ctx, `
+		UPDATE job SET prompt=$2, estimate_usd=$3, estimate=$4, updated_at=now()
+		WHERE id=$1 AND status='draft' AND deleted_at IS NULL
+		  AND created_at > now() - make_interval(secs => $5)`,
+		id, prompt, estimateUSD, estimate, draftTTL.Seconds())
+	if err != nil {
+		return fmt.Errorf("reprompt job %d: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotDraft
+	}
+	return nil
 }
 
 // admitNew asks the allowance about a free job about to be created.

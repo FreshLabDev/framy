@@ -148,6 +148,10 @@ type Flow interface {
 	// GuestOpen answers a guest message that replied to framy's answer
 	// while that one still has buttons.
 	GuestOpen(ctx context.Context, m *tg.Message)
+	// Edited takes an edit of a message that asks framy for a run: /img or
+	// /edit, named by command, with the words after it; framy's mention in
+	// a group or a plain direct message, with no command and their words.
+	Edited(ctx context.Context, m *tg.Message, command, prompt string)
 }
 
 // WithFlow answers /img and /edit, plain direct messages, and words in a
@@ -324,11 +328,17 @@ func (b *Bot) handle(ctx context.Context, u tg.Update) {
 	case u.EditedMessage != nil:
 		// An edit can swap the file of an item, or paste a key into a direct
 		// message already sent, which is then deleted as a new one would be.
-		// Nothing else about an edit is handled: no touch, no command.
+		// An edit of a message that asks framy for a run goes to the flow,
+		// which takes its words while the run is a preview. Nothing else
+		// about an edit is handled: no touch, no new command.
 		b.noteAlbumItem(ctx, u.EditedMessage)
-		if _, err := b.keyInChat(ctx, u.EditedMessage); err != nil {
+		handled, err := b.keyInChat(ctx, u.EditedMessage)
+		if err != nil {
 			metrics.UpdatesFailed.Inc()
 			b.log.Error("update failed", "update_id", u.UpdateID, "error", err)
+		}
+		if !handled {
+			b.onEdit(ctx, u.EditedMessage)
 		}
 		return
 	}

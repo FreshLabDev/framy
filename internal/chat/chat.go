@@ -37,6 +37,7 @@ import (
 	"github.com/FreshLabDev/framy/internal/jobs"
 	"github.com/FreshLabDev/framy/internal/keys"
 	"github.com/FreshLabDev/framy/internal/media"
+	"github.com/FreshLabDev/framy/internal/price"
 	"github.com/FreshLabDev/framy/internal/storage"
 )
 
@@ -111,6 +112,7 @@ type Queue interface {
 	Generate(ctx context.Context, id int64) error
 	Revise(ctx context.Context, id int64, n jobs.New) error
 	Cancel(ctx context.Context, id int64) error
+	Reprompt(ctx context.Context, id int64, prompt string, estimate *price.Estimate) error
 }
 
 // Files keeps the photos and the clip a run takes and reads its results:

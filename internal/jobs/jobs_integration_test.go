@@ -307,6 +307,59 @@ func TestADraftIsRevisedInPlace(t *testing.T) {
 	}
 }
 
+// An edit of the command gives a draft new words and their price, and
+// nothing else; a job past its draft, or one its person deleted, keeps its
+// words.
+func TestADraftTakesNewWords(t *testing.T) {
+	q, pool := testQueue(t, newFake())
+	ctx := context.Background()
+	n := job(alice, imageOffer)
+	n.DedupeKey = TelegramUpdate(45)
+	n.Settings = map[string]any{"quality": "high"}
+	n.Free = true
+	n.Estimate = &price.Estimate{Kind: price.About, USD: 0.1}
+	id, _, err := q.Draft(ctx, n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Reprompt(ctx, id, "a fox in the rain", &price.Estimate{Kind: price.About, USD: 0.3}); err != nil {
+		t.Fatal(err)
+	}
+	j := get(t, q, id)
+	if j.Prompt != "a fox in the rain" || j.OfferID != imageOffer.ID || j.Settings["quality"] != "high" || !j.Free || j.Status != Draft {
+		t.Fatalf("reprompted = %+v", j)
+	}
+	if usd := scalar[float64](t, pool, `SELECT estimate_usd::float8 FROM framy.job WHERE id=$1`, id); usd != 0.3 {
+		t.Fatalf("estimate = %v", usd)
+	}
+	if usd := scalar[float64](t, pool, `SELECT (estimate->>'usd')::float8 FROM framy.job WHERE id=$1`, id); usd != 0.3 {
+		t.Fatalf("estimate shown = %v", usd)
+	}
+
+	gone := job(alice, imageOffer)
+	gone.DedupeKey = TelegramUpdate(46)
+	deleted, _, err := q.Draft(ctx, gone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE framy.job SET deleted_at = now() WHERE id = $1`, deleted); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Reprompt(ctx, deleted, "a fox in the rain", nil); !errors.Is(err, ErrNotDraft) {
+		t.Fatalf("a deleted draft reprompted: %v", err)
+	}
+
+	if err := q.Generate(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Reprompt(ctx, id, "a wolf", nil); !errors.Is(err, ErrNotDraft) {
+		t.Fatalf("a queued job reprompted: %v", err)
+	}
+	if j := get(t, q, id); j.Prompt != "a fox in the rain" {
+		t.Fatalf("a queued job's words = %q", j.Prompt)
+	}
+}
+
 // A revision with files takes them in place of the draft's, in order, and
 // only the person's own: another's leaves the draft as it was.
 func TestARevisionReplacesTheFiles(t *testing.T) {

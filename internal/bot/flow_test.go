@@ -25,6 +25,7 @@ type fakeFlow struct {
 	mentions  []string
 	anonymous []string
 	open      int
+	edits     []flowCommand
 }
 
 type flowCommand struct{ command, prompt string }
@@ -84,6 +85,12 @@ func (f *fakeFlow) GuestOpen(context.Context, *tg.Message) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.open++
+}
+
+func (f *fakeFlow) Edited(_ context.Context, _ *tg.Message, command, prompt string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.edits = append(f.edits, flowCommand{command, prompt})
 }
 
 // framy streams no drafts: a Stop on one, which framy does not ask
@@ -473,5 +480,44 @@ func TestAMessageSentAsAChatIsToldWhyNothingIsMade(t *testing.T) {
 	}
 	if len(client.calls) != 0 {
 		t.Errorf("the bot answered itself: %+v", client.calls)
+	}
+}
+
+// An edit of a message that asks framy for a run goes to the flow with the
+// words it reads now, as a new message would: /img and /edit by name,
+// framy's mention in a group, a plain direct message. Chatter, other
+// commands, another bot's, a bot's and an anonymous admin's edits do not,
+// nor a key, which the guard deletes. No edit is touched.
+func TestAnEditOfARequestGoesToTheFlow(t *testing.T) {
+	flow := &fakeFlow{}
+	b, store, _ := newBotWith(WithFlow(flow))
+	anonymous := message(groupChat, 1087968824, "/img a fox")
+	anonymous.Raw = []byte(`{"sender_chat":{"id":-100,"type":"supergroup"}}`)
+	for _, tc := range []struct {
+		name string
+		m    *tg.Message
+		want []flowCommand
+	}{
+		{"/img", message(groupChat, 7, "/img a fox"), []flowCommand{{"img", "a fox"}}},
+		{"/edit by name", message(groupChat, 7, "/edit@framytest_bot make it night"), []flowCommand{{"edit", "make it night"}}},
+		{"the mention", message(groupChat, 7, "@framytest_bot, a fox"), []flowCommand{{"", "a fox"}}},
+		{"a photo's caption", &tg.Message{MessageID: 11, Chat: dmChat, From: &tg.User{ID: 7}, Caption: "make it night", Photo: []tg.Photo{{FileID: "p"}}}, []flowCommand{{"", "make it night"}}},
+		{"a direct message", message(dmChat, 7, "a fox in the snow"), []flowCommand{{"", "a fox in the snow"}}},
+		{"chatter", message(groupChat, 7, "a fox in the snow"), nil},
+		{"another command", message(dmChat, 7, "/start"), nil},
+		{"an unknown command", message(dmChat, 7, "/foo bar"), nil},
+		{"another bot's command", message(groupChat, 7, "/img@other_bot a fox"), nil},
+		{"a bot", &tg.Message{MessageID: 13, Chat: dmChat, From: &tg.User{ID: 8, IsBot: true}, Text: "a fox"}, nil},
+		{"an anonymous admin", anonymous, nil},
+		{"a key", message(dmChat, 7, "a fox "+openRouterKey), nil},
+	} {
+		flow.edits = nil
+		b.handle(context.Background(), tg.Update{UpdateID: 1, EditedMessage: tc.m})
+		if !slices.Equal(flow.edits, tc.want) {
+			t.Errorf("%s: the flow got %+v, want %+v", tc.name, flow.edits, tc.want)
+		}
+	}
+	if len(store.touches) != 0 || len(flow.commands) != 0 || len(flow.plain) != 0 || len(flow.mentions) != 0 {
+		t.Errorf("an edit was taken as new: touches %+v, commands %+v, plain %v, mentions %v", store.touches, flow.commands, flow.plain, flow.mentions)
 	}
 }
