@@ -170,6 +170,11 @@ func (q *Queue) waitFor(j Job) time.Duration {
 // Stacks): a job of a stack that is stopped stays queued or running until
 // that stack is back, and it must not hold up the person's runs on the
 // other one.
+//
+// A slot is a run framy is working on: one being sent or made while framy
+// waits on the call. A video out at the provider (provider_job_id), which
+// framy only asks about every PollEvery for up to an hour, holds none, so
+// two videos do not keep the person's pictures waiting behind them.
 func (q *Queue) claim(ctx context.Context, j Job) (bool, error) {
 	var claimed bool
 	err := pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
@@ -179,7 +184,7 @@ func (q *Queue) claim(ctx context.Context, j Job) (bool, error) {
 		tag, err := tx.Exec(ctx, `
 			UPDATE job SET status='running', retry_at=NULL, started_at=COALESCE(started_at, now()), updated_at=now()
 			WHERE id=$1 AND status='queued' AND (retry_at IS NULL OR retry_at <= now())
-			  AND (SELECT count(*) FROM job r WHERE r.user_id=$2 AND r.stack=job.stack AND r.status='running') < $3
+			  AND (SELECT count(*) FROM job r WHERE r.user_id=$2 AND r.stack=job.stack AND r.status='running' AND r.provider_job_id IS NULL) < $3
 			  AND NOT EXISTS (
 			    SELECT 1 FROM job o WHERE o.user_id=$2 AND o.stack=job.stack AND o.status='queued' AND o.id < $1
 			      AND (o.retry_at IS NULL OR o.retry_at <= now()))`,
@@ -235,6 +240,12 @@ func (q *Queue) submit(ctx context.Context, p Provider, j Job) error {
 			return err
 		}
 		j.ProviderJobID = sub.ProviderJobID
+		// Out at the provider, the run leaves its slot: the person's next
+		// job may start now rather than at its next look. The id is saved
+		// already, so a failure here costs only that wait.
+		if err := pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error { return q.wake(ctx, tx, j.UserID, q.cfg.Stack) }); err != nil {
+			q.log.Warn("next job not woken", "job", j.ID, "error", err)
+		}
 	}
 	switch {
 	case sub.Outcome != nil && !sub.Outcome.Running:

@@ -894,6 +894,45 @@ func TestTheSweep(t *testing.T) {
 	}
 }
 
+// A video out at the provider is only asked about, and holds none of the
+// person's two slots: their picture starts while two videos are being
+// made, and a video that has its run's id wakes the next job at once.
+func TestVideosAtTheProviderHoldNoSlot(t *testing.T) {
+	ctx := context.Background()
+	p := newFake()
+	p.submit = func(_ context.Context, j Job) (Submission, error) {
+		if j.Kind == catalog.Video {
+			return Submission{ProviderJobID: fmt.Sprintf("gen-%d", j.ID)}, nil
+		}
+		return done(0.02), nil
+	}
+	q, pool := testQueue(t, p)
+	v1 := enqueue(t, q, job(alice, videoOffer))
+	v2 := enqueue(t, q, job(alice, videoOffer))
+	for _, id := range []int64{v1, v2} {
+		if err := q.work(ctx, id); !isSnooze(err) {
+			t.Fatalf("video %d sent: %v, want a snooze until its first poll", id, err)
+		}
+	}
+	img := enqueue(t, q, job(alice, imageOffer))
+	if err := q.work(ctx, img); err != nil {
+		t.Fatalf("the picture behind two videos at the provider: %v", err)
+	}
+	if j := get(t, q, img); j.Status != Done {
+		t.Fatalf("the picture: %s, want done", j.Status)
+	}
+
+	// Two pictures being made still fill the slots.
+	if _, err := pool.Exec(ctx, `UPDATE framy.job SET status='running', started_at=now() WHERE id IN ($1, $2)`,
+		enqueue(t, q, job(alice, imageOffer)), enqueue(t, q, job(alice, imageOffer))); err != nil {
+		t.Fatal(err)
+	}
+	third := enqueue(t, q, job(alice, imageOffer))
+	if err := q.work(ctx, third); !isSnooze(err) || get(t, q, third).Status != Queued {
+		t.Fatalf("a third picture beside two being made: %v, %s", err, get(t, q, third).Status)
+	}
+}
+
 func TestAPersonsJobsStartInOrder(t *testing.T) {
 	q, pool := testQueue(t, newFake())
 	ctx := context.Background()
