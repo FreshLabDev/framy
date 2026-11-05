@@ -70,6 +70,15 @@ type retry struct {
 	next  time.Time
 }
 
+// retryAfter is how long a delivery that failed tries times waits for the
+// next try: retryFirst, then twice as long each time up to retryMost.
+func retryAfter(tries int) time.Duration {
+	if tries > 8 {
+		return retryMost
+	}
+	return min(retryFirst<<(max(tries, 1)-1), retryMost)
+}
+
 // due tells whether the run's delivery may be tried now.
 func (f *Flow) due(jobID int64) bool {
 	v, ok := f.retries.Load(jobID)
@@ -822,10 +831,7 @@ func (f *Flow) giveUp(ctx context.Context, run db.ChatRun, what string, err erro
 		f.log.Error(what+" for too long, so the run ends", "job", run.JobID, "tries", r.tries, "error", err)
 		return true
 	}
-	wait := retryMost
-	if r.tries <= 8 {
-		wait = min(retryFirst<<(r.tries-1), retryMost)
-	}
+	wait := retryAfter(r.tries)
 	r.next = now.Add(wait)
 	f.retries.Store(run.JobID, r)
 	f.log.Error(what, "job", run.JobID, "tries", r.tries, "again_in", wait, "error", err)

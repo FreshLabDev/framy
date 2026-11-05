@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -198,14 +199,41 @@ func (g guarded) note(chat int64, err error) error {
 	return err
 }
 
-// paced runs a call to chat under the chat's pace.
+// paced runs a call to chat under the chat's pace. Its failure is marked
+// as the call's (callFailure), unlike a wait for the chat, which calls nothing.
 func paced[T any](g guarded, ctx context.Context, chat int64, call func() (T, error)) (T, error) {
 	if err := g.wait(ctx, chat); err != nil {
 		var zero T
 		return zero, err
 	}
 	v, err := call()
+	if err != nil {
+		err = callFailure{err}
+	}
 	return v, g.note(chat, err)
+}
+
+// callFailure is the failure of a call to Telegram: its answer, or no
+// answer. What fails without it failed before any call, when nothing of a
+// send had gone out yet: the file unread from the bucket, the video not
+// readied (site.go, notSent).
+type callFailure struct{ err error }
+
+func (e callFailure) Error() string { return e.err.Error() }
+func (e callFailure) Unwrap() error { return e.err }
+
+// unsent tells a failure of a send that surely took nothing to the chat:
+// one before Telegram was called, or a call that never connected to the
+// Bot API server, as while it restarts. Anything else Telegram may have
+// delivered: a refusal did not, but an answer lost on the way, or a 5xx a
+// gateway gives while the send goes on behind it, may have.
+func unsent(err error) bool {
+	var call callFailure
+	if !errors.As(err, &call) {
+		return true
+	}
+	var op *net.OpError
+	return errors.As(err, &op) && op.Op == "dial"
 }
 
 func paced0(g guarded, ctx context.Context, chat int64, call func() error) error {

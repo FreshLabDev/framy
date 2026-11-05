@@ -273,7 +273,10 @@ func TestAPressEndsWhole(t *testing.T) {
 			h.tg.fail["sendChatAction"] = telegramError(403, "Forbidden: bot was blocked by the user")
 		}, db.DeliveryClosed},
 		"refused": {func(h *harness) { h.tg.fail["sendMediaGroup"] = telegramError(400, "Bad Request: wrong file") }, db.DeliveryFailed},
-		"hiccup":  {func(h *harness) { h.tg.fail["sendChatAction"] = errors.New("connection reset") }, ""},
+		// Telegram answered, so the album may be in the DM: it is not sent
+		// again, however odd the answer.
+		"answered short": {func(h *harness) { h.tg.groupShort = true }, db.DeliveryFailed},
+		"hiccup":         {func(h *harness) { h.tg.fail["sendChatAction"] = errors.New("connection reset") }, ""},
 	} {
 		h := newHarness(t)
 		press(h)

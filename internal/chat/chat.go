@@ -228,6 +228,9 @@ type Flow struct {
 	// ended are the runs whose result or card went out and whose end is not
 	// recorded yet (deliver.go, finish).
 	ended sync.Map // job id → ending
+	// siteRetries are the site's results given back after a failure, and
+	// when each is tried again (site.go, releaseSite).
+	siteRetries sync.Map // job id → retry
 	// pace holds a chat Telegram asked to wait for (telegram.go); busy is
 	// how many runs each chat has generating, as the last round read them.
 	pace   *pace

@@ -85,6 +85,9 @@ type fakeTelegram struct {
 	// videoUnnumbered has a video come back with the id 0, as one sent to
 	// a large group does while Telegram re-encodes it.
 	videoUnnumbered bool
+	// groupShort has an album come back with its first message only, as a
+	// proxy in front of Telegram might answer.
+	groupShort bool
 }
 
 func newTelegram() *fakeTelegram {
@@ -361,6 +364,9 @@ func (f *fakeTelegram) SendMediaGroup(_ context.Context, chatID int64, items []t
 		default:
 			out[i].Photo = []tg.Photo{{FileID: id, FileUniqueID: unique}}
 		}
+	}
+	if f.groupShort {
+		out = out[:1]
 	}
 	return out, nil
 }
@@ -1046,8 +1052,9 @@ type fakeFiles struct {
 	uploads int
 	fail    error
 	results map[int64][]storage.Asset
-	// resultsErr fails Results, as a bucket that does not answer would.
-	resultsErr error
+	// resultsErr fails Results, and openErr Open, as a bucket that does not
+	// answer would.
+	resultsErr, openErr error
 	// joined maps a job to the clip Continue joined it to; opened are the
 	// keys Open read, in order.
 	joined map[int64]storage.Asset
@@ -1149,6 +1156,9 @@ func (f *fakeFiles) Open(_ context.Context, a storage.Asset) (io.ReadCloser, err
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.opened = append(f.opened, a.Key)
+	if f.openErr != nil {
+		return nil, f.openErr
+	}
 	if b, ok := f.blobs[a.Key]; ok {
 		return io.NopCloser(bytes.NewReader(b)), nil
 	}

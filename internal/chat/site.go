@@ -67,6 +67,7 @@ func (f *Flow) sendSiteUntil(stop, ctx context.Context) {
 		}
 		return
 	}
+	f.forgetSiteRetries()
 	// One person's DM that Telegram asked to wait for holds up nobody else's.
 	ctx = noWait(ctx)
 	var wg sync.WaitGroup
@@ -111,6 +112,9 @@ func (f *Flow) sendSitePress(ctx context.Context, press []db.SiteResult) {
 		// Telegram asked to wait: a round after the hold sends it.
 		return
 	}
+	if !f.siteDue(press) {
+		return
+	}
 	var claimed []db.SiteResult
 	for _, r := range press {
 		ok, err := f.cfg.Store.ClaimSiteResult(ctx, r.JobID)
@@ -133,10 +137,32 @@ func (f *Flow) sendSitePress(ctx context.Context, press []db.SiteResult) {
 }
 
 // releaseSite gives back the claims on results nothing of which went out,
-// so a later round tries again.
+// so a later round tries again: once its wait is over when Telegram asked
+// to wait, else retryFirst later, then twice as long each time up to
+// retryMost, as a result in a chat is (deliver.go, giveUp). Their hour
+// still bounds it: a result that ended over siteWithin ago is not read
+// again, and stays on the site. Before, any failure was tried again every
+// round, the file read and a video readied each time.
 func (f *Flow) releaseSite(ctx context.Context, why string, err error, rs ...db.SiteResult) {
-	if ctx.Err() == nil {
+	switch {
+	case ctx.Err() != nil:
+		// A stop is no failure of the results.
+	case tg.IsTooManyRequests(err), errors.Is(err, errHeld):
 		f.log.Warn(why, "jobs", jobIDs(rs), "error", err)
+	default:
+		tries := 0
+		for _, r := range rs {
+			if v, ok := f.siteRetries.Load(r.JobID); ok {
+				tries = max(tries, v.(retry).tries)
+			}
+		}
+		tries++
+		wait := retryAfter(tries)
+		next := f.now().Add(wait)
+		for _, r := range rs {
+			f.siteRetries.Store(r.JobID, retry{tries: tries, next: next})
+		}
+		f.log.Warn(why, "jobs", jobIDs(rs), "tries", tries, "again_in", wait, "error", err)
 	}
 	for _, r := range rs {
 		if err := f.cfg.Store.ReleaseSiteResult(context.WithoutCancel(ctx), r.JobID); err != nil {
@@ -145,9 +171,35 @@ func (f *Flow) releaseSite(ctx context.Context, why string, err error, rs ...db.
 	}
 }
 
+// siteDue tells whether the press may be tried now: none of its results
+// waits for its next try.
+func (f *Flow) siteDue(press []db.SiteResult) bool {
+	now := f.now()
+	for _, r := range press {
+		if v, ok := f.siteRetries.Load(r.JobID); ok && now.Before(v.(retry).next) {
+			return false
+		}
+	}
+	return true
+}
+
+// forgetSiteRetries forgets the results whose next try is over siteWithin
+// past: no round reads them any more, since each ended before its first
+// failure. A result that went or ended is forgotten as it does.
+func (f *Flow) forgetSiteRetries() {
+	now := f.now()
+	f.siteRetries.Range(func(k, v any) bool {
+		if now.Sub(v.(retry).next) > siteWithin {
+			f.siteRetries.Delete(k)
+		}
+		return true
+	})
+}
+
 // endSite records that the claimed results will not be sent.
 func (f *Flow) endSite(ctx context.Context, state string, rs ...db.SiteResult) {
 	for _, r := range rs {
+		f.siteRetries.Delete(r.JobID)
 		if err := f.cfg.Store.EndSiteResult(context.WithoutCancel(ctx), r.JobID, state); err != nil {
 			f.log.Warn("site result not ended", "job", r.JobID, "state", state, "error", err)
 		}
@@ -258,6 +310,7 @@ func (f *Flow) sendSiteResult(ctx context.Context, r db.SiteResult) {
 
 // sentSite records the result as sent in res.
 func (f *Flow) sentSite(ctx context.Context, r db.SiteResult, lang string, res db.ChatResult) {
+	f.siteRetries.Delete(r.JobID)
 	run := db.ChatRun{JobID: r.JobID, ChatID: r.UserID, Lang: lang}
 	if err := f.cfg.Store.SentSiteResult(context.WithoutCancel(ctx), run, res); err != nil {
 		f.log.Error("site result not recorded as sent", "job", r.JobID, "error", err)
@@ -353,7 +406,9 @@ func (f *Flow) sendSiteAlbum(ctx context.Context, press []db.SiteResult) {
 		msgs, err = f.postAlbum(ctx, sending[0].UserID, assets, caption)
 	}
 	if err == nil && len(msgs) < len(frames) {
-		err = errors.New("sendMediaGroup returned fewer messages than it was sent")
+		// Telegram answered, so the album may be in the DM: the answer is
+		// the call's, and the press is not sent again.
+		err = callFailure{errors.New("sendMediaGroup returned fewer messages than it was sent")}
 	}
 	if err != nil {
 		if ctx.Err() == nil {
@@ -447,17 +502,25 @@ func shortPrompt(prompt string, cut int) string {
 // oneLine is s with every run of spaces and line breaks one space.
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 
-// notSent records results whose send failed. Telegram asking to wait (429)
-// took nothing, so they are given back and go once the wait is over;
-// before, a busy minute lost them for good. Any other failure may have
-// delivered them, and they are not sent again.
+// notSent records results whose send failed, by what the failure says of
+// them, since a result goes to the DM at most once. Telegram asking to
+// wait (429) took nothing: they are given back and go once the wait is
+// over. A failure before Telegram was called, the file unread from the
+// bucket or a video not readied, or a call that never reached the Bot API
+// server took nothing either: they are given back and tried again later
+// (releaseSite). Before, either lost them for good, and the person never
+// got them in the DM. Anything else Telegram refused, which a second try
+// would not change, or may have delivered: they are not sent again.
 func (f *Flow) notSent(ctx context.Context, err error, rs ...db.SiteResult) {
-	if tg.IsTooManyRequests(err) || errors.Is(err, errHeld) {
+	switch {
+	case tg.IsTooManyRequests(err), errors.Is(err, errHeld):
 		f.releaseSite(ctx, "site result held back: Telegram asked to wait", err, rs...)
-		return
+	case unsent(err):
+		f.releaseSite(ctx, "site result not sent; it goes again later", err, rs...)
+	default:
+		f.log.Error("site result not sent", "jobs", jobIDs(rs), "error", err)
+		f.endSite(ctx, db.DeliveryFailed, rs...)
 	}
-	f.log.Error("site result not sent", "jobs", jobIDs(rs), "error", err)
-	f.endSite(ctx, db.DeliveryFailed, rs...)
 }
 
 // postAlbum sends pictures as one album, the caption on the first, and
@@ -502,7 +565,8 @@ func (f *Flow) sendGroup(ctx context.Context, chatID int64, items []tg.InputMedi
 		return nil, err
 	}
 	if len(msgs) == 0 {
-		return nil, errors.New("sendMediaGroup returned no message")
+		// An answer, however odd, is the call's: the album may have gone.
+		return nil, callFailure{errors.New("sendMediaGroup returned no message")}
 	}
 	return msgs, nil
 }

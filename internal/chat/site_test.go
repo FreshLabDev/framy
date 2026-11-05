@@ -3,8 +3,11 @@ package chat
 
 import (
 	"context"
+	"net"
+	"os"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -215,8 +218,8 @@ func TestASiteResultIsNotSentWhenTheDMIsOff(t *testing.T) {
 	}
 }
 
-// A chat action that fails for another reason sent nothing: the next round
-// tries again.
+// A chat action that fails for another reason sent nothing: the result is
+// tried again, 2 s later.
 func TestASiteResultIsTriedAgainAfterAHiccup(t *testing.T) {
 	h := newHarness(t)
 	siteResult(t, h, "image", picture)
@@ -227,25 +230,98 @@ func TestASiteResultIsTriedAgainAfterAHiccup(t *testing.T) {
 	}
 	delete(h.tg.fail, "sendChatAction")
 	h.flow.sendSite(context.Background())
+	if len(h.tg.calls) != 0 {
+		t.Fatalf("tried again at once: %+v", h.tg.calls)
+	}
+	h.now = h.now.Add(retryFirst)
+	h.flow.sendSite(context.Background())
 	if h.store.delivery(siteJob) != db.DeliverySent || len(h.tg.methods("sendPhoto")) != 1 {
 		t.Fatalf("delivery %q, calls %+v", h.store.delivery(siteJob), h.tg.calls)
 	}
+	if _, ok := h.flow.siteRetries.Load(int64(siteJob)); ok {
+		t.Fatal("the retry is kept after the result went")
+	}
 }
 
-// A send that fails may have reached the chat: it is not tried again.
+// A send that never reached Telegram took nothing to the DM: the file was
+// not read from the bucket, or the Bot API server was not there to connect
+// to, as while it restarts. The result is given back and tried again, less
+// often each time, and goes once the hiccup is over. Before, it was marked
+// failed and the person never got it.
+func TestASiteResultNothingOfWhichWentIsTriedAgain(t *testing.T) {
+	refused := &net.OpError{Op: "dial", Net: "tcp", Err: os.NewSyscallError("connect", syscall.ECONNREFUSED)}
+	for name, c := range map[string]struct {
+		fail func(h *harness)
+		heal func(h *harness)
+	}{
+		"bucket": {func(h *harness) { h.files.openErr = errBoom }, func(h *harness) { h.files.openErr = nil }},
+		"server": {func(h *harness) { h.tg.fail["sendPhoto"] = refused }, func(h *harness) { delete(h.tg.fail, "sendPhoto") }},
+	} {
+		h := newHarness(t)
+		siteResult(t, h, "image", picture)
+		c.fail(h)
+		h.flow.sendSite(context.Background())
+		if h.store.delivery(siteJob) != "" || len(h.tg.methods("sendPhoto")) != 0 {
+			t.Fatalf("%s: delivery %q, calls %+v", name, h.store.delivery(siteJob), h.tg.calls)
+		}
+		// The second failure waits twice as long.
+		h.now = h.now.Add(retryFirst)
+		h.flow.sendSite(context.Background())
+		h.tg.reset()
+		c.heal(h)
+		h.now = h.now.Add(2*retryFirst - time.Second)
+		h.flow.sendSite(context.Background())
+		if len(h.tg.calls) != 0 {
+			t.Fatalf("%s: tried before its time: %+v", name, h.tg.calls)
+		}
+		h.now = h.now.Add(time.Second)
+		h.flow.sendSite(context.Background())
+		if h.store.delivery(siteJob) != db.DeliverySent || len(h.tg.methods("sendPhoto")) != 1 {
+			t.Fatalf("%s: delivery %q, calls %+v", name, h.store.delivery(siteJob), h.tg.calls)
+		}
+	}
+}
+
+// A send Telegram refused, or one whose answer was lost and that may have
+// reached the DM, is not tried again: a result goes there at most once.
 func TestASiteResultTelegramRefusedIsNotSentAgain(t *testing.T) {
+	for _, err := range []error{
+		errBoom,
+		telegramError(502, "Bad Gateway"),
+		telegramError(400, "Bad Request: wrong file identifier/HTTP URL specified"),
+	} {
+		h := newHarness(t)
+		siteResult(t, h, "image", picture)
+		h.tg.fail["sendPhoto"] = err
+		h.flow.sendSite(context.Background())
+		if h.store.delivery(siteJob) != db.DeliveryFailed || h.store.runs[siteJob] != nil {
+			t.Fatalf("%v: delivery %q, run %+v", err, h.store.delivery(siteJob), h.store.runs[siteJob])
+		}
+		delete(h.tg.fail, "sendPhoto")
+		h.tg.reset()
+		h.now = h.now.Add(time.Hour)
+		h.flow.sendSite(context.Background())
+		if len(h.tg.calls) != 0 {
+			t.Fatalf("%v: sent again: %+v", err, h.tg.calls)
+		}
+	}
+}
+
+// A result that kept failing until its hour was over is no longer read, and
+// the flow forgets when it was to be tried again.
+func TestSiteRetriesAreForgotten(t *testing.T) {
 	h := newHarness(t)
 	siteResult(t, h, "image", picture)
-	h.tg.fail["sendPhoto"] = errBoom
+	h.files.openErr = errBoom
 	h.flow.sendSite(context.Background())
-	if h.store.delivery(siteJob) != db.DeliveryFailed || h.store.runs[siteJob] != nil {
-		t.Fatalf("delivery %q, run %+v", h.store.delivery(siteJob), h.store.runs[siteJob])
+	if _, ok := h.flow.siteRetries.Load(int64(siteJob)); !ok {
+		t.Fatal("no retry kept")
 	}
-	delete(h.tg.fail, "sendPhoto")
-	h.tg.reset()
+	h.store.site = nil // its hour is over
+	h.now = h.now.Add(siteWithin + retryFirst + time.Second)
 	h.flow.sendSite(context.Background())
-	if len(h.tg.calls) != 0 {
-		t.Fatalf("sent again: %+v", h.tg.calls)
+	if _, ok := h.flow.siteRetries.Load(int64(siteJob)); ok {
+		t.Fatal("the retry is kept after the result's hour")
 	}
 }
 
