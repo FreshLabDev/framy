@@ -125,12 +125,20 @@ async function heifHeader(file) {
 }
 
 // slot is where in a video the files go ("start", "end" or "ref"), else
-// where they fit (state.js, placeFiles).
-export async function addFiles(list, slot = "") {
+// where they fit (state.js, placeFiles). Files are added one batch at a
+// time: a second drop while the first is still being read counts the files
+// the first one took.
+let adding = Promise.resolve();
+export function addFiles(list, slot = "") {
+  const run = adding.then(() => addNow(list, slot));
+  adding = run.catch(() => {});
+  return run;
+}
+async function addNow(list, slot) {
   // A frame is one picture, and it takes the place of the one there.
   const frame = slot === "start" || slot === "end";
   if (frame) list = list.filter(looksLikePhoto).slice(0, 1);
-  const room = MAX_FILES - S.files.length + (frame ? inSlot(slot).length : 0);
+  const roomNow = () => MAX_FILES - S.files.length + (frame ? inSlot(slot).length : 0), room = roomNow();
   if (list.length > room) toast(t("files.too_many", { n: MAX_FILES }));
   const got = [];
   for (const file of list.slice(0, Math.max(0, room))) {
@@ -156,6 +164,9 @@ export async function addFiles(list, slot = "") {
     got.push({ id: seq++, kind: "image", file, name: file.name, url: d.asIs ? "" : URL.createObjectURL(file), w: d.w, h: d.h, asIs: !!d.asIs,
       meta: { content_type: d.type, bytes: file.size, width: d.w, height: d.h }, upload: 0 });
   }
+  // A run brought back from the library may have filled the composer while these were read.
+  const over = got.splice(Math.max(0, roomNow()));
+  if (over.length) { toast(t("files.too_many", { n: MAX_FILES })); for (const f of over) if (f.url?.startsWith("blob:")) URL.revokeObjectURL(f.url); }
   if (!got.length) return;
   const clip0 = got.find((f) => f.kind === "video"), snd0 = got.some((f) => f.kind === "audio"), kind0 = S.kind;
   act(() => {
