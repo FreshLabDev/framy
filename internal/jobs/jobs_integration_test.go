@@ -643,6 +643,37 @@ func TestOnlyARefusalBeforeTheRunIsRetried(t *testing.T) {
 		}
 	})
 
+	t.Run("a wait longer than framy's ends the run at once", func(t *testing.T) {
+		p := newFake()
+		p.submit = func(context.Context, Job) (Submission, error) {
+			return Submission{}, &Error{Class: RateLimited, RetryAfter: 24 * time.Hour, Err: errors.New("gemini 429: quota exceeded")}
+		}
+		q, pool := testQueue(t, p)
+		id := enqueue(t, q, job(alice, imageOffer))
+		if err := q.work(ctx, id); err != nil {
+			t.Fatalf("after a 429 that asks for a day: %v, want the end", err)
+		}
+		line := scalar[string](t, pool, `SELECT error FROM framy.job WHERE id=$1`, id)
+		if j := get(t, q, id); j.Status != Failed || j.ErrorClass != RateLimited || p.count(p.submits, id) != 1 || !strings.Contains(line, "asked to wait 24h0m0s") {
+			t.Fatalf("%s %s after %d requests, error %q; want failed rate_limited after one", j.Status, j.ErrorClass, p.count(p.submits, id), line)
+		}
+	})
+
+	t.Run("a refusal waits at most framy's longest wait", func(t *testing.T) {
+		p := newFake()
+		p.submit = func(context.Context, Job) (Submission, error) {
+			return Submission{}, &Error{Class: Unavailable, RetryAfter: maxRetryWait}
+		}
+		q, _ := testQueue(t, p)
+		id := enqueue(t, q, job(alice, imageOffer))
+		if err := q.work(ctx, id); !isSnooze(err) {
+			t.Fatalf("after a 503 that asks for %s: %v, want a snooze", maxRetryWait, err)
+		}
+		if j := get(t, q, id); j.Status != Queued || j.RetryAt == nil || time.Until(*j.RetryAt) > maxRetryWait {
+			t.Fatalf("%s, retry at %v; want queued within %s", j.Status, j.RetryAt, maxRetryWait)
+		}
+	})
+
 	t.Run("a refusal that waits has the provider's words until the next request", func(t *testing.T) {
 		p := newFake()
 		refuse := true

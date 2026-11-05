@@ -95,6 +95,13 @@ const (
 	rescueAfter  = 5 * time.Minute
 	// maxSubmits caps the paid requests refused before the run started.
 	maxSubmits = 5
+	// maxRetryWait is the longest a refused run waits in line to be sent
+	// again, and a background run to be asked about again, whatever the
+	// provider's Retry-After says. A refusal that asks for longer, such as
+	// a day's quota spent, ends the run at once: the person is not left
+	// waiting for hours, and a free run does not hold a slot and the day's
+	// budget all that time.
+	maxRetryWait = 10 * time.Minute
 	// maxAttempts caps River's own retries, for errors that are framy's.
 	maxAttempts = 5
 	// draftTTL is how long a draft waits for "Generate" after it was made

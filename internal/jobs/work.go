@@ -218,10 +218,14 @@ func (q *Queue) submit(ctx context.Context, p Provider, j Job) error {
 	ctx, done := detach(ctx)
 	defer done()
 	if pe != nil {
-		if pe.retryable() && j.Submits < maxSubmits {
+		if pe.retryable() && j.Submits < maxSubmits && pe.RetryAfter <= maxRetryWait {
 			return q.requeue(ctx, j, pe)
 		}
-		return q.end(ctx, j.ID, ending{status: Failed, class: pe.Class, msg: pe.Error(), said: pe.Said()})
+		msg := pe.Error()
+		if pe.retryable() && pe.RetryAfter > maxRetryWait {
+			msg += fmt.Sprintf("; the provider asked to wait %s, longer than framy waits", pe.RetryAfter.Round(time.Second))
+		}
+		return q.end(ctx, j.ID, ending{status: Failed, class: pe.Class, msg: msg, said: pe.Said()})
 	}
 	if sub.ProviderJobID != "" {
 		if _, err := q.pool.Exec(ctx, `UPDATE job SET provider_job_id=$2, updated_at=now() WHERE id=$1`, j.ID, sub.ProviderJobID); err != nil {
@@ -260,10 +264,10 @@ func callLimit(j Job) time.Duration {
 }
 
 // requeue puts back in line a job the provider refused before the run
-// started, after the provider's wait or a growing one. The person's other
-// jobs may go ahead of it meanwhile.
+// started, after the provider's wait or a growing one, up to maxRetryWait.
+// The person's other jobs may go ahead of it meanwhile.
 func (q *Queue) requeue(ctx context.Context, j Job, pe *Error) error {
-	wait := max(pe.RetryAfter, time.Duration(j.Submits*j.Submits)*5*time.Second)
+	wait := min(max(pe.RetryAfter, time.Duration(j.Submits*j.Submits)*5*time.Second), maxRetryWait)
 	err := pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			UPDATE job SET status='queued', submitted_at=NULL, retry_at=now() + make_interval(secs => $2),
@@ -309,12 +313,12 @@ func (q *Queue) poll(ctx context.Context, p Provider, j Job) error {
 			return q.end(ctx, j.ID, ending{status: Expired, class: pe.Class, msg: "framy could not ask about the run for an hour: " + pe.Error(), said: pe.Said()})
 		}
 		q.log.Warn("job not asked about; asking again", "job", j.ID, "class", pe.Class)
-		return river.JobSnooze(max(q.cfg.PollEvery, pe.RetryAfter))
+		return river.JobSnooze(q.askAgain(j, pe.RetryAfter))
 	case pe != nil && (pe.retryable() || pe.Class == ProviderFailed || pe.Class == Timeout || pe.Class == Interrupted):
 		if late {
 			return q.end(ctx, j.ID, ending{status: Expired, class: pe.Class, msg: "the provider did not finish within an hour: " + pe.Error(), said: pe.Said()})
 		}
-		return river.JobSnooze(max(q.cfg.PollEvery, pe.RetryAfter))
+		return river.JobSnooze(q.askAgain(j, pe.RetryAfter))
 	case pe != nil:
 		return q.end(ctx, j.ID, ending{status: Failed, class: pe.Class, msg: pe.Error(), said: pe.Said()})
 	case out.Running:
@@ -324,6 +328,20 @@ func (q *Queue) poll(ctx context.Context, p Provider, j Job) error {
 		return river.JobSnooze(q.cfg.PollEvery)
 	}
 	return q.settle(ctx, j, out)
+}
+
+// askAgain is when a background run is asked about again after the
+// provider asked to wait: its wait, at least PollEvery and at most
+// maxRetryWait, and never past the run's hour, so that a long Retry-After
+// does not keep the run past its deadline unasked.
+func (q *Queue) askAgain(j Job, retryAfter time.Duration) time.Duration {
+	wait := min(max(q.cfg.PollEvery, retryAfter), maxRetryWait)
+	if j.SubmittedAt != nil {
+		if left := j.SubmittedAt.Add(RunDeadline).Sub(q.now()); left < wait {
+			wait = max(left, q.cfg.PollEvery)
+		}
+	}
+	return wait
 }
 
 // settle ends a run the provider finished. Copying the results and writing

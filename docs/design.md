@@ -469,7 +469,7 @@ Every event is `id: <n>`, `event: job` and the whole job as `data`, as `GET /api
 **Queue.** River OSS (v0.49.0, MPL-2.0) in the `framy` schema, in `internal/jobs`. A job is a row in `framy.job`, which the surfaces read, and a River job that works it, inserted in one transaction (`InsertTx`). River's migrations run at start under framy's migration lock, since they take none of their own. River's listener needs a real Postgres session, not PgBouncer in transaction mode.
 - Queues with their own `MaxWorkers` per process: `openai` 4, `gemini` 4, `openrouter_image` 8, `openrouter_video` 4. `ffmpeg` and `telegram_send` come with their features.
 - A repeated update starts nothing: a job keeps a unique `dedupe_key` (`tg:<update_id>`, or the request's key on the site), and "Generate" queues a draft once.
-- A background run waits snoozed (`JobSnooze`), which spends no attempt and holds no worker. It is asked every 30 s and expires after an hour.
+- A background run waits snoozed (`JobSnooze`), which spends no attempt and holds no worker. It is asked every 30 s and expires after an hour. When the provider asks to wait, the next question waits that long, up to 10 minutes and never past the hour.
 - River rescues a job whose worker died after 5 minutes, or after the job's own limit when that is longer: River leaves a job alone until it has passed. An image's attempt may take 7 minutes (the worker's `Timeout`): the call gets 180 s, the writes that follow it 30 s, and copying its pictures to R2 gets 30 s and 2 s for each MiB of them, up to 2 minutes, so that four 4K pictures over the host's line are not cut short. A video's attempt may take 10 (marked by `video` in the River job's args): the poll that finds it done downloads it in the same call, which gets 5 minutes, and copying it to R2 gets 3 more. The write that ends the job gets 30 s of its own after the copy, however long the copy took, so a paid result kept late is still done, and one that could not be kept fails as `storage` with its cost. Each attempt has a minute to spare beyond the sum of these, so River never rescues one still at work.
 - An error of framy's own, such as the database or the bucket not answering, is tried again by River up to 5 attempts in all. After the last one the job fails by what is known of the money: `storage` for a finished run whose results could not be kept (the provider still holds a video's, so each attempt asks for it again), `interrupted` once the paid request went out, and `internal` only when nothing was sent. The cost written down so far stays on the job.
 - A sweep every minute cancels drafts left unchanged for 10 minutes and fails a job River gave up on without working it. A draft's 10 minutes count from its last change (`updated_at`), so a person still choosing the model or the settings on the preview's panels is not timed out by its age. A draft that ended without running is cleared within the hour after (Storage and retention).
@@ -507,8 +507,8 @@ Progress for SSE goes through `pg_notify('framy_events', …)` in the transactio
 | 400 that passes on a provider's refusal of a real person in an input (`Input…SensitiveContentDetected.PrivacyInformation`, BytePlus for Seedance) | `faces` | no |
 | a refusal of the sound the model made ("the output audio may be related to copyright restrictions", BytePlus for Seedance) | `sound` | no |
 | 400, 404, 413, 422, image errors such as `image_download_failed` | `refused` | no |
-| 429 | `rate_limited` | after `Retry-After` |
-| 503, 529, a connection that was never made | `unavailable` | after `Retry-After` or 5 s × requests² |
+| 429 | `rate_limited` | after `Retry-After`, up to 10 minutes; a longer wait ends the run |
+| 503, 529, a connection that was never made | `unavailable` | after `Retry-After` or 5 s × requests², up to 10 minutes |
 | 408, 504, Cloudflare's 524 | `timeout` | no: the run may go on and be paid |
 | 500; 502 (`provider_unavailable`, the provider's empty or broken answer); an answer that cannot be read | `provider` | no: the request reached the provider |
 
@@ -541,8 +541,8 @@ A webhook that lands while the job is being polled brings nothing forward: River
 | 401; 403, such as a project without the model or an organization that is not verified; 404 `model_not_found` | `key` | no |
 | 403 `unsupported_country_region_territory`: framy's server is where OpenAI does not serve | `provider` | no |
 | other 4xx, such as a setting or a link OpenAI cannot fetch | `refused` | no |
-| 429 for the rate | `rate_limited` | after `Retry-After` |
-| 503, a connection that was never made | `unavailable` | after `Retry-After` or 5 s × requests² |
+| 429 for the rate | `rate_limited` | after `Retry-After`, up to 10 minutes; a longer wait ends the run |
+| 503, a connection that was never made | `unavailable` | after `Retry-After` or 5 s × requests², up to 10 minutes |
 | 408, 504, Cloudflare's 524 | `timeout` | no: the run may go on and be paid |
 | 500, 502, an answer that cannot be read | `provider` | no |
 
@@ -559,7 +559,7 @@ A message OpenAI echoes with the start of a wrong key is cut of it before it is 
 
 **Results.** A result is copied into framy's storage the moment it is ready. Provider links live from one hour to 48 hours, and OpenRouter's unsigned URLs need the key.
 
-**Retries.** Every job has an idempotency key. A retry happens only on a refusal before the generation started, a rate-limit 429 or a provider overloaded or unavailable (503, 529): the job goes back to `queued` until `retry_at`, the provider's `Retry-After` or 5 s × the requests sent squared, and after 5 refused requests it fails. A 500 or a 502 is not retried: the request reached the provider, and nobody can tell whether the run was paid. Never after a timeout without asking the provider for the job's status, and never on money or moderation errors.
+**Retries.** Every job has an idempotency key. A retry happens only on a refusal before the generation started, a rate-limit 429 or a provider overloaded or unavailable (503, 529): the job goes back to `queued` until `retry_at`, the provider's `Retry-After` or 5 s × the requests sent squared, at most 10 minutes, and after 5 refused requests it fails. A provider that asks for longer than 10 minutes, such as a day's quota spent, ends the run at once with its class, so nobody waits hours for an answer and a free run does not hold its slot and the day's budget meanwhile. A 500 or a 502 is not retried: the request reached the provider, and nobody can tell whether the run was paid. Never after a timeout without asking the provider for the job's status, and never on money or moderation errors.
 
 **Limits.** Two running jobs per person on each stack, counted from `framy.job` under a lock per person, since River has such limits only in Pro. The rest wait in order: a job that ends wakes the next one, and a job waiting out a refusal lets the others go ahead. Proposal: a queue per chat for Telegram sends.
 
