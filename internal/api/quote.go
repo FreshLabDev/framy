@@ -60,9 +60,9 @@ type quoteItem struct {
 	Continues int64 `json:"continues"`
 }
 
-// fileMeta is what the browser reads of a file before Generate
-// (docs/design.md, Attachments stay in the browser until Generate). The
-// server checks the real file on Generate and prices the run again.
+// fileMeta is what the browser reads of a file before Create
+// (docs/design.md, Attachments stay in the browser until Create). The
+// server checks the real file on Create and prices the run again.
 type fileMeta struct {
 	ContentType string  `json:"content_type"`
 	Bytes       int64   `json:"bytes"`
