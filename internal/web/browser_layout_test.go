@@ -384,3 +384,96 @@ func rgbOf(s string) [3]int {
 	}
 	return c
 }
+
+// lowHelpers measures a low window: where a box stands against the window and
+// against the page, which scrolls there.
+const lowHelpers = `
+const spot = (el) => { const b = el.getBoundingClientRect(); return { top: b.top, bottom: b.bottom, abs: b.top + scrollY }; };
+const flow = () => document.documentElement.classList.contains("flow");
+const fixed = () => getComputedStyle(document.querySelector("#composer")).position === "fixed";
+// In sight: inside the window, and not under a dock.
+const inView = (el) => { const b = spot(el), c = document.querySelector("#composer");
+  const floor = fixed() && !c.contains(el) ? c.getBoundingClientRect().top : innerHeight; return b.top >= -1 && b.bottom <= floor + 1; };
+`
+
+// TestBrowserLowWindow checks a window too low for the dock: a phone on its
+// side, and a page zoomed to 400% (320 by 256). There the composer stands in
+// the page over the stage and the page scrolls: all of the composer can be
+// reached, a run brings the stage into view with the frame, the reason and
+// what to do, and Edit the prompt brings the composer back. A phone held
+// upright keeps the dock; with a mouse a page zoomed in takes the page
+// whichever way the screen stands.
+func TestBrowserLowWindow(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+
+	ctx := browserAs(t, ts.URL, 844, 390, opened{phone: true})
+	got := js[map[string]any](t, ctx, pageHelpers+runHelpers+lowHelpers+`
+	await wait(400);
+	const bad = [];
+	if (!flow() || fixed()) bad.push("the composer is a dock");
+	if (!inView(document.querySelector("#composer")) || !inView(document.querySelector("#go"))) bad.push("the composer is cut: " + JSON.stringify(spot(document.querySelector("#composer"))));
+	const s = await press("fail:money", (s) => s.failed);
+	await wait(900);
+	if (s.label !== "No money on the key") bad.push("the run: " + s.label);
+	for (const q of ["#stage [data-k=pv]", "#stage .jbox .c b", "#stage .jacts"]) if (!inView(document.querySelector(q))) bad.push(q + " out of sight: " + JSON.stringify(spot(document.querySelector(q))));
+	[...document.querySelectorAll("#stage .jacts > button")].find((b) => b.textContent.trim() === "Edit the prompt").click();
+	await wait(900);
+	if (document.activeElement !== document.querySelector("#prompt") || !inView(document.querySelector("#prompt"))) bad.push("Edit the prompt leaves the prompt out of sight");
+	return { bad, page: document.documentElement.scrollWidth - innerWidth };`)
+	if bad := got["bad"].([]any); len(bad) > 0 || got["page"].(float64) > 0 {
+		t.Errorf("a phone on its side: %v, %v px wider than the window", bad, got["page"])
+	}
+	noErrors(t, ctx)
+
+	// The keyboard of a field being typed in does not switch the layout: it
+	// changes when the field lets go.
+	got = js[map[string]any](t, ctx, lowHelpers+`document.querySelector("#prompt").focus(); return { flow: flow() };`)
+	if err := chromedp.Do(ctx, chromedp.EmulateViewport(390, 844, chromedp.EmulateMobile, chromedp.EmulateTouch, chromedp.EmulateScale(2), chromedp.EmulatePortrait)); err != nil {
+		t.Fatal(err)
+	}
+	got = js[map[string]any](t, ctx, pageHelpers+lowHelpers+`
+	await wait(400);
+	const typing = flow();
+	document.querySelector("#prompt").blur();
+	await wait(700);
+	return { typing, after: flow(), fixed: fixed() };`)
+	if got["typing"] != true || got["after"] != false || got["fixed"] != true {
+		t.Errorf("turned upright while typing: %v", got)
+	}
+
+	// 400% zoom: the composer does not run off the top of the page, and every
+	// button of the run can be scrolled to.
+	ctx = browserAs(t, ts.URL, 320, 256, opened{})
+	got = js[map[string]any](t, ctx, pageHelpers+runHelpers+lowHelpers+`
+	await wait(400);
+	const bad = [];
+	if (!flow() || fixed()) bad.push("the composer is a dock");
+	if (spot(document.querySelector("#composer")).abs < 0) bad.push("the composer starts over the page");
+	const s = await press("fail:money", (s) => s.failed);
+	await wait(900);
+	if (!inView(document.querySelector("#stage .jbox .c b"))) bad.push("the reason is out of sight");
+	const end = document.documentElement.scrollHeight;
+	for (const b of document.querySelectorAll("#stage .jacts > button")) if (spot(b).abs + b.offsetHeight > end) bad.push(b.textContent.trim() + " cannot be reached");
+	return { bad, page: document.documentElement.scrollWidth - innerWidth };`)
+	if bad := got["bad"].([]any); len(bad) > 0 || got["page"].(float64) > 0 {
+		t.Errorf("400%% zoom: %v, %v px wider than the window", bad, got["page"])
+	}
+	noErrors(t, ctx)
+
+	// A phone held upright keeps the dock, also in a window as low as its
+	// keyboard leaves it; with a mouse, a page zoomed to 400% on a screen
+	// that stands upright (270 by 480) has the composer in the page.
+	for _, c := range []struct {
+		name  string
+		w, h  int64
+		phone bool
+		flow  bool
+	}{{"a phone held upright", 390, 844, true, false}, {"a low window of a phone held upright", 390, 500, true, false}, {"400% zoom on an upright screen", 270, 480, false, true}} {
+		ctx = browserAs(t, ts.URL, c.w, c.h, opened{phone: c.phone})
+		got = js[map[string]any](t, ctx, lowHelpers+`return { flow: flow(), fixed: fixed(), sideways: screen.orientation.type };`)
+		if got["flow"] != c.flow || got["fixed"] == c.flow {
+			t.Errorf("%s: %v", c.name, got)
+		}
+	}
+}

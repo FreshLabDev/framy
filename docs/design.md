@@ -175,7 +175,7 @@ The video editors and the upscaler (`runway/aleph-2`, `flux-video-edit`, `flux-v
 
 ## Composer
 
-One component for the site and the Mini App. On top, a large prompt line that grows with the text **(owner)**; under it, the attachments; then the model chip, the setting chips and the price next to "Generate". Results appear in a feed below. On a phone the kind, the model and the settings share one row over the prompt, the settings as an icon only, and files are added in the row under the prompt in both kinds, as the slots of a video are; the row over the prompt has no second way to add one **(owner, 31 October)**.
+One component for the site and the Mini App. On top, a large prompt line that grows with the text **(owner)**; under it, the attachments; then the model chip, the setting chips and the price next to "Generate". Results appear in a feed below. On a phone the kind, the model and the settings share one row over the prompt, the settings as an icon only, and files are added in the row under the prompt in both kinds, as the slots of a video are; the row over the prompt has no second way to add one **(owner, 31 October)**. On a phone the composer is a dock at the foot of the screen. A window too low for it, under 960 px wide and at most 560 px high (a phone on its side; with a mouse, a page zoomed in or a small window, whichever way the screen stands), has the composer in the page over the stage instead, and the page scrolls: a run that starts brings the stage into view, and Edit the prompt, Continue and Another model bring the composer back. A phone held upright keeps the dock, and a keyboard that shortens the window while a field is typed in does not switch the layout.
 
 ### Frames
 

@@ -19,6 +19,10 @@ export function h(tag, attrs = {}, ...kids) {
 }
 
 export const isPhone = () => !matchMedia("(min-width: 960px)").matches;
+// A low window, a phone on its side or a page zoomed in, has no room for the composer as a dock at the
+// foot of the screen: there it stands in the page over the stage (html.flow, set by the composer).
+export const inFlow = () => document.documentElement.classList.contains("flow");
+export const docked = () => isPhone() && !inFlow();
 export const isWide = () => matchMedia("(min-width: 900px)").matches;
 export const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 

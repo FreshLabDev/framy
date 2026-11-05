@@ -1,7 +1,7 @@
 // The composer: what to make, the model, how to pay, the settings, the price
 // and the one button. Every change goes through act(), which lets the blocks
 // glide from where they stood to where they stand now.
-import { $, $$, h, ic, isPhone, MAC } from "./dom.js";
+import { $, $$, h, ic, isPhone, inFlow, MAC } from "./dom.js";
 import { anim, rise, spin, opt, placeSegs, placeSeg, fitSegs, snap, ticker, roll, follow, EASE, SPRING, OUT, motion } from "./motion.js";
 import { t, fmtNum, fmtIn, fmtSecs } from "./i18n.js";
 import { C, PNAME, vname, famLogo, lg, provMark, freePlan, pays, offerOf, facts, factEl, deprecation, fieldsOf, SECONDARY, SEARCH, SICON,
@@ -94,6 +94,34 @@ export function wireComposer() {
   // On a phone the composer is a dock: the page keeps room for it under the stage.
   addEventListener("resize", () => { if (howStale && howShown()) render(); });
   new ResizeObserver(() => { document.documentElement.style.setProperty("--dockh", comp.offsetHeight + "px"); if (isPhone()) refit(); }).observe(comp);
+  watchFlow();
+}
+
+/* A window under 960 px wide and at most 560 high puts the composer in the page over the stage (inFlow):
+   a dock there would cover most of the window, the stage and its result. On a touch screen it takes a
+   screen held sideways: a phone held upright never takes it, however low its keyboard leaves the window.
+   With a mouse there is no such keyboard, and a page zoomed in takes it on a screen either way up. The
+   layout does not switch while a field is typed in: the field stays where it is. Once the field lets go,
+   the check waits for the keyboard to close. */
+const LOW = matchMedia("(max-width: 959px) and (max-height: 560px)"), MOUSE = matchMedia("(pointer: fine)");
+const heldSideways = () => (screen.orientation?.type || (matchMedia("(orientation: landscape)").matches ? "landscape" : "portrait")).startsWith("landscape");
+const typing = () => !!document.activeElement?.matches?.('textarea, input:not([type="range"], [type="checkbox"], [type="radio"], [type="file"], [type="button"])');
+function watchFlow() {
+  const check = () => {
+    const on = LOW.matches && (MOUSE.matches || heldSideways());
+    if (on === inFlow() || typing()) return;
+    document.documentElement.classList.toggle("flow", on);
+    refit();
+  };
+  check();
+  LOW.addEventListener("change", check);
+  MOUSE.addEventListener("change", check);
+  screen.orientation?.addEventListener?.("change", check);
+  document.addEventListener("focusout", () => setTimeout(check, 300));
+}
+// A dock is always in sight; in a low window the composer is brought into view for the next words.
+export function toComposer() {
+  if (inFlow()) $("#composer").scrollIntoView({ block: "start", behavior: motion() ? "smooth" : "auto" });
 }
 
 export function render() {

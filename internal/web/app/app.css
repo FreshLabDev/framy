@@ -431,6 +431,13 @@ input.search::placeholder {color: var(--muted);}
   .top {height: 56px;}
   .stage .preview {justify-items: center;}
 }
+/* A low window (html.flow, see composer.js): the composer stands in the page over the stage, and the
+   page scrolls, rather than a dock covering most of the window. */
+@media (max-width: 959px) {
+  html.flow main.create {padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));}
+  html.flow .composer {position: relative; z-index: auto; padding: 0; background: none; border-top: 0;}
+  html.flow .toast {bottom: calc(24px + env(safe-area-inset-bottom, 0px));}
+}
 @media (max-width: 959px) {
   .chipbtn.set > span {display: none;}
   .chipbtn.set {width: 46px; padding: 0; justify-content: center;}

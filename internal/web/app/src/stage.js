@@ -1,7 +1,7 @@
 // The stage: the frame of what Create will make, in its shape, and once a
 // run starts, that run: its files going up, the wait, a retry, the result,
 // or why there is none, with the buttons that fit.
-import { $, $$, h, ic, isPhone } from "./dom.js";
+import { $, $$, h, ic, isPhone, docked, inFlow } from "./dom.js";
 import { anim, rise, snap, EASE, motion } from "./motion.js";
 import { t, fmtNum } from "./i18n.js";
 import { C, vname, famLogo, lg, ratioNum, ratioOfSize, PNAME, provMark, show, SICON } from "./catalog.js";
@@ -32,7 +32,8 @@ function ratioLabel(set) {
 function space(under = 0) {
   const st = $("#stage"), phone = isPhone();
   const W = Math.max(160, phone ? innerWidth - 32 : st.clientWidth);
-  const dock = phone ? $("#composer").offsetHeight : 0, top = $("#top")?.offsetHeight || 0;
+  // In a low window the stage is scrolled to when a run starts, past the header and the composer, and has the window.
+  const dock = docked() ? $("#composer").offsetHeight : 0, top = inFlow() ? 0 : $("#top")?.offsetHeight || 0;
   // A short phone with the files row in the dock leaves little; the frames shrink rather than go under it.
   const H = Math.max(phone ? 96 : 160, (phone ? innerHeight - dock - top - 92 : innerHeight - top - 120) - under);
   return { W, H };
@@ -520,9 +521,13 @@ export function ticking() {
 function room() {
   const st = $("#stage");
   if (!st) return;
-  if (!isPhone()) { st.style.minHeight = ""; return; }
+  if (!docked()) { st.style.minHeight = ""; return; }
   const top = st.getBoundingClientRect().top + scrollY;
   st.style.minHeight = Math.max(0, Math.floor(innerHeight - $("#composer").offsetHeight - top - 24)) + "px";
+}
+// In a low window the stage stands under the composer: a run that starts brings it into view.
+export function showStage() {
+  if (inFlow()) requestAnimationFrame(() => $("#stage").scrollIntoView({ block: "start", behavior: motion() ? "smooth" : "auto" }));
 }
 export function refit() {
   room();
