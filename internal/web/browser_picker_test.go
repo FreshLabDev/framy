@@ -279,3 +279,30 @@ func TestBrowserPickerPhoneNoKeyboard(t *testing.T) {
 	}
 	noErrors(t, ctx)
 }
+
+// TestBrowserPickerDescriptionInEnglishOnly checks the provider's
+// description of a model, which is English, is shown in the English page
+// and not in a page in another language.
+func TestBrowserPickerDescriptionInEnglishOnly(t *testing.T) {
+	ts := fakeAPI(t)
+	for _, tc := range []struct {
+		lang string
+		want bool
+	}{{"en", true}, {"ru", false}, {"ja", false}} {
+		t.Run(tc.lang, func(t *testing.T) {
+			ctx := browserInit(t, ts.URL, 1440, 900, false, catalogInit(tc.lang, `(c) => c`))
+			got := js[map[string]any](t, ctx, pageHelpers+pickerHelpers+`
+			await openPicker();
+			famRow("FLUX").querySelector(".fhit").focus();
+			await wait(100);
+			return { card: document.querySelector("#pkd h4")?.textContent || "", desc: !!document.querySelector("#pkd .ddesc") };`)
+			if got["card"] != "FLUX" {
+				t.Fatalf("the card shows %v, not FLUX", got["card"])
+			}
+			if got["desc"].(bool) != tc.want {
+				t.Errorf("the card has the provider's description: %v, want %v", got["desc"], tc.want)
+			}
+			noErrors(t, ctx)
+		})
+	}
+}

@@ -209,6 +209,7 @@ The overlay gives the picker its shape, so a new model needs no code:
 - **Suggestions** by situation, best first: an image, an image from more than five photos, a video, a video made from an attached one.
 - **One name per maker.** OpenRouter writes xAI and SpaceXAI for the company now called SpaceXSI, and ByteDance and ByteDance Seed; the overlay maps them to SpaceXSI and ByteDance. Display names fix what OpenRouter leaves bare: Kling's "Video v3.0 Pro" is Kling Video 3.0 Pro, MiniMax's "H3 Max" Hailuo H3 Max.
 - **Notes.** A variant's short line ("Faster and cheaper, similar quality") is interface text, so it lives in i18n as `note.<model id>`, in every language, and only says what the provider's description or price supports.
+- **The provider's description** is OpenRouter's, in English, and the card on the right shows it only in the English page; in another language the facts and the notes say what a model does. The catalog keeps its whole sentences: OpenRouter cuts a description at its length, and the sentence it cut is dropped, not shown broken off. A sentence about the provider's price or API parameters goes too, since framy shows its own price and its own controls.
 
 ### Images
 

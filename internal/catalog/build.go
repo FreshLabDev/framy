@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // Build joins what OpenRouter listed with the hand-written offers and applies
@@ -273,15 +275,55 @@ func checkSourceVideo(model string, s *SourceVideo, offers []Offer, warn func(st
 
 var (
 	markdownLink = regexp.MustCompile(`\[([^\]]+)\]\([^)]*\)`)
-	// OpenRouter cuts descriptions short, sometimes inside a link's URL.
+	// OpenRouter cuts descriptions short with "...", sometimes inside a
+	// link's URL.
 	cutLink = regexp.MustCompile(`\[([^\]]+)\]\([^)]*$`)
+	cutEnd  = regexp.MustCompile(`\s*(\.\.\.|…)$`)
 )
 
-// plain drops Markdown links, which point at OpenRouter's own pages.
+// plain makes a source's description the text a person reads beside a
+// model. Markdown links go, since they point at OpenRouter's own pages. Only
+// whole sentences stay: OpenRouter cuts a description at its length, and the
+// sentence it cut is dropped rather than shown broken off. A sentence about
+// what the model costs or how its API is called goes too: framy shows its
+// own price, which the provider's per-image rate is not, and the parameters
+// are framy's controls.
 func plain(s string) string {
-	s = markdownLink.ReplaceAllString(s, "$1")
-	s = cutLink.ReplaceAllString(s, "$1...")
-	return strings.TrimSpace(s)
+	s = strings.TrimSpace(markdownLink.ReplaceAllString(s, "$1"))
+	cut := cutLink.MatchString(s) || cutEnd.MatchString(s)
+	s = cutEnd.ReplaceAllString(cutLink.ReplaceAllString(s, ""), "")
+	all := sentences(s)
+	if cut && len(all) > 0 && !strings.ContainsRune(".!?", rune(all[len(all)-1][len(all[len(all)-1])-1])) {
+		all = all[:len(all)-1]
+	}
+	keep := all[:0]
+	for _, x := range all {
+		if !strings.HasPrefix(x, "Pricing") && !strings.ContainsAny(x, "$`") {
+			keep = append(keep, x)
+		}
+	}
+	return strings.Join(keep, " ")
+}
+
+// sentences splits text where a sentence ends: a full stop, a question or
+// an exclamation mark before a space and a capital, so "Veo 3.1" and "e.g.
+// a photo" stay whole.
+func sentences(s string) []string {
+	var out []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if !strings.ContainsRune(".!?", rune(s[i])) || i+2 >= len(s) || s[i+1] != ' ' {
+			continue
+		}
+		if r, _ := utf8.DecodeRuneInString(s[i+2:]); unicode.IsUpper(r) {
+			out = append(out, strings.TrimSpace(s[start:i+1]))
+			start = i + 2
+		}
+	}
+	if rest := strings.TrimSpace(s[start:]); rest != "" {
+		out = append(out, rest)
+	}
+	return out
 }
 
 func day(t time.Time) time.Time {
