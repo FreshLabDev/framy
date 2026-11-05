@@ -291,8 +291,9 @@ inside the image with `FRAMY_MEDIA_TESTS=1`, which makes a skip a failure.
 The live R2 check runs by hand against the real buckets, where the token is:
 `go test -tags r2live -run Live ./internal/r2` with `R2_ACCOUNT_ID`,
 `R2_ACCESS_KEY_ID_FILE` and `R2_SECRET_ACCESS_KEY_FILE`. It writes a few bytes
-under `incoming/` and removes them, and asks whether a presigned PUT can be
-turned into a copy of another file. Set `R2_FOREIGN_BUCKET` to a throwaway
+under `incoming/` and removes them, checks that a presigned PUT takes only
+the length it was signed for, and asks whether one can be turned into a copy
+of another file. Set `R2_FOREIGN_BUCKET` to a throwaway
 bucket of the same account to check the token is refused there, and
 `R2_INCOMING_BUCKET` with `R2_INCOMING_ACCESS_KEY_ID_FILE` and
 `R2_INCOMING_SECRET_ACCESS_KEY_FILE` to check the clips' bucket and its own

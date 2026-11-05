@@ -84,7 +84,7 @@ type Bucket interface {
 	Delete(ctx context.Context, key string) error
 	PresignGet(key string, ttl time.Duration, disposition string) (string, error)
 	PresignGetAt(key string, at time.Time, ttl time.Duration, disposition, cacheControl string) (string, error)
-	PresignPut(key string, ttl time.Duration) (string, error)
+	PresignPut(key string, size int64, ttl time.Duration) (string, error)
 }
 
 // Config is the store's setup. Pool's search_path is framy.

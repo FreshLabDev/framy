@@ -74,7 +74,7 @@ func TestTheDocumentedSignatures(t *testing.T) {
 
 func TestTheDocumentedPresignedURL(t *testing.T) {
 	u, _ := url.Parse("https://examplebucket.s3.amazonaws.com/test.txt")
-	got := example.presign("GET", u, exampleTime, 24*time.Hour)
+	got := example.presign("GET", u, exampleTime, 24*time.Hour, nil)
 	want := "https://examplebucket.s3.amazonaws.com/test.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256" +
 		"&X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request" +
 		"&X-Amz-Date=20130524T000000Z&X-Amz-Expires=86400&X-Amz-SignedHeaders=host" +

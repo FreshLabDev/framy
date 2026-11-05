@@ -5,6 +5,7 @@
 package web
 
 import (
+	"encoding/json"
 	"fmt"
 	"image"
 	_ "image/png"
@@ -166,6 +167,7 @@ func TestBrowserVideoSlots(t *testing.T) {
 func TestBrowserVideoSounds(t *testing.T) {
 	runs := &fakeRuns{}
 	var put, took atomic.Int32
+	var asked atomic.Int64
 	ts := fakeSite(t, func(srv *Server) {
 		runs.mount(srv)
 		srv.HandleFunc("POST /api/uploads", func(w http.ResponseWriter, r *http.Request) {
@@ -177,9 +179,23 @@ func TestBrowserVideoSounds(t *testing.T) {
 			writeTestJSON(w, http.StatusCreated, map[string]any{"id": c.Width, "content_type": "image/png", "bytes": 100, "width": c.Width, "height": c.Height})
 		})
 		srv.HandleFunc("POST /api/videos/uploads", func(w http.ResponseWriter, r *http.Request) {
+			// The link is made for the sound's size, which the page says.
+			var body struct {
+				Bytes int64 `json:"bytes"`
+			}
+			if json.NewDecoder(r.Body).Decode(&body) != nil || body.Bytes < 1 {
+				writeTestJSON(w, http.StatusBadRequest, map[string]any{"error": "bad_request", "field": "bytes"})
+				return
+			}
+			asked.Store(body.Bytes)
 			writeTestJSON(w, http.StatusCreated, map[string]any{"url": "/bucket/sound", "token": "tok", "max_bytes": 100 << 20})
 		})
 		srv.HandleFunc("PUT /bucket/sound", func(w http.ResponseWriter, r *http.Request) {
+			// The bucket takes only the length the link was made for.
+			if r.ContentLength != asked.Load() {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
 			if strings.HasPrefix(r.Header.Get("Content-Type"), "audio/") {
 				put.Add(1)
 			}

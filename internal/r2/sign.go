@@ -71,9 +71,14 @@ func canonicalRequest(req *http.Request, names []string, q url.Values, payload s
 	var headers strings.Builder
 	for _, n := range names {
 		v := req.Host
-		if n != "host" {
+		switch {
+		case n != "host":
 			v = strings.Join(req.Header.Values(n), ",")
-		} else if v == "" {
+			// A server may keep the length out of the header map.
+			if n == "content-length" && v == "" && req.ContentLength >= 0 {
+				v = strconv.FormatInt(req.ContentLength, 10)
+			}
+		case v == "":
 			v = req.URL.Host
 		}
 		headers.WriteString(n + ":" + trimAll(v) + "\n")
@@ -84,18 +89,32 @@ func canonicalRequest(req *http.Request, names []string, q url.Values, payload s
 }
 
 // presign returns u with the query that lets anyone holding it make this
-// one request until the link expires. Only the host is signed, so a browser
-// can send its own headers.
-func (s signer) presign(method string, u *url.URL, t time.Time, ttl time.Duration) string {
+// one request until the link expires. The host is signed, and each of
+// headers, named in lower case, with the value the request must carry; a
+// browser may send any other header of its own.
+func (s signer) presign(method string, u *url.URL, t time.Time, ttl time.Duration, headers map[string]string) string {
 	t = t.UTC()
+	names := []string{"host"}
+	for n := range headers {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	var canon strings.Builder
+	for _, n := range names {
+		v := u.Host
+		if n != "host" {
+			v = headers[n]
+		}
+		canon.WriteString(n + ":" + trimAll(v) + "\n")
+	}
 	q := u.Query()
 	q.Set("X-Amz-Algorithm", algorithm)
 	q.Set("X-Amz-Credential", s.accessKeyID+"/"+s.scope(t))
 	q.Set("X-Amz-Date", t.Format(amzDate))
 	q.Set("X-Amz-Expires", strconv.FormatInt(int64(ttl/time.Second), 10))
-	q.Set("X-Amz-SignedHeaders", "host")
+	q.Set("X-Amz-SignedHeaders", strings.Join(names, ";"))
 	canonical := strings.Join([]string{
-		method, canonicalPath(u), canonicalQuery(q), "host:" + u.Host + "\n", "host", unsignedPayload,
+		method, canonicalPath(u), canonicalQuery(q), canon.String(), strings.Join(names, ";"), unsignedPayload,
 	}, "\n")
 	out := *u
 	out.RawQuery = canonicalQuery(q) + "&X-Amz-Signature=" + s.signature(t, canonical)

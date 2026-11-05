@@ -21,10 +21,11 @@ const (
 	// DefaultMaxVideo bounds a clip put into incoming/: a minute of 4K from
 	// a phone fits.
 	DefaultMaxVideo = 512 << 20
-	// DefaultIncomingTTL is how long the link to put a clip lives. A slow
-	// uplink takes minutes for a large clip, and the link has to last until
-	// the PUT begins.
-	DefaultIncomingTTL = 30 * time.Minute
+	// DefaultIncomingTTL is how long the link to put a clip lives. R2 checks
+	// it when the PUT begins, so a slow uplink that takes longer still ends;
+	// the site asks for the link right before it starts the PUT, and a try
+	// that failed asks for a new one.
+	DefaultIncomingTTL = 10 * time.Minute
 )
 
 var (
@@ -38,9 +39,9 @@ var (
 // into incoming/ of the clips' bucket, which its lifecycle rule clears
 // after a day (docs/design.md, Storage and retention). Cloudflare takes at
 // most 100 MB in a request to the service, and a clip is often more. The
-// link signs the host alone, so the clips' bucket has a token of its own
-// that reaches no other: a header the signature does not cover cannot
-// make R2 copy someone else's file in.
+// link signs the host and the clip's length, so the clips' bucket has a
+// token of its own that reaches no other: a header the signature does not
+// cover cannot make R2 copy someone else's file in.
 type VideoUpload struct {
 	Token      string
 	URL        string
@@ -49,11 +50,18 @@ type VideoUpload struct {
 	MaxSeconds float64
 }
 
-// VideoUpload makes a link to put one clip. The token names it to TakeVideo
-// and is the person's alone: the key it stands for has their id in it.
-func (s *Store) VideoUpload(userID int64) (VideoUpload, error) {
+// VideoUpload makes a link to put one clip of size bytes, the size the
+// browser read of the file, or ErrTooBig over MaxVideo, with MaxBytes set
+// to say the limit. The link takes a body of that length and no other, so
+// it cannot be used to fill the bucket with more. The token names it to
+// TakeVideo and is the person's alone: the key it stands for has their id
+// in it.
+func (s *Store) VideoUpload(userID, size int64) (VideoUpload, error) {
+	if size > s.cfg.MaxVideo {
+		return VideoUpload{MaxBytes: s.cfg.MaxVideo}, ErrTooBig
+	}
 	token := random()
-	link, err := s.incoming.PresignPut(s.incomingKey(userID, token), s.cfg.IncomingTTL)
+	link, err := s.incoming.PresignPut(s.incomingKey(userID, token), size, s.cfg.IncomingTTL)
 	if err != nil {
 		return VideoUpload{}, err
 	}

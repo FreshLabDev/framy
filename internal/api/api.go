@@ -302,7 +302,7 @@ func setDefault[T int | int64 | time.Duration](v *T, d T) {
 func (a *API) Register(site *web.Server) {
 	site.HandleFunc("POST /api/uploads", a.upload,
 		web.Limit(web.ClassUpload), web.Body(a.maxBody), web.Deadlines(uploadRead, uploadWrite))
-	site.HandleFunc("POST /api/videos/uploads", a.videoUpload, web.Limit(web.ClassUpload))
+	site.HandleFunc("POST /api/videos/uploads", a.videoUpload, web.Limit(web.ClassUpload), web.Body(smallBody))
 	site.HandleFunc("POST /api/videos", a.videoStart, web.Limit(web.ClassUpload), web.Body(smallBody))
 	site.HandleFunc("GET /api/videos/{task}", a.videoTask)
 	// The last frame reads the clip from the bucket first.

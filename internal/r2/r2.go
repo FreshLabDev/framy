@@ -17,6 +17,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -195,20 +196,25 @@ func (c *Client) PresignGetAt(key string, at time.Time, ttl time.Duration, dispo
 	if at.Add(ttl).Before(c.now()) {
 		return "", fmt.Errorf("r2: a link signed at %s for %s has expired", at.UTC().Format(time.RFC3339), ttl)
 	}
-	return c.presignAt(http.MethodGet, u, at, ttl)
+	return c.presignAt(http.MethodGet, u, at, ttl, nil)
 }
 
-// PresignPut lets the holder upload to key for ttl, as the site does with a
-// video, straight into the bucket.
-func (c *Client) PresignPut(key string, ttl time.Duration) (string, error) {
-	return c.presignAt(http.MethodPut, c.object(key), c.now(), ttl)
+// PresignPut lets the holder upload a body of exactly size bytes to key for
+// ttl, as the site does with a clip, straight into the bucket. The length is
+// signed, so R2 refuses a body of any other size: the link holds what the
+// client said it would send, and no more, however often it is used.
+func (c *Client) PresignPut(key string, size int64, ttl time.Duration) (string, error) {
+	if size < 1 {
+		return "", fmt.Errorf("r2: a presigned PUT carries at least a byte, not %d", size)
+	}
+	return c.presignAt(http.MethodPut, c.object(key), c.now(), ttl, map[string]string{"content-length": strconv.FormatInt(size, 10)})
 }
 
-func (c *Client) presignAt(method string, u *url.URL, at time.Time, ttl time.Duration) (string, error) {
+func (c *Client) presignAt(method string, u *url.URL, at time.Time, ttl time.Duration, headers map[string]string) (string, error) {
 	if ttl < time.Second || ttl > MaxPresign {
 		return "", fmt.Errorf("r2: a presigned URL lives from a second to %s, not %s", MaxPresign, ttl)
 	}
-	return c.signer.presign(method, u, at, ttl), nil
+	return c.signer.presign(method, u, at, ttl, headers), nil
 }
 
 // do makes a signed call, again after a 5xx, a 429 or a network error. The

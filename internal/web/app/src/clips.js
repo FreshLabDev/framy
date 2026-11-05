@@ -13,7 +13,7 @@ import { act, render } from "./composer.js";
 
 const TYPES = /^video\/(mp4|quicktime|webm|x-matroska|x-m4v)$/, EXT = /\.(mp4|m4v|mov|webm|mkv)$/i;
 const BY_EXT = { mp4: "video/mp4", m4v: "video/mp4", mov: "video/quicktime", webm: "video/webm", mkv: "video/x-matroska" };
-// The most a clip may weigh before it goes up; POST /api/videos/uploads says the real limit.
+// The most a clip may weigh before it goes up; POST /api/videos/uploads refuses one over the real limit.
 export const MAX_CLIP = 512 * 1048576;
 
 export const looksLikeClip = (f) => f.type.startsWith("video/") || (!f.type && EXT.test(f.name));
@@ -154,8 +154,9 @@ export async function takeClip(f, cut, { signal, step, again = false }) {
   if (f.upload) body = { file: f.upload, ...part };
   else {
     if (!f.token) {
-      const up = await api("/api/videos/uploads", { method: "POST", signal });
-      if (up.max_bytes && f.bytes > up.max_bytes) throw Object.assign(new ApiError(413, { error: "too_large" }), { maxBytes: up.max_bytes });
+      // The link is made for this size: framy refuses a clip over its limit before anything goes up.
+      const up = await api("/api/videos/uploads", { method: "POST", body: { bytes: f.bytes }, signal })
+        .catch((e) => { if (e.code === "too_large") e.maxBytes = e.body.max_bytes; throw e; });
       let sent = 0;
       step({ fig: "fill", prog: () => sent / f.bytes, text: () => t(snd ? "step.sound_up" : "step.clip_up", { a: MB(sent), b: MB(f.bytes) }), tick: true });
       await put(up.url, f.file, f.meta.content_type, (n) => { sent = n; }, signal);

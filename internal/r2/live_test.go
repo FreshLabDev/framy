@@ -182,7 +182,7 @@ func TestLivePresigned(t *testing.T) {
 	key, body := liveKey(t), []byte("framy r2live presigned")
 	t.Cleanup(func() { _ = c.Delete(ctx, key) })
 
-	put, err := c.PresignPut(key, 5*time.Minute)
+	put, err := c.PresignPut(key, int64(len(body)), 5*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,6 +200,16 @@ func TestLivePresigned(t *testing.T) {
 	})
 	if resp.Header.Get("Access-Control-Allow-Origin") != "" {
 		t.Fatalf("a foreign origin may PUT: allow-origin %q", resp.Header.Get("Access-Control-Allow-Origin"))
+	}
+	// The link is signed for the clip's length: a longer body, or a
+	// shorter one, is refused, so one link cannot hold more than it said.
+	for _, other := range [][]byte{append(bytes.Clone(body), " and more"...), body[:4]} {
+		if resp, _ := send(t, http.MethodPut, put, other, map[string]string{"Origin": siteOrigin, "Content-Type": "text/plain"}); resp.StatusCode/100 == 2 {
+			t.Fatalf("a PUT of %d bytes on a link for %d was taken: %d", len(other), len(body), resp.StatusCode)
+		}
+	}
+	if _, err := c.Head(ctx, key); !errors.Is(err, r2.ErrNotFound) {
+		t.Fatalf("a body of another length was kept: %v", err)
 	}
 	resp, _ = send(t, http.MethodPut, put, body, map[string]string{"Origin": siteOrigin, "Content-Type": "text/plain"})
 	if resp.StatusCode != http.StatusOK || resp.Header.Get("Access-Control-Allow-Origin") != siteOrigin {
@@ -289,12 +299,16 @@ func isRefused(err error, gone bool) bool {
 	return status(err) == http.StatusForbidden || (gone && errors.Is(err, r2.ErrNotFound))
 }
 
+// copyBody is what copied sends: the links it is given are signed for its
+// length.
+var copyBody = []byte("plain")
+
 // copied tells whether a presigned PUT to dst, sent with an
 // x-amz-copy-source header the signature does not cover, made dst a copy
 // of source. It answers the PUT's status too, for the log.
 func copied(t *testing.T, ctx context.Context, link string, dst *r2.Client, dstKey, source string, secret []byte) (bool, int) {
 	t.Helper()
-	resp, _ := send(t, http.MethodPut, link, []byte("plain"), map[string]string{"x-amz-copy-source": source})
+	resp, _ := send(t, http.MethodPut, link, copyBody, map[string]string{"x-amz-copy-source": source})
 	rc, err := dst.Get(ctx, dstKey)
 	if err != nil {
 		return false, resp.StatusCode
@@ -320,7 +334,7 @@ func TestLiveCopySource(t *testing.T) {
 	}
 	dst := liveKey(t)
 	t.Cleanup(func() { _ = c.Delete(ctx, dst) })
-	link, err := c.PresignPut(dst, 5*time.Minute)
+	link, err := c.PresignPut(dst, int64(len(copyBody)), 5*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,7 +362,7 @@ func TestLiveIncoming(t *testing.T) {
 
 	key, body := liveKey(t), []byte("framy r2live clip")
 	t.Cleanup(func() { _ = clips.Delete(ctx, key) })
-	link, err := clips.PresignPut(key, 5*time.Minute)
+	link, err := clips.PresignPut(key, int64(len(body)), 5*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -381,7 +395,7 @@ func TestLiveIncoming(t *testing.T) {
 	}
 	dst := liveKey(t)
 	t.Cleanup(func() { _ = clips.Delete(ctx, dst) })
-	copyLink, err := clips.PresignPut(dst, 5*time.Minute)
+	copyLink, err := clips.PresignPut(dst, int64(len(copyBody)), 5*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}

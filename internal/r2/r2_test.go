@@ -162,18 +162,42 @@ func TestPresignedLinks(t *testing.T) {
 	}
 	srv.SetNow(time.Now)
 
-	up, err := c.PresignPut("incoming/1/clip.mp4", 15*time.Minute)
+	up, err := c.PresignPut("incoming/1/clip.mp4", int64(len("a video")), 15*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req, _ := http.NewRequest(http.MethodPut, up, strings.NewReader("a video"))
-	req.Header.Set("Content-Type", "video/mp4")
-	resp, err = http.DefaultClient.Do(req)
-	if err != nil || resp.StatusCode != 200 {
-		t.Fatalf("a presigned put: %v %v", resp.StatusCode, err)
+	if !strings.Contains(up, "X-Amz-SignedHeaders=content-length%3Bhost") {
+		t.Errorf("the length is not signed: %s", up)
+	}
+	putBody := func(body string) int {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodPut, up, strings.NewReader(body))
+		req.Header.Set("Content-Type", "video/mp4")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	// The link takes the length it was made for, and no other: one link
+	// cannot fill the bucket with more than the clip the client named.
+	for _, body := range []string{"a video, and then a great deal more", "a vid"} {
+		if code := putBody(body); code != http.StatusForbidden {
+			t.Errorf("a body of %d bytes on a link for 7: %d", len(body), code)
+		}
+	}
+	if _, ok := srv.Get("incoming/1/clip.mp4"); ok {
+		t.Error("a body of another length was kept")
+	}
+	if code := putBody("a video"); code != 200 {
+		t.Fatalf("a presigned put: %d", code)
 	}
 	if o, ok := srv.Get("incoming/1/clip.mp4"); !ok || string(o.Data) != "a video" {
 		t.Errorf("the upload is %+v", o)
+	}
+	if _, err := c.PresignPut("k", 0, time.Minute); err == nil {
+		t.Error("a link for an empty body")
 	}
 	for _, ttl := range []time.Duration{0, 8 * 24 * time.Hour} {
 		if _, err := c.PresignGet("k", ttl, ""); err == nil {
