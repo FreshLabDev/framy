@@ -351,14 +351,26 @@ func (p *Provider) outcome(ctx context.Context, key string, r videoJob) (jobs.Ou
 		for i := range n {
 			res, err := p.download(ctx, key, r.ID, i)
 			var big *tooLargeError
+			var pe *jobs.Error
 			switch {
 			case errors.As(err, &big):
 				// Paid and finished, and too large to keep: nothing to try again.
 				out.Results = nil
 				out.Err = &jobs.Error{Class: jobs.Storage, Err: err}
 				return out, nil
+			case errors.As(err, &pe) && !fetchAgain(pe.Class):
+				// A key that stopped working, money or a filter: asking
+				// again cannot change it, and the run is paid.
+				out.Results = nil
+				out.Err = pe
+				return out, nil
 			case err != nil:
-				return jobs.Outcome{}, err
+				// The run is paid and its video is at OpenRouter: a download
+				// that failed is asked for again at the next poll, until the
+				// hour's deadline. The cost goes beside the error, so a run
+				// whose video never comes keeps it and ends as made but not
+				// kept.
+				return jobs.Outcome{CostUSD: out.CostUSD, Ready: true}, err
 			}
 			out.Results = append(out.Results, res)
 		}
@@ -413,6 +425,18 @@ var moderationPhrases = []string{"content policy", "content_policy", "moderation
 func saysModeration(text string) bool {
 	text = strings.ToLower(text)
 	return slices.ContainsFunc(moderationPhrases, func(p string) bool { return strings.Contains(text, p) })
+}
+
+// fetchAgain says whether a download of a finished video that failed with
+// this class is worth asking for again: a wait, a provider that was down or
+// slow, or an answer cut short. A key that stopped working, money or a
+// filter is a verdict.
+func fetchAgain(c jobs.Class) bool {
+	switch c {
+	case jobs.RateLimited, jobs.Unavailable, jobs.Timeout, jobs.ProviderFailed:
+		return true
+	}
+	return false
 }
 
 // tooLargeError: a finished video above the limit.

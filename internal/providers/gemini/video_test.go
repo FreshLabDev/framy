@@ -536,9 +536,10 @@ func TestAVideoThatCannotBeFetchedYetIsAskedForAgain(t *testing.T) {
 		} else if a.status == 429 && pe.RetryAfter != 40*time.Second {
 			t.Errorf("Google's wait is %s", pe.RetryAfter)
 		}
-		// The cost goes beside the error, for a run the hour ends first.
-		if out.CostUSD == nil || !near(*out.CostUSD, omniCost) || len(out.Results) != 0 {
-			t.Errorf("a %d: beside the error %+v, want the cost alone", a.status, out)
+		// The cost goes beside the error, with Ready, for a run the hour
+		// ends first: it was made and is paid.
+		if !out.Ready || out.CostUSD == nil || !near(*out.CostUSD, omniCost) || len(out.Results) != 0 {
+			t.Errorf("a %d: beside the error %+v, want Ready and the cost", a.status, out)
 		}
 	}
 	out := poll(t, p, j)

@@ -216,6 +216,11 @@ type Outcome struct {
 	CostUSD *float64
 	// Err ends the run without a result, as moderation does.
 	Err *Error
+	// Ready, beside a poll's error: the provider finished the run and holds
+	// its result, which could not be fetched this time. The run is paid, so
+	// CostUSD goes with it, and when the result has not come by the hour's
+	// deadline the run ends as storage (made, not kept), not as a timeout.
+	Ready bool
 	// Lost says why files of the answer were left out of Results, such as
 	// a picture that was not base64: the run is paid in full, so the
 	// others are kept, and the log says what was lost. Nil when nothing

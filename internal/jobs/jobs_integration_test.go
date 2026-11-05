@@ -535,14 +535,13 @@ func TestARunThatLostAPictureKeepsTheOthers(t *testing.T) {
 
 // A run the hour ends while its poll keeps failing may be paid: it ends as
 // a timeout, not as a provider that did not answer, which would say nothing
-// was charged, and keeps the cost the provider gave, as a finished video
-// that could not be fetched has one.
+// was charged, and keeps the cost the provider gave, if any.
 func TestARunPastTheHourIsATimeoutWithItsCost(t *testing.T) {
 	p := newFake()
 	p.submit = func(context.Context, Job) (Submission, error) { return Submission{ProviderJobID: "vid-1"}, nil }
 	p.poll = func(context.Context, Job) (Outcome, error) {
 		cost := 0.509518
-		return Outcome{CostUSD: &cost}, &Error{Class: Unavailable, Err: errors.New("download the video: Google answered 503")}
+		return Outcome{CostUSD: &cost}, &Error{Class: Unavailable, Err: errors.New("poll the video: Google answered 503")}
 	}
 	q, _ := testQueue(t, p)
 	id := enqueue(t, q, job(alice, videoOffer))
@@ -560,6 +559,35 @@ func TestARunPastTheHourIsATimeoutWithItsCost(t *testing.T) {
 	}
 	j := get(t, q, id)
 	if j.Status != Expired || j.ErrorClass != Timeout || j.ActualUSD == nil || *j.ActualUSD != 0.509518 {
+		t.Fatalf("past the hour: %s %s, actual %v", j.Status, j.ErrorClass, j.ActualUSD)
+	}
+}
+
+// A video the provider finished and framy could not fetch by the hour's
+// deadline was made and billed: it ends as storage, a result that was not
+// kept, with its cost, and not as a run that took over an hour.
+func TestAFinishedVideoThatCouldNotBeFetchedEndsAsStorage(t *testing.T) {
+	p := newFake()
+	p.submit = func(context.Context, Job) (Submission, error) { return Submission{ProviderJobID: "vid-1"}, nil }
+	p.poll = func(context.Context, Job) (Outcome, error) {
+		cost := 0.5
+		return Outcome{CostUSD: &cost, Ready: true}, errors.New("download the video: openrouter 500")
+	}
+	q, _ := testQueue(t, p)
+	id := enqueue(t, q, job(alice, videoOffer))
+	ctx := context.Background()
+	for range 2 {
+		_ = q.work(ctx, id)
+	}
+	if j := get(t, q, id); j.Status != Running || j.ActualUSD != nil {
+		t.Fatalf("within the hour: %s, actual %v", j.Status, j.ActualUSD)
+	}
+	q.now = func() time.Time { return time.Now().Add(runDeadline + time.Minute) }
+	if err := q.work(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	j := get(t, q, id)
+	if j.Status != Failed || j.ErrorClass != Storage || j.ActualUSD == nil || *j.ActualUSD != 0.5 {
 		t.Fatalf("past the hour: %s %s, actual %v", j.Status, j.ErrorClass, j.ActualUSD)
 	}
 }

@@ -653,6 +653,9 @@ func TestAJobWithNoUsableIdIsNotPolled(t *testing.T) {
 	}
 }
 
+// A finished video is paid: a download that goes wrong is asked for again
+// with the cost and Ready beside the error, so a run whose video never comes
+// ends as made but not kept, with its cost.
 func TestADownloadThatGoesWrongIsAskedAgainWithTheJobsCostKept(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -672,18 +675,19 @@ func TestADownloadThatGoesWrongIsAskedAgainWithTheJobsCostKept(t *testing.T) {
 			_, _ = io.WriteString(w, `{"error":"x"}`)
 		}, ""},
 		{"an empty file", func(w http.ResponseWriter, _ *http.Request) { w.Header().Set("Content-Type", "video/mp4") }, ""},
-		{"a key that stopped working", func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(401)
-			_, _ = io.WriteString(w, `{"error":{"code":401,"message":"No auth","metadata":{"error_type":"authentication"}}}`)
-		}, jobs.Key},
+		{"Cloudflare not reaching OpenRouter", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(522) }, jobs.Unavailable},
+		{"a gateway timeout", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(504) }, jobs.Timeout},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFakeOR(t)
 			f.complete(0.036)
 			f.contentFunc = tc.content
-			_, err := fakeProvider(f, testCallbacks()).Poll(context.Background(), pollJob())
+			out, err := fakeProvider(f, testCallbacks()).Poll(context.Background(), pollJob())
 			if err == nil {
 				t.Fatal("no error")
+			}
+			if !out.Ready || out.CostUSD == nil || *out.CostUSD != 0.036 || len(out.Results) != 0 {
+				t.Errorf("outcome %+v, cost %v: want Ready with the job's cost", out, out.CostUSD)
 			}
 			var pe *jobs.Error
 			switch {
@@ -695,6 +699,25 @@ func TestADownloadThatGoesWrongIsAskedAgainWithTheJobsCostKept(t *testing.T) {
 			noSecrets(t, err)
 		})
 	}
+}
+
+// A key that stopped working cannot fetch the video however often it asks:
+// the run ends at once, with the cost of the video it paid for.
+func TestADownloadRefusedForTheKeyEndsTheRunWithItsCost(t *testing.T) {
+	f := newFakeOR(t)
+	f.complete(0.036)
+	f.contentFunc = func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(401)
+		_, _ = io.WriteString(w, `{"error":{"code":401,"message":"No auth","metadata":{"error_type":"authentication"}}}`)
+	}
+	out, err := fakeProvider(f, testCallbacks()).Poll(context.Background(), pollJob())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Err == nil || out.Err.Class != jobs.Key || out.Ready || len(out.Results) != 0 || out.CostUSD == nil || *out.CostUSD != 0.036 {
+		t.Fatalf("outcome %+v, cost %v: want a key error with the job's cost", out, out.CostUSD)
+	}
+	noSecrets(t, out.Err)
 }
 
 func TestAVideoAboveTheLimitEndsTheRunWithItsCost(t *testing.T) {

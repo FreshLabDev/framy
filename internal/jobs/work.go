@@ -244,12 +244,17 @@ func (q *Queue) poll(ctx context.Context, p Provider, j Job) error {
 	late := j.SubmittedAt != nil && q.now().Sub(*j.SubmittedAt) > runDeadline
 	switch {
 	case pe != nil && (pe.retryable() || pe.Class == ProviderFailed || pe.Class == Timeout || pe.Class == Interrupted):
-		if late {
+		switch {
+		case late && out.Ready:
+			// The provider made the result and billed it, and only fetching
+			// it kept failing: the run ends as a result framy could not
+			// keep, with its cost, and not as one that took over an hour.
+			return q.end(ctx, j.ID, ending{status: Failed, class: Storage, msg: "the provider finished the run, but its result could not be fetched within the hour: " + pe.Error(), said: pe.Said(), cost: out.CostUSD})
+		case late:
 			// The request went out, so the run may be paid whatever kept the
 			// poll from an answer: it ends as a timeout, which says so, and
 			// not as a provider that did not answer, which says nothing was
-			// charged. It keeps the cost the provider gave, as a finished
-			// video that could not be fetched has one.
+			// charged. It keeps the cost the provider gave, if any.
 			return q.end(ctx, j.ID, ending{status: Expired, class: Timeout, msg: "the provider did not finish within an hour: " + pe.Error(), said: pe.Said(), cost: out.CostUSD})
 		}
 		return river.JobSnooze(max(q.cfg.PollEvery, pe.RetryAfter))

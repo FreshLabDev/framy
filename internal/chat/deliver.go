@@ -476,6 +476,13 @@ func reason(run db.ChatRun) string {
 		return "err.key"
 	case jobs.Timeout:
 		return "err.timeout"
+	case jobs.Storage:
+		// The provider made it and framy could not keep it: not the model's
+		// fault, and the provider may have charged.
+		if run.Kind == string(catalog.Video) {
+			return "web.fail.storage_video"
+		}
+		return "web.fail.storage"
 	}
 	return "err.failed"
 }

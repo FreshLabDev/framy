@@ -144,8 +144,8 @@ func (p *Provider) videoOutcome(ctx context.Context, key string, of catalog.Offe
 			// was throttled, timed out or found Google down is asked for
 			// again, with Google's wait, until the hour's deadline. The cost
 			// goes beside the error, so a run whose video never comes keeps
-			// it.
-			return jobs.Outcome{CostUSD: out.CostUSD}, err
+			// it and ends as made but not kept.
+			return jobs.Outcome{CostUSD: out.CostUSD, Ready: true}, err
 		}
 		out.Results = append(out.Results, res)
 	}
