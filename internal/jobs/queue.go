@@ -221,10 +221,24 @@ func (q *Queue) Stop(ctx context.Context) error {
 	return err
 }
 
+// LockPerson takes, until tx ends, the lock under which a person's jobs are
+// created, queued and claimed, and under which their account is deleted
+// (api's Forget). A job made while the account goes is then either seen by
+// the deletion, which refuses or clears it, or made after it, by a person
+// who came back; never half of each, with its files gone and its prompt
+// kept. Take it before the allowance's locks.
+func LockPerson(ctx context.Context, tx pgx.Tx, userID int64) error {
+	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('framy.job.person:' || $1::bigint::text, 0))`, userID)
+	return err
+}
+
 // Enqueue creates a queued job and its River job in one transaction. A job
 // with the same dedupe key is returned instead, and nothing starts.
 func (q *Queue) Enqueue(ctx context.Context, n New) (id int64, created bool, err error) {
 	err = pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
+		if err := LockPerson(ctx, tx, n.UserID); err != nil {
+			return err
+		}
 		if err := q.admitNew(ctx, tx, n); err != nil {
 			return err
 		}
@@ -239,11 +253,22 @@ func (q *Queue) Enqueue(ctx context.Context, n New) (id int64, created bool, err
 
 // EnqueueBatch queues the jobs of one press of the site's Create in one
 // transaction: every one of them, or none when one is refused. Each has its
-// own dedupe key and they share n.Batch. created is false when the first
-// key was taken already: the press was answered before, and ids are the
-// jobs of that batch, in order.
+// own dedupe key and they share n.Batch, and they are one person's. created
+// is false when the first key was taken already: the press was answered
+// before, and ids are the jobs of that batch, in order.
 func (q *Queue) EnqueueBatch(ctx context.Context, ns []New) (ids []int64, created bool, err error) {
+	if len(ns) == 0 {
+		return nil, false, errors.New("a batch of no jobs")
+	}
+	for _, n := range ns[1:] {
+		if n.UserID != ns[0].UserID {
+			return nil, false, errors.New("a batch of more than one person's jobs")
+		}
+	}
 	err = pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
+		if err := LockPerson(ctx, tx, ns[0].UserID); err != nil {
+			return err
+		}
 		ids = make([]int64, 0, len(ns))
 		for i, n := range ns {
 			if err := q.admitNew(ctx, tx, n); err != nil {
@@ -293,6 +318,9 @@ func batchOf(ctx context.Context, tx pgx.Tx, id int64) ([]int64, error) {
 // Draft creates a job that waits for "Generate", as a chat preview does.
 func (q *Queue) Draft(ctx context.Context, n New) (id int64, created bool, err error) {
 	err = pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
+		if err := LockPerson(ctx, tx, n.UserID); err != nil {
+			return err
+		}
 		// A draft takes no slot of the allowance, but a preview that could
 		// never run is not offered.
 		if err := q.admitNew(ctx, tx, n); err != nil {
@@ -308,11 +336,22 @@ func (q *Queue) Draft(ctx context.Context, n New) (id int64, created bool, err e
 // cancelled gives ErrNotDraft, so a repeated press starts nothing.
 func (q *Queue) Generate(ctx context.Context, id int64) error {
 	return pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
+		var userID int64
+		err := tx.QueryRow(ctx, `SELECT user_id FROM job WHERE id=$1`, id).Scan(&userID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotDraft
+		}
+		if err != nil {
+			return err
+		}
+		if err := LockPerson(ctx, tx, userID); err != nil {
+			return err
+		}
 		if err := q.admitDraft(ctx, tx, id); err != nil {
 			return err
 		}
 		var provider, kind string
-		err := tx.QueryRow(ctx, `
+		err = tx.QueryRow(ctx, `
 			UPDATE job SET status='queued', queued_at=now(), updated_at=now()
 			WHERE id=$1 AND status='draft' AND created_at > now() - make_interval(secs => $2)
 			RETURNING provider, kind`, id, draftTTL.Seconds()).Scan(&provider, &kind)

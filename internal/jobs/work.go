@@ -130,7 +130,7 @@ func (q *Queue) waitFor(j Job) time.Duration {
 func (q *Queue) claim(ctx context.Context, j Job) (bool, error) {
 	var claimed bool
 	err := pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('framy.job.person:' || $1::bigint::text, 0))`, j.UserID); err != nil {
+		if err := LockPerson(ctx, tx, j.UserID); err != nil {
 			return err
 		}
 		tag, err := tx.Exec(ctx, `

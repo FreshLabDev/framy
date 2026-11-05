@@ -460,12 +460,13 @@ func (d pgData) Active(ctx context.Context, userID int64) (bool, error) {
 }
 
 // Forget is the account's rows, in one transaction under the lock a job
-// takes to start, so a run the queue is about to claim is either seen here
-// and refused or starts after: drafts are cancelled, every job that ended is
-// cleared as Remove clears one, the ids of the DM messages framy sent the
-// site's results in are dropped, and the keys, the pending connections to
-// OpenRouter, the profile (currency, name and photo) and the photos of
-// albums framy saw the person send in a chat are deleted. The jobs are
+// takes to be created, queued and claimed (jobs.LockPerson), so a run made
+// or started meanwhile, in the bot or another tab, is either seen here and
+// refused or comes after, from a person who came back: drafts are cancelled,
+// every job that ended is cleared as Remove clears one, the ids of the DM
+// messages framy sent the site's results in are dropped, and the keys, the
+// pending connections to OpenRouter, the profile (currency, name and photo)
+// and the photos of albums framy saw the person send in a chat are deleted. The jobs are
 // cleared first: their rows are what a result being sent to the DM holds
 // (db.SentSiteResult), so its chat run is either written before and
 // deleted here, or not written at all. The sessions go through
@@ -473,7 +474,7 @@ func (d pgData) Active(ctx context.Context, userID int64) (bool, error) {
 // The person stays in core: that row is the family's, not framy's.
 func (d pgData) Forget(ctx context.Context, userID int64) error {
 	return pgx.BeginFunc(ctx, d.pool, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('framy.job.person:' || $1::bigint::text, 0))`, userID); err != nil {
+		if err := jobs.LockPerson(ctx, tx, userID); err != nil {
 			return err
 		}
 		var active bool
