@@ -221,6 +221,9 @@ screen, a command or a table, check how the siblings do it.
   builds: fine at thousands of rows. Before a table holds millions, the
   runner needs a file that runs alone outside a transaction, for
   `CREATE INDEX CONCURRENTLY`.
+- A foreign key comes with an index that starts with its column, unless
+  framy never deletes the rows it points at: a delete looks for the rows
+  pointing at it. `TestEveryForeignKeyHasAnIndex` checks it.
 - Anything only one bot can act on (a chat, a message id, a `file_id`, a
   River queue, the getUpdates offset) carries the stack and is read by it.
   Upkeep of shared tables runs on production only (`config.Config.Primary`).

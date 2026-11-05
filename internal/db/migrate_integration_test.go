@@ -111,3 +111,38 @@ func TestAMigrationBehindALongTransactionTriesAgain(t *testing.T) {
 		t.Fatalf("once the lock is free: %v", err)
 	}
 }
+
+// Deleting a row looks for the rows that point at it, so a foreign key
+// whose target rows are ever deleted needs an index that starts with its
+// column, or each delete scans the whole table that points.
+func TestEveryForeignKeyHasAnIndex(t *testing.T) {
+	store := testStore(t)
+	// The targets framy never deletes.
+	never := map[string]bool{
+		"job.offer_id": true, // an offer gone from the catalog is disabled, not deleted
+	}
+	rows, err := store.pool.Query(context.Background(), `
+		SELECT c.conrelid::regclass::text || '.' || a.attname
+		FROM pg_constraint c
+		JOIN pg_namespace n ON n.oid = c.connamespace AND n.nspname = 'framy'
+		JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+		WHERE c.contype = 'f'
+		  AND NOT EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = c.conrelid AND i.indkey[0] = c.conkey[1])
+		ORDER BY 1`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			t.Fatal(err)
+		}
+		if !never[key] {
+			t.Errorf("%s points at rows that get deleted and has no index", key)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+}
