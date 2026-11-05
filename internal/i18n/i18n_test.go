@@ -599,3 +599,14 @@ func TestTheBotNamesTheLibraryAsTheSiteDoes(t *testing.T) {
 		}
 	}
 }
+
+// framy asks without "please", as every other line does: the answer to a
+// key pasted into a DM had the only one, after the same two sentences the
+// other answer already said.
+func TestEnglishAsksWithoutPlease(t *testing.T) {
+	for _, key := range Keys() {
+		if strings.Contains(strings.ToLower(translations[key]["en"]), "please") {
+			t.Errorf("%s says please: %q", key, translations[key]["en"])
+		}
+	}
+}
