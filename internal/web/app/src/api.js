@@ -58,7 +58,13 @@ export const isFinal = (s) => s === "done" || s === "failed" || s === "cancelled
 // What a job shows: the clip it went on from with its own video after it,
 // where the server joined them (results then hold only the new part), else its results.
 export const outsOf = (j) => (j?.joined ? [j.joined] : j?.results || []);
-const wait = (ms, sig) => new Promise((done) => { const t = setTimeout(done, ms); sig?.addEventListener("abort", () => { clearTimeout(t); done(); }); });
+// A pause that an abort ends early. Its listener goes with it, as a job
+// polled for minutes would otherwise pile one up on its signal every round.
+const wait = (ms, sig) => new Promise((done) => {
+  const end = () => { clearTimeout(tm); sig?.removeEventListener("abort", end); done(); };
+  const tm = setTimeout(end, ms);
+  sig?.addEventListener("abort", end, { once: true });
+});
 
 /* A job's events (GET /api/jobs/{id}/events). Server-sent events read through fetch, since the Mini App
    needs its Authorization header and EventSource cannot send one. Each event is the whole job; a

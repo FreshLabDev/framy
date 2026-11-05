@@ -113,9 +113,11 @@ export function frameEl(url, at) {
 /* Going up. */
 
 const MB = (n) => fmtNum(n / 1048576, { maximumFractionDigits: n < 10 * 1048576 ? 1 : 0 });
+// As api.js wait, but an abort rejects; the listener goes once the pause is over.
 const pause = (ms, sig) => new Promise((ok, no) => {
-  const tm = setTimeout(ok, ms);
-  sig?.addEventListener("abort", () => { clearTimeout(tm); no(new DOMException("stopped", "AbortError")); }, { once: true });
+  const stop = () => { clearTimeout(tm); no(new DOMException("stopped", "AbortError")); };
+  const tm = setTimeout(() => { sig?.removeEventListener("abort", stop); ok(); }, ms);
+  sig?.addEventListener("abort", stop, { once: true });
 });
 
 // One PUT of the clip to the bucket, with how far it has got.

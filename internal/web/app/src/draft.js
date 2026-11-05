@@ -7,7 +7,7 @@
 // file framy keeps goes by its id; one the browser has waits in IndexedDB for
 // the load, up to KEEP in all. What could not be kept is said, so nobody
 // presses Create on less than they put together.
-import { S, MAXFR, newFrame, autoModel, ownDefault } from "./state.js";
+import { S, MAXFR, newFrame, autoModel, ownDefault, holdLinks } from "./state.js";
 import { C } from "./catalog.js";
 
 const KEY = "framy.compose", MARK = "framy.held", DB = "framy-draft", STORE = "files";
@@ -109,6 +109,7 @@ export async function takeDraft() {
     f.id = "d" + ++n;
     S.files.push(f);
   }
+  holdLinks(S.files);
   // The part was of the first clip: with no clip there is no part.
   if (d.cut && S.files.some((f) => f.kind === "video")) S.cut = d.cut;
   sweep();

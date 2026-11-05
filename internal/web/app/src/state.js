@@ -358,6 +358,18 @@ export function misfit(m) {
 }
 export const famMisfit = (f) => (f.cur.every((v) => misfit(v.m)) ? misfit(f.def.m) : "");
 
+/* The blob: links the person's files show by. A file keeps its link while
+   the composer or the run on the stage holds it, since Edit the prompt and
+   Again bring a run's files back with their pictures. Once neither does,
+   nothing can show it again: the link goes, and the browser lets go of the
+   file, a clip of hundreds of MB among them. */
+const linked = new Set();
+export const holdLinks = (fs) => { for (const f of fs) if (f.file && f.url?.startsWith("blob:")) linked.add(f); };
+export function freeLinks() {
+  const held = new Set([...S.files, ...(S.run?.files || [])]);
+  for (const f of linked) if (!held.has(f)) { URL.revokeObjectURL(f.url); linked.delete(f); }
+}
+
 /* Uploads. framy keeps one an hour for a job to take it (storage.UploadTTL),
    and the composer holds one by its id for at most RENEW (upAt: when the
    oldest of the file's ids that no job took went up). Past that, or when

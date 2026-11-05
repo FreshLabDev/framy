@@ -583,12 +583,18 @@ func TestBrowserRuns(t *testing.T) {
 		t.Errorf("refusal free_limit: %v", s)
 	}
 
-	// Polling instead of the stream still brings the result, and says it polls.
+	// Polling instead of the stream still brings the result, and says it
+	// polls. Its pauses leave no listener behind on the job's signal.
 	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+`
-	let tagged = false;
-	const s = await press("poll", (s) => { tagged ||= /checked every 5/.test(s.line); return s.done; });
-	return { ...s, tagged };`)
-	if s["done"] != true || s["tagged"] != true {
+	const P = AbortSignal.prototype, add0 = P.addEventListener, rm0 = P.removeEventListener, live = new WeakMap();
+	let most = 0;
+	P.addEventListener = function (type, fn, o) { if (type === "abort") { const l = live.get(this) || new Set(); l.add(fn); live.set(this, l); most = Math.max(most, l.size); } return add0.call(this, type, fn, o); };
+	P.removeEventListener = function (type, fn, o) { if (type === "abort") live.get(this)?.delete(fn); return rm0.call(this, type, fn, o); };
+	let tagged = false, s;
+	try { s = await press("poll", (s) => { tagged ||= /checked every 5/.test(s.line); return s.done; }); }
+	finally { P.addEventListener = add0; P.removeEventListener = rm0; }
+	return { ...s, tagged, most };`)
+	if s["done"] != true || s["tagged"] != true || s["most"] != float64(1) {
 		t.Errorf("poll: %v", s)
 	}
 
@@ -1266,6 +1272,73 @@ func TestBrowserSignOutStopsRun(t *testing.T) {
 	return { sent: sent.length, go: document.querySelector("#go").textContent.trim() };`)
 	if s["sent"] != float64(0) || !strings.HasPrefix(s["go"].(string), "Sign in to create") || !stopped.Load() {
 		t.Errorf("signed out while sending: %v, upload stopped %v", s, stopped.Load())
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserPhotoLinks checks the links the person's photos show by: one
+// the run on the stage still holds keeps its picture for Edit the prompt,
+// and one nothing holds any more lets go of its file.
+func TestBrowserPhotoLinks(t *testing.T) {
+	runs := &fakeRuns{}
+	var mu sync.Mutex
+	next := 500
+	ts := fakeSite(t, func(srv *Server) {
+		runs.mount(srv)
+		srv.HandleFunc("POST /api/uploads", func(w http.ResponseWriter, _ *http.Request) {
+			mu.Lock()
+			id := next
+			next++
+			mu.Unlock()
+			writeTestJSON(w, http.StatusCreated, map[string]any{"id": id, "content_type": "image/png", "bytes": 100, "width": 64, "height": 36})
+		})
+	})
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const cv = document.createElement("canvas"); cv.width = 64; cv.height = 36;
+	const png = await new Promise((r) => cv.toBlob(r, "image/png"));
+	const inp = document.querySelector("#file");
+	const add = async (name) => { const dt = new DataTransfer(); dt.items.add(new File([png], name, { type: "image/png" })); inp.files = dt.files; inp.dispatchEvent(new Event("change", { bubbles: true })); await wait(800); };
+	const src = () => document.querySelector("#files .thumb img")?.getAttribute("src");
+	const shows = async (u) => { const im = new Image(); im.src = u; try { await im.decode(); return true; } catch { return false; } };
+	const out = {};
+	await add("a.png");
+	const a = src();
+	await press("done", (s) => s.done);
+	// Off the composer, the photo is still the run's.
+	document.querySelector("#files .thumb .rm").click();
+	await wait(400);
+	out.held = [document.querySelectorAll("#files .thumb").length, await shows(a)];
+	[...document.querySelectorAll("#stage button")].find((b) => b.textContent.trim() === "Back to the last result").click();
+	await wait(600);
+	[...document.querySelectorAll("#stage .jacts > button")].find((b) => b.textContent.trim() === "Edit the prompt").click();
+	await wait(800);
+	out.back = [src() === a, await shows(src())];
+	// Off the composer again, and the next run holds another photo: nothing shows the first one any more.
+	document.querySelector("#files .thumb .rm").click();
+	await wait(400);
+	await add("b.png");
+	const b = src();
+	await press("done", (s) => s.done);
+	out.gone = [await shows(a), await shows(b)];
+	// Continue puts the clip's last frame in place of what the composer held:
+	// a photo added after the run, which no run took, lets go of its file.
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(700);
+	await press("done:video", () => !!document.querySelector("#stage .jacts button[aria-label=Continue]"));
+	const srcs = () => [...document.querySelectorAll("#files .thumb img")].map((i) => i.getAttribute("src"));
+	const was = srcs();
+	await add("c.png");
+	const c = srcs().find((u) => !was.includes(u));
+	[...document.querySelectorAll("#stage button")].find((b) => b.textContent.trim() === "Back to the last result").click();
+	await wait(600);
+	document.querySelector("#stage .jacts button[aria-label=Continue]").click();
+	for (let i = 0; i < 40 && !document.querySelector("#files .thumb[data-k=flf72]"); i++) await wait(100);
+	out.dropped = [!!c, await shows(c)];
+	return out;`)
+	if fmt.Sprint(s["held"]) != "[0 true]" || fmt.Sprint(s["back"]) != "[true true]" || fmt.Sprint(s["gone"]) != "[false true]" ||
+		fmt.Sprint(s["dropped"]) != "[true false]" {
+		t.Errorf("photo links: %v", s)
 	}
 	noErrors(t, ctx)
 }

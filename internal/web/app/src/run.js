@@ -4,7 +4,7 @@
 import { $ } from "./dom.js";
 import { t } from "./i18n.js";
 import { api, watchJob, isFinal, outsOf } from "./api.js";
-import { S, M, payOf, settings, fastOf, going, clip, contFits, keyOk, runItem, plan, paidItems, newFrame, next, renewFiles, holdFiles } from "./state.js";
+import { S, M, payOf, settings, fastOf, going, clip, contFits, keyOk, runItem, plan, paidItems, newFrame, next, renewFiles, holdFiles, freeLinks } from "./state.js";
 import { C, offerOf, PNAME, framesOf, photoLimit } from "./catalog.js";
 import { priced, knownTotal, priceText, clearPrices } from "./price.js";
 import { act, render, renderBar } from "./composer.js";
@@ -53,6 +53,7 @@ export function forget() {
   // does not show the person signed in again (refreshMe).
   S.meV++;
   S.signed = false; S.me = null; S.run = null; S.busy = false;
+  freeLinks();
   clearPrices();
   window.dispatchEvent(new Event("framy:me"));
 }
@@ -131,6 +132,7 @@ async function start(base, key = newKey()) {
   stopWatch?.(); stopWatch = null;
   const run = { ...base, n: ++seq, key, phase: "prep", step: null, job: null, why: null, net: "", stop: new AbortController(), t0: Date.now() };
   S.run = run; S.showJob = true; S.busy = true;
+  freeLinks();
   renderBar(); runChanged();
   let resend = false;
   try {
@@ -335,6 +337,7 @@ function restore(run, pay = run.pay) {
   const keep = new Set(run.files);
   // A video's files are in their slots already, and the photos beside them would not be.
   S.files = run.hist || run.kind === "video" ? [...run.files] : [...run.files, ...S.files.filter((f) => !keep.has(f) && f.kind === "image")];
+  freeLinks();
   delete S.wanted.frame_images;
   S.cut = run.cut ? { ...run.cut } : null;
   S.cont = run.cont;
@@ -459,7 +462,7 @@ export async function continueFrom(run = S.run, res = outsOf(run.job)[0]) {
     const p = providerOf(j), own = j.results?.[0] || res;
     act(() => {
       S.kind = "video"; S.model.video = j.model; S.pay[j.model] = p;
-      S.files = []; S.cut = null;
+      S.files = []; S.cut = null; freeLinks();
       S.cont = { job: j.id, model: j.model, pay: p, secs: own.seconds || 0, url: own.url, w: own.width, h: own.height, result: res.id };
       $("#prompt").value = "";
       S.showJob = false;
@@ -486,6 +489,7 @@ export async function fromLastFrame(src = S.cont) {
     S.files = [{ id: "lf" + shot.id, kind: "image", slot: "start", server: true, name: "", upload: shot.id, upAt: Date.now(), w: shot.width, h: shot.height,
       frameOf: { url: src.url, at: Math.max(0, (src.secs || 0) - 0.05), result: src.result },
       meta: { content_type: shot.content_type, bytes: shot.bytes, width: shot.width, height: shot.height } }];
+    freeLinks();
     S.showJob = false;
     render();
   });
@@ -539,6 +543,6 @@ const leave = (run) => leaveHist(run);
 export async function removeJob(id) {
   try { await api(`/api/jobs/${id}`, { method: "DELETE" }); }
   catch (e) { if (e.status !== 404) throw e; }
-  if (jobsOf(S.run).some((j) => j.id === id)) { stopWatch?.(); stopWatch = null; S.run = null; S.showJob = false; runChanged(); renderBar(); }
+  if (jobsOf(S.run).some((j) => j.id === id)) { stopWatch?.(); stopWatch = null; S.run = null; S.showJob = false; freeLinks(); runChanged(); renderBar(); }
 }
 export { isFinal };
