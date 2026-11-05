@@ -546,6 +546,40 @@ func (q *Queue) Waiting(ctx context.Context) (map[string]float64, error) {
 	return out, rows.Err()
 }
 
+// Stalled counts this stack's queued jobs that could have started more than
+// wait ago and have not, and says since when the oldest could: the person
+// had a free slot, no older job of theirs was ahead of it, and no refusal
+// had it wait, all counted on the stack as claim counts them. A slot frees
+// when a run ends or a video goes out to the provider. Working queues take
+// such a job within a WaitSlot; past minutes, nothing is taking jobs, which
+// /healthz does not see.
+func (q *Queue) Stalled(ctx context.Context, wait time.Duration) (int, time.Time, error) {
+	var (
+		n     int
+		since *time.Time
+	)
+	err := q.pool.QueryRow(ctx, `
+		SELECT count(*), min(since) FROM (
+		  SELECT GREATEST(j.queued_at, j.retry_at,
+		           (SELECT max(o.finished_at) FROM job o WHERE o.user_id = j.user_id AND o.stack = j.stack),
+		           (SELECT max(o.submitted_at) FROM job o WHERE o.user_id = j.user_id AND o.stack = j.stack
+		              AND o.provider_job_id IS NOT NULL)) AS since
+		  FROM job j
+		  WHERE j.stack = $1 AND j.status = 'queued' AND (j.retry_at IS NULL OR j.retry_at <= now())
+		    AND (SELECT count(*) FROM job r WHERE r.user_id = j.user_id AND r.stack = j.stack
+		           AND r.status = 'running' AND r.provider_job_id IS NULL) < $2
+		    AND NOT EXISTS (
+		      SELECT 1 FROM job o WHERE o.user_id = j.user_id AND o.stack = j.stack AND o.status = 'queued' AND o.id < j.id
+		        AND (o.retry_at IS NULL OR o.retry_at <= now()))
+		) ready
+		WHERE since <= now() - make_interval(secs => $3)`,
+		q.cfg.Stack, q.cfg.MaxRunning, wait.Seconds()).Scan(&n, &since)
+	if err != nil || since == nil {
+		return n, time.Time{}, err
+	}
+	return n, *since, nil
+}
+
 // wake makes the person's next waiting job on stack look for a slot now
 // rather than at its next WaitSlot: the slot a job leaves is its stack's. A
 // job waiting out a refusal is left to sleep.

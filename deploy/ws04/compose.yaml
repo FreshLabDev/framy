@@ -11,13 +11,16 @@
 #
 # .env holds FRAMY_IMAGE, FRAMY_CORE_PASSWORD (the same as in core's .env),
 # R2_ACCOUNT_ID, TRUSTED_PROXIES, BOT_API_TOKEN (see the Bot API mount below)
-# and OPERATOR_CHAT_ID: the chat that hears a fuse closing the free tier and
-# the bucket passing another 10 GB, the operator's own id once they have
-# started the bot. Without it those are only in the log, and the start warns.
-# If wanted, R2_INCOMING_BUCKET, the bucket the site's clips go into
-# (docs/design.md, Storage and retention). The files in secrets/ belong to
-# uid 101, mode 0400: bot-token, kek (a line "1:" and 32 random bytes in
-# base64), r2-access-key-id, r2-secret-access-key,
+# and OPERATOR_CHAT_ID: the chat that hears a fuse closing the free tier, the
+# bucket passing another 10 GB, the host's disk past 80% and jobs nothing
+# takes; the operator's own id, once they have started the bot. Without it
+# those are only in the log, and the start warns. Docker does not restart an
+# unhealthy container, and a framy that is down tells nobody: that is for a
+# watch from outside on https://framy.ws04.cc/healthz (docs/design.md,
+# Security and operations). If wanted, R2_INCOMING_BUCKET, the bucket the
+# site's clips go into (docs/design.md, Storage and retention). The files in
+# secrets/ belong to uid 101, mode 0400: bot-token, kek (a line "1:" and 32
+# random bytes in base64), r2-access-key-id, r2-secret-access-key,
 # openrouter-key, hook-path-secret (head -c 32 /dev/urandom | base64),
 # openrouter-webhook-secret (the signing secret of the OpenRouter workspace
 # openrouter-key belongs to) and, for sign-in on the site,

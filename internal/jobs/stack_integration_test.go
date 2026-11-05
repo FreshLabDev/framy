@@ -141,3 +141,81 @@ func TestEachStackCountsOnlyItsOwnJobs(t *testing.T) {
 		}
 	}
 }
+
+// A job that could start and has not for minutes means nothing takes jobs.
+// A job that waits on purpose is not one: for a refusal's retry, for the
+// person's slot, or on another stack.
+func TestStalledFindsOnlyJobsNothingTakes(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	prod := stackQueue(t, pool, "", newFake())
+	test := stackQueue(t, pool, "test", newFake())
+	stalled := func(q *Queue) (int, time.Time) {
+		t.Helper()
+		n, since, err := q.Stalled(ctx, 10*time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n, since
+	}
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("%s: %v", sql, err)
+		}
+	}
+
+	a := enqueue(t, prod, job(alice, imageOffer))
+	b := enqueue(t, prod, job(bob, imageOffer))
+	theirs := enqueue(t, test, job(bob, imageOffer))
+	if n, _ := stalled(prod); n != 0 {
+		t.Fatalf("jobs just queued are stalled: %d", n)
+	}
+
+	exec(`UPDATE framy.job SET queued_at = now() - interval '20 minutes' WHERE id = ANY($1)`, []int64{a, b, theirs})
+	// Bob's job waits out a refusal for another minute.
+	exec(`UPDATE framy.job SET retry_at = now() + interval '1 minute' WHERE id = $1`, b)
+	// Each stack counts its own: production alice's, the test bot bob's
+	// there, which his job waiting on production does not hold back.
+	n, since := stalled(prod)
+	if n != 1 || time.Since(since) < 19*time.Minute || time.Since(since) > 21*time.Minute {
+		t.Errorf("production: %d stalled since %v, want alice's from 20 minutes ago", n, since)
+	}
+	if n, _ := stalled(test); n != 1 {
+		t.Errorf("the test bot: %d stalled, want its own one", n)
+	}
+
+	// Alice's slot was taken until a minute ago: her job could start only then.
+	busy := enqueue(t, prod, job(alice, imageOffer))
+	exec(`UPDATE framy.job SET status = 'cancelled', finished_at = now() - interval '1 minute' WHERE id = $1`, busy)
+	if n, _ := stalled(prod); n != 0 {
+		t.Errorf("a job whose slot freed a minute ago is stalled: %d", n)
+	}
+
+	// Two of hers running leave no slot at all.
+	exec(`UPDATE framy.job SET finished_at = now() - interval '30 minutes' WHERE id = $1`, busy)
+	if n, _ := stalled(prod); n != 1 {
+		t.Fatalf("after the slot freed half an hour ago: %d stalled", n)
+	}
+	var running []int64
+	for range 2 {
+		r := enqueue(t, prod, job(alice, imageOffer))
+		exec(`UPDATE framy.job SET status = 'running', started_at = now() WHERE id = $1`, r)
+		running = append(running, r)
+	}
+	if n, _ := stalled(prod); n != 0 {
+		t.Errorf("a job with no free slot is stalled: %d", n)
+	}
+
+	// A video out at the provider holds no slot, as claim counts them: one
+	// sent a minute ago freed it only then, one sent half an hour ago long
+	// since.
+	exec(`UPDATE framy.job SET provider_job_id = 'gen-1', submitted_at = now() - interval '1 minute' WHERE id = $1`, running[0])
+	if n, _ := stalled(prod); n != 0 {
+		t.Errorf("a job whose slot a video freed a minute ago is stalled: %d", n)
+	}
+	exec(`UPDATE framy.job SET submitted_at = now() - interval '30 minutes' WHERE id = $1`, running[0])
+	if n, _ := stalled(prod); n != 1 {
+		t.Errorf("a job whose slot a video freed half an hour ago: %d stalled, want 1", n)
+	}
+}

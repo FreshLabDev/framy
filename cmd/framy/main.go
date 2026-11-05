@@ -41,6 +41,7 @@ import (
 	"github.com/FreshLabDev/framy/internal/r2"
 	"github.com/FreshLabDev/framy/internal/safehttp"
 	"github.com/FreshLabDev/framy/internal/storage"
+	"github.com/FreshLabDev/framy/internal/watch"
 	"github.com/FreshLabDev/framy/internal/web"
 	"github.com/FreshLabDev/framy/migrations"
 )
@@ -393,6 +394,11 @@ func run(log *slog.Logger) error {
 		workers.Go(func() { sweepSessions(ctx, signIn, log) })
 		workers.Go(func() { forgetJobs(ctx, store, log) })
 	}
+	// What /healthz does not show: the disk filling up, and jobs that could
+	// start and nothing takes. Each stack watches its own queue; only
+	// production has an operator chat to tell.
+	watcher := watch.New(watch.Config{Queue: queue, Dir: cfg.WorkDir, Notify: operator, Log: log.With("component", "watch")})
+	workers.Go(func() { watcher.Run(ctx) })
 	if files != nil && cfg.Primary() {
 		workers.Go(func() { fillThumbs(ctx, files, log) })
 		workers.Go(func() { catchUpBucket(ctx, files) })
@@ -751,7 +757,8 @@ func openAllowance(cfg config.Config, store *db.Store, notify func(context.Conte
 
 // operatorNotify is how framy tells its operator what needs a person: the
 // free tier closed by a fuse, the bucket past another 10 GB, room everyone
-// shares full for the day. Only production tells, since those steps are shared and kept in the database
+// shares full for the day, the watch's findings (internal/watch). Only
+// production tells, since those steps are shared and kept in the database
 // (docs/design.md, Stacks); another stack gets nil and leaves them alone.
 // Production without OPERATOR_CHAT_ID still takes each step, so it is
 // logged once, at Warn, by the part that took it, and the start says where
@@ -761,7 +768,7 @@ func operatorNotify(cfg config.Config, send func(ctx context.Context, chat int64
 		return nil
 	}
 	if cfg.OperatorChatID == 0 {
-		log.Warn("no OPERATOR_CHAT_ID: the notices for the operator (the free tier closing, the bucket's size, shared room full) are only in this log")
+		log.Warn("no OPERATOR_CHAT_ID: the notices for the operator (the free tier closing, the bucket's size, shared room full, the disk, jobs nothing takes) are only in this log")
 		return func(context.Context, string) error { return nil }
 	}
 	return func(ctx context.Context, text string) error {

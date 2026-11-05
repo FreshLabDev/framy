@@ -69,7 +69,8 @@ type Config struct {
 	// FFmpeg and FFprobe are the binaries that normalize photos.
 	FFmpeg, FFprobe string
 	// OperatorChatID hears what needs the operator: the free tier closed by
-	// a fuse, the bucket's size. Zero leaves the notices in the log.
+	// a fuse, the bucket's size, the disk and the queue (internal/watch).
+	// Zero leaves the notices in the log.
 	OperatorChatID int64
 	// Web is the public HTTP server's trust in its proxy (web.go).
 	Web Web
