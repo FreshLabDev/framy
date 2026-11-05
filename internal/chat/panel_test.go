@@ -173,7 +173,7 @@ func TestModelOpensAPanelOnlyTheRequesterSees(t *testing.T) {
 	// OpenAI's needs a key, so it folds into the last row.
 	got := labels(p.markup)
 	want := [][]string{{"FLUX 3 Image Klein · free"}, {"✓ MAI-Image-2.6 Flash · free"}, {"Nano Banana Pro"},
-		{"🔑 " + i18n.T("en", "panel.more_key", "n", "1")}, {i18n.T("en", "btn.back")}}
+		{i18n.T("en", "panel.more_key", "n", "1")}, {i18n.T("en", "btn.back")}}
 	if len(got) != len(want) {
 		t.Fatalf("list = %v", got)
 	}
@@ -732,7 +732,7 @@ func TestInADirectChatTheListIsOnThePreview(t *testing.T) {
 	}
 	// From words alone Recraft, which takes no photo, is listed too, but
 	// not its vector variant: Telegram shows an SVG as a file.
-	if got := labels(edits[0].markup); len(got) != 6 || got[3][0] != "Recraft V4.1" || got[4][0] != "🔑 "+i18n.T("en", "panel.more_key", "n", "1") {
+	if got := labels(edits[0].markup); len(got) != 6 || got[3][0] != "Recraft V4.1" || got[4][0] != i18n.T("en", "panel.more_key", "n", "1") {
 		t.Fatalf("list = %v", got)
 	}
 	h.tg.reset()

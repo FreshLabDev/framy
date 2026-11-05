@@ -311,7 +311,7 @@ func previewKeyboard(lang string, jobID int64, d draft) *tg.InlineKeyboardMarkup
 	switch {
 	case d.clip:
 		if c, ok := d.otherLength(); ok {
-			more = append(more, button(c.label(lang, d), callback(jobID, c.action), ""))
+			more = append(more, button(c.label(lang), callback(jobID, c.action), ""))
 		}
 	case d.video():
 		more = append(more, button(t(lang, "run.as_image"), callback(jobID, actImage), ""))

@@ -585,7 +585,7 @@ func richKeyboard(lang string, jobID int64, d draft) *tg.InlineKeyboardMarkup {
 		if !ok {
 			return &tg.InlineKeyboardMarkup{InlineKeyboard: rows}
 		}
-		more = button(c.label(lang, d), callback(jobID, c.action), "")
+		more = button(c.label(lang), callback(jobID, c.action), "")
 	case d.video():
 		more = button(t(lang, "run.as_image"), callback(jobID, actImage), "")
 	case d.taken <= free.VideoHeyGen.MaxInputs:

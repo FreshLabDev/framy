@@ -148,7 +148,7 @@ func TestTheKeyLengthWithoutAKeyAsksForOne(t *testing.T) {
 		t.Fatal(err)
 	}
 	text, data := cardButtons(t, h)
-	if text != "🔑 "+i18n.T("en", "edit.key_first", "n", "15") || data != callback(1, actKeyClip) {
+	if text != i18n.T("en", "edit.key_first", "n", "15") || data != callback(1, actKeyClip) {
 		t.Fatalf("button = %q %q", text, data)
 	}
 	h.tg.reset()

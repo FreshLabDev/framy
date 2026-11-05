@@ -65,22 +65,17 @@ func (d draft) otherLength() (clipChoice, bool) {
 	return clipChoice{}, false
 }
 
-// label is the choice's button. One on a key the person does not have is
-// marked 🔑, as such a model is in the list, and its press says where to
-// connect one.
-func (c clipChoice) label(lang string, d draft) string {
+// label is the choice's button. Its words say it runs on the person's key;
+// without one, its press says where to connect one.
+func (c clipChoice) label(lang string) string {
 	n := wholeSeconds(c.seconds)
-	if c.action == actFreeClip {
+	switch {
+	case c.action == actFreeClip:
 		return t(lang, "edit.free_first", "n", n)
+	case c.whole:
+		return t(lang, "edit.key_whole", "n", n)
 	}
-	text := t(lang, "edit.key_first", "n", n)
-	if c.whole {
-		text = t(lang, "edit.key_whole", "n", n)
-	}
-	if !d.hasKey {
-		text = "🔑 " + text
-	}
-	return text
+	return t(lang, "edit.key_first", "n", n)
 }
 
 // cut is the part of the clip the choice keeps: nil for the whole clip.

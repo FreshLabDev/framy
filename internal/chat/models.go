@@ -153,11 +153,8 @@ func (f *Flow) modelKeyboard(ctx context.Context, run db.ChatRun, s state, v vie
 		if p := famPrice(lang, fm, s.quote); p != "" {
 			text += " · " + p
 		}
-		switch {
-		case fm.has(s.model.ID):
+		if fm.has(s.model.ID) {
 			text = "✓ " + text
-		case !fm.runnable():
-			text = "🔑 " + text
 		}
 		data := callback(run.JobID, actFamily+famHash(fm.id))
 		if len(fm.list) == 1 {
@@ -175,14 +172,17 @@ func (f *Flow) modelKeyboard(ctx context.Context, run db.ChatRun, s state, v vie
 		}
 		for _, c := range fams[i].list {
 			text := variantLabel(c.model)
-			if p := choicePrice(lang, c, s.quote); p != "" {
-				text += " · " + p
+			label := choicePrice(lang, c, s.quote)
+			if !c.runnable() {
+				// A variant on a key the person has not connected says
+				// which, as the rich preview's list does.
+				label = t(lang, "run.need_key", "provider", providerName(c.offer.Provider))
 			}
-			switch {
-			case c.model.ID == s.model.ID:
+			if label != "" {
+				text += " · " + label
+			}
+			if c.model.ID == s.model.ID {
 				text = "✓ " + text
-			case !c.runnable():
-				text = "🔑 " + text
 			}
 			rows = append(rows, row(button(text, callback(run.JobID, actPickModel+modelHash(c.model.ID)), "")))
 		}
@@ -207,7 +207,7 @@ func (f *Flow) modelKeyboard(ctx context.Context, run db.ChatRun, s state, v vie
 		rows = append(rows, famRow(fm))
 	}
 	if locked > 0 {
-		rows = append(rows, row(button("🔑 "+t(lang, "panel.more_key", "n", strconv.Itoa(locked)), callback(run.JobID, actLocked), "")))
+		rows = append(rows, row(button(t(lang, "panel.more_key", "n", strconv.Itoa(locked)), callback(run.JobID, actLocked), "")))
 	}
 	return &tg.InlineKeyboardMarkup{InlineKeyboard: append(rows, row(button(t(lang, "btn.back"), callback(run.JobID, actBack), "")))}, nil
 }

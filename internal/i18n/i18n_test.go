@@ -262,7 +262,22 @@ func TestNoEmDashInTranslations(t *testing.T) {
 	}
 }
 
-func TestNoEmDashInGoStrings(t *testing.T) {
+// panelMark is a symbol a string in Go code may carry although isEmoji
+// counts it: the marks of a chosen option (core/docs/panels.md, R7) and the
+// flags of the language picker's labels.
+func panelMark(r rune) bool {
+	return r >= 0x1F1E6 && r <= 0x1F1FF || strings.ContainsRune("✓◉◎■□", r)
+}
+
+func TestPanelMarksAreTheOnlyEmojiLeft(t *testing.T) {
+	for r, want := range map[rune]bool{'🔑': false, '✅': false, '⭐': false, '⏳': false, '⚠': false, '✨': false, '✓': true, '◉': true, '■': true, '🇬': true} {
+		if got := !isEmoji(r) || panelMark(r); got != want {
+			t.Errorf("%q allowed in Go strings = %v", r, got)
+		}
+	}
+}
+
+func TestNoEmDashOrEmojiInGoStrings(t *testing.T) {
 	for _, dir := range []string{"../../internal", "../../cmd"} {
 		err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
@@ -281,8 +296,18 @@ func TestNoEmDashInGoStrings(t *testing.T) {
 				if tok == token.EOF {
 					break
 				}
-				if (tok == token.STRING || tok == token.CHAR) && strings.Contains(lit, emDash) {
+				if tok != token.STRING && tok != token.CHAR {
+					continue
+				}
+				if strings.Contains(lit, emDash) {
 					t.Errorf("%s: a string has an em dash: %s", fset.Position(pos), lit)
+				}
+				// R9: no emoji on a button or in a panel. The flags of the
+				// language picker (regional indicators) are its content.
+				for _, r := range lit {
+					if isEmoji(r) && !panelMark(r) {
+						t.Errorf("%s: a string has an emoji %q: %s", fset.Position(pos), r, lit)
+					}
 				}
 			}
 			return nil
