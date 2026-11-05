@@ -220,21 +220,21 @@ function amountOf(s) {
 // The price is an odometer: only the characters that change roll, right to left, up when it grows.
 // A figure reads left to right in every language, so the amount is a box of its own that keeps that
 // order inside a right-to-left line, and the words beside it are whole, so Arabic letters join and
-// the line places them as it places any text.
+// the line places them as it places any text. The odometer is for the eye: a screen reader is
+// given the price as plain text beside it.
 export function roll(el, text, dir) {
   const old = el.dataset.t || "";
   el.dataset.t = text;
-  el.setAttribute("aria-label", text);
   const [pre, amt, post] = amountOf(text);
-  const word = (s) => s && h("span", { class: "w", "aria-hidden": "true" }, s);
-  const box = amt && h("span", { class: "amt", "aria-hidden": "true" }, [...amt].map((c) => h("span", { class: "ch" }, h("span", {}, c))));
+  const word = (s) => s && h("span", { class: "w" }, s);
+  const box = amt && h("span", { class: "amt" }, [...amt].map((c) => h("span", { class: "ch" }, h("span", {}, c))));
   el.replaceChildren(...[word(pre), box, word(post)].filter(Boolean));
   if (!motion() || !old || old === text) return;
   dir = dir || 1;
   const [opre, oamt, opost] = amountOf(old), shape = (s) => s.replace(/\d/g, "");
   if (!amt || !oamt || opre !== pre || opost !== post || shape(oamt) !== shape(amt)) {
     // "Free" and "≈ $0.04" have nothing in common: the old line leaves whole, the new one comes in whole.
-    const g = h("span", { class: "whole", "aria-hidden": "true" }, old);
+    const g = h("span", { class: "whole" }, old);
     el.append(g);
     g.animate([{ transform: "none", opacity: 1 }, { transform: `translateY(${-dir * 60}%)`, opacity: 0 }],
       { duration: 150, easing: "cubic-bezier(.4,0,1,1)", fill: "forwards" }).finished.then(() => g.remove(), () => g.remove());
@@ -249,7 +249,7 @@ export function roll(el, text, dir) {
     const d = 28 * k++, col = cols[i];
     col.firstChild.animate([{ transform: `translateY(${dir * 95}%)`, opacity: 0 }, { transform: "none", opacity: 1 }], { duration: 380, easing: SNAP, delay: d, fill: "backwards" });
     if (oc && oc.trim()) {
-      const g = h("span", { class: "o", "aria-hidden": "true" }, oc);
+      const g = h("span", { class: "o" }, oc);
       col.append(g);
       g.animate([{ transform: "none", opacity: 1 }, { transform: `translateY(${-dir * 95}%)`, opacity: 0 }], { duration: 240, easing: OUT, delay: d, fill: "forwards" })
         .finished.then(() => g.remove(), () => g.remove());

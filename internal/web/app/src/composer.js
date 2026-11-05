@@ -54,7 +54,11 @@ export function mountComposer() {
     h("input", { type: "file", id: "slotfile", hidden: true }),
     h("div", { class: "how", id: "how" }),
     h("div", { class: "bar", id: "bar" },
-      h("div", { class: "price", "aria-live": "polite" }, h("b", { class: "pnum", id: "pnum" }), h("span", { id: "pcap" })),
+      // The figure rolls for the eye; a screen reader reads the same price as plain text, and the
+      // live region tells it when the price changes.
+      h("div", { class: "price", "aria-live": "polite" },
+        h("b", { class: "pnum", id: "pnum" }, h("span", { class: "odo", id: "podo", "aria-hidden": "true" }), h("span", { class: "sr", id: "psr" })),
+        h("span", { id: "pcap" })),
       h("button", { type: "button", class: "go", id: "go" })));
 }
 
@@ -619,7 +623,11 @@ export function renderBar() {
   const el = $("#pnum");
   el.classList.toggle("usd", !free && !unknown);
   if (!free && !unknown && e.currency && e.currency !== "USD") el.title = usd(e.kind === "up_to" ? e.max_usd : e.usd); else el.removeAttribute("title");
-  if (el.dataset.t !== text) roll(el, text, lastVal == null ? 1 : val >= lastVal ? 1 : -1);
+  const odo = $("#podo");
+  if (odo.dataset.t !== text) roll(odo, text, lastVal == null ? 1 : val >= lastVal ? 1 : -1);
+  // A price on its way is no price: a screen reader hears the next one, not "…" or the last model's.
+  const said = ready ? text : "", sr = $("#psr");
+  if (sr.textContent !== said) sr.textContent = said;
   lastVal = val;
   const cap = $("#pcap"), was = cap.textContent;
   let parts;
