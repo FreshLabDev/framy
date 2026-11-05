@@ -1008,7 +1008,7 @@
     "ar": "لا يستطيع framy الرد هنا الآن. أرسل الشيء نفسه إلى framy في محادثة خاصة."
   },
   "guest.video": {
-    "en": "Here framy works with pictures. To change a video, send it to framy in a direct chat.",
+    "en": "Here framy makes and changes images. To change a video, send it to framy in a direct chat.",
     "ru": "Здесь framy работает с картинками. Чтобы изменить видео, отправь его framy в личный чат.",
     "uk": "Тут framy працює із зображеннями. Щоб змінити відео, надішли його framy в особистий чат.",
     "es": "Aquí framy trabaja con imágenes. Para cambiar un vídeo, envíaselo a framy por chat privado.",
@@ -3168,7 +3168,7 @@
     "ar": "تتجاوز هذه الصورة {n} ميغابكسل. صغّرها وأرسلها مرة أخرى."
   },
   "run.unsupported": {
-    "en": "framy cannot read this file as a picture.",
+    "en": "framy cannot read this file as a photo.",
     "ru": "framy не может прочитать этот файл как картинку.",
     "uk": "framy не може прочитати цей файл як зображення.",
     "es": "framy no puede leer este archivo como una imagen.",
@@ -3204,7 +3204,7 @@
     "ar": "حتى {price}"
   },
   "run.video_edit": {
-    "en": "<code>/img</code> makes pictures. To change a video, answer it with <code>/edit</code>.",
+    "en": "<code>/img</code> makes images. To change a video, answer it with <code>/edit</code>.",
     "ru": "<code>/img</code> делает картинки. Чтобы изменить видео, ответь на него командой <code>/edit</code>.",
     "uk": "<code>/img</code> створює зображення. Щоб змінити відео, дай на нього відповідь командою <code>/edit</code>.",
     "es": "<code>/img</code> crea imágenes. Para cambiar un vídeo, respóndele con <code>/edit</code>.",
@@ -3294,7 +3294,7 @@
     "ar": "نسبة الأبعاد"
   },
   "set.n": {
-    "en": "Pictures",
+    "en": "Images",
     "ru": "Картинок",
     "uk": "Зображень",
     "es": "Imágenes",
@@ -6048,7 +6048,7 @@
     "ar": "تم رفض الصوت"
   },
   "web.fail.storage": {
-    "en": "The picture came out, but framy could not save it.",
+    "en": "The image came out, but framy could not save it.",
     "ru": "Картинка получилась, но framy не смог её сохранить.",
     "uk": "Зображення вийшло, але framy не зміг його зберегти.",
     "es": "La imagen salió bien, pero framy no pudo guardarla.",
@@ -9684,7 +9684,7 @@
     "ar": "تغيير"
   },
   "web.prefs.def_image": {
-    "en": "Pictures",
+    "en": "Images",
     "ru": "Картинки",
     "uk": "Зображення",
     "es": "Imágenes",
@@ -9702,7 +9702,7 @@
     "ar": "الصور"
   },
   "web.prefs.def_pick_image": {
-    "en": "Default model for pictures",
+    "en": "Default model for images",
     "ru": "Модель по умолчанию для картинок",
     "uk": "Модель за замовчуванням для зображень",
     "es": "Modelo predeterminado para imágenes",
@@ -9882,7 +9882,7 @@
     "ar": "التشغيلات والملفات والمفاتيح، على الموقع وفي Telegram"
   },
   "web.prefs.delete_text": {
-    "en": "Every run with its prompt, every picture, clip and uploaded file, and your keys go, on the site and in Telegram. What the bot already sent to chats stays there, and the free runs already used do not come back. This cannot be undone.",
+    "en": "Every run with its prompt, every image, video and uploaded file, and your keys go, on the site and in Telegram. What the bot already sent to chats stays there, and the free runs already used do not come back. This cannot be undone.",
     "ru": "Пропадут все запуски с запросами, картинки, ролики, загруженные файлы и ключи, на сайте и в Telegram. Что бот уже отправил в чаты, там и останется, а потраченные бесплатные попытки не вернутся. Отменить удаление нельзя.",
     "uk": "Зникнуть усі запуски з запитами, зображення, кліпи, завантажені файли та твої ключі, на сайті й у Telegram. Те, що бот уже надіслав у чати, там і залишиться, а використані безкоштовні запуски не повернуться. Скасувати видалення не вдасться.",
     "es": "Se borrarán todas las ejecuciones con sus prompts, todas las imágenes, clips y archivos subidos, y tus claves, en el sitio y en Telegram. Lo que el bot ya envió a los chats se queda allí, y las ejecuciones gratis ya usadas no vuelven. No se puede deshacer.",
@@ -10026,7 +10026,7 @@
     "ar": "مجاني"
   },
   "web.prefs.free_images": {
-    "en": "Pictures",
+    "en": "Images",
     "ru": "Картинки",
     "uk": "Зображення",
     "es": "Imágenes",
@@ -10368,7 +10368,7 @@
     "ar": "الملفات المخزّنة: {n}"
   },
   "web.prefs.stored_sub": {
-    "en": "{size} · pictures, clips and uploads",
+    "en": "{size} · images, videos and uploads",
     "ru": "{size} · картинки, ролики и загрузки",
     "uk": "{size} · зображення, кліпи й завантажені файли",
     "es": "{size} · imágenes, clips y archivos subidos",
@@ -10638,7 +10638,7 @@
     "ar": "ماذا يحدث بعد ذلك"
   },
   "web.prompt.image": {
-    "en": "Describe the picture",
+    "en": "Describe the image",
     "ru": "Опиши картинку",
     "uk": "Опиши зображення",
     "es": "Describe la imagen",
@@ -10908,7 +10908,7 @@
     "ar": "انتهت المجانية"
   },
   "web.ref.free_taken": {
-    "en": "The free pictures are used up. The next free one: {at}.",
+    "en": "The free images are used up. The next free one: {at}.",
     "ru": "Бесплатные картинки закончились. Следующая бесплатная: {at}.",
     "uk": "Безкоштовні зображення закінчилися. Наступне безкоштовне: {at}.",
     "es": "Las imágenes gratis se han acabado. La próxima gratis: {at}.",

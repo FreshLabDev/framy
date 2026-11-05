@@ -275,6 +275,17 @@ func TestNoStraightQuotesInTranslations(t *testing.T) {
 	}
 }
 
+// What framy makes is an image in English, as the kind, the library and the
+// bot call it, and what a person sends is a photo. "Picture" was a third word
+// for the same thing, two rows apart in the settings.
+func TestEnglishSaysImageNotPicture(t *testing.T) {
+	for _, key := range Keys() {
+		if s := translations[key]["en"]; strings.Contains(strings.ToLower(s), "picture") {
+			t.Errorf("%s says picture: %q", key, s)
+		}
+	}
+}
+
 // panelMark is a symbol a string in Go code may carry although isEmoji
 // counts it: the marks of a chosen option (core/docs/panels.md, R7) and the
 // flags of the language picker's labels.

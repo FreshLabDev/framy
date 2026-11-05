@@ -317,7 +317,7 @@ func TestBrowserPrefs(t *testing.T) {
 	if fmt.Sprint(s["or"]) != "map[bad:false btns:[Connect] sub:Sign in through OpenRouter. Have a key? Paste it]" ||
 		fmt.Sprint(s["oa"]) != "map[bad:false btns:[Key] sub:Paste a key and framy checks it]" ||
 		fmt.Sprint(s["groups"]) != "[Model keys Free Default models Telegram Currency Language Account]" ||
-		s["out"] != true || s["store"] != "Files stored: 1230 MB · pictures, clips and uploads" || !strings.HasPrefix(s["free"].(string), "Pictures0 of 5 left in any 24 hours · next one in 3 hours") {
+		s["out"] != true || s["store"] != "Files stored: 1230 MB · images, videos and uploads" || !strings.HasPrefix(s["free"].(string), "Images0 of 5 left in any 24 hours · next one in 3 hours") {
 		t.Errorf("settings: %v", s)
 	}
 
@@ -745,7 +745,7 @@ func TestBrowserPrefsDefaults(t *testing.T) {
 	return { oa: rowText("openai").sub, ge: rowText("gemini").sub, image: defRow("image"), video: defRow("video"), composer: name(),
 	  tg: note("p-tg"), on: tog.getAttribute("aria-checked"), lang: sheet().querySelector("select.pick").value };`)
 	if s["oa"] != "Key …ab12 · worksThrough framy: $0.42 in all, $0.10 in 30 days" || s["ge"] != "Key …cd34 · accepted" ||
-		fmt.Sprint(s["image"]) != "map[btns:[Change] sub:MAI-Image 2.6 Flash, framy’s choice title:Pictures]" ||
+		fmt.Sprint(s["image"]) != "map[btns:[Change] sub:MAI-Image 2.6 Flash, framy’s choice title:Images]" ||
 		fmt.Sprint(s["video"]) != "map[btns:[Change] sub:HeyGen Video, framy’s choice title:Videos]" || s["composer"] != "MAI-Image 2.6 Flash" ||
 		s["tg"] != "Send results to the chatWhat you make on the site also comes to your chat with framy" || s["on"] != "true" || s["lang"] != "" {
 		t.Errorf("rows: %v", s)
@@ -789,7 +789,7 @@ func TestBrowserPrefsDefaults(t *testing.T) {
 		}
 	})
 	image, _ := s["image"].(map[string]any)
-	if s["title"] != "Default model for pictures" || s["under"] != false || s["picker"] != true || s["inline"] != true || s["svgs"] != float64(0) ||
+	if s["title"] != "Default model for images" || s["under"] != false || s["picker"] != true || s["inline"] != true || s["svgs"] != float64(0) ||
 		fmt.Sprint(s["letters"]) != "[]" ||
 		fmt.Sprint(image["btns"]) != "[Reset Change]" || !strings.HasPrefix(fmt.Sprint(image["sub"]), fmt.Sprint(s["fam"])) ||
 		strings.Contains(fmt.Sprint(image["sub"]), "framy’s choice") || s["composer"] != image["sub"] {

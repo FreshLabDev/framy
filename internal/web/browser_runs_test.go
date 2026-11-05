@@ -630,7 +630,7 @@ func TestBrowserRuns(t *testing.T) {
 	// The free limit names the day and the time the next free run comes, in
 	// the browser's time zone, not how long until it.
 	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+`return await press("refuse:free_limit", (s) => s.failed);`)
-	if !regexp.MustCompile(`^The free pictures are used up\. The next free one: [A-Z][a-z]+ \d{1,2}\D+\d{1,2}:\d\d`).MatchString(fmt.Sprint(s["why"])) {
+	if !regexp.MustCompile(`^The free images are used up\. The next free one: [A-Z][a-z]+ \d{1,2}\D+\d{1,2}:\d\d`).MatchString(fmt.Sprint(s["why"])) {
 		t.Errorf("refusal free_limit: %v", s)
 	}
 
