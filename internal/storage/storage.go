@@ -346,8 +346,7 @@ func (s *Store) keep(ctx context.Context, j jobs.Job, i int, r jobs.Result) erro
 			return err
 		}
 		a.Key = resultKey(s.cfg.Prefix, j, i, a.ContentType)
-		info, _ := media.Inspect(bytes.NewReader(r.Data), int64(len(r.Data)))
-		a.Width, a.Height = info.Width, info.Height
+		a.Width, a.Height = measure(a.ContentType, bytes.NewReader(r.Data), int64(len(r.Data)))
 		if strings.HasPrefix(a.ContentType, "video/") {
 			if err := s.probeData(ctx, &a, r.Data); err != nil {
 				return err
@@ -379,8 +378,7 @@ func (s *Store) keep(ctx context.Context, j jobs.Job, i int, r jobs.Result) erro
 		a.Key = resultKey(s.cfg.Prefix, j, i, a.ContentType)
 		if f, err := os.Open(path); err == nil {
 			if st, err := f.Stat(); err == nil {
-				info, _ := media.Inspect(f, st.Size())
-				a.Width, a.Height = info.Width, info.Height
+				a.Width, a.Height = measure(a.ContentType, f, st.Size())
 			}
 			f.Close()
 		}
@@ -424,9 +422,10 @@ func (s *Store) thumbs(ctx context.Context) bool {
 
 // keepThumb makes the thumbnail of the result a as it is kept. A failure
 // never holds the result back: it is kept without one, and FillThumbs tries
-// again.
+// again. An SVG gets none: ffmpeg does not draw one, and the file itself is
+// small and sharp at any size, so the site shows it as it is.
 func (s *Store) keepThumb(ctx context.Context, a Asset, fill func(dst string) error) *Thumb {
-	if !s.thumbs(ctx) {
+	if a.ContentType == svgType || !s.thumbs(ctx) {
 		return nil
 	}
 	t, err := s.makeThumb(ctx, a, fill)
@@ -508,7 +507,7 @@ func (s *Store) fillThumb(ctx context.Context) (found, made bool, err error) {
 		UPDATE asset SET thumb_tries = thumb_tries + 1
 		WHERE id = (
 			SELECT id FROM asset
-			WHERE kind IN ('result', 'joined') AND thumb_key IS NULL AND thumb_tries < $1
+			WHERE kind IN ('result', 'joined') AND thumb_key IS NULL AND thumb_tries < $1 AND content_type <> 'image/svg+xml'
 			ORDER BY thumb_tries, id DESC
 			LIMIT 1
 			FOR UPDATE SKIP LOCKED)
@@ -1081,6 +1080,10 @@ func resultType(declared string, head []byte) string {
 	if f := media.Sniff(head); f != "" {
 		return "image/" + string(f)
 	}
+	// Go's own sniffing calls an SVG text.
+	if _, _, ok := media.SVGSize(bytes.NewReader(head)); ok {
+		return svgType
+	}
 	// An ISO BMFF that is not a still image is a video; Go's own sniffing
 	// knows only the mp4 brands.
 	if len(head) >= 12 && string(head[4:8]) == "ftyp" {
@@ -1098,8 +1101,28 @@ func resultKey(prefix string, j jobs.Job, i int, contentType string) string {
 
 var exts = map[string]string{
 	"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/avif": ".avif", "image/heif": ".heic",
-	"image/gif": ".gif", "video/mp4": ".mp4", "video/webm": ".webm", "video/quicktime": ".mov",
+	"image/gif": ".gif", svgType: ".svg", "video/mp4": ".mp4", "video/webm": ".webm", "video/quicktime": ".mov",
 	"audio/mpeg": ".mp3", "audio/wav": ".wav",
+}
+
+// svgType is a vector picture: Recraft's vector models draw one.
+const svgType = "image/svg+xml"
+
+// Raster tells a picture made of pixels: any image but an SVG, which
+// Telegram shows only as a file and no video model takes as a frame.
+func Raster(contentType string) bool {
+	return strings.HasPrefix(contentType, "image/") && contentType != svgType
+}
+
+// measure reads the size of the picture of size bytes in r: from its
+// header, or from the root of an SVG. Zero when it tells none.
+func measure(contentType string, r io.ReaderAt, size int64) (width, height int) {
+	if contentType == svgType {
+		width, height, _ = media.SVGSize(io.NewSectionReader(r, 0, size))
+		return width, height
+	}
+	info, _ := media.Inspect(r, size)
+	return info.Width, info.Height
 }
 
 // Ext is the file extension of a content type framy keeps, with its dot:

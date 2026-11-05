@@ -470,7 +470,7 @@ addEventListener("input", (e) => {
 // attachment, which a browser saves where it is and Telegram's downloadFile
 // takes; res.url only shows the file, and a browser ignores the download
 // attribute on another site's link, so without the first it opens in a tab.
-const EXT = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/avif": "avif", "image/gif": "gif", "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov" };
+const EXT = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/avif": "avif", "image/gif": "gif", "image/svg+xml": "svg", "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov" };
 export function download(j, res, i = 0, o = {}) {
   // The name the server gives the download, for Telegram, which asks for one.
   const name = `framy-${j.id}-${res === j.joined ? "joined" : i + 1}.${EXT[res.content_type] || (res.content_type || "").split("/")[1] || "bin"}`;

@@ -495,6 +495,28 @@ func TestAHugeResultIsADocument(t *testing.T) {
 	}
 }
 
+// An SVG goes as a file Telegram keeps the name of, with Again and no
+// Animate: no video model takes one as a frame.
+func TestAnSVGIsADocumentWithItsName(t *testing.T) {
+	h := newHarness(t)
+	withHeyGen(h)
+	id := h.generating(t)
+	h.store.setStatus(id, jobs.Done, "")
+	h.files.results[id] = []storage.Asset{{ID: 50, ContentType: "image/svg+xml", Bytes: 40 << 10, Width: 1024, Height: 1024}}
+	h.now = h.now.Add(40 * time.Second)
+	h.flow.step(context.Background(), id)
+	if p := h.tg.methods("sendPhoto"); len(p) != 0 {
+		t.Fatalf("photos = %+v", p)
+	}
+	d := h.tg.methods("sendDocument")
+	if len(d) != 1 || d[0].file != "upload:framy.svg" || !reflect.DeepEqual(buttons(d[0].markup), [][]string{{callback(id, actAgain)}}) {
+		t.Fatalf("documents = %+v", d)
+	}
+	if err := h.onResult(id, 7, actAnimate, "cq-1"); err != nil || len(h.store.jobs) != 1 {
+		t.Fatalf("Animate on an SVG: %v, %d jobs", err, len(h.store.jobs))
+	}
+}
+
 func TestAFailedRunShowsTheCard(t *testing.T) {
 	retry, other := []string{actRetry}, []string{actOther}
 	for _, tc := range []struct {

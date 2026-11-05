@@ -423,23 +423,19 @@ func (f *Flow) withResult(ctx context.Context, a storage.Asset, send func(tg.Inp
 	return send(tg.InputFileUpload{Filename: "framy" + extOf(a.ContentType), Data: body})
 }
 
+// extOf is the extension a file sent to Telegram is named with, which a
+// document keeps when it is saved: none for a type framy does not name.
 func extOf(contentType string) string {
-	switch contentType {
-	case "image/png":
-		return ".png"
-	case "image/jpeg":
-		return ".jpg"
-	case "image/webp":
-		return ".webp"
-	case "video/mp4":
-		return ".mp4"
+	if e := storage.Ext(contentType); e != ".bin" {
+		return e
 	}
 	return ""
 }
 
-// photoFits tells whether Telegram takes the file as a photo.
+// photoFits tells whether Telegram takes the file as a photo. An SVG it
+// does not: it goes as a document.
 func photoFits(a storage.Asset) bool {
-	if !strings.HasPrefix(a.ContentType, "image/") || a.Bytes > maxPhotoBytes {
+	if !storage.Raster(a.ContentType) || a.Bytes > maxPhotoBytes {
 		return false
 	}
 	if a.Width <= 0 || a.Height <= 0 {

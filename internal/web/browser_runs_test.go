@@ -127,6 +127,10 @@ func (f *fakeRuns) mount(srv *Server) {
 		w.Header().Set("Content-Type", "image/png")
 		_, _ = w.Write(b.Bytes())
 	})
+	srv.HandleFunc("GET /test/result.svg", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/svg+xml")
+		_, _ = io.WriteString(w, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1365 1024"><rect width="1365" height="1024" fill="#00606E"/></svg>`)
+	})
 }
 
 func writeTestJSON(w http.ResponseWriter, status int, v any) {
@@ -219,6 +223,11 @@ func (f *fakeRuns) create(w http.ResponseWriter, r *http.Request) {
 			"results": []map[string]any{{"id": 9, "content_type": "video/mp4", "url": url, "download": url + "?download=1", "width": 832, "height": 480, "seconds": 5}},
 			"joined": map[string]any{"id": 10, "content_type": "video/mp4", "url": joined, "download": joined + "?download=1", "width": 832, "height": 480, "seconds": 9.96,
 				"segments": []float64{0, 5}}}))
+	case p == "done:svg":
+		// A vector picture, as Recraft's vector models draw one.
+		url := "http://" + r.Host + "/test/result.svg"
+		steps = append(steps, at("running", nil), at("done", map[string]any{"cost": map[string]any{"usd": 0.08, "amount": 0.08, "currency": "USD", "label": "$0.080"},
+			"results": []map[string]any{{"id": 11, "content_type": "image/svg+xml", "url": url, "download": url + "?download=1", "width": 1365, "height": 1024}}}))
 	case p == "slow":
 		for range 14 {
 			steps = append(steps, at("running", nil))
@@ -695,6 +704,36 @@ func TestBrowserMiniShare(t *testing.T) {
 	if strings.Contains(acts, "Share") {
 		t.Errorf("the site offers Share: %s", acts)
 	}
+}
+
+// TestBrowserMiniSVG checks a vector result in the Mini App: the picture
+// shows, Download saves it as an .svg, and there is no Send to Telegram,
+// which Telegram cannot take.
+func TestBrowserMiniSVG(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := miniBrowser(t, ts.URL)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	for (let i = 0; i < 50 && !window.__tg?.main; i++) await wait(100);
+	const p = document.querySelector("#prompt");
+	p.value = "done:svg"; p.dispatchEvent(new Event("input"));
+	await wait(80);
+	window.__tg.main();
+	for (let i = 0; i < 140 && !stage().done; i++) await wait(100);
+	const img = document.querySelector("#stage img[src$='result.svg']");
+	for (let i = 0; i < 30 && img && !img.complete; i++) await wait(100);
+	const acts = [...document.querySelectorAll("#stage .jacts > button, #stage .jacts > a")];
+	return { done: stage().done, shown: img?.naturalWidth || 0, names: acts.map((b) => b._name || "").filter(Boolean),
+	  labels: acts.map((b) => b.getAttribute("aria-label") || b.textContent.trim()) };`)
+	if s["done"] != true || s["shown"].(float64) <= 0 || fmt.Sprint(s["names"]) != "[framy-1-1.svg]" || strings.Contains(fmt.Sprint(s["labels"]), "Share") {
+		t.Errorf("an SVG result: %v", s)
+	}
+	runs.mu.Lock()
+	defer runs.mu.Unlock()
+	if runs.shares != 0 {
+		t.Errorf("%d shares", runs.shares)
+	}
+	noErrors(t, ctx)
 }
 
 // TestBrowserRunSmooth checks the halftone on the stage keeps the main thread

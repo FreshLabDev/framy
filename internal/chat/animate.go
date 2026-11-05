@@ -5,7 +5,6 @@ import (
 	"context"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/FreshLabDev/tg"
@@ -37,12 +36,13 @@ func (f *Flow) madeBy(jobID int64, action string) {
 	f.made.Store(strconv.FormatInt(jobID, 10)+":"+action, f.now())
 }
 
-// resultKeyboard are the buttons under a result a: Animate under an image,
-// Again under a run made in the chat (again), and Original under an image
-// that went as a photo while its file has not gone out yet (original). A
-// result with none has no keyboard.
+// resultKeyboard are the buttons under a result a: Animate under a picture
+// made of pixels, which a video model takes as a frame (not an SVG), Again
+// under a run made in the chat (again), and Original under a picture that
+// went as a photo while its file has not gone out yet (original). A result
+// with none has no keyboard.
 func resultKeyboard(lang string, jobID int64, a storage.Asset, again, original bool) *tg.InlineKeyboardMarkup {
-	image := strings.HasPrefix(a.ContentType, "image/")
+	image := storage.Raster(a.ContentType)
 	var top, more []tg.InlineKeyboardButton
 	if image {
 		top = append(top, button(t(lang, "result.animate"), callback(jobID, actAnimate), ""))
@@ -79,7 +79,7 @@ func (f *Flow) animate(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun
 		_ = answer("")
 		return err
 	}
-	if len(results) == 0 || !strings.HasPrefix(results[0].ContentType, "image/") {
+	if len(results) == 0 || !storage.Raster(results[0].ContentType) {
 		return answer("")
 	}
 	frame := results[0]

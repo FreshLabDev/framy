@@ -6,8 +6,10 @@ package storage_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strconv"
 	"strings"
@@ -267,5 +269,51 @@ func TestAThumbnailIsRecordedOnItsRow(t *testing.T) {
 	}
 	if keys := h.bucket.Keys(); len(keys) != 0 {
 		t.Errorf("left in the bucket: %v", keys)
+	}
+}
+
+// An SVG is kept as an .svg with the size its root declares, by bytes or by
+// a link whatever type the provider names, and gets no thumbnail: ffmpeg
+// does not draw one, and the site shows the file itself.
+func TestAnSVGIsKeptAsItCame(t *testing.T) {
+	h := newHarness(t, storage.Config{})
+	ctx := context.Background()
+	drawn := []byte(`<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1365 1024"><rect width="9" height="9"/></svg>`)
+	links := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write(drawn)
+	}))
+	defer links.Close()
+	storage.SetThumbMaker(h.store, func(context.Context, string, string) (int, int, int64, error) {
+		t.Error("a thumbnail was made of an SVG")
+		return 0, 0, 0, errors.New("no")
+	})
+	job := doneJob(t, h, alice)
+	results := []jobs.Result{{ContentType: "image/svg+xml", Data: drawn}, {Data: drawn}, {URL: links.URL + "/out"}}
+	if err := h.store.Keep(ctx, jobs.Job{ID: job, UserID: alice}, results); err != nil {
+		t.Fatal(err)
+	}
+	kept, err := h.store.Results(ctx, job)
+	if err != nil || len(kept) != 3 {
+		t.Fatalf("%d results: %v", len(kept), err)
+	}
+	for i, a := range kept {
+		if want := "u/3001/out/" + strconv.FormatInt(job, 10) + "-" + strconv.Itoa(i) + ".svg"; a.Key != want ||
+			a.ContentType != "image/svg+xml" || a.Width != 1365 || a.Height != 1024 || a.Thumb != nil {
+			t.Errorf("result %d: %+v", i, a)
+		}
+		if o, ok := h.bucket.Get(a.Key); !ok || o.ContentType != "image/svg+xml" || !bytes.Equal(o.Data, drawn) {
+			t.Errorf("result %d in the bucket: %v %q", i, ok, o.ContentType)
+		}
+	}
+	if made, err := h.store.FillThumbs(ctx, 5); err != nil || made != 0 {
+		t.Fatalf("made %d: %v", made, err)
+	}
+	var tries int
+	if err := h.pool.QueryRow(ctx, `SELECT max(thumb_tries) FROM framy.asset WHERE job_id = $1`, job).Scan(&tries); err != nil || tries != 0 {
+		t.Errorf("tries %d: %v", tries, err)
+	}
+	if storage.Ext("image/svg+xml") != ".svg" {
+		t.Errorf("an SVG downloads as %q", storage.Ext("image/svg+xml"))
 	}
 }

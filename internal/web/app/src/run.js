@@ -377,9 +377,11 @@ export async function copyPrompt(text) {
 // the links Telegram fetches for a result never sent in a chat only an hour,
 // so a press within 50 minutes takes the same message again.
 const shared = new Map();
+// A WebM and an SVG cannot go: Telegram takes neither as a video or a photo.
+const NOSHARE = new Set(["video/webm", "image/svg+xml"]);
 export const canShare = (res) => {
   const tg = S.tg;
-  return !!tg && typeof tg.shareMessage === "function" && !!tg.isVersionAtLeast?.("8.0") && res?.content_type !== "video/webm";
+  return !!tg && typeof tg.shareMessage === "function" && !!tg.isVersionAtLeast?.("8.0") && !!res && !NOSHARE.has(res.content_type);
 };
 let sharing = false;
 export async function share(res, btn) {
