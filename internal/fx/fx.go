@@ -36,6 +36,11 @@ var Codes = []string{USD, UAH, EUR, PLN, BYN}
 // which the rates are in.
 var Stored = []string{USD, EUR, PLN, BYN}
 
+// NBUCodes are the stored codes the NBU gives. BYN comes from currency-api,
+// whose file of a day is out hours after the NBU's rate of it, so a day can
+// have these and wait for BYN.
+var NBUCodes = []string{USD, EUR, PLN}
+
 // Sources of a rate.
 const (
 	NBU         = "nbu"

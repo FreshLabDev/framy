@@ -31,14 +31,14 @@ func (s *Store) SaveRates(ctx context.Context, rates []fx.Rate) error {
 	return nil
 }
 
-// RatesDate is the latest day with a rate of every stored code, zero before
-// the first.
-func (s *Store) RatesDate(ctx context.Context) (time.Time, error) {
+// RatesDate is the latest day with a rate of every code in codes, zero
+// before the first.
+func (s *Store) RatesDate(ctx context.Context, codes []string) (time.Time, error) {
 	var day *time.Time
 	err := s.pool.QueryRow(ctx, `
 		SELECT max(date) FROM (
 			SELECT date FROM fx_rate WHERE code = ANY($1) GROUP BY date HAVING count(*) = cardinality($1::text[])
-		) complete`, fx.Stored).Scan(&day)
+		) complete`, codes).Scan(&day)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("fx rates date: %w", err)
 	}
@@ -49,12 +49,12 @@ func (s *Store) RatesDate(ctx context.Context) (time.Time, error) {
 }
 
 // RateDays are the days from from to to, both in, with a rate of every
-// stored code, oldest first.
-func (s *Store) RateDays(ctx context.Context, from, to time.Time) ([]time.Time, error) {
+// code in codes, oldest first.
+func (s *Store) RateDays(ctx context.Context, codes []string, from, to time.Time) ([]time.Time, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT date FROM fx_rate WHERE code = ANY($1) AND date BETWEEN $2 AND $3
 		GROUP BY date HAVING count(*) = cardinality($1::text[])
-		ORDER BY date`, fx.Stored, from, to)
+		ORDER BY date`, codes, from, to)
 	if err != nil {
 		return nil, fmt.Errorf("fx rate days: %w", err)
 	}

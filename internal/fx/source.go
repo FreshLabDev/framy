@@ -102,7 +102,7 @@ func (c *Client) nbu(ctx context.Context, url string) (NBUDay, error) {
 		}
 		day.UAH[r.CC] = r.Rate
 	}
-	for _, code := range []string{USD, EUR, PLN} {
+	for _, code := range NBUCodes {
 		if _, ok := day.UAH[code]; !ok {
 			return NBUDay{}, fmt.Errorf("nbu: no rate of %s", code)
 		}
@@ -140,7 +140,8 @@ func (c *Client) CurrencyAPI(ctx context.Context) (USDDay, error) {
 }
 
 // CurrencyAPIOn reads currency-api's USD rates of one day from the first
-// URL that has it. A day's file is out once the day has begun in UTC.
+// URL that has it. A day's file is made by a job set for midnight UTC,
+// which often starts hours late (currencyAPIOut).
 func (c *Client) CurrencyAPIOn(ctx context.Context, day time.Time) (USDDay, error) {
 	urls := c.CurrencyAPIDayURLs
 	if len(urls) == 0 {
@@ -231,15 +232,16 @@ func or(s, fallback string) string {
 	return fallback
 }
 
-// FromNBU makes the stored rows of one NBU day. BYN comes from usd, when
-// there is one, anchored on the NBU's own USD of that day, so a price in
-// BYN is the USD price times currency-api's rate.
+// FromNBU makes the stored rows of one NBU day. BYN comes from usd when it
+// is currency-api's file of the same day, anchored on the NBU's own USD of
+// that day, so a price in BYN is the USD price times currency-api's rate.
+// Another day's file would put its rate under a day it is not of.
 func FromNBU(day NBUDay, usd *USDDay) []Rate {
 	rates := make([]Rate, 0, len(Stored))
-	for _, code := range []string{USD, EUR, PLN} {
+	for _, code := range NBUCodes {
 		rates = append(rates, Rate{Date: day.Date, Code: code, UAHPerUnit: day.UAH[code], Source: NBU})
 	}
-	if usd != nil {
+	if usd != nil && usd.Date.Equal(day.Date) {
 		rates = append(rates, Rate{Date: day.Date, Code: BYN, UAHPerUnit: day.UAH[USD] / usd.PerUSD[BYN], Source: CurrencyAPI})
 	}
 	return rates
