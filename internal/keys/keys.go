@@ -11,7 +11,10 @@
 //     Rotating the KEK rewraps the data keys and leaves the keys alone
 //     (Rotate).
 //   - JobKey is the key source of the adapters: the decrypted key of the
-//     person a job belongs to, for the length of one call.
+//     person a job belongs to, for one call. Its decrypted bytes are zeroed
+//     when it returns; the string it returns, and the header an adapter
+//     makes of it, stay in memory until the garbage collector reuses it, as
+//     Go cannot wipe a string (docs/design.md, Keys at rest).
 //   - Track wraps an adapter so that what a run shows about its key is
 //     written down as the connection's status.
 //
@@ -373,6 +376,8 @@ func (s *Service) JobKey(ctx context.Context, j jobs.Job) (string, error) {
 	if err != nil {
 		return "", keyError("the stored " + name + " key cannot be read; the person has to enter it again")
 	}
+	// The decrypted bytes go now; the string is a copy that lives until the
+	// garbage collector reuses its memory.
 	defer clear(key)
 	noteUse(ctx, r.id)
 	return string(key), nil
