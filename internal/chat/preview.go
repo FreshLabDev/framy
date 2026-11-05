@@ -25,6 +25,10 @@ import (
 // Captions are at most 1024 characters, so a long prompt is cut in the
 // caption; the job keeps it whole.
 const (
+	// maxCaption is the longest caption Telegram takes: its text once the
+	// HTML is read, in UTF-16 code units (captionLen). A longer one is
+	// refused with a 400, and nothing is sent.
+	maxCaption    = 1024
 	captionPrompt = 600 // characters of the prompt shown
 	// expandAfter is the length from which the prompt folds into an
 	// expandable quote.
@@ -39,13 +43,17 @@ var providerNames = map[string]string{
 }
 
 // promptQuote is the prompt as the caption shows it.
-func promptQuote(prompt string) string {
+func promptQuote(prompt string) string { return promptQuoteCut(prompt, captionPrompt) }
+
+// promptQuoteCut is promptQuote with at most cut characters of the prompt;
+// with none, there is no quote.
+func promptQuoteCut(prompt string, cut int) string {
 	prompt = strings.TrimSpace(prompt)
-	if prompt == "" {
+	if prompt == "" || cut <= 0 {
 		return ""
 	}
-	if utf8.RuneCountInString(prompt) > captionPrompt {
-		prompt = strings.TrimSpace(string([]rune(prompt)[:captionPrompt])) + "…"
+	if utf8.RuneCountInString(prompt) > cut {
+		prompt = strings.TrimSpace(string([]rune(prompt)[:cut])) + "…"
 	}
 	open := "<blockquote>"
 	if utf8.RuneCountInString(prompt) > expandAfter || strings.Count(prompt, "\n") > 2 {

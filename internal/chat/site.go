@@ -8,6 +8,7 @@ import (
 	"html"
 	"math"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -371,6 +372,11 @@ func (f *Flow) sendSiteAlbum(ctx context.Context, press []db.SiteResult) {
 // albumCaption is the caption of a press's album: what the frames share
 // once, the prompt as a quote and the model under it, and what differs a
 // line per frame, numbered as Telegram numbers the album's items.
+//
+// It always fits Telegram's caption (maxCaption): ten frames with prompts
+// of their own and long model names would not, and Telegram would refuse
+// the whole album. The prompts give way, every frame's alike, while the
+// numbers and the models stay whole; the site keeps each prompt whole.
 func albumCaption(frames []frame) string {
 	samePrompt, sameModel := true, true
 	for _, fr := range frames[1:] {
@@ -380,17 +386,38 @@ func albumCaption(frames []frame) string {
 	if samePrompt && sameModel {
 		return resultCaption(frames[0].r.Prompt, frames[0].r.Model)
 	}
+	// most is how much of a prompt is shown when there is room for it.
+	most := captionPrompt
+	if !samePrompt {
+		most = albumPrompt
+	}
+	caption := albumLines(frames, samePrompt, sameModel, most)
+	if captionLen(caption) <= maxCaption {
+		return caption
+	}
+	// The most of each prompt that fits: a caption only grows with it.
+	cut := sort.Search(most, func(n int) bool { return captionLen(albumLines(frames, samePrompt, sameModel, n+1)) > maxCaption })
+	if caption = albumLines(frames, samePrompt, sameModel, cut); captionLen(caption) > maxCaption {
+		// Model names alone over 1024 characters: an album with no caption
+		// still comes, where one Telegram refused would not.
+		return ""
+	}
+	return caption
+}
+
+// albumLines is albumCaption with at most cut characters of each prompt.
+func albumLines(frames []frame, samePrompt, sameModel bool, cut int) string {
 	parts := make([]string, 0, len(frames)+2)
 	if samePrompt {
-		parts = append(parts, promptQuote(frames[0].r.Prompt))
+		parts = append(parts, promptQuoteCut(frames[0].r.Prompt, cut))
 	}
 	for i, fr := range frames {
 		line := "<b>" + strconv.Itoa(i+1) + "</b>"
 		if !sameModel {
 			line += " " + html.EscapeString(fr.r.Model)
 		}
-		if !samePrompt {
-			line += " · " + html.EscapeString(shortPrompt(fr.r.Prompt))
+		if p := shortPrompt(fr.r.Prompt, cut); !samePrompt && p != "" {
+			line += " · " + html.EscapeString(p)
 		}
 		parts = append(parts, line)
 	}
@@ -400,18 +427,25 @@ func albumCaption(frames []frame) string {
 	return lines(parts...)
 }
 
-// albumPrompt is how much of a frame's own prompt its line shows: six
-// lines of it stay well inside a caption's 1024 characters.
+// albumPrompt is the most of a frame's own prompt its line shows, when the
+// caption has room for it.
 const albumPrompt = 120
 
-// shortPrompt is the prompt on one line, cut to albumPrompt characters.
-func shortPrompt(prompt string) string {
-	prompt = strings.Join(strings.Fields(prompt), " ")
-	if utf8.RuneCountInString(prompt) > albumPrompt {
-		prompt = strings.TrimSpace(string([]rune(prompt)[:albumPrompt])) + "…"
+// shortPrompt is the prompt on one line, cut to cut characters; with none,
+// it is empty.
+func shortPrompt(prompt string, cut int) string {
+	prompt = oneLine(prompt)
+	if cut <= 0 {
+		return ""
+	}
+	if utf8.RuneCountInString(prompt) > cut {
+		prompt = strings.TrimSpace(string([]rune(prompt)[:cut])) + "…"
 	}
 	return prompt
 }
+
+// oneLine is s with every run of spaces and line breaks one space.
+func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 // notSent records results whose send failed. Telegram asking to wait (429)
 // took nothing, so they are given back and go once the wait is over;

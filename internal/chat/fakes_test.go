@@ -108,6 +108,13 @@ func (f *fakeTelegram) record(c call) (tg.Message, error) {
 		delete(f.failOnce, c.method)
 		return tg.Message{}, err
 	}
+	// Telegram refuses a caption over 1024 characters, and the media with it.
+	switch c.method {
+	case "sendPhoto", "sendDocument", "sendVideo", "sendAnimation", "sendMediaGroup":
+		if captionLen(c.text) > maxCaption {
+			return tg.Message{}, &tg.APIError{Method: c.method, StatusCode: 400, ErrorCode: 400, Description: "Bad Request: message caption is too long"}
+		}
+	}
 	if err := f.fail["ephemeral"]; err != nil && c.ephemeral != nil {
 		return tg.Message{}, err
 	}

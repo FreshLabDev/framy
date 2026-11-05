@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf16"
@@ -61,6 +63,27 @@ func utf16Len(s string) int {
 		n += utf16.RuneLen(r)
 	}
 	return n
+}
+
+// captionLen is the length of an HTML caption as Telegram counts it against
+// maxCaption: the text once the tags are read, "&amp;" as one "&". framy
+// escapes every text it puts in a caption, so a "<" is always a tag's.
+func captionLen(caption string) int {
+	var text strings.Builder
+	for {
+		open := strings.IndexByte(caption, '<')
+		if open < 0 {
+			text.WriteString(caption)
+			break
+		}
+		text.WriteString(caption[:open])
+		end := strings.IndexByte(caption[open:], '>')
+		if end < 0 {
+			break
+		}
+		caption = caption[open+end+1:]
+	}
+	return utf16Len(html.UnescapeString(text.String()))
 }
 
 // The pace of a chat (docs/design.md, Limits of the chat). Telegram takes

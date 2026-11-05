@@ -4,7 +4,9 @@ package chat
 import (
 	"context"
 	"errors"
+	"html"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -111,8 +113,70 @@ func TestAPressCaptionSaysWhatDiffers(t *testing.T) {
 		}
 	}
 	long := strings.Repeat("ж", albumPrompt+5)
-	if got := shortPrompt(long); got != strings.Repeat("ж", albumPrompt)+"…" {
+	if got := shortPrompt(long, albumPrompt); got != strings.Repeat("ж", albumPrompt)+"…" {
 		t.Fatalf("short prompt = %q", got)
+	}
+}
+
+// A caption Telegram would refuse loses the whole album, so the caption of
+// a press always fits its 1024 characters: the prompts give way alike, and
+// every frame keeps its number and its model whole. Before, ten frames
+// with prompts of their own and long model names went over, and the person
+// got nothing in the DM.
+func TestAPressCaptionFitsTelegram(t *testing.T) {
+	model := func(i int) string {
+		return "Maker " + string(rune('A'+i)) + ": A Model With A Rather Long Name & A Version 2.5 Preview"
+	}
+	prompt := func(i int) string {
+		return string(rune('a'+i)) + " " + strings.Repeat("лиса & 🦊 в снегу, ", 20)
+	}
+	for name, c := range map[string]struct {
+		prompt func(int) string
+		quote  bool
+	}{
+		"own prompts":    {prompt: prompt},
+		"one long quote": {prompt: func(int) string { return strings.Repeat("a fox in the snow ", 40) }, quote: true},
+	} {
+		h := newHarness(t)
+		for i := range albumItems {
+			pressJob(h, int64(41+i), c.prompt(i), model(i), []int32{int32(i)}, pressImage(int64(70+i)))
+		}
+		h.flow.sendSite(context.Background())
+		sent := h.tg.methods("sendMediaGroup")
+		if len(sent) != 1 {
+			t.Fatalf("%s: sent = %+v", name, sent)
+		}
+		caption := sent[0].text
+		if n := captionLen(caption); n > maxCaption || n < maxCaption-4*albumItems {
+			t.Fatalf("%s: caption of %d characters, want it to use the room up to %d:\n%s", name, n, maxCaption, caption)
+		}
+		lines := strings.Split(caption, "\n")
+		if c.quote {
+			if !strings.HasPrefix(lines[0], "<blockquote expandable>a fox in the snow") || !strings.HasSuffix(lines[0], "…</blockquote>") {
+				t.Fatalf("%s: quote = %q", name, lines[0])
+			}
+			lines = lines[1:]
+		}
+		if len(lines) != albumItems {
+			t.Fatalf("%s: %d lines, want one a frame:\n%s", name, len(lines), caption)
+		}
+		for i, line := range lines {
+			head := "<b>" + strconv.Itoa(i+1) + "</b> " + html.EscapeString(model(i))
+			if !strings.HasPrefix(line, head) {
+				t.Fatalf("%s: line %d = %q, want it to start %q", name, i+1, line, head)
+			}
+			if !c.quote && (!strings.HasPrefix(line, head+" · "+string(rune('a'+i))+" лиса") || !strings.HasSuffix(line, "…")) {
+				t.Fatalf("%s: line %d = %q, want the start of its prompt", name, i+1, line)
+			}
+		}
+		for i := range albumItems {
+			if h.store.delivery(int64(41+i)) != db.DeliverySent {
+				t.Fatalf("%s: job %d: delivery %q", name, 41+i, h.store.delivery(int64(41+i)))
+			}
+		}
+	}
+	if n := captionLen("<blockquote>a &amp; b</blockquote>\n<b>1</b> 🦊"); n != 10 {
+		t.Fatalf("caption length = %d, want 10", n)
 	}
 }
 
