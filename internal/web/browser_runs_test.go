@@ -6,6 +6,7 @@ package web
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -65,6 +66,7 @@ type fakeRuns struct {
 	jobs    map[int64]*fakeJob
 	shares  int              // how many results were prepared for sharing
 	batches []map[string]any // the bodies of POST /api/batches, in order
+	lang    string           // the person's language, English when empty
 }
 
 type fakeJob struct {
@@ -75,9 +77,10 @@ type fakeJob struct {
 
 func (f *fakeRuns) mount(srv *Server) {
 	f.jobs = map[int64]*fakeJob{}
+	lang := cmp.Or(f.lang, "en")
 	srv.HandleFunc("GET /api/me", func(w http.ResponseWriter, _ *http.Request) {
 		writeTestJSON(w, http.StatusOK, map[string]any{
-			"user_id": 1, "name": "Ada", "language": "en", "currency": "USD",
+			"user_id": 1, "name": "Ada", "language": lang, "currency": "USD",
 			"connections": []map[string]any{{"id": "c1", "provider": "openrouter", "last4": "abcd", "status": "ok"}},
 			"free": map[string]any{
 				"images": map[string]any{"used": 5, "limit": 5, "left": 0, "window_seconds": 86400, "frees_at": time.Now().Add(3 * time.Hour).UTC()},

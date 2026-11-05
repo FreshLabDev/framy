@@ -293,3 +293,36 @@ async function listed() {
   return names;
 }
 `
+
+// TestBrowserCutterRTL checks the editor of a clip's part in Arabic: time
+// runs left to right as on the player's bar, so the first frame of the
+// timeline stands on the left, under the start of the window, and Frame back
+// is the button on the left.
+func TestBrowserCutterRTL(t *testing.T) {
+	runs := &fakeRuns{lang: "ar"}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+`
+	async function until(f, n = 60) { for (let i = 0; i < n; i++) { const v = f(); if (v) return v; await wait(100); } return null; }
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(700);
+	const b = Uint8Array.from(atob(`+jsString(loopWebM)+`), (c) => c.charCodeAt(0));
+	const dt = new DataTransfer();
+	dt.items.add(new File([b], "loop.webm", { type: "video/webm" }));
+	document.body.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
+	// The free run takes no clip; the key does.
+	(await until(() => document.querySelector('#how [data-seg="pay"] [data-v="openrouter"]')))?.click();
+	const link = await until(() => document.querySelector('#files [data-k="f-cut"] .link-t'));
+	if (!link) return { link: false };
+	link.click();
+	await until(() => !document.querySelector("#cutter").hidden && document.querySelector("#cutter .timeline .win").style.width);
+	await wait(500);
+	const tl = document.querySelector("#cutter .timeline"), r = tl.getBoundingClientRect(), x = (el) => Math.round(el.getBoundingClientRect().left - r.left);
+	const cv = [...tl.querySelectorAll("canvas")], ib = [...document.querySelectorAll("#cutter .transport > .ib")];
+	return { dir: document.dir, line: getComputedStyle(tl).direction, first: x(cv[0]), last: x(cv.at(-1)), win: x(tl.querySelector(".win")),
+	  back: ib[0].getAttribute("aria-label") === document.querySelector("#cutter .transport > .ib").getAttribute("aria-label") && x(ib[0]) < x(ib[2]) };`)
+	if s["dir"] != "rtl" || s["line"] != "ltr" || s["first"] != float64(0) || s["last"].(float64) <= 0 || s["win"] != float64(0) || s["back"] != true {
+		t.Errorf("the cutter right to left: %v", s)
+	}
+	noErrors(t, ctx)
+}

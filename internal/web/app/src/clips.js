@@ -216,7 +216,10 @@ export function openCut() {
   ED.tc = h("span", { class: "tc" });
   ED.play = h("button", { type: "button", class: "ib", "aria-label": t("cut.play"), title: t("cut.play"), onclick: togglePlay }, ic("play"));
   ED.edges = h("div", { class: "seg edges", role: "radiogroup", "aria-label": t("cut.edge"), "data-seg": "edge", "data-dur": 300 });
-  const tl = h("div", { class: "timeline" });
+  // Time runs left to right in every language, as on the player's bar: the
+  // frames, the window, the playhead and a press on the timeline all count
+  // from its left, and the buttons above go the same way.
+  const tl = h("div", { class: "timeline", dir: "ltr" });
   ED.tl = tl;
   const n = matchMedia("(min-width: 600px)").matches ? 12 : 8, r = (c.w || 16) / (c.h || 9);
   const cvs = Array.from({ length: n }, () => h("canvas", { width: 120, height: Math.max(1, Math.round(120 / r)) }));
@@ -230,7 +233,7 @@ export function openCut() {
   ED.take = h("button", { type: "button", class: "take", onclick: take }, ic("film"), t("cut.take"));
   $("#cutBody").replaceChildren(
     h("div", { class: "viewer", style: { aspectRatio: `${c.w || 16} / ${c.h || 9}` } }, view, ED.tc),
-    h("div", { class: "transport" },
+    h("div", { class: "transport", dir: "ltr" },
       h("button", { type: "button", class: "ib", "aria-label": t("cut.prev"), title: t("cut.prev"), onclick: () => step(-1) }, ic("prev")), ED.play,
       h("button", { type: "button", class: "ib", "aria-label": t("cut.next"), title: t("cut.next"), onclick: () => step(1) }, ic("next")), ED.edges), tl, ED.read,
     h("p", { class: "note" }, t("cut.keys")), ED.take);
