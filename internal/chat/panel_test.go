@@ -491,6 +491,58 @@ func adminPreview(t *testing.T) (*harness, db.ChatRun) {
 	return h, r
 }
 
+// The loop goes by the file_id Telegram gave it. A send that got no answer
+// may have reached the chat, so nothing goes after it; one Telegram refused
+// sent nothing, so the loop is uploaded again.
+func TestTheLoopGoesOnceWhateverItsSendAnswered(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		err     error
+		uploads int
+	}{
+		{"no answer", errBoom, 0},
+		{"file refused", &tg.APIError{Method: "sendAnimation", StatusCode: 400, ErrorCode: 400, Description: "Bad Request: wrong file identifier/HTTP URL specified"}, 1},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h, _ := adminPreview(t)
+			h.flow.files.Store("loop-1", "anim-file")
+			h.tg.failOnce["sendAnimation"] = c.err
+			if err := h.press(1, 7, actGenerate); err != nil {
+				t.Fatal(err)
+			}
+			loops := h.tg.methods("sendAnimation")
+			if len(loops) != c.uploads || len(h.tg.methods("sendMessage")) != 0 {
+				t.Fatalf("calls = %+v", h.tg.calls)
+			}
+			if c.uploads > 0 && loops[0].file != "upload:framy.mp4" {
+				t.Fatalf("loop = %+v", loops[0])
+			}
+			if r := run(t, h); r.PreviewEphemeral || (c.uploads == 0) != (r.PreviewMessageID == 0) {
+				t.Fatalf("run = %+v", r)
+			}
+		})
+	}
+}
+
+// An edit changes the same message whichever way it went: the error card
+// whose edit by file_id got no answer goes again by upload, and stays the
+// card, rather than give way to a line that says the same.
+func TestAnEditWithNoAnswerGoesAgain(t *testing.T) {
+	h := newHarness(t)
+	id := h.generating(t)
+	h.flow.files.Store("card", "card-file")
+	h.tg.failOnce["editMessageMedia"] = errBoom
+	h.store.setStatus(id, jobs.Failed, jobs.Internal)
+	h.flow.step(context.Background(), id)
+	edits := h.tg.methods("editMessageMedia")
+	if len(edits) != 1 || edits[0].file != "photo upload:framy.png" {
+		t.Fatalf("edits = %+v", edits)
+	}
+	if len(h.tg.methods("sendMessage")) != 0 || len(h.tg.methods("deleteMessage")) != 0 {
+		t.Fatalf("the card gave way: %+v", h.tg.calls)
+	}
+}
+
 // Telegram may refuse the press for the new preview, or the reply to a
 // command that is gone; an admin framy sends it plainly then.
 func TestARefusedPressSendsTheNewPreviewPlainly(t *testing.T) {

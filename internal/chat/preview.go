@@ -371,7 +371,7 @@ func (f *Flow) sendPicture(ctx context.Context, chatID int64, pic anim.Media, op
 		}
 		return f.cfg.Telegram.SendPhoto(ctx, chatID, file, opts)
 	}
-	return f.withFile(pic, try)
+	return f.withFile(pic, true, try)
 }
 
 // edit turns a message into a picture, keeping its place in the chat.
@@ -385,18 +385,21 @@ func (f *Flow) edit(ctx context.Context, chatID, messageID int64, pic anim.Media
 		}
 		return f.cfg.Telegram.EditMessageMediaMessage(ctx, chatID, messageID, item, kb)
 	}
-	return f.withFile(pic, try)
+	return f.withFile(pic, false, try)
 }
 
 // withFile calls send with the picture's file_id when Telegram has it, and
-// with an upload otherwise or when the id is refused, and keeps the id the
-// upload got.
-func (f *Flow) withFile(pic anim.Media, send func(tg.InputFile) (tg.Message, error)) (tg.Message, error) {
+// with an upload otherwise or when the id fails, and keeps the id the
+// upload got. once: send posts a new message, and one that got no answer
+// may have reached the chat, so it goes again only when Telegram refused
+// the id; a second would be the same message twice. An edit changes the
+// same message whichever way it went, so it goes again on any failure.
+func (f *Flow) withFile(pic anim.Media, once bool, send func(tg.InputFile) (tg.Message, error)) (tg.Message, error) {
 	if pic.Key != "" {
 		if id, ok := f.files.Load(pic.Key); ok {
 			msg, err := send(tg.InputFileString{Data: id.(string)})
-			if err == nil {
-				return msg, nil
+			if err == nil || (once && !refused(err)) {
+				return msg, err
 			}
 			// Telegram may forget a file; the upload below tells.
 			f.files.Delete(pic.Key)

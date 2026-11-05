@@ -233,6 +233,12 @@ func (f *Flow) showLoop(ctx context.Context, run db.ChatRun) {
 		caption, kb := generatingCaption(run.Lang, run.Prompt, run.Model, 0), generatingKeyboard(run.Lang, run.JobID)
 		if err == nil {
 			sent, err = f.send(ctx, run.ChatID, run.CommandMessageID, run.ThreadID, loop, caption, kb)
+			if err != nil && !refused(err) {
+				// With no answer the loop may be in the chat already, and a
+				// line sent now would be a second message with Stop.
+				f.log.Warn("generating loop sent with no answer", "job", run.JobID, "error", err)
+				sent, err = tg.Message{}, nil
+			}
 		}
 		if err != nil {
 			f.log.Warn("generating loop not shown", "job", run.JobID, "error", err)
