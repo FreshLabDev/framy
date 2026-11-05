@@ -79,6 +79,9 @@ type fakeTelegram struct {
 	// beforeDownload runs as a download starts, as a slow one would let
 	// another update come.
 	beforeDownload func()
+	// onPhoto runs as a photo send starts, as a stop would come in the
+	// middle of one; a send whose context has ended by then fails.
+	onPhoto func()
 }
 
 func newTelegram() *fakeTelegram {
@@ -139,7 +142,13 @@ func (f *fakeTelegram) SendEphemeralMessage(_ context.Context, chatID, receiver,
 		ephemeral: &tg.Ephemeral{ReceiverUserID: receiver}, replyEphemeral: ephemeralID})
 }
 
-func (f *fakeTelegram) SendPhoto(_ context.Context, chatID int64, photo tg.InputFile, o tg.CaptionOptions) (tg.Message, error) {
+func (f *fakeTelegram) SendPhoto(ctx context.Context, chatID int64, photo tg.InputFile, o tg.CaptionOptions) (tg.Message, error) {
+	if f.onPhoto != nil {
+		f.onPhoto()
+		if err := ctx.Err(); err != nil {
+			return tg.Message{}, err
+		}
+	}
 	m, err := f.record(call{method: "sendPhoto", chatID: chatID, messageID: o.ReplyTo, thread: o.ThreadID, text: o.Caption, markup: o.Markup, file: fileOf(photo),
 		ephemeral: o.Ephemeral, replyEphemeral: o.ReplyToEphemeral})
 	m.Photo = []tg.Photo{{FileID: "small"}, {FileID: "photo-file", FileUniqueID: "photo-unique"}}
@@ -517,6 +526,8 @@ type fakeStore struct {
 	previewErr error
 	// settings are each person's settings of the site, by user id.
 	settings map[int64]db.Settings
+	// finishErr fails the next FinishChatRun, as a database hiccup would.
+	finishErr error
 }
 
 func (s *fakeStore) Settings(_ context.Context, userID int64) (db.Settings, error) {
@@ -874,6 +885,10 @@ func (s *fakeStore) StopChatRun(_ context.Context, jobID int64) (bool, error) {
 func (s *fakeStore) FinishChatRun(_ context.Context, jobID int64, stage string, res db.ChatResult) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.finishErr; err != nil {
+		s.finishErr = nil
+		return false, err
+	}
 	r, ok := s.runs[jobID]
 	if !ok || r.Stage != db.StageGenerating {
 		return false, nil

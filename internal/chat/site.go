@@ -36,14 +36,15 @@ const (
 	albumItems = 10
 )
 
-// runSite sends the site's results to the DMs until ctx ends.
-func (f *Flow) runSite(ctx context.Context) {
+// runSite sends the site's results to the DMs until stop ends, under work,
+// which outlives stop by the grace a send in flight has to finish (Run).
+func (f *Flow) runSite(stop, work context.Context) {
 	tick := time.NewTicker(siteEvery)
 	defer tick.Stop()
 	for {
-		f.sendSite(ctx)
+		f.sendSiteUntil(stop, work)
 		select {
-		case <-ctx.Done():
+		case <-stop.Done():
 			return
 		case <-tick.C:
 		}
@@ -52,7 +53,13 @@ func (f *Flow) runSite(ctx context.Context) {
 
 // sendSite sends every result the site made since the last round, a press
 // of several frames as one album.
-func (f *Flow) sendSite(ctx context.Context) {
+func (f *Flow) sendSite(ctx context.Context) { f.sendSiteUntil(ctx, ctx) }
+
+// sendSiteUntil is sendSite under ctx, which outlives stop: once stop ends,
+// a press not yet claimed is left for the next process, which sends it,
+// and one being sent finishes. Cut short, its claim would stay 'sending'
+// and the person would never get it.
+func (f *Flow) sendSiteUntil(stop, ctx context.Context) {
 	results, err := f.cfg.Store.SiteResults(ctx, f.now().Add(-siteWithin), siteBatch)
 	if err != nil {
 		if ctx.Err() == nil {
@@ -68,7 +75,9 @@ func (f *Flow) sendSite(ctx context.Context) {
 		wg.Go(func() {
 			slot <- struct{}{}
 			defer func() { <-slot }()
-			f.sendSitePress(ctx, press)
+			if stop.Err() == nil {
+				f.sendSitePress(ctx, press)
+			}
 		})
 	}
 	wg.Wait()

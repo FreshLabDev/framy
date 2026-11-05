@@ -94,13 +94,25 @@ func (f *Flow) ticker(jobID int64) *ticker {
 	return v.(*ticker)
 }
 
+// deliverGrace is how long the deliveries in flight are given after a
+// stop. A send cut short in the middle may still reach the chat, and then
+// goes a second time after the restart; a result of the site's would not
+// go at all. It stays under main's shutdown timeout, as bot.UpdateGrace
+// does for the updates the bot took.
+const deliverGrace = 15 * time.Second
+
 // Run follows the open runs until ctx ends: the progress of a running job,
 // and its result or error once it ends. It draws the generating loop first,
 // so the first Generate does not wait for it. Beside them it sends the
-// results made on the site to the DMs.
+// results made on the site to the DMs. When ctx ends, no new round starts,
+// and the runs already in hand get deliverGrace to finish.
 func (f *Flow) Run(ctx context.Context) {
+	work, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancel()
+	stop := context.AfterFunc(ctx, func() { time.AfterFunc(deliverGrace, cancel) })
+	defer stop()
 	var site sync.WaitGroup
-	site.Go(func() { f.runSite(ctx) })
+	site.Go(func() { f.runSite(ctx, work) })
 	defer site.Wait()
 	if _, err := f.cfg.Renderer.Generating(ctx); err != nil && ctx.Err() == nil {
 		f.log.Warn("generating loop not drawn ahead", "error", err)
@@ -108,7 +120,7 @@ func (f *Flow) Run(ctx context.Context) {
 	tick := time.NewTicker(followEvery)
 	defer tick.Stop()
 	for {
-		f.follow(ctx)
+		f.followUntil(ctx, work)
 		select {
 		case <-ctx.Done():
 			return
@@ -120,7 +132,15 @@ func (f *Flow) Run(ctx context.Context) {
 // follow takes down the runs of deleted jobs and works every open run once.
 // A chat Telegram asked to wait for gets no call in the round: its runs move
 // on in a round after the hold.
-func (f *Flow) follow(ctx context.Context) {
+func (f *Flow) follow(ctx context.Context) { f.followUntil(ctx, ctx) }
+
+// followUntil is follow with the runs worked under work, which outlives
+// stop: once stop ends, a run not yet started is left for the next process,
+// and one in hand finishes.
+func (f *Flow) followUntil(stop, ctx context.Context) {
+	if stop.Err() != nil {
+		return
+	}
 	f.takeDown(ctx)
 	runs, err := f.cfg.Store.OpenChatRuns(ctx)
 	if err != nil {
@@ -152,7 +172,9 @@ func (f *Flow) follow(ctx context.Context) {
 		wg.Go(func() {
 			slot <- struct{}{}
 			defer func() { <-slot }()
-			f.step(ctx, r.JobID)
+			if stop.Err() == nil {
+				f.step(ctx, r.JobID)
+			}
 		})
 	}
 	wg.Wait()
@@ -195,6 +217,11 @@ func (f *Flow) step(ctx context.Context, jobID int64) {
 			f.showLoop(ctx, run)
 		}
 	case db.StageGenerating:
+		if e, ok := f.ended.Load(jobID); ok {
+			// It went out; only its record is left.
+			f.finish(ctx, run, e.(ending).stage, e.(ending).res)
+			return
+		}
 		switch jobs.Status(run.Status) {
 		case jobs.Queued, jobs.Running:
 			f.progress(ctx, run)
@@ -402,12 +429,7 @@ func (f *Flow) deliver(ctx context.Context, run db.ChatRun) {
 		}
 		return
 	}
-	res := resultOf(msg)
-	if _, err := f.cfg.Store.FinishChatRun(ctx, run.JobID, db.StageDone, res); err != nil {
-		f.log.Error("run not finished", "job", run.JobID, "error", err)
-		return
-	}
-	f.forget(run.JobID)
+	f.finish(ctx, run, db.StageDone, resultOf(msg))
 }
 
 // deliverAlbum puts several results in the DM as one album, the caption on
@@ -741,8 +763,29 @@ func (f *Flow) failed(ctx context.Context, run db.ChatRun, key string) {
 			}
 		}
 	}
-	if _, err := f.cfg.Store.FinishChatRun(ctx, run.JobID, db.StageFailed, db.ChatResult{}); err != nil {
-		f.log.Error("run not finished", "job", run.JobID, "error", err)
+	f.finish(ctx, run, db.StageFailed, db.ChatResult{})
+}
+
+// recordWithin bounds recording the end of a run whose result went out.
+const recordWithin = 5 * time.Second
+
+// ending is the end of a run that went out and is not recorded yet.
+type ending struct {
+	stage string
+	res   db.ChatResult
+}
+
+// finish records the end of a run whose result or card went out. A send
+// cannot be taken back, so a record that a stop or a database hiccup cut
+// short is no reason to send again: the end is kept, and the next round
+// records it and sends nothing. Before, the next round sent the result a
+// second time.
+func (f *Flow) finish(ctx context.Context, run db.ChatRun, stage string, res db.ChatResult) {
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), recordWithin)
+	defer cancel()
+	if _, err := f.cfg.Store.FinishChatRun(rctx, run.JobID, stage, res); err != nil {
+		f.ended.Store(run.JobID, ending{stage: stage, res: res})
+		f.log.Error("run not finished; the next round records it", "job", run.JobID, "error", err)
 		return
 	}
 	f.forget(run.JobID)

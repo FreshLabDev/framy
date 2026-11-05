@@ -291,11 +291,7 @@ func (f *Flow) guestDeliver(ctx context.Context, run db.ChatRun, a storage.Asset
 		}
 		f.guestCaption(ctx, run, lines(caption, t(run.Lang, "guest.elsewhere")), nil)
 	}
-	if _, err := f.cfg.Store.FinishChatRun(ctx, run.JobID, db.StageDone, db.ChatResult{}); err != nil {
-		f.log.Error("run not finished", "job", run.JobID, "error", err)
-		return
-	}
-	f.forget(run.JobID)
+	f.finish(ctx, run, db.StageDone, db.ChatResult{})
 }
 
 // guestFailed puts the error card on the answer, or its line in the
@@ -322,11 +318,7 @@ func (f *Flow) guestFailed(ctx context.Context, run db.ChatRun, key string) {
 		f.log.Warn("error card not shown; the caption says it", "job", run.JobID, "error", err)
 		f.guestCaption(ctx, run, lines(promptQuote(run.Prompt), text, model), kb)
 	}
-	if _, err := f.cfg.Store.FinishChatRun(ctx, run.JobID, db.StageFailed, db.ChatResult{}); err != nil {
-		f.log.Error("run not finished", "job", run.JobID, "error", err)
-		return
-	}
-	f.forget(run.JobID)
+	f.finish(ctx, run, db.StageFailed, db.ChatResult{})
 }
 
 // ---- the links of a guest run ----

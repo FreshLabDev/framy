@@ -146,3 +146,58 @@ func TestAResultTelegramDefersIsNoFailure(t *testing.T) {
 		t.Fatalf("a 429 counted as a failure: stage %s", h.store.stage(id))
 	}
 }
+
+// A result that went out goes once, even when its record fails: the next
+// round records it and sends nothing again. Before, it was sent a second
+// time.
+func TestAResultWhoseRecordFailedIsNotSentAgain(t *testing.T) {
+	h := newHarness(t)
+	id := h.doneSlow(t)
+	h.store.finishErr = errBoom
+	h.flow.step(context.Background(), id)
+	if h.store.stage(id) != db.StageGenerating || len(h.tg.methods("sendPhoto")) != 1 {
+		t.Fatalf("stage %s, sent %+v", h.store.stage(id), h.tg.methods("sendPhoto"))
+	}
+	h.now = h.now.Add(followEvery)
+	h.flow.step(context.Background(), id)
+	if sent := h.tg.methods("sendPhoto"); len(sent) != 1 {
+		t.Fatalf("sent again: %+v", sent)
+	}
+	if h.store.stage(id) != db.StageDone || h.store.results[id].FileID != "photo-file" {
+		t.Fatalf("stage %s, result %+v", h.store.stage(id), h.store.results[id])
+	}
+}
+
+// A stop in the middle of a send lets it finish and be recorded, rather
+// than cut it short and send it again after the restart.
+func TestAStopLetsTheResultInFlightGo(t *testing.T) {
+	h := newHarness(t)
+	id := h.doneSlow(t)
+	ctx, stop := context.WithCancel(context.Background())
+	h.tg.onPhoto = stop
+	done := make(chan struct{})
+	go func() {
+		h.flow.Run(ctx)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Run did not end after the stop")
+	}
+	if h.store.stage(id) != db.StageDone || len(h.tg.methods("sendPhoto")) != 1 {
+		t.Fatalf("stage %s, sent %+v", h.store.stage(id), h.tg.methods("sendPhoto"))
+	}
+}
+
+// After a stop, a run not yet in hand is left for the next process.
+func TestAfterAStopNoNewRunIsStarted(t *testing.T) {
+	h := newHarness(t)
+	id := h.doneSlow(t)
+	stop, cancel := context.WithCancel(context.Background())
+	cancel()
+	h.flow.followUntil(stop, context.Background())
+	if h.store.stage(id) != db.StageGenerating || len(h.tg.calls) != 0 {
+		t.Fatalf("stage %s, calls %+v", h.store.stage(id), h.tg.calls)
+	}
+}
