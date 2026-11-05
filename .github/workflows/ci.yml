@@ -185,23 +185,10 @@ jobs:
       - name: Media tests in the image
         # Photos are normalized, and the loops encoded, by the ffmpeg framy
         # ships, not the runner's, so the tests run inside the image and must
-        # not skip. The API's are here for a photo brought over HTTP, which the
-        # database job, with no ffmpeg of the image's, skips.
+        # not skip. The release runs them again in the image it publishes.
         env:
           FRAMY_TEST_DATABASE_URL: postgres://framy:framy@localhost:5432/framy_test?sslmode=disable
-        run: |
-          bin="$RUNNER_TEMP/bin"
-          mkdir -p "$bin"
-          CGO_ENABLED=0 go test -c -o "$bin/media.test" ./internal/media
-          CGO_ENABLED=0 go test -c -tags=integration -o "$bin/storage.test" ./internal/storage
-          CGO_ENABLED=0 go test -c -o "$bin/anim.test" ./internal/anim
-          CGO_ENABLED=0 go test -c -tags=integration -o "$bin/api.test" ./internal/api
-          for pkg in media storage anim api; do
-            docker run --rm --network host --entrypoint "/t/$pkg.test" \
-              -e FRAMY_MEDIA_TESTS=1 -e FRAMY_TEST_DATABASE_URL \
-              -v "$bin:/t:ro" -v "$PWD:/src:ro" -w "/src/internal/$pkg" \
-              framy:ci -test.v -test.count=1
-          done
+        run: .github/scripts/media-tests.sh framy:ci
       - name: Validate Compose
         # The local stack, the test bot's and production's.
         run: |

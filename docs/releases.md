@@ -53,9 +53,12 @@ A pre-release is tagged on `dev`. Nothing merges anywhere.
 
 The tag push runs `.github/workflows/release.yml`. It runs CI (`ci.yml`) on
 the tagged commit first and publishes nothing unless it passed; then it
-refuses the tag if it is not on `dev` or has no changelog section, builds and
-publishes the image, adds its digest to the notes, and creates the GitHub
-Release marked as a pre-release.
+refuses the tag if it is not on `dev` or has no changelog section, builds the
+image and pushes it by its digest alone, runs the media tests in that image
+and scans its packages, and only then gives it the tag, adds its digest to
+the notes, and creates the GitHub Release marked as a pre-release. CI built
+and tested an image of its own a few minutes before; the one production
+pulls is the one tested here.
 
 Then point the test bot at it. A pre-release nobody ran is a pre-release that
 proved nothing.
@@ -105,7 +108,9 @@ already in GHCR, the run builds nothing: it keeps that image and its digest and
 only writes the notes and the GitHub Release. A new build would carry another
 date and that day's packages, and move the tag away from the digest production
 may already pin. An image that turned out wrong is followed by the next cut,
-never rebuilt under its tag.
+never rebuilt under its tag. A run that failed in the media tests or the scan
+of its image gave that image no tag: it stays in GHCR by its digest alone,
+nothing points at it, and the next run builds again.
 
 ## Rolling back
 
@@ -124,11 +129,13 @@ vulnerability of high or critical severity with a fix. framy's Go modules are
 left to `govulncheck` (`.grype.yaml`). The log of the step lists what it
 found and the version that fixes it.
 
-- **The image built in this run.** The build adds ffmpeg and the rest at
-  their newest versions, but the packages the base image `alpine:3.24`
-  already holds stay as they are in it. So a fix the build lacks is in
-  Alpine's repository and not in the base image yet: upgrade that package in
-  the Dockerfile, or take a base image that has it once Alpine publishes one.
+- **The image built in this run**, in CI or in the release, which scans the
+  image it is about to tag. The base images are pinned by digest
+  (Dependabot proposes newer ones weekly), and the build upgrades every
+  package of the base and adds ffmpeg and the rest at the newest versions
+  Alpine has published. So a fix the build lacks is not in Alpine's
+  repository yet: wait for it, or, when the finding cannot touch framy, say
+  so in `.grype.yaml` with the reason.
 - **The published image** (job `Published image`, weekly and by hand): the
   newest release on `main`, which production runs, has one. Its tag is never built
   again, so the fix reaches production with the next cut: publish it as
