@@ -57,7 +57,7 @@ Interactions API [О]: `POST https://generativelanguage.googleapis.com/v1beta/in
 | `model` | `gemini-nano-banana-2.1`, `gemini-3.1-flash-image`, `gemini-3.1-flash-lite-image`, `gemini-3-pro-image`, `gemini-2.5-flash-image` |
 | `input` | строка или массив блоков `{"type":"text","text":...}`, `{"type":"image","mime_type":...,"data":<base64>}`, видео (`uri`) |
 | `response_format` | `{"type":"image","mime_type":"image/png"|"image/jpeg","aspect_ratio":"16:9","image_size":"2K"}`; text+image: массив `[{"type":"text"},{"type":"image"}]` |
-| `image_size` | `512px` (только 3.1 Flash Image), `1K`, `2K`, `4K`; заглавная K обязательна, "1k" отклоняется; по умолчанию 1K |
+| `image_size` | `512` (только 3.1 Flash Image), `1K`, `2K`, `4K`; заглавная K обязательна, "1k" отклоняется; по умолчанию 1K. Значения по справочнику Interactions API (https://ai.google.dev/api/interactions-api, `ImageResponseFormat.image_size`); "512px" в гайде только в тексте, примера кода с ним нет (5 ноября 2026). Подтвердит первый настоящий запуск на 512 |
 | `aspect_ratio` | по умолчанию как у входной картинки, иначе 1:1; значения в разделе 5 и 4.2 |
 | `generation_config.thinking_level` | `minimal`, `medium`, `high` у Nano Banana 2.1 (по умолчанию `medium`); `minimal`, `high` у 3.1 Flash Image и Lite (по умолчанию `minimal`) |
 | `tools` | `[{"type":"google_search"}]`, опционально `"search_types":["web_search","image_search"]` |

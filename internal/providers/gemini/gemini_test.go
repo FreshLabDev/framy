@@ -240,7 +240,8 @@ func TestSettingsGoWhereGoogleTakesThem(t *testing.T) {
 		t.Errorf("n sent: Gemini has no such field")
 	}
 
-	// Search off sends no tool; the 512 option has its own spelling.
+	// Search off sends no tool; 512 goes as the API reference spells it,
+	// not as the guide's prose writes it ("512px").
 	p, u = serve(t, reply(200, answerOK()))
 	if _, err := p.Submit(context.Background(), jobOf(t, flash31, map[string]any{"google_search": false, "resolution": "512"})); err != nil {
 		t.Fatal(err)
@@ -249,8 +250,8 @@ func TestSettingsGoWhereGoogleTakesThem(t *testing.T) {
 		t.Errorf("tools %v with google_search off", u.body["tools"])
 	}
 	rf, _ = u.body["response_format"].(map[string]any)
-	if rf["image_size"] != "512px" {
-		t.Errorf("image_size %v, want 512px", rf["image_size"])
+	if rf["image_size"] != "512" {
+		t.Errorf("image_size %v, want 512", rf["image_size"])
 	}
 	if _, ok := u.body["generation_config"]; ok {
 		t.Errorf("generation_config %v: no thinking_level was chosen", u.body["generation_config"])

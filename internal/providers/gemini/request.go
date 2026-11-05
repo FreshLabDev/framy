@@ -33,11 +33,6 @@ const (
 	previousSetting = "previous_interaction_id"
 )
 
-// imageSizes are the values of image_size the API takes where the catalog's
-// resolution differs: the 512 option is written "512px", and the K is always
-// upper case.
-var imageSizes = map[string]string{"512": "512px"}
-
 // videoResolutions are the values of a video's resolution the API takes where
 // the catalog's differ: the Interactions API writes 4K "4k".
 var videoResolutions = map[string]string{"4K": "4k"}
@@ -210,7 +205,9 @@ func planFor(j jobs.Job) (plan, error) {
 			if video {
 				format.Resolution = cmp.Or(videoResolutions[s], s)
 			} else {
-				format.ImageSize = cmp.Or(imageSizes[s], s)
+				// The catalog writes image_size as the API reference
+				// lists it: 512, 1K, 2K, 4K. The guide's "512px" is prose.
+				format.ImageSize = s
 			}
 		case "aspect_ratio":
 			format.AspectRatio = s
