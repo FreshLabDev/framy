@@ -119,6 +119,10 @@ type Flow interface {
 	// Reply takes a message of a group that is no command and answers one
 	// of framy's own: words to a result may go on from it.
 	Reply(ctx context.Context, m *tg.Message)
+	// Mention takes a group message that starts with framy's mention, with
+	// the mention taken out of the prompt: framy is asked by name, as by
+	// /img.
+	Mention(ctx context.Context, m *tg.Message, prompt string)
 	// Owns reports whether callback data is a run's button or an answer to
 	// the flow's question.
 	Owns(data string) bool

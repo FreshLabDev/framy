@@ -305,6 +305,35 @@ func (f *Flow) Command(ctx context.Context, m *tg.Message, command, prompt strin
 	})
 }
 
+// Mention takes a group message that starts with framy's mention, the
+// mention taken out: "@framyin_bot a fox" is /img a fox, as the same words
+// are in a chat framy is not in (guest mode). A clip it carries or replies
+// to is edited, as /edit would, since that is what the words can mean there.
+func (f *Flow) Mention(ctx context.Context, m *tg.Message, prompt string) {
+	if m == nil || m.From == nil {
+		return
+	}
+	f.wg.Go(func() {
+		f.withSlot(ctx, func() {
+			if err := f.byName(ctx, m, strings.TrimSpace(prompt)); err != nil && ctx.Err() == nil {
+				f.log.Error("chat mention failed", "chat", m.Chat.ID, "message", m.MessageID, "error", err)
+			}
+		})
+	})
+}
+
+func (f *Flow) byName(ctx context.Context, m *tg.Message, prompt string) error {
+	if prompt == "" {
+		// The hint of /img names the command; this one the mention.
+		return f.reply(ctx, m, t(f.langOf(ctx, m), "guest.empty"))
+	}
+	command := CommandImage
+	if sourcesOf(m).clip != nil {
+		command = CommandVideo
+	}
+	return f.command(ctx, m, command, prompt)
+}
+
 // withSlot runs work as one of the commands worked at once, unless ctx ends
 // while it waits.
 func (f *Flow) withSlot(ctx context.Context, work func()) {

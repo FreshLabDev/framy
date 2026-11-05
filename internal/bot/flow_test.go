@@ -3,6 +3,7 @@ package bot
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -19,6 +20,7 @@ type fakeFlow struct {
 	callbacks []string
 	inline    []string
 	guests    []string
+	mentions  []string
 	open      int
 }
 
@@ -28,6 +30,12 @@ func (f *fakeFlow) Command(_ context.Context, _ *tg.Message, command, prompt str
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.commands = append(f.commands, flowCommand{command, prompt})
+}
+
+func (f *fakeFlow) Mention(_ context.Context, _ *tg.Message, prompt string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.mentions = append(f.mentions, prompt)
 }
 
 func (f *fakeFlow) Plain(_ context.Context, m *tg.Message) {
@@ -168,6 +176,64 @@ func TestImgAndEditGoToTheFlow(t *testing.T) {
 	}
 }
 
+// "@framytest_bot a fox" at the start of a group message is /img by name,
+// as it is in a chat framy is not in. A mention later on is talk about
+// framy, another bot's name is not framy's, and a result posted through
+// framy's inline mode asks for nothing.
+func TestAMentionInAGroupGoesToTheFlow(t *testing.T) {
+	flow := &fakeFlow{}
+	b, _, client := newBotWith(WithFlow(flow))
+	ctx := context.Background()
+	for _, tc := range []struct {
+		text, caption string
+		raw           string
+		want          []string
+	}{
+		{text: "@framytest_bot a fox in the snow", want: []string{"a fox in the snow"}},
+		{text: "  @FramyTest_Bot, a fox", want: []string{"a fox"}},
+		{text: "@framytest_bot: make it\nnight", want: []string{"make it\nnight"}},
+		{caption: "@framytest_bot make it snow", want: []string{"make it snow"}},
+		// Only the mention: the flow says what to write.
+		{text: "@framytest_bot", want: []string{""}},
+		{text: "hey @framytest_bot a fox"},
+		{text: "@framytest_bot2 a fox"},
+		{text: "@framytest_botanist a fox"},
+		{text: "@other_bot a fox"},
+		{text: "a fox"},
+		{text: "@framytest_bot a fox", raw: `{"via_bot":{"id":1}}`},
+	} {
+		flow.mentions, flow.commands = nil, nil
+		m := message(groupChat, 7, tc.text)
+		m.Caption = tc.caption
+		if tc.raw != "" {
+			m.Raw = []byte(tc.raw)
+		}
+		if err := b.onMessage(ctx, m); err != nil {
+			t.Fatalf("%q: %v", tc.text+tc.caption, err)
+		}
+		if !slices.Equal(flow.mentions, tc.want) || len(flow.commands) != 0 {
+			t.Errorf("%q gave %q (commands %+v), want %q", tc.text+tc.caption, flow.mentions, flow.commands, tc.want)
+		}
+	}
+	if len(client.calls) != 0 {
+		t.Errorf("the bot answered itself: %+v", client.calls)
+	}
+	// In the DM a message needs no mention: it is a plain one.
+	flow.mentions = nil
+	if err := b.onMessage(ctx, message(dmChat, 7, "@framytest_bot a fox")); err != nil {
+		t.Fatal(err)
+	}
+	if len(flow.mentions) != 0 || len(flow.plain) != 1 {
+		t.Errorf("DM: mentions %q, plain %q", flow.mentions, flow.plain)
+	}
+	// A bot's message is never a request.
+	m := message(groupChat, 7, "@framytest_bot a fox")
+	m.From.IsBot = true
+	if err := b.onMessage(ctx, m); err != nil || len(flow.mentions) != 0 {
+		t.Errorf("a bot: %v, %q", err, flow.mentions)
+	}
+}
+
 func TestWithoutAFlowImgIsLeftUnanswered(t *testing.T) {
 	b, _, client := newBot()
 	if err := b.onMessage(context.Background(), message(groupChat, 7, "/img a fox")); err != nil {
@@ -278,6 +344,15 @@ func TestAGroupsReplyToFramyGoesToTheFlow(t *testing.T) {
 		if len(flow.plain) != 0 {
 			t.Fatalf("%s: taken as a direct message", tc.name)
 		}
+	}
+	// Asked by name, a reply to framy is a request as /img is: the mention
+	// wins.
+	flow.replies, flow.mentions = nil, nil
+	if err := b.onMessage(context.Background(), toFramy(message(groupChat, 7, "@framytest_bot make it night"))); err != nil {
+		t.Fatal(err)
+	}
+	if len(flow.replies) != 0 || !slices.Equal(flow.mentions, []string{"make it night"}) {
+		t.Errorf("a named reply: replies %q, mentions %q", flow.replies, flow.mentions)
 	}
 }
 

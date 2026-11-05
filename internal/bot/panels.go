@@ -3,9 +3,12 @@ package bot
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/FreshLabDev/tg"
 
@@ -53,12 +56,25 @@ func (b *Bot) onMessage(ctx context.Context, m *tg.Message) error {
 	cmd, rest, ok := b.commandArgs(m)
 	private := m.Chat.Type == "private"
 	if !ok {
-		person := b.flow != nil && m.From != nil && !m.From.IsBot && !strings.HasPrefix(strings.TrimSpace(m.Text), "/")
+		if b.flow == nil || m.From == nil || m.From.IsBot {
+			return nil
+		}
+		command := strings.HasPrefix(strings.TrimSpace(m.Text), "/")
+		prompt, named := "", false
+		if !private {
+			prompt, named = b.mentionArgs(m)
+		}
 		switch {
-		case person && private:
+		case private && !command:
 			// In a direct chat no command is needed (docs/design.md, DM).
 			b.flow.Plain(ctx, m)
-		case person && b.repliesToSelf(m):
+		case named:
+			// "@framyin_bot a fox" in a group framy is in is /img by name,
+			// as the same words are in a chat framy is not in (guest mode).
+			// It wins over a reply: asked by name, framy takes the replied
+			// message as /img does.
+			b.flow.Mention(ctx, m, prompt)
+		case !private && !command && b.repliesToSelf(m):
 			// In a group a reply to framy's result may go on from it.
 			b.flow.Reply(ctx, m)
 		}
@@ -97,6 +113,44 @@ func (b *Bot) onMessage(ctx context.Context, m *tg.Message) error {
 func (b *Bot) repliesToSelf(m *tg.Message) bool {
 	r := m.ReplyToMessage
 	return r != nil && r.From != nil && b.selfID != 0 && r.From.ID == b.selfID
+}
+
+// mentionArgs reads a group message that starts with framy's mention, in
+// any case, in its text or caption: the rest is the prompt, with the comma
+// or colon after the mention left out. A mention later in the message is
+// talk about framy, not to it. A message sent through framy's inline mode
+// is a result someone chose to post, not a request.
+func (b *Bot) mentionArgs(m *tg.Message) (prompt string, ok bool) {
+	if b.username == "" || viaBot(m) {
+		return "", false
+	}
+	text := m.Text
+	if text == "" {
+		text = m.Caption
+	}
+	text = strings.TrimSpace(text)
+	head := "@" + b.username
+	if len(text) < len(head) || !strings.EqualFold(text[:len(head)], head) {
+		return "", false
+	}
+	rest := text[len(head):]
+	if r, _ := utf8.DecodeRuneInString(rest); r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r) {
+		// "@framyin_bot2": another name.
+		return "", false
+	}
+	return strings.TrimSpace(strings.TrimLeft(rest, " \t\n,:")), true
+}
+
+// viaBot tells a message sent through a bot's inline mode, which the
+// package does not model: it is read from Raw.
+func viaBot(m *tg.Message) bool {
+	if len(m.Raw) == 0 {
+		return false
+	}
+	var raw struct {
+		ViaBot *struct{} `json:"via_bot"`
+	}
+	return json.Unmarshal(m.Raw, &raw) == nil && raw.ViaBot != nil
 }
 
 // tooLate tells Telegram's refusal of an ephemeral reply to a command it
