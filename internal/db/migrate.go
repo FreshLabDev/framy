@@ -42,6 +42,13 @@ func (s *Store) Migrate(ctx context.Context, fsys fs.FS, after ...func(context.C
 		return fmt.Errorf("acquire migration lock connection: %w", err)
 	}
 	defer conn.Release()
+	// Waiting for another process's migrations is not a statement that
+	// hangs: the session's statement_timeout (Connect) is lifted for the
+	// wait and put back before the connection goes back to the pool.
+	if _, err := conn.Exec(ctx, `SET statement_timeout = 0`); err != nil {
+		return fmt.Errorf("lift the statement timeout for the migration lock: %w", err)
+	}
+	defer func() { _, _ = conn.Exec(context.Background(), `RESET statement_timeout`) }()
 	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, migrationLockKey); err != nil {
 		return fmt.Errorf("acquire migration advisory lock: %w", err)
 	}

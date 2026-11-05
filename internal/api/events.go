@@ -167,7 +167,13 @@ func (l *listener) session(ctx context.Context) error {
 	if cfg.RuntimeParams == nil {
 		cfg.RuntimeParams = map[string]string{}
 	}
-	cfg.RuntimeParams["application_name"] = "framy-events"
+	// framy-events, or framy-<stack>-events: named apart from the pool's,
+	// which it was copied from.
+	base := cfg.RuntimeParams["application_name"]
+	if base == "" {
+		base = "framy"
+	}
+	cfg.RuntimeParams["application_name"] = base + "-events"
 	conn, err := pgx.ConnectConfig(ctx, cfg)
 	if err != nil {
 		// pgx can quote the URL of a failed connection, password included.
