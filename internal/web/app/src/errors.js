@@ -61,6 +61,10 @@ export function failure(j) {
   const msg = OWNWORDS.has(cls) && j.error?.from_provider && j.error.message ? ownWords(j.error.message) : "";
   const said = msg ? t("fail.said", { provider: P, text: msg }) : "";
   const again = ["retry", "edit"];
+  // A key refused or a balance short while framy asked about a video it had
+  // sent: the run went to the provider and may be paid, unlike a request the
+  // key could not send.
+  const sent = j.status === "expired" ? { note: may } : none;
   if (j.status === "cancelled") return { cls: "cancelled", label: t("stage.cancelled"), text: "", ...none, acts: again };
   const face = faceOf(j, cls), m = C.byId[j.model];
   if (face) return { cls: "faces", label: t(face === "video" ? "fail.faces_clip_l" : "fail.faces_photo_l"), text: t("fail.faces", { model: m ? vname(m) : P }),
@@ -69,10 +73,10 @@ export function failure(j) {
     case "moderation": return { cls, label: t("fail.moderation_l"), text: "", ...(free ? { note: t("fail.free_spent") } : none), said, acts: ["edit"] };
     case "money": return free
       ? { cls, label: t("fail.free_closed_l"), text: t("fail.free_money"), note: t("fail.free_kept"), acts: ["bykey"], closeFree: 15 * 60e3 }
-      : { cls, label: t("fail.money_l"), text: "", ...none, acts: ["topup", "rekey"], provider: p };
+      : { cls, label: t("fail.money_l"), text: "", ...sent, acts: ["topup", "rekey"], provider: p };
     case "key": return free
       ? { cls, label: t("fail.free_off_l"), text: t("fail.free_key"), note: t("fail.free_kept"), acts: ["bykey"] }
-      : { cls, label: t("fail.key_l"), text: t("fail.key", { provider: P }), ...none, acts: ["rekey"], provider: p };
+      : { cls, label: t("fail.key_l"), text: t("fail.key", { provider: P }), ...sent, acts: ["rekey"], provider: p };
     case "refused": return { cls, label: t("fail.refused_l"), text: t("fail.refused", { provider: P }), ...none, said, acts: ["edit"] };
     // The model refused the sound it made (copyright); nothing was charged.
     case "sound": return { cls, label: t("fail.sound_l"), text: t("fail.sound"), ...none, acts: m && hasAudio(m) ? ["quiet", "edit"] : again };

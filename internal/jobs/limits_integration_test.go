@@ -225,3 +225,61 @@ func TestTheLastAttemptKeepsTheTruthAboutTheMoney(t *testing.T) {
 		})
 	}
 }
+
+// A key refused or a balance short while a sent video is asked about is
+// trouble with the asking, not an answer about the run: it is likely paid,
+// so framy asks again until the hour is up, and a key put right fetches it.
+// Past the hour it expires with that class, as a run that may be paid.
+func TestAskingAboutAPaidVideoOutlastsTroubleWithTheKey(t *testing.T) {
+	ctx := context.Background()
+	for _, class := range []Class{Key, Money} {
+		t.Run(string(class), func(t *testing.T) {
+			p := newFake()
+			p.submit = func(context.Context, Job) (Submission, error) { return Submission{ProviderJobID: "gen-1"}, nil }
+			fixed := false
+			p.poll = func(context.Context, Job) (Outcome, error) {
+				if !fixed {
+					return Outcome{}, &Error{Class: class, Err: errors.New("the person has no openrouter key")}
+				}
+				cost := 1.40
+				return Outcome{Results: []Result{{ContentType: "video/mp4", URL: "https://example.test/v.mp4"}}, CostUSD: &cost}, nil
+			}
+			q, _ := testQueue(t, p)
+			id := enqueue(t, q, job(alice, videoOffer))
+			if err := q.work(ctx, id); !isSnooze(err) {
+				t.Fatalf("after the submit: %v", err)
+			}
+			for i := range 3 {
+				if err := q.work(ctx, id); !isSnooze(err) {
+					t.Fatalf("poll %d with the %s trouble: %v, want a snooze", i+1, class, err)
+				}
+			}
+			if j := get(t, q, id); j.Status != Running {
+				t.Fatalf("after the trouble: %s %s, want the run still asked about", j.Status, j.ErrorClass)
+			}
+			fixed = true
+			if err := q.work(ctx, id); err != nil {
+				t.Fatal(err)
+			}
+			if j := get(t, q, id); j.Status != Done || j.ActualUSD == nil || p.count(p.submits, id) != 1 {
+				t.Fatalf("after the key was put right: %s, cost %v, %d requests", j.Status, j.ActualUSD, p.count(p.submits, id))
+			}
+
+			// Trouble that lasts the hour ends the run as expired, with the class.
+			fixed = false
+			late := enqueue(t, q, job(alice, videoOffer))
+			if err := q.work(ctx, late); !isSnooze(err) {
+				t.Fatalf("after the submit: %v", err)
+			}
+			q.now = func() time.Time { return time.Now().Add(RunDeadline + time.Minute) }
+			defer func() { q.now = time.Now }()
+			if err := q.work(ctx, late); err != nil {
+				t.Fatal(err)
+			}
+			j := get(t, q, late)
+			if j.Status != Expired || j.ErrorClass != class || j.Error != "framy could not ask about the run for an hour: "+string(class)+": the person has no openrouter key" {
+				t.Fatalf("past the hour: %s %s %q", j.Status, j.ErrorClass, j.Error)
+			}
+		})
+	}
+}

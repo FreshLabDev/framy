@@ -96,9 +96,12 @@ const (
 	// maxAttempts caps River's own retries, for errors that are framy's.
 	maxAttempts = 5
 	draftTTL    = 10 * time.Minute
-	// runDeadline: a run the provider has not finished by then expires.
-	runDeadline = time.Hour
 )
+
+// RunDeadline: a run the provider has not finished by then, counted from
+// the paid request, expires. Until then framy asks about it, and the key it
+// was sent with stays (keys.Service.Delete).
+const RunDeadline = time.Hour
 
 // Config is the queue's setup. Providers are keyed by the catalog's provider
 // name: openai, gemini, openrouter.

@@ -24,6 +24,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -626,6 +627,112 @@ func TestJobKeyByStatus(t *testing.T) {
 	asJobsError(t, err, jobs.Key)
 	if got != "" {
 		t.Error("an invalid key was handed out")
+	}
+	// To ask about a run already sent it still is: asking costs nothing, and
+	// the run is likely paid.
+	sent := job(ann, catalog.OpenAI)
+	sent.ProviderJobID = "gen-1"
+	if got, err := svc.JobKey(ctx, sent); err != nil || got != annOpenAI {
+		t.Errorf("an invalid key to ask about a sent run: %q, %v", got, err)
+	}
+}
+
+// A key a video sent within the hour still needs is kept: framy asks about
+// the video and fetches it with that key, and the run is likely paid. Once
+// the video has ended, or the hour is up, the key goes.
+func TestDeleteKeepsAKeyAVideoStillNeeds(t *testing.T) {
+	pool := testPool(t)
+	p := newProviders(t, annRouter, annGemini)
+	svc, _ := newService(t, pool, testKEK(t, 1), p)
+	ctx := context.Background()
+	for provider, key := range map[string]string{catalog.OpenRouter: annRouter, catalog.Gemini: annGemini} {
+		if _, err := svc.Save(ctx, ann, provider, key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, stmt := range []string{
+		`INSERT INTO framy.catalog_model (id, kind, name, maker) VALUES ('test/keys-video', 'video', 'Test video', 'test') ON CONFLICT DO NOTHING`,
+		`INSERT INTO framy.catalog_offer (id, model_id, provider, provider_model_id, name, fetched_at)
+		   VALUES ('openrouter:test/keys-video', 'test/keys-video', 'openrouter', 'test/keys-video', 'Test video', now()) ON CONFLICT DO NOTHING`,
+	} {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	clean := func() {
+		if _, err := pool.Exec(ctx, `DELETE FROM framy.job WHERE user_id IN ($1, $2, $3)`, ann, bob, eve); err != nil {
+			t.Fatal(err)
+		}
+	}
+	clean()
+	t.Cleanup(clean)
+	run := func(user int64, kind, status string, free bool, sentAgo time.Duration, providerJobID string) int64 {
+		t.Helper()
+		var id int64
+		var finished *time.Time
+		if status != "running" && status != "queued" {
+			now := time.Now()
+			finished = &now
+		}
+		var sent *time.Time
+		if sentAgo >= 0 {
+			at := time.Now().Add(-sentAgo)
+			sent = &at
+		}
+		if err := pool.QueryRow(ctx, `
+			INSERT INTO framy.job (user_id, surface, offer_id, model_id, provider, kind, free, status, submitted_at, provider_job_id, finished_at, queued_at)
+			VALUES ($1, 'site', 'openrouter:test/keys-video', 'test/keys-video', 'openrouter', $2, $3, $4, $5, NULLIF($6, ''), $7, now())
+			RETURNING id`, user, kind, free, status, sent, providerJobID, finished).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+
+	// What does not need the key leaves it free to go: a video that has
+	// ended, one not sent yet, a free one (framy's key), a picture (its call
+	// had the key it needs), another person's, and one sent over an hour ago.
+	run(ann, "video", "done", false, time.Minute, "gen-done")
+	run(ann, "video", "running", false, -1, "")
+	run(ann, "video", "running", true, time.Minute, "gen-free")
+	run(ann, "image", "running", false, time.Minute, "")
+	run(bob, "video", "running", false, time.Minute, "gen-bob")
+	run(ann, "video", "running", false, 2*jobs.RunDeadline, "gen-stuck")
+	if err := svc.Delete(ctx, ann, catalog.OpenRouter); err != nil {
+		t.Fatalf("nothing needs the key: %v", err)
+	}
+	if _, err := svc.Save(ctx, ann, catalog.OpenRouter, annRouter); err != nil {
+		t.Fatal(err)
+	}
+
+	// A video being made holds it, from the paid request on, id saved or not.
+	for name, providerJobID := range map[string]string{"with its id": "gen-1", "before its id is saved": ""} {
+		id := run(ann, "video", "running", false, 10*time.Minute, providerJobID)
+		if err := svc.Delete(ctx, ann, catalog.OpenRouter); !errors.Is(err, ErrInUse) {
+			t.Fatalf("a video %s: %v, want ErrInUse", name, err)
+		}
+		if countRows(t, pool) != 2 {
+			t.Fatalf("a video %s: rows = %d, want the key kept", name, countRows(t, pool))
+		}
+		if got, err := svc.JobKey(ctx, jobs.Job{ID: id, UserID: ann, Provider: catalog.OpenRouter, ProviderJobID: "gen-1"}); err != nil || got != annRouter {
+			t.Fatalf("a video %s: the key to ask with: %q, %v", name, got, err)
+		}
+		// The other provider's key is not held by it.
+		if err := svc.Delete(ctx, ann, catalog.Gemini); err != nil {
+			t.Fatalf("a video %s: the Gemini key: %v", name, err)
+		}
+		if _, err := svc.Save(ctx, ann, catalog.Gemini, annGemini); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, `UPDATE framy.job SET status = 'done', finished_at = now() WHERE id = $1`, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The video in, the key goes; a second delete finds nothing.
+	if err := svc.Delete(ctx, ann, catalog.OpenRouter); err != nil {
+		t.Fatalf("after the video: %v", err)
+	}
+	if err := svc.Delete(ctx, ann, catalog.OpenRouter); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("a second delete: %v", err)
 	}
 }
 

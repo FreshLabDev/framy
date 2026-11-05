@@ -83,6 +83,8 @@ func (a *API) keyError(w http.ResponseWriter, r *http.Request, provider string, 
 		e = newError(http.StatusNotFound, codeNotFound, "no key of this provider is connected")
 	case errors.Is(err, keys.ErrUnreadable):
 		e = newError(http.StatusConflict, codeKeyUnreadable, "the stored key cannot be read; paste it again")
+	case errors.Is(err, keys.ErrInUse):
+		e = newError(http.StatusConflict, codeKeyInUse, "a video sent with this key is still being made, and framy needs the key to fetch it; disconnect it once the video is in")
 	default:
 		a.internal(w, r, err)
 		return
@@ -124,7 +126,8 @@ func (a *API) saveConnection(w http.ResponseWriter, r *http.Request) {
 }
 
 // deleteConnection answers DELETE /api/connections/{provider}: the key is
-// gone from framy. Revoking it at the provider is the person's step.
+// gone from framy. Revoking it at the provider is the person's step. A key a
+// video sent within the hour still needs is kept, with key_in_use.
 func (a *API) deleteConnection(w http.ResponseWriter, r *http.Request) {
 	user, ok := a.person(w, r)
 	if !ok {

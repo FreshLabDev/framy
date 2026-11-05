@@ -7613,6 +7613,24 @@
     "ja": "{provider} はキーを受け付けましたが、モデル一覧の取得は許可されていません。キーの設定で許可してください。",
     "ar": "قبل {provider} المفتاح لكنه لا يسمح له بعرض قائمة النماذج. اسمح بذلك في إعدادات المفتاح."
   },
+  "web.key.key_in_use": {
+    "en": "{provider} is still making a video on this key, and framy needs the key to fetch it. Disconnect it once the video is ready.",
+    "ru": "{provider} ещё делает видео на этом ключе, и framy нужен ключ, чтобы его забрать. Отключи ключ, когда видео будет готово.",
+    "uk": "{provider} ще робить відео на цьому ключі, і framy потрібен ключ, щоб його забрати. Відключи ключ, коли відео буде готове.",
+    "es": "{provider} aún está haciendo un vídeo con esta clave, y framy la necesita para recogerlo. Desconéctala cuando el vídeo esté listo.",
+    "fr": "{provider} fait encore une vidéo avec cette clé, et framy en a besoin pour la récupérer. Déconnecte la clé une fois la vidéo prête.",
+    "de": "{provider} erstellt mit diesem Schlüssel noch ein Video, und framy braucht den Schlüssel, um es abzuholen. Trenne ihn, sobald das Video fertig ist.",
+    "it": "{provider} sta ancora creando un video con questa chiave, e framy ne ha bisogno per recuperarlo. Scollegala quando il video è pronto.",
+    "pl": "{provider} wciąż robi wideo na tym kluczu, a framy potrzebuje klucza, żeby je odebrać. Rozłącz klucz, gdy wideo będzie gotowe.",
+    "cs": "{provider} na tomto klíči ještě dělá video a framy klíč potřebuje, aby ho vyzvedl. Odpoj klíč, až bude video hotové.",
+    "tr": "{provider} bu anahtarla hâlâ bir video hazırlıyor ve framy videoyu almak için anahtara ihtiyaç duyuyor. Video hazır olunca anahtarın bağlantısını kes.",
+    "sv": "{provider} gör fortfarande en video med den här nyckeln, och framy behöver nyckeln för att hämta den. Koppla från nyckeln när videon är klar.",
+    "be": "{provider} яшчэ робіць відэа на гэтым ключы, і framy патрэбны ключ, каб яго забраць. Адключы ключ, калі відэа будзе гатовае.",
+    "ca": "{provider} encara està fent un vídeo amb aquesta clau, i framy la necessita per recollir-lo. Desconnecta-la quan el vídeo estigui llest.",
+    "zh": "{provider} 仍在用这个密钥生成视频，framy 需要它来取回视频。视频完成后再断开连接。",
+    "ja": "{provider} はこのキーでまだ動画を作成中で、framy は動画を受け取るためにこのキーを使います。動画ができてから接続を解除してください。",
+    "ar": "لا يزال {provider} يصنع فيديو بهذا المفتاح، ويحتاج framy إلى المفتاح لاستلامه. افصل المفتاح بعد أن يجهز الفيديو."
+  },
   "web.key.key_rejected": {
     "en": "{provider} did not accept the key: it is wrong or revoked.",
     "ru": "{provider} не принял ключ: он неверный или отозван.",

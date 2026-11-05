@@ -858,6 +858,11 @@ func TestAFailedRunShowsTheCard(t *testing.T) {
 		// A free run is paid by framy's key, not the person's.
 		{jobs.Failed, jobs.Key, true, "err.failed", retry, false},
 		{jobs.Expired, "", true, "err.timeout", []string{actRetry, actOther}, false},
+		// A video whose key stopped working while framy asked about it.
+		{jobs.Expired, jobs.Key, false, "err.key", nil, false},
+		{jobs.Expired, jobs.Money, false, "err.money", []string{"", actRetry}, true},
+		{jobs.Expired, jobs.Key, true, "err.failed", retry, false},
+		{jobs.Expired, jobs.ProviderFailed, false, "err.timeout", []string{actRetry, actOther}, false},
 		{jobs.Failed, jobs.Internal, true, "err.failed", []string{actRetry, actOther}, false},
 	} {
 		h := newHarness(t)

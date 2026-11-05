@@ -35,6 +35,7 @@ type fakePrefs struct {
 	patches   []map[string]any  // PATCH /api/me bodies
 	active    string            // what a deletion finds still going: "queued", "running" or ""
 	storeFail int               // deletions the storage fails first
+	making    int               // disconnects refused first: a video on the key is still being made
 	deleted   bool
 	// slowMe: GET /api/me answers this late with the account as it was, and
 	// a PATCH sent with it is kept only after the GET has read it.
@@ -207,6 +208,11 @@ func (f *fakePrefs) mount(srv *Server) {
 	srv.HandleFunc("DELETE /api/connections/{p}", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
+		if f.making > 0 {
+			f.making--
+			writeTestJSON(w, http.StatusConflict, map[string]any{"error": "key_in_use", "provider": r.PathValue("p")})
+			return
+		}
 		delete(f.conns, r.PathValue("p"))
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -367,6 +373,17 @@ func TestBrowserPrefs(t *testing.T) {
 	return { r, after: rowText("openai") };`)
 	if fmt.Sprint(s["r"]) != "map[bad:false btns:[Check Disconnect] sub:Key …abcd · accepted]" || fmt.Sprint(s["after"]) != fmt.Sprint(s["r"]) {
 		t.Errorf("connected: %v", s)
+	}
+
+	// A key a video is still being made on stays, and the toast says why.
+	f.with(func() { f.making = 1 })
+	s = prefs(t, ctx, `
+	btn(rowOf("openai"), "Disconnect").click();
+	await until(() => toastText());
+	return { toast: toastText(), row: rowText("openai") };`)
+	if s["toast"] != "OpenAI is still making a video on this key, and framy needs the key to fetch it. Disconnect it once the video is ready." ||
+		fmt.Sprint(s["row"]) != "map[bad:false btns:[Check Disconnect] sub:Key …abcd · accepted]" {
+		t.Errorf("a key a video needs: %v", s)
 	}
 
 	// Disconnecting says where to revoke the key too.

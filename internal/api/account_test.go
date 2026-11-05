@@ -82,6 +82,16 @@ func TestWhatTheKeysServiceRefusesIsSaidPlainly(t *testing.T) {
 	}
 }
 
+// A key a video still needs is not deleted, and the answer says why.
+func TestAKeyAVideoNeedsIsKept(t *testing.T) {
+	r := newRig(t)
+	r.conns.opErr = keys.ErrInUse
+	status, m := r.send(alice, http.MethodDelete, "/api/connections/openrouter", "")
+	if status != http.StatusConflict || m["error"] != "key_in_use" || m["provider"] != "openrouter" {
+		t.Fatalf("%d %v", status, m)
+	}
+}
+
 func TestAConnectionRequestThatCannotBeIsRefused(t *testing.T) {
 	r := newRig(t)
 	for _, tc := range []struct {

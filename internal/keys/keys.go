@@ -55,6 +55,9 @@ var (
 	// it is not in the KEK file, or the row was altered. The person enters
 	// the key again.
 	ErrUnreadable = errors.New("the stored key cannot be read")
+	// ErrInUse: a video sent with the key is still being made, and framy
+	// needs the key to ask about it and fetch it.
+	ErrInUse = errors.New("a video sent with this key is still being made")
 )
 
 // Connection is a connection as a settings page sees it. It has no key in any
@@ -237,16 +240,39 @@ func (s *Service) List(ctx context.Context, userID int64) ([]Connection, error) 
 
 // Delete removes the person's connection to the provider, the row and with it
 // the encrypted key. Revoking the key at the provider is the person's step.
+//
+// A key a video still needs is kept, and the answer is ErrInUse: the run was
+// sent within the hour (jobs.RunDeadline) and is likely paid, and framy asks
+// about it and fetches it with the person's key of its provider. Without the
+// key the paid video would be lost. The person deletes the key once the video
+// is in; a run stuck past the hour no longer holds it.
 func (s *Service) Delete(ctx context.Context, userID int64, provider string) error {
 	if s == nil {
 		return ErrDisabled
 	}
-	tag, err := s.pool.Exec(ctx, `DELETE FROM connection WHERE user_id = $1 AND provider = $2`, userID, provider)
-	if err != nil {
+	// One statement, so a run that ends meanwhile is seen either way. The
+	// outer SELECT sees the connection as it was before the delete.
+	var had, busy bool
+	err := s.pool.QueryRow(ctx, `
+		WITH busy AS (
+			SELECT EXISTS (
+				SELECT 1 FROM job
+				WHERE user_id = $1 AND provider = $2 AND NOT free AND status = 'running'
+				  AND submitted_at > now() - make_interval(secs => $3)
+				  AND (provider_job_id IS NOT NULL OR kind = 'video')) AS b
+		), gone AS (
+			DELETE FROM connection WHERE user_id = $1 AND provider = $2 AND NOT (SELECT b FROM busy)
+		)
+		SELECT EXISTS (SELECT 1 FROM connection WHERE user_id = $1 AND provider = $2), (SELECT b FROM busy)`,
+		userID, provider, jobs.RunDeadline.Seconds()).Scan(&had, &busy)
+	switch {
+	case err != nil:
 		return fmt.Errorf("delete the connection: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
+	case !had:
 		return ErrNotFound
+	case busy:
+		s.log.Info("key kept: a video sent with it is still being made", "provider", provider)
+		return ErrInUse
 	}
 	s.log.Info("key deleted", "provider", provider)
 	return nil
@@ -351,10 +377,13 @@ func (s *Service) Recheck(ctx context.Context, userID int64, provider string) (C
 // the provider has not refused it (Invalid). A key marked as lacking billing,
 // verification or credit is still returned: the run costs nothing when the
 // provider refuses it, and it is how the status gets fixed once the person
-// has fixed the account. Otherwise, and for a key that cannot be read, the
-// answer is a jobs.Error of class Key. A free run is refused here: it is paid
-// by framy's key, and a person's key must not pay for what is shown as free.
-// The messages hold no key.
+// has fixed the account. A refused key is still returned to ask about a run
+// already sent (one with a provider job id): asking costs nothing, the run is
+// likely paid, and a refusal may have been the provider's passing trouble.
+// Otherwise, and for a key that cannot be read, the answer is a jobs.Error of
+// class Key. A free run is refused here: it is paid by framy's key, and a
+// person's key must not pay for what is shown as free. The messages hold no
+// key.
 func (s *Service) JobKey(ctx context.Context, j jobs.Job) (string, error) {
 	if s == nil {
 		return "", keyError("people's keys are not available: no KEK file is configured")
@@ -369,7 +398,7 @@ func (s *Service) JobKey(ctx context.Context, j jobs.Job) (string, error) {
 		return "", keyError("the person has no " + name + " key")
 	case err != nil:
 		return "", err
-	case r.status == Invalid:
+	case r.status == Invalid && j.ProviderJobID == "":
 		return "", keyError("the " + name + " key was refused by the provider; the person has to replace it")
 	}
 	key, err := s.open(r)

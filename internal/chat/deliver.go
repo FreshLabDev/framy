@@ -560,9 +560,21 @@ func failureText(run db.ChatRun, key string) string {
 	return t(run.Lang, key, "provider", providerName(runProvider(run)))
 }
 
-// reason is the i18n key of the line a failed run's card says.
+// reason is the i18n key of the line a failed run's card says. A video that
+// expired because its key stopped working while framy asked about it says
+// so, not that the model took too long: the key is what the person can fix.
 func reason(run db.ChatRun) string {
-	if jobs.Status(run.Status) == jobs.Expired {
+	switch cls := jobs.Class(run.ErrorClass); {
+	case cls == jobs.Money || cls == jobs.Key:
+		if run.Free {
+			// framy's own key, not the person's.
+			return "err.failed"
+		}
+		if cls == jobs.Money {
+			return "err.money"
+		}
+		return "err.key"
+	case jobs.Status(run.Status) == jobs.Expired:
 		return "err.timeout"
 	}
 	switch jobs.Class(run.ErrorClass) {
@@ -572,17 +584,6 @@ func reason(run db.ChatRun) string {
 		return "err.faces"
 	case jobs.Sound:
 		return "err.sound"
-	case jobs.Money:
-		if run.Free {
-			return "err.failed"
-		}
-		return "err.money"
-	case jobs.Key:
-		if run.Free {
-			// framy's own key, not the person's.
-			return "err.failed"
-		}
-		return "err.key"
 	case jobs.Timeout:
 		return "err.timeout"
 	}

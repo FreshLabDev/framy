@@ -243,6 +243,9 @@ func (f *fakeRuns) create(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(p, "own:"):
 		// framy's own line, as a run the provider ended with no words of its own has.
 		steps = append(steps, at("running", nil), at("failed", map[string]any{"error": map[string]any{"class": strings.TrimPrefix(p, "own:"), "message": fakeOwnLine}}))
+	case strings.HasPrefix(p, "late:"):
+		// A sent run whose key stopped working while framy asked about it, for the hour.
+		steps = append(steps, at("running", nil), at("expired", map[string]any{"error": map[string]any{"class": strings.TrimPrefix(p, "late:"), "message": fakeOwnLine}}))
 	case p == "faces", p == "wrapped":
 		msg := map[string]string{"faces": fakeFaces, "wrapped": fakeWrapped}[p]
 		steps = append(steps, at("running", nil), at("failed", map[string]any{"error": map[string]any{"class": "refused", "message": msg, "from_provider": p == "wrapped"}}))
@@ -564,6 +567,20 @@ func TestBrowserRuns(t *testing.T) {
 		s = js[map[string]any](t, ctx, pageHelpers+runHelpers+`return await press("own:`+cls+`", (s) => s.failed);`)
 		if s["said"] != "" || strings.Contains(s["text"].(string), "gemini blocked") {
 			t.Errorf("%s with framy's own line: %v", cls, s)
+		}
+	}
+
+	// A sent run whose key was refused, or ran short, while framy asked about
+	// it went to the provider: it may be paid, and its price is not $0.
+	for cls, w := range map[string]struct{ label, first string }{
+		"key":   {"The key does not work", "Replace the OpenRouter key"},
+		"money": {"No money on the key", "Top up OpenRouter"},
+	} {
+		s = js[map[string]any](t, ctx, pageHelpers+runHelpers+`return await press("late:`+cls+`", (s) => s.failed);`)
+		acts, _ := s["acts"].([]any)
+		if s["timeout"] == true || s["label"] != w.label || !strings.Contains(s["why"].(string), "may have charged up to $0.040") ||
+			strings.HasSuffix(s["line"].(string), " · $0") || len(acts) == 0 || acts[0] != w.first {
+			t.Errorf("%s past the hour: %v", cls, s)
 		}
 	}
 
