@@ -937,9 +937,11 @@ Temporary domain `framy.ws04.cc`. Mobile first; on a wide screen the composer an
 
 Every change below is an issue in FreshLabDev/tg, [#2](https://github.com/FreshLabDev/tg/issues/2) to [#18](https://github.com/FreshLabDev/tg/issues/18), on the framy board ([projects/3](https://github.com/orgs/FreshLabDev/projects/3), view "tg changes"). The maply and framy issues that wait for them are marked as blocked by them.
 
+**Where framy stands.** `go.mod` names tg `v0.2.0-alpha.3.0.20261031203103-b5a82887d903`: commit b5a8288 on tg's `dev`, five commits past v0.2.0-alpha.3 and `dev`'s head on 5 November 2026. They are prepared inline messages (fe692f2), guest mode (bd169f3), an inline message's text with a link preview (5e0a6c2), rich messages with their own pictures (0e76c2b) and a video's cover in an album (b5a8288), all in tg's `## Unreleased`. framy uses each of them, so it cannot go back to the tag. This is a known limit: every framy release so far, v0.1.0-alpha.1 to alpha.4, builds on a tg commit no tg release names (alpha.1 and alpha.2 on 0e76c2b, alpha.3 and alpha.4 on b5a8288). Go's module proxy keeps the commit and `go.sum` pins its hash, so a build stays reproducible; what is missing is a tg release whose notes say what framy runs. When tg tags one with these changes, framy moves to the tag, and the commits named below are only where each change landed.
+
 ### Stage 1
 
-Released in tg v0.2.0-alpha.1 on 27 October 2026. v0.2.0-alpha.2 added the ephemeral media, and v0.2.0-alpha.3 (30 October 2026) the send options of Stage 2 and the inline, callback and draft changes of Stage 3. framy is on tg's `dev` at 5e0a6c2, after alpha.3, for prepared inline messages and guest mode.
+Released in tg v0.2.0-alpha.1 on 27 October 2026. v0.2.0-alpha.2 added the ephemeral media, and v0.2.0-alpha.3 (30 October 2026) the send options of Stage 2 and the inline, callback and draft changes of Stage 3.
 
 | Change | Why |
 |:--|:--|
@@ -956,7 +958,7 @@ Released in tg v0.2.0-alpha.1 on 27 October 2026. v0.2.0-alpha.2 added the ephem
 
 ### Stage 2
 
-- `SavePreparedInlineMessage` with photo, video and `mpeg4_gif` results, moved from maply: `shareMessage` in the Mini App. Done in tg#10 on `dev` (fe692f2): `PreparedChats`, and `InlineQueryResultVideo` and `InlineQueryResultMpeg4Gif` by URL, with the photo's size and `input_message_content`. Not released yet; framy builds on that commit until the next tag.
+- `SavePreparedInlineMessage` with photo, video and `mpeg4_gif` results, moved from maply: `shareMessage` in the Mini App. Done in tg#10 on `dev` (fe692f2): `PreparedChats`, and `InlineQueryResultVideo` and `InlineQueryResultMpeg4Gif` by URL, with the photo's size and `input_message_content`. Not released yet.
 - `VideoOptions`: `cover`, `start_timestamp`, `show_caption_above_media`. `SendMessage` options for `disable_notification`, `protect_content` and `message_effect_id`. `docs/limitations.md` already says the next variant should become an option rather than a fourth method. Released in v0.2.0-alpha.3 (tg#11): the three on `VideoOptions`, and the send options on every captioned send through `CaptionOptions`; text messages do not have them yet.
 
 ### Stage 3
@@ -969,7 +971,7 @@ Released in tg v0.2.0-alpha.1 on 27 October 2026. v0.2.0-alpha.2 added the ephem
 - `CallbackQuery.Message` becomes a pointer, and `inline_message_id` is added (tg#13, released in v0.2.0-alpha.3). A callback from an inline or guest message has no message. This is a breaking change: a minor bump before v1.0.0, and every consumer updates.
 - `AnswerGuestQuery` and the `guest_message` update: done in tg#14 on `dev` (bd169f3), with `Message.guest_query_id`, `guest_bot_caller_user`, `guest_bot_caller_chat` and `User.supports_guest_queries`. Not released yet.
 - Ephemeral media and `EditEphemeralMessageMedia`, `EditEphemeralMessageCaption` and `EditEphemeralMessageReplyMarkup`: done in v0.2.0-alpha.2, for the Model and Settings panel.
-- `SendRich`, `EditMessageRich` and `EditEphemeralMessageRich` with the message's own pictures (`RichMedia`, uploaded as `attach://`): done on `dev` (0e76c2b), for the rich preview. Not released yet; framy builds on that commit until the next tag. framy does not call `EditEphemeralMessageRich` while our Bot API server is built on TDLib bc9c263, which aborts on it (step 6 under `/img` and `/edit` in a group).
+- `SendRich`, `EditMessageRich` and `EditEphemeralMessageRich` with the message's own pictures (`RichMedia`, uploaded as `attach://`): done on `dev` (0e76c2b), for the rich preview. Not released yet. framy does not call `EditEphemeralMessageRich` while our Bot API server is built on TDLib bc9c263, which aborts on it (step 6 under `/img` and `/edit` in a group).
 - `SendMessageDraft`, `SendRichDraftHTML` and `SendRichDraftMarkdown` with `can_stop` and `keep_on_stop`, and the `stopped_message_generation` update (tg#16, released in v0.2.0-alpha.3).
 - `BotCommandScope` with a chat id and a user id.
 - `GetMessages`, only if the server patch lands. `Preflight` already refuses a server without it.
