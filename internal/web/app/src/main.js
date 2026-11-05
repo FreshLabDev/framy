@@ -1,7 +1,7 @@
 // framy's site and Mini App. The inline boot script has already asked for the
 // catalog, the person and the lines; this module waits for them, builds the
 // page and hands the skeleton over to it.
-import { $, h, ic } from "./dom.js";
+import { $, h, ic, keepFocus } from "./dom.js";
 import { anim, placeSegs } from "./motion.js";
 import { setTexts, t, lang, warmFormats } from "./i18n.js";
 import { session, setToken, endSession } from "./api.js";
@@ -36,9 +36,10 @@ function account() {
   }
   return S.mini ? null : h("button", { type: "button", class: "signin", onclick: signIn }, ic("send"), h("span", {}, t("auth.signin")));
 }
+// The header is drawn anew on every change of view; a tab pressed with the keyboard keeps the focus.
 function renderTop() {
   const top = $("#top");
-  top.replaceChildren(...[h("div", { class: "logo" }, h("img", { src: MARK, alt: "" }), h("span", {}, "framy")), tabs(), h("span", { class: "sp" }), account()].filter(Boolean));
+  keepFocus(() => top.replaceChildren(...[h("div", { class: "logo" }, h("img", { src: MARK, alt: "" }), h("span", {}, "framy")), tabs(), h("span", { class: "sp" }), account()].filter(Boolean)));
   placeSegs(top);
 }
 

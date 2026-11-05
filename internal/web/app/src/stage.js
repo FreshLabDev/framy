@@ -1,7 +1,7 @@
 // The stage: the frame of what Create will make, in its shape, and once a
 // run starts, that run: its files going up, the wait, a retry, the result,
 // or why there is none, with the buttons that fit.
-import { $, $$, h, ic, isPhone } from "./dom.js";
+import { $, $$, h, ic, isPhone, keepFocus } from "./dom.js";
 import { anim, rise, snap, EASE, motion } from "./motion.js";
 import { t, fmtNum } from "./i18n.js";
 import { C, vname, famLogo, lg, ratioNum, ratioOfSize, PNAME, provMark, show, SICON } from "./catalog.js";
@@ -97,7 +97,8 @@ export function stageFrom() { return snap($("#stage"), CELLS); }
 // A run has ended: refused, stopped before the job, or every job of it final.
 export const runOver = (run) => !!run && (run.phase === "refused" || run.phase === "cancelled" || (run.phase === "job" && jobsOf(run).every((j) => isFinal(j.status))));
 
-export function renderStage() {
+export function renderStage() { keepFocus(drawStage); }
+function drawStage() {
   const st = $("#stage");
   if (!st) return;
   const run = S.run;

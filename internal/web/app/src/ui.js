@@ -1,5 +1,5 @@
 // Sheets, the toast and the one question dialog.
-import { $, h, isWide } from "./dom.js";
+import { $, h, isWide, markOf, findMark } from "./dom.js";
 import { anim, EASE, OUT } from "./motion.js";
 import { t } from "./i18n.js";
 
@@ -78,7 +78,7 @@ export function openSheet(sel, o = {}) {
   const wide = isWide();
   anim(el, [{ transform: wide ? "translateX(64px)" : "translateY(100%)", opacity: wide ? 0 : 1 }, { transform: "none", opacity: 1 }], { duration: 420, easing: EASE });
   if (!had) anim(scrim, [{ opacity: 0 }, { opacity: 1 }], { duration: 260 });
-  el._focus = document.activeElement;
+  el._focus = document.activeElement; el._mark = markOf(el._focus);
   // Focus after the first frame: now it would lay the sheet out in the middle
   // of this task.
   const first = el.querySelector("[autofocus], input, button");
@@ -100,13 +100,21 @@ export function closeSheets(quick) {
     const a = quick ? null : anim(el, [{ transform: "none", opacity: 1 }, { transform: wide ? "translateX(64px)" : "translateY(100%)", opacity: wide ? 0 : 1 }], { duration: 260, easing: OUT, fill: "forwards" });
     const done = () => { el.hidden = true; a?.cancel(); el.dispatchEvent(new Event("closed")); };
     if (a) a.finished.then(done, done); else done();
-    el._focus?.focus?.({ preventScroll: true });
+    back0(el);
   }
   const b = quick ? null : anim(scrim, [{ opacity: 1 }, { opacity: 0 }], { duration: 220, fill: "forwards" });
   const sd = () => { scrim.hidden = true; b?.cancel(); };
   if (b) b.finished.then(sd, sd); else sd();
   layer("sheet", null);
   backHook();
+}
+
+// The focus goes back to what opened the sheet, or to what was drawn in its
+// place meanwhile (the model's card, once a model was chosen in the picker).
+function back0(el) {
+  const f = el._focus?.isConnected ? el._focus : findMark(el._mark);
+  el._focus = null; el._mark = null;
+  f?.focus?.({ preventScroll: true });
 }
 
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && open.length) { e.preventDefault(); closeSheets(); } });

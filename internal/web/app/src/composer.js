@@ -1,7 +1,7 @@
 // The composer: what to make, the model, how to pay, the settings, the price
 // and the one button. Every change goes through act(), which lets the blocks
 // glide from where they stood to where they stand now.
-import { $, $$, h, ic, isPhone, MAC } from "./dom.js";
+import { $, $$, h, ic, isPhone, MAC, keepFocus } from "./dom.js";
 import { anim, rise, spin, opt, placeSegs, placeSeg, fitSegs, snap, ticker, roll, follow, EASE, SPRING, OUT, motion } from "./motion.js";
 import { t, fmtNum, fmtIn, fmtSecs } from "./i18n.js";
 import { C, PNAME, vname, famLogo, lg, provMark, freePlan, pays, offerOf, facts, factEl, deprecation, fieldsOf, SECONDARY, SEARCH, SICON,
@@ -32,13 +32,15 @@ const SOUNDS = "audio/mpeg,audio/wav,audio/ogg,audio/flac,audio/aac,audio/mp4,au
 let ACTING = 0;
 // Every change of the composer: the form's blocks glide, new ones rise, gone ones fade; the frame on the stage refits.
 export function act(fn) {
-  const how = $("#how"), host = $("#composer");
-  const a = snap(how, FORM), b = snap($("#files"), FILES), c = follow(host), d = stageFrom();
-  // A change after a result is the next run being set up: the stage shows its frame again.
-  if (S.showJob && runOver(S.run)) S.showJob = false;
-  ACTING++;
-  try { fn(); renderStage(); } finally { ACTING--; }
-  a(); b(); c(); d();
+  keepFocus(() => {
+    const how = $("#how"), host = $("#composer");
+    const a = snap(how, FORM), b = snap($("#files"), FILES), c = follow(host), d = stageFrom();
+    // A change after a result is the next run being set up: the stage shows its frame again.
+    if (S.showJob && runOver(S.run)) S.showJob = false;
+    ACTING++;
+    try { fn(); renderStage(); } finally { ACTING--; }
+    a(); b(); c(); d();
+  });
 }
 
 export function mountComposer() {
@@ -102,7 +104,9 @@ export function wireComposer() {
   new ResizeObserver(() => { document.documentElement.style.setProperty("--dockh", comp.offsetHeight + "px"); if (isPhone()) refit(); }).observe(comp);
 }
 
-export function render() {
+// A choice made with the keyboard stays where it was made: the blocks are drawn anew, the focus comes back to the control.
+export function render() { keepFocus(draw); }
+function draw() {
   if (!M()) return;
   tidy();
   const m = M(), pay = payOf(m);
@@ -136,9 +140,9 @@ function setKind(k) {
 function renderTools() {
   const P = plan(), m = common(), f = C.famOf[m.id], more = new Set(P.map((it) => it.m.id).filter((id) => id !== m.id)).size;
   $("#dtools").replaceChildren(
-    h("button", { type: "button", class: "chipbtn", "aria-haspopup": "dialog", onclick: () => { if (S.scope[S.kind] != null) { S.scope[S.kind] = null; render(); } openPicker(); } },
+    h("button", { type: "button", class: "chipbtn", id: "mchip", "aria-haspopup": "dialog", onclick: () => { if (S.scope[S.kind] != null) { S.scope[S.kind] = null; render(); } openPicker(); } },
       lg(famLogo(f), f.maker, "o"), h("span", { class: "nm" }, h("span", {}, vname(m))), more ? h("small", { class: "more" }, "+" + fmtNum(more)) : null, ic("chevd")),
-    h("button", { type: "button", class: "chipbtn set", onclick: () => openTune(null), "aria-label": t("tune.title") }, ic("sliders"), h("span", {}, t("tune.short")),
+    h("button", { type: "button", class: "chipbtn set", id: "tchip", onclick: () => openTune(null), "aria-label": t("tune.title") }, ic("sliders"), h("span", {}, t("tune.short")),
       P.length > 1 ? h("b", { class: "cnt" }, "×" + fmtNum(P.length)) : null));
 }
 // On a phone the settings live in a sheet: they are built when it opens, not
@@ -287,7 +291,7 @@ function fitPrompt() {
 /* The frames (on a phone), the model card, the payment, the settings. */
 function renderHow(m, pay) {
   const f = C.famOf[m.id], fr = scopeFr();
-  const head = h("button", { type: "button", class: "mhead", "aria-haspopup": "dialog", onclick: openPicker },
+  const head = h("button", { type: "button", class: "mhead", id: "mhead", "aria-haspopup": "dialog", onclick: openPicker },
     lg(famLogo(f), f.maker),
     h("span", { class: "txt" }, h("span", { class: "mname" }, h("span", {}, vname(m))),
       h("span", { class: "facts" }, facts(m, 4).filter((x) => x[0] !== "ticket").slice(0, 3).map((x) => { const e = factEl(x); e.dataset.k = "fa-" + x[0]; return e; }))),

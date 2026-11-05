@@ -4,7 +4,7 @@
 // what can be done with it. The page's views and their addresses live here
 // too: / is the composer, /library the library. The Mini App keeps its
 // address and walks back with Telegram's back button instead.
-import { $, $$, h, ic, isWide, isPhone } from "./dom.js";
+import { $, $$, h, ic, isWide, isPhone, keepFocus, markOf, findMark } from "./dom.js";
 import { anim, morph, opt, placeSegs, leadSeg, motion, OUT } from "./motion.js";
 import { t, lang, fmtNum, fmtSecs, fmtRel, fmtDay, fmtWhen } from "./i18n.js";
 import { api, isFinal, outsOf } from "./api.js";
@@ -172,7 +172,10 @@ export function libMe() {
   polling();
 }
 
-function renderLibrary() {
+// The kinds, the tiles and the end of the list are drawn anew; the one the
+// keyboard was on keeps the focus, and the search field is never drawn anew.
+function renderLibrary() { keepFocus(drawLibrary); }
+function drawLibrary() {
   const root = $("#library");
   if (!root) return;
   L.dirty = false;
@@ -761,7 +764,7 @@ export function openFull(at = 0, items = null) {
     h("button", { type: "button", class: "fnav e", "aria-label": t("view.next"), title: t("view.next"), onclick: () => fullGo(1) }, ic(rtl ? "chevl" : "chev"))] : [];
   const dots = n > 1 ? h("div", { class: "dots", "aria-hidden": "true" }, items.map(() => h("i"))) : null;
   const acts = h("div", { class: "jacts acts" });
-  FULL = { items, strip, at: -1, back: document.activeElement };
+  FULL = { items, strip, at: -1, back: document.activeElement, mark: markOf(document.activeElement) };
   // What the strip shows now: the count, the dots, the arrows, the actions of that result, and only its video plays.
   const upd = () => {
     if (!FULL) return;
@@ -794,7 +797,7 @@ export function openFull(at = 0, items = null) {
 export function closeFull(quick = false) {
   const box = $("#full");
   if (!FULL || !box) return;
-  const back = FULL.back;
+  const back = FULL.back?.isConnected ? FULL.back : findMark(FULL.mark);
   FULL = null;
   layer("full", null);
   box.querySelectorAll("video").forEach((v) => v.pause());

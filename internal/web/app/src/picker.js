@@ -1,7 +1,7 @@
 // The model picker: recommended models first, then every family, by company
 // or by price, with a search. On a wide screen the family under the pointer
 // shows its card on the right.
-import { $, $$, h, ic, isWide } from "./dom.js";
+import { $, $$, h, ic, isWide, keepFocus } from "./dom.js";
 import { anim, rise, morph, opt, placeSegs, placeSeg, fly, ticker, EASE, OUT, SPRING } from "./motion.js";
 import { t, fmtNum, byName } from "./i18n.js";
 import { C, PNAME, vname, famText, famLogo, lg, provMark, freePlan, facts, refsOf, framesOf, needsImage, needsVideo, resRangeOf, durRangeOf, union, hasAudio, deprecation, fieldsOf, label } from "./catalog.js";
@@ -26,7 +26,7 @@ const oldShown = (f) => f.old.filter(ok);
 const ROWS = (o = {}) => ({ dur: o.dur || 440, ease: EASE,
   enter: (el, i) => anim(el, [{ opacity: 0, transform: "translateY(10px)" }, { opacity: 1, transform: "none" }], { duration: 360, delay: 80 + Math.min(i, 12) * (o.step ?? 30), fill: "backwards" }),
   leave: (g) => anim(g, [{ opacity: 1, transform: "none" }, { opacity: 0, transform: "scale(.97)" }], { duration: 180, easing: OUT, fill: "forwards" }) });
-const listUpdate = (fn, o) => morph($("#pkrows"), fn, ROWS(o));
+const listUpdate = (fn, o) => keepFocus(() => morph($("#pkrows"), fn, ROWS(o)));
 
 export function mountPicker() {
   return h("section", { class: "sheet wide", id: "picker", hidden: true, "aria-label": t("pick.label"), role: "dialog", "aria-modal": "true", onclosed: () => { FOR = null; } },

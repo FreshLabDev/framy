@@ -1,7 +1,7 @@
 // The settings: the person's keys, what is left free, the default models,
 // the DM, the currency, the language and the account. Each change goes to
 // the server first; the sheet shows what it said.
-import { $, $$, h, ic } from "./dom.js";
+import { $, $$, h, ic, keepFocus } from "./dom.js";
 import { t, lang, fmtNum, fmtIn, fmtTime, fmtCurrency } from "./i18n.js";
 import { api } from "./api.js";
 import { S, connection, autoModel, ownDefault, reopenText } from "./state.js";
@@ -426,10 +426,12 @@ function whoRow() {
     h("button", { type: "button", onclick: async () => { await signOut(); if (!S.signed) closeSheets(); } }, t("auth.signout")));
 }
 
-export function renderPrefs() {
+// The sheet is drawn anew on every change: the control the keyboard was on,
+// and a form being typed in, keep the focus.
+export function renderPrefs() { keepFocus(drawPrefs); }
+function drawPrefs() {
   const body = $("#prefsBody");
   if (!body || !S.me) return;
-  // A form being typed in keeps its focus across a redraw.
   const typing = document.activeElement?.closest?.("#prefsBody .kform")?.dataset.k;
   const st = S.me.storage;
   // Automatic until the person picks one in framy, whatever the other bots of the family hold.
