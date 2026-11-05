@@ -9,8 +9,6 @@
 # The test bot runs dev, so it applies dev's migrations to production's
 # schema first: they have to be additive (AGENTS.md, Migrations).
 #
-# Its old database, the volume framy-test_pgdata, is kept and no longer used.
-#
 # It shares the R2 bucket and the object keys with production (no R2_PREFIX):
 # both read every person's files. It talks to the cloud Bot API.
 #

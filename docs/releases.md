@@ -267,6 +267,34 @@ off the home server. The database is in core-postgres, which the home server's
 daily backup dumps to Google Drive; that backup must not hold the KEK too
 (docs/design.md, Backups).
 
+### Keeping the host clean
+
+The host's disk is shared by every service on it, and the nightly backup
+copies `/opt/stacks` whole (Backups, above), so what is left beside a stack
+costs space twice and keeps secrets and people's data with no use.
+
+- **No copies beside a stack.** `ws04 deploy` keeps the manifest and `.env`
+  of every deploy in `/opt/stacks/.ws04/deploy-snapshots/`, which is what a
+  rollback takes. A copy made by hand (`.env.bak-…`, `compose.yaml.bak-…`)
+  is one more copy of the stack's settings in every backup; when a change by
+  hand needs one, it is deleted once the change has held. A copy of
+  `secrets/kek` is never kept there.
+- **Images.** Nothing is built on the host, so the images there are the ones
+  pulled by digest. Keep the ones production and the test bot run and the
+  previous release's for a rollback, and remove the rest. The
+  `framy:test-<commit>` images were built on the host before the release
+  workflow, and nothing mounts the Go caches `framy-live-gocache` and
+  `framy-live-gomod`.
+- **Volumes.** A volume nothing mounts is removed once whatever it held has
+  a home. `framy-test_pgdata` is the test bot's own database from before it
+  moved onto production's schema on 2 November; its rows were carried over,
+  so it holds people's data of that time and nothing else needs it.
+
+```sh
+ws04 docker -- images --format '{{.Repository}}:{{.Tag}} {{.Size}}' | grep framy
+ws04 docker -- volume ls --filter dangling=true --format '{{.Name}}' | grep framy
+```
+
 ### Checking what is running
 
 ```sh
