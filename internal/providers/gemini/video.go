@@ -133,17 +133,33 @@ func (p *Provider) videoOutcome(ctx context.Context, key string, of catalog.Offe
 			out.Results = nil
 			out.Err = &jobs.Error{Class: jobs.Storage, Err: fmt.Errorf("video %d of the answer: %w", i+1, err)}
 			return out, nil
-		case errors.As(err, &pe):
+		case errors.As(err, &pe) && final(pe.Class):
 			out.Results = nil
 			out.Err = pe
 			return out, nil
 		case err != nil:
-			return jobs.Outcome{}, err
+			// The run is paid and its video is at Google: a download that
+			// was throttled, timed out or found Google down is asked for
+			// again, with Google's wait, until the hour's deadline. The cost
+			// goes beside the error, so a run whose video never comes keeps
+			// it.
+			return jobs.Outcome{CostUSD: out.CostUSD}, err
 		}
 		out.Results = append(out.Results, res)
 	}
 	out.Grounding = m.grounding
 	return out, nil
+}
+
+// final says whether an error fetching a finished video is a verdict that
+// asking again cannot change: a video framy cannot read, a key that stopped
+// working, money or a filter. A wait, a timeout or Google being down is not.
+func final(c jobs.Class) bool {
+	switch c {
+	case jobs.RateLimited, jobs.Unavailable, jobs.Timeout:
+		return false
+	}
+	return true
 }
 
 // video decodes one video of the answer, or downloads it when Google gave a

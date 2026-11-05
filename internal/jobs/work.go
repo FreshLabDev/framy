@@ -245,7 +245,12 @@ func (q *Queue) poll(ctx context.Context, p Provider, j Job) error {
 	switch {
 	case pe != nil && (pe.retryable() || pe.Class == ProviderFailed || pe.Class == Timeout || pe.Class == Interrupted):
 		if late {
-			return q.end(ctx, j.ID, ending{status: Expired, class: pe.Class, msg: "the provider did not finish within an hour: " + pe.Error(), said: pe.Said()})
+			// The request went out, so the run may be paid whatever kept the
+			// poll from an answer: it ends as a timeout, which says so, and
+			// not as a provider that did not answer, which says nothing was
+			// charged. It keeps the cost the provider gave, as a finished
+			// video that could not be fetched has one.
+			return q.end(ctx, j.ID, ending{status: Expired, class: Timeout, msg: "the provider did not finish within an hour: " + pe.Error(), said: pe.Said(), cost: out.CostUSD})
 		}
 		return river.JobSnooze(max(q.cfg.PollEvery, pe.RetryAfter))
 	case pe != nil:

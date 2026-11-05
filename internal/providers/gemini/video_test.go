@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/jobs"
@@ -484,6 +485,67 @@ func TestAVideoLeftAsAFileIsFetchedFromTheBase(t *testing.T) {
 	g.polls = []func(http.ResponseWriter){reply(200, finished(`{"type":"video","uri":"https://x/elsewhere/video.mp4"}`))}
 	if out := poll(t, p, j); out.Err == nil || out.Err.Class != jobs.ProviderFailed {
 		t.Errorf("outcome %+v", out)
+	}
+}
+
+// A paid video that Google is slow to hand over is asked for again, not
+// dropped as a run that cost nothing.
+func TestAVideoThatCannotBeFetchedYetIsAskedForAgain(t *testing.T) {
+	answers := []struct {
+		status int
+		body   string
+		class  jobs.Class
+	}{
+		{503, `{"error":{"code":"service_unavailable","message":"Down."}}`, jobs.Unavailable},
+		{429, `{"error":{"code":"rate_limit_exceeded","message":"Slow down. Please retry in 40s."}}`, jobs.RateLimited},
+		{504, `{"error":{"code":"deadline_exceeded","message":"Too slow."}}`, jobs.Timeout},
+	}
+	served := 0
+	g := &googleVideo{
+		polls: []func(http.ResponseWriter){reply(200, finished(`{"type":"video","uri":"https://x/v1beta/files/abc-123:download?alt=media"}`))},
+		file: func(w http.ResponseWriter, r *http.Request) {
+			if served < len(answers) {
+				reply(answers[served].status, answers[served].body)(w)
+				served++
+				return
+			}
+			w.Header().Set("Content-Type", "video/mp4")
+			_, _ = w.Write(mp4)
+		},
+	}
+	p := serveVideo(t, g)
+	j := omniJob(t, nil)
+	j.ProviderJobID = "v1_x"
+	for _, a := range answers {
+		out, err := p.Poll(context.Background(), j)
+		if err == nil {
+			t.Fatalf("a %d on the download ended the run: %+v", a.status, out)
+		}
+		if pe := classOf(t, err); pe.Class != a.class {
+			t.Errorf("a %d is %s, want %s", a.status, pe.Class, a.class)
+		} else if a.status == 429 && pe.RetryAfter != 40*time.Second {
+			t.Errorf("Google's wait is %s", pe.RetryAfter)
+		}
+		// The cost goes beside the error, for a run the hour ends first.
+		if out.CostUSD == nil || !near(*out.CostUSD, omniCost) || len(out.Results) != 0 {
+			t.Errorf("a %d: beside the error %+v, want the cost alone", a.status, out)
+		}
+	}
+	out := poll(t, p, j)
+	if out.Err != nil || len(out.Results) != 1 || string(out.Results[0].Data) != string(mp4) {
+		t.Fatalf("the fourth poll: %+v", out)
+	}
+	if out.CostUSD == nil || !near(*out.CostUSD, omniCost) {
+		t.Errorf("cost %v, want %v", out.CostUSD, omniCost)
+	}
+
+	// A key that stopped working is a verdict: the run ends with its cost.
+	g.file = func(w http.ResponseWriter, r *http.Request) {
+		reply(401, `{"error":{"code":"unauthenticated","message":"API key expired."}}`)(w)
+	}
+	out = poll(t, p, j)
+	if out.Err == nil || out.Err.Class != jobs.Key || out.CostUSD == nil {
+		t.Errorf("a revoked key on the download: %+v", out)
 	}
 }
 

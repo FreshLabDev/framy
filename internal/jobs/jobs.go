@@ -193,7 +193,11 @@ type Provider interface {
 	// returns it in the Outcome; one that runs in the background returns its
 	// job id, and the result comes from Poll.
 	Submit(ctx context.Context, j Job) (Submission, error)
-	// Poll asks about a run Submit started. It costs nothing.
+	// Poll asks about a run Submit started. It costs nothing. An error
+	// means no answer yet, and the queue asks again; of an Outcome beside
+	// it only CostUSD counts: what the run cost already, such as a
+	// finished video that could not be fetched, kept if the hour's
+	// deadline ends the run first.
 	Poll(ctx context.Context, j Job) (Outcome, error)
 }
 

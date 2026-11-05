@@ -506,6 +506,37 @@ func TestAFinishedJobHasItsEstimateAndItsCost(t *testing.T) {
 	}
 }
 
+// A run the hour ends while its poll keeps failing may be paid: it ends as
+// a timeout, not as a provider that did not answer, which would say nothing
+// was charged, and keeps the cost the provider gave, as a finished video
+// that could not be fetched has one.
+func TestARunPastTheHourIsATimeoutWithItsCost(t *testing.T) {
+	p := newFake()
+	p.submit = func(context.Context, Job) (Submission, error) { return Submission{ProviderJobID: "vid-1"}, nil }
+	p.poll = func(context.Context, Job) (Outcome, error) {
+		cost := 0.509518
+		return Outcome{CostUSD: &cost}, &Error{Class: Unavailable, Err: errors.New("download the video: Google answered 503")}
+	}
+	q, _ := testQueue(t, p)
+	id := enqueue(t, q, job(alice, videoOffer))
+	ctx := context.Background()
+	for range 2 {
+		// The submit, then a poll within the hour: asked again later.
+		_ = q.work(ctx, id)
+	}
+	if j := get(t, q, id); j.Status != Running || j.ActualUSD != nil || p.count(p.polls, id) != 1 {
+		t.Fatalf("within the hour: %s, actual %v, %d polls", j.Status, j.ActualUSD, p.count(p.polls, id))
+	}
+	q.now = func() time.Time { return time.Now().Add(runDeadline + time.Minute) }
+	if err := q.work(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	j := get(t, q, id)
+	if j.Status != Expired || j.ErrorClass != Timeout || j.ActualUSD == nil || *j.ActualUSD != 0.509518 {
+		t.Fatalf("past the hour: %s %s, actual %v", j.Status, j.ErrorClass, j.ActualUSD)
+	}
+}
+
 func TestAJobKeepsTheRateItsPriceWasShownWith(t *testing.T) {
 	q, pool := testQueue(t, newFake())
 	n := job(alice, imageOffer)
