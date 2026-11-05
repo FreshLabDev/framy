@@ -513,6 +513,28 @@ func TestBrowserPrefsSignOut(t *testing.T) {
 	noErrors(t, ctx)
 }
 
+// TestBrowserPrefsSignOutLate checks that a read of the account sent before
+// the sign-out, and answered after it, does not show the person signed in again.
+func TestBrowserPrefsSignOutLate(t *testing.T) {
+	f := &fakePrefs{}
+	ts := fakeSite(t, f.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	// Opening the settings reads the account again, and it answers late.
+	f.with(func() { f.slowMe = 600 * time.Millisecond })
+	s := prefs(t, ctx, `
+	document.querySelector("#meBtn").click();
+	await until(() => !sheet().hidden && btn(sheet(), "Sign out"));
+	btn(sheet(), "Sign out").click();
+	await yes();
+	await until(() => document.querySelector(".signin"));
+	await wait(1000);
+	return { top: document.querySelector("#top").textContent, go: document.querySelector("#go").textContent.trim() };`)
+	if s["top"] != "framySign in with Telegram" || !strings.HasPrefix(s["go"].(string), "Sign in to create") {
+		t.Errorf("after a late read: %v", s)
+	}
+	noErrors(t, ctx)
+}
+
 // TestBrowserPrefsLanguage checks that a new language is the server's and
 // the page's: it reloads in it, with the settings open again.
 func TestBrowserPrefsLanguage(t *testing.T) {

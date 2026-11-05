@@ -7,8 +7,8 @@ import { known, need, priced, knownTotal } from "./price.js";
 
 export const S = {
   signed: false, me: null, mini: false, tg: null, online: navigator.onLine,
-  // meV counts the person's changes to the account on this page: a read of
-  // /api/me begun before one is older than what the page holds.
+  // meV counts the person's changes to the account on this page, a sign-out
+  // among them: a read of /api/me begun before one is older than what the page holds.
   meV: 0,
   kind: "image", model: { image: "", video: "" }, pay: {}, wanted: {}, files: [],
   // cut is the part of the first clip a run takes ({start, seconds}); cont the

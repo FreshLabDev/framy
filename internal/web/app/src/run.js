@@ -46,6 +46,9 @@ export async function signOut() {
 // Nobody is signed in any more: signed out, the account deleted, or the session gone.
 export function forget() {
   stopWatch?.();
+  // A read of the account already on its way is older than this: its answer
+  // does not show the person signed in again (refreshMe).
+  S.meV++;
   S.signed = false; S.me = null; S.run = null;
   clearPrices();
   window.dispatchEvent(new Event("framy:me"));
