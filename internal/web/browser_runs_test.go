@@ -1203,6 +1203,73 @@ func TestBrowserByKey(t *testing.T) {
 	noErrors(t, ctx)
 }
 
+// TestBrowserTakePriceOnce checks that "Create for" the new price starts one
+// run however fast it is pressed twice.
+func TestBrowserTakePriceOnce(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const sent = [], fetch0 = window.fetch;
+	window.fetch = (u, o) => { if (String(u).endsWith("/api/jobs") && o?.method === "POST") sent.push(JSON.parse(o.body)); return fetch0(u, o); };
+	await press("refuse:price_changed", (s) => s.failed);
+	const b = [...document.querySelectorAll("#stage .jacts > button")].find((b) => b.textContent.trim() === "Create for ≈ $0.500");
+	b.click(); b.click();
+	await wait(800);
+	return { sent: sent.length, shown: sent.at(-1)?.shown_usd };`)
+	if s["sent"] != float64(2) || s["shown"] != 0.5 {
+		t.Errorf("take the price: %v", s)
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserSignOutStopsRun checks a sign-out while a press still sends its
+// files: the upload stops there, and no job is made after it.
+func TestBrowserSignOutStopsRun(t *testing.T) {
+	runs := &fakeRuns{}
+	var stopped atomic.Bool
+	ts := fakeSite(t, func(srv *Server) {
+		runs.mount(srv)
+		srv.HandleFunc("POST /api/uploads", func(w http.ResponseWriter, r *http.Request) {
+			// Read whole, the request hears the browser drop it.
+			_, _ = io.Copy(io.Discard, r.Body)
+			select {
+			case <-r.Context().Done():
+				stopped.Store(true)
+				return
+			case <-time.After(1500 * time.Millisecond):
+			}
+			writeTestJSON(w, http.StatusCreated, map[string]any{"id": 500, "content_type": "image/png", "bytes": 100, "width": 64, "height": 36})
+		})
+		srv.HandleFunc("POST /auth/logout", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	})
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+prefsHelpers+`
+	const sent = [], fetch0 = window.fetch;
+	window.fetch = (u, o) => { if (String(u).endsWith("/api/jobs") && o?.method === "POST") sent.push(o.body); return fetch0(u, o); };
+	const cv = document.createElement("canvas"); cv.width = 64; cv.height = 36;
+	const png = await new Promise((r) => cv.toBlob(r, "image/png"));
+	const dt = new DataTransfer(); dt.items.add(new File([png], "p.png", { type: "image/png" }));
+	const inp = document.querySelector("#file"); inp.files = dt.files; inp.dispatchEvent(new Event("change", { bubbles: true }));
+	await wait(800);
+	const p = document.querySelector("#prompt");
+	p.value = "done"; p.dispatchEvent(new Event("input"));
+	await wait(50);
+	document.querySelector("#go").click();
+	await wait(200);
+	document.querySelector("#meBtn").click();
+	await until(() => !sheet().hidden && btn(sheet(), "Sign out"));
+	btn(sheet(), "Sign out").click();
+	await yes();
+	await until(() => document.querySelector(".signin"));
+	await wait(2000);
+	return { sent: sent.length, go: document.querySelector("#go").textContent.trim() };`)
+	if s["sent"] != float64(0) || !strings.HasPrefix(s["go"].(string), "Sign in to create") || !stopped.Load() {
+		t.Errorf("signed out while sending: %v, upload stopped %v", s, stopped.Load())
+	}
+	noErrors(t, ctx)
+}
+
 // TestBrowserDraftAcrossSignIn checks that signing in keeps what the person
 // put together: the kind, the model they picked, a setting, the photo and the
 // words come back after Telegram's page, while a model they never picked

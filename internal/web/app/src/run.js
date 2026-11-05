@@ -44,12 +44,15 @@ export async function signOut() {
   toast(t("auth.signed_out"));
 }
 // Nobody is signed in any more: signed out, the account deleted, or the session gone.
+// A press still sending its files stops there: they would go up for nobody
+// (a clip to the bucket needs no session), and Create is free again.
 export function forget() {
   stopWatch?.();
+  if (S.run?.phase === "prep" && !S.run.sending) S.run.stop.abort();
   // A read of the account already on its way is older than this: its answer
   // does not show the person signed in again (refreshMe).
   S.meV++;
-  S.signed = false; S.me = null; S.run = null;
+  S.signed = false; S.me = null; S.run = null; S.busy = false;
   clearPrices();
   window.dispatchEvent(new Event("framy:me"));
 }
@@ -388,6 +391,8 @@ export function quiet(run = S.run) {
 export function takePrice(run = S.run) {
   run = pressOfRun(run);
   const e = run.why?.estimate;
+  // A second press while the first starts would be a second paid run.
+  if (S.busy || !e) return;
   start(copyOf(run, { shown: shownOf(e), shownLabel: priceText(e), priceLabel: e?.label || "" }));
 }
 // A free run that could not go free: the same run back in the composer on the
