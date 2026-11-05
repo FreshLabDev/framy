@@ -4,7 +4,7 @@
 import { $ } from "./dom.js";
 import { t } from "./i18n.js";
 import { api, watchJob, isFinal, outsOf } from "./api.js";
-import { S, M, payOf, settings, fastOf, going, clip, contFits, keyOk, runItem, plan, paidItems, newFrame } from "./state.js";
+import { S, M, reopenText, payOf, settings, fastOf, going, clip, contFits, keyOk, runItem, plan, paidItems, newFrame } from "./state.js";
 import { C, offerOf, PNAME, framesOf, photoLimit } from "./catalog.js";
 import { known, knownTotal, priceText, clearPrices } from "./price.js";
 import { act, render, renderBar } from "./composer.js";
@@ -24,6 +24,19 @@ export function signIn() {
   const r = S.run, on = r?.phase === "job" && r.job && !(r.jobs || [r.job]).every((j) => isFinal(j.status));
   const back = on ? "/r/" + r.job.id : /^\/(library|r\/\d+)$/.test(location.pathname) ? location.pathname : "/";
   location.assign("/auth/login?return_to=" + encodeURIComponent(back));
+}
+
+// The Mini App's session ended (framy refused its launch data): Telegram closes it, to be
+// opened again from the bot, and what was typed waits for that next open.
+export function closeMini() {
+  keepPrompt();
+  if (S.tg?.close) S.tg.close(); else toast(reopenText(), { ms: 8000 });
+}
+// What is typed in a Mini App whose session ended is kept as it is typed, not only on Close:
+// it is as often closed by Telegram's own button or a swipe, which the page does not hear.
+export function keepPrompt() {
+  const text = $("#prompt")?.value || "";
+  try { if (text.trim()) localStorage.setItem("framy.kept", JSON.stringify({ text, at: Date.now() })); else localStorage.removeItem("framy.kept"); } catch {}
 }
 
 export async function signOut() {
@@ -216,8 +229,8 @@ function follow(run) {
 }
 // The page stopped hearing of a run before it ended. A job that is not the
 // person's (another account signed in in this browser, or theirs deleted)
-// leaves the stage; signed out, the run stays and says it goes on without
-// the page.
+// leaves the stage; signed out, or the Mini App's session over, the run stays
+// and says it goes on without the page.
 function unwatched(run, e) {
   const here = S.run === run;
   if (e.status === 404) {
@@ -226,7 +239,8 @@ function unwatched(run, e) {
     toast(t("view.not_found"), { ms: 6000 });
     if (here) { stopWatch?.(); stopWatch = null; S.run = null; S.showJob = false; runChanged(); renderBar(); }
   } else {
-    run.net = "signin";
+    // The Mini App cannot sign in again by itself: it has to be opened anew.
+    run.net = S.mini ? "reopen" : "signin";
     if (here) runChanged();
   }
   refreshMe();

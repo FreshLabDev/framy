@@ -9,14 +9,14 @@ import { anim, morph, opt, placeSegs, leadSeg, motion, OUT } from "./motion.js";
 import { t, lang, fmtNum, fmtSecs } from "./i18n.js";
 import { api, isFinal, outsOf } from "./api.js";
 import { C, vname, famLogo, lg, show, SICON, SHOWN, factEl, ratioNum, ratioOfSize } from "./catalog.js";
-import { S } from "./state.js";
+import { S, reopenText } from "./state.js";
 import { failure } from "./errors.js";
 import { known, priceEl, priceText, onPrices, sumOf, knownTotal, needTotal } from "./price.js";
 import { thumbMedia } from "./clips.js";
 import { player } from "./player.js";
 import { openSheet, closeSheets, toast, ask } from "./ui.js";
 import { view, B, ticking, renderStage, refit } from "./stage.js";
-import { runOfJob, runOfBatch, frameRun, again, removeJob, signIn, shownOf, onLeave, copyPrompt, refreshMe } from "./run.js";
+import { runOfJob, runOfBatch, frameRun, again, removeJob, signIn, closeMini, shownOf, onLeave, copyPrompt, refreshMe } from "./run.js";
 
 /* Views and addresses. */
 
@@ -353,8 +353,10 @@ const frame = () => h("div", { class: "lframe", "aria-hidden": "true" }, h("i"),
 const slim = (text, icon, label, fn) => h("div", { class: "lempty slim", "data-k": "lempty" },
   h("div", { class: "t" }, h("p", {}, text), h("button", { type: "button", class: "x", onclick: fn }, ic(icon), label)));
 function signedOut() {
-  return h("div", { class: "lempty", "data-k": "lempty" }, frame(), h("div", { class: "t" }, h("h2", {}, t("lib.signin_title")), h("p", {}, t("lib.signin_text")),
-    h("button", { type: "button", class: "go", onclick: signIn }, ic("send"), t("auth.signin"))));
+  // The Mini App whose session ended signs in only by being opened again.
+  const gone = S.mini && S.expired;
+  return h("div", { class: "lempty", "data-k": "lempty" }, frame(), h("div", { class: "t" }, h("h2", {}, t("lib.signin_title")), h("p", {}, gone ? reopenText() : t("lib.signin_text")),
+    gone ? h("button", { type: "button", class: "go", onclick: closeMini }, t("go.close")) : h("button", { type: "button", class: "go", onclick: signIn }, ic("send"), t("auth.signin"))));
 }
 function empty() {
   if (L.q) return slim(t("lib.none_q", { q: L.q }), "close", t("lib.reset"), () => { if (Q) Q.input.value = ""; find(""); });

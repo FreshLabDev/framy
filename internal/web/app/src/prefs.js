@@ -4,7 +4,7 @@
 import { $, $$, h, ic } from "./dom.js";
 import { t, lang, fmtNum, fmtIn, fmtTime } from "./i18n.js";
 import { api } from "./api.js";
-import { S, connection, autoModel, ownDefault } from "./state.js";
+import { S, connection, autoModel, ownDefault, reopenText } from "./state.js";
 import { C, PNAME, provMark, vname } from "./catalog.js";
 import { openPicker } from "./picker.js";
 import { clearPrices } from "./price.js";
@@ -413,7 +413,7 @@ async function activeJobs() {
 function lost() {
   closeSheets(true);
   forget();
-  toast(t("err.sign_in"), { ms: 6000 });
+  toast(S.mini ? reopenText() : t("err.sign_in"), { ms: 6000 });
 }
 
 // Whose account this is, by the name and picture of the Telegram sign-in:

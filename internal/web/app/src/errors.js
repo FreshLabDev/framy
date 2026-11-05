@@ -6,6 +6,7 @@
 import { t, fmtTime, fmtAt, fmtSecs, fmtNum } from "./i18n.js";
 import { C, PNAME, vname, hasAudio } from "./catalog.js";
 import { priceText } from "./price.js";
+import { S, reopenText } from "./state.js";
 
 // The provider may have charged for these: the request reached it.
 export const MAYPAY = new Set(["timeout", "provider", "interrupted", "storage"]);
@@ -133,7 +134,7 @@ export function refusal(err, ctx = {}) {
     case "shutting_down": return R(t("ref.restart_l"), t("ref.restart"), ["again"]);
     case "network": return R(t("ref.offline_l"), t("err.network"), ["again"]);
     case "http_429": case "busy": return R(t("ref.busy_l"), t("err.busy"), ["again"]);
-    case "sign_in": return R(t("ref.signin_l"), t("err.sign_in"));
+    case "sign_in": return S.mini ? R(t("ref.reopen_l"), reopenText()) : R(t("ref.signin_l"), t("err.sign_in"));
     default: return R(t("stage.failed"), t("err.generic", { code }), ["again"]);
   }
 }

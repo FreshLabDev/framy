@@ -6947,6 +6947,24 @@
     "ja": "実行できません",
     "ar": "لا يمكن التشغيل"
   },
+  "web.go.close": {
+    "en": "Close framy",
+    "ru": "Закрыть framy",
+    "uk": "Закрити framy",
+    "es": "Cerrar framy",
+    "fr": "Fermer framy",
+    "de": "framy schließen",
+    "it": "Chiudi framy",
+    "pl": "Zamknij framy",
+    "cs": "Zavřít framy",
+    "tr": "framy’yi kapat",
+    "sv": "Stäng framy",
+    "be": "Закрыць framy",
+    "ca": "Tanca framy",
+    "zh": "关闭 framy",
+    "ja": "framy を閉じる",
+    "ar": "أغلق framy"
+  },
   "web.go.connect": {
     "en": "Connect {provider}",
     "ru": "Подключить {provider}",
@@ -8404,6 +8422,24 @@
     "zh": "framy 在多个标签页中打开：这一页每 5 秒检查一次结果",
     "ja": "framy が複数のタブで開かれています。このタブは 5 秒ごとに結果を確認します",
     "ar": "framy مفتوح في عدة علامات تبويب: هذه العلامة تتحقق من النتيجة كل 5 ثوانٍ"
+  },
+  "web.net.reopen_line": {
+    "en": "Open framy again: the run goes on on the server",
+    "ru": "Открой framy снова: запуск идёт на сервере",
+    "uk": "Відкрий framy знову: запуск триває на сервері",
+    "es": "Abre framy de nuevo: la ejecución sigue en el servidor",
+    "fr": "Rouvre framy : la génération continue sur le serveur",
+    "de": "Öffne framy erneut: Der Lauf geht auf dem Server weiter",
+    "it": "Riapri framy: la generazione prosegue sul server",
+    "pl": "Otwórz framy ponownie: uruchomienie trwa na serwerze",
+    "cs": "Otevři framy znovu: spuštění běží na serveru",
+    "tr": "framy’yi yeniden aç: çalıştırma sunucuda sürüyor",
+    "sv": "Öppna framy igen: körningen fortsätter på servern",
+    "be": "Адкрый framy зноў: запуск ідзе на серверы",
+    "ca": "Torna a obrir framy: l’execució continua al servidor",
+    "zh": "请重新打开 framy：生成仍在服务器上进行",
+    "ja": "framy をもう一度開いてください：生成はサーバー上で続いています",
+    "ar": "افتح framy من جديد: يستمر التشغيل على الخادم"
   },
   "web.net.signin_line": {
     "en": "Sign in again: the run goes on on the server",
@@ -10870,6 +10906,24 @@
     "zh": "价格上涨了",
     "ja": "価格が上がりました",
     "ar": "ارتفع السعر"
+  },
+  "web.ref.reopen_l": {
+    "en": "Open framy again",
+    "ru": "Открой framy снова",
+    "uk": "Відкрий framy знову",
+    "es": "Abre framy de nuevo",
+    "fr": "Rouvre framy",
+    "de": "Öffne framy erneut",
+    "it": "Riapri framy",
+    "pl": "Otwórz framy ponownie",
+    "cs": "Otevři framy znovu",
+    "tr": "framy’yi yeniden aç",
+    "sv": "Öppna framy igen",
+    "be": "Адкрый framy зноў",
+    "ca": "Torna a obrir framy",
+    "zh": "请重新打开 framy",
+    "ja": "framy をもう一度開く",
+    "ar": "افتح framy من جديد"
   },
   "web.ref.restart": {
     "en": "framy restarted while it was preparing the clip. Try again.",

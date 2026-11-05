@@ -14,7 +14,7 @@ import { renderStage, stageFrom, refit, runOver, ratioOf, syncStrip } from "./st
 import { openPicker } from "./picker.js";
 import { openSheet, closeSheets } from "./ui.js";
 import { addFiles, removeFile, fitModel } from "./files.js";
-import { generate, signIn } from "./run.js";
+import { generate, signIn, closeMini, keepPrompt } from "./run.js";
 import { openCut, thumbMedia, frameEl, looksLikeClip } from "./clips.js";
 import { openPrefs } from "./prefs.js";
 
@@ -61,7 +61,13 @@ export function mountComposer() {
 export function wireComposer() {
   const p = $("#prompt");
   try { p.value = sessionStorage.getItem("framy.draft") || ""; } catch {}
-  p.addEventListener("input", () => { fitPrompt(); renderBar(); try { sessionStorage.setItem("framy.draft", p.value); } catch {} });
+  // What was typed when a Mini App whose session ended was closed comes back once, within a day.
+  if (S.mini) try {
+    const k = JSON.parse(localStorage.getItem("framy.kept") || "null");
+    localStorage.removeItem("framy.kept");
+    if (!p.value && k?.text && Date.now() - k.at < 864e5) p.value = k.text;
+  } catch {}
+  p.addEventListener("input", () => { fitPrompt(); renderBar(); try { sessionStorage.setItem("framy.draft", p.value); } catch {} if (S.expired) keepPrompt(); });
   p.addEventListener("keydown", (e) => {
     if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey)) return;
     e.preventDefault();
@@ -635,7 +641,7 @@ export function renderBar() {
   const btn = $("#go");
   btn.replaceChildren(nx.icon ? ic(nx.icon) : "", nx.label, nx.on ? h("small", { class: "kbd" }, MAC ? "⌘↵" : "Ctrl ↵") : "");
   btn.disabled = !nx.on;
-  btn.onclick = nx.act === "create" ? generate : nx.act === "signin" ? signIn : nx.act === "cut" ? openCut : nx.act === "key" ? () => openPrefs(nx.provider) : null;
+  btn.onclick = nx.act === "create" ? generate : nx.act === "signin" ? signIn : nx.act === "cut" ? openCut : nx.act === "key" ? () => openPrefs(nx.provider) : nx.act === "close" ? closeMini : null;
   btn.title = nx.on ? `${nx.label} (${MAC ? "⌘ Enter" : "Ctrl+Enter"})` : "";
   window.dispatchEvent(new CustomEvent("framy:button", { detail: nx }));
 }

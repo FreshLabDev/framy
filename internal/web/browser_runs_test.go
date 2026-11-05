@@ -59,6 +59,8 @@ type fakeRuns struct {
 	shares  int              // how many results were prepared for sharing
 	batches []map[string]any // the bodies of POST /api/batches, in order
 	out     bool             // signed out: a "stream:401" job was watched
+	expired bool             // the Mini App's launch data is refused, as an hour after Telegram signed it
+	trades  int              // how many times the launch data was traded for a token
 }
 
 type fakeJob struct {
@@ -106,6 +108,14 @@ func (f *fakeRuns) mount(srv *Server) {
 	srv.HandleFunc("GET /api/jobs/{id}/events", f.events, Stream())
 	srv.HandleFunc("POST /api/jobs/{id}/cancel", f.cancel)
 	srv.HandleFunc("POST /auth/miniapp", func(w http.ResponseWriter, _ *http.Request) {
+		f.mu.Lock()
+		f.trades++
+		expired := f.expired
+		f.mu.Unlock()
+		if expired {
+			writeTestJSON(w, http.StatusUnauthorized, map[string]any{"error": "init_data_expired"})
+			return
+		}
 		writeTestJSON(w, http.StatusOK, map[string]any{"token": "test-token", "expires_in": 3600})
 	})
 	srv.HandleFunc("POST /api/files/{id}/share", func(w http.ResponseWriter, r *http.Request) {
@@ -212,7 +222,7 @@ func (f *fakeRuns) create(w http.ResponseWriter, r *http.Request) {
 	case p == "retry":
 		steps = append(steps, at("queued", map[string]any{"error": map[string]any{"class": "rate_limited", "message": fakeMessage},
 			"retry_at": time.Now().Add(30 * time.Second).UTC()}))
-	case p == "running", p == "stream:404", p == "stream:401":
+	case p == "running", p == "stream:404", p == "stream:401", p == "stream:expired":
 		steps = append(steps, at("running", nil))
 	case p == "done:video":
 		url := "http://" + r.Host + "/test/clip.mp4"
@@ -363,6 +373,13 @@ func (f *fakeRuns) events(w http.ResponseWriter, r *http.Request) {
 	case "stream:401":
 		f.mu.Lock()
 		f.out = true
+		f.mu.Unlock()
+		writeTestJSON(w, http.StatusUnauthorized, map[string]any{"error": "sign_in"})
+		return
+	case "stream:expired":
+		// The Mini App's token ran out and its launch data is too old to trade again.
+		f.mu.Lock()
+		f.expired = true
 		f.mu.Unlock()
 		writeTestJSON(w, http.StatusUnauthorized, map[string]any{"error": "sign_in"})
 		return
@@ -677,7 +694,7 @@ const fakeTelegram = `(() => {
     MainButton: button, BackButton: { show() { tg.back = true; }, hide() { tg.back = false; }, onClick(fn) { tg.backClick = fn; } },
     onEvent(name, fn) { tg.events[name] = fn; },
     shareMessage(id) { tg.shared.push(id); },
-    downloadFile() {}, openLink(u) { tg.links.push(u); },
+    downloadFile() {}, openLink(u) { tg.links.push(u); }, close() { tg.closed = true; },
     SettingsButton: { show() { tg.settingsShown = true; }, hide() { tg.settingsShown = false; }, onClick(fn) { tg.settings = fn; } },
   } };
 })();`
@@ -763,6 +780,67 @@ func TestBrowserMiniOutsideTelegram(t *testing.T) {
 	mu.Unlock()
 	if got["mini"] != false || got["signin"] != true || got["me"] != false || got["kept"] != nil || n != 0 {
 		t.Errorf("launch data outside Telegram: %v, %d trades", got, n)
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserMiniExpired lets the Mini App's session end: framy stops taking
+// its launch data, as it does an hour after Telegram signed it. Opened that
+// late, the Mini App says to open it again and its main button closes it;
+// what was typed then, also after the button, comes back on the next open. When the session ends under
+// a run, the run says it goes on on the server, and the dead launch data is
+// traded once, not again and again.
+func TestBrowserMiniExpired(t *testing.T) {
+	const old = "The Telegram session is too old. Close framy and open it again."
+	runs := &fakeRuns{expired: true}
+	ts := fakeSite(t, runs.mount)
+	ctx := miniBrowser(t, ts.URL)
+	trades := func() int { runs.mu.Lock(); defer runs.mu.Unlock(); return runs.trades }
+	s := js[map[string]any](t, ctx, pageHelpers+`
+	for (let i = 0; i < 50 && !window.__tg?.main; i++) await wait(100);
+	await wait(200);
+	const pc = document.querySelector("#pcap");
+	const out = { button: window.__tg.params?.text || "", cap: pc.textContent, toast: document.querySelector(".toast")?.textContent || "",
+		tabs: !!document.querySelector("#top .tabs"), cut: pc.scrollWidth > pc.clientWidth + 1 || pc.scrollHeight > pc.clientHeight + 1 };
+	const p = document.querySelector("#prompt");
+	p.value = "a fox"; p.dispatchEvent(new Event("input"));
+	await wait(80);
+	window.__tg.main();
+	const closed = !!window.__tg.closed;
+	// Typed on and closed by Telegram's own button, which the page does not hear.
+	p.value = "a fox in the snow"; p.dispatchEvent(new Event("input"));
+	return { ...out, closed };`)
+	// The line under the price says it to its end, on two lines.
+	if s["button"] != "Close framy" || s["cap"] != old || s["cut"] != false || s["toast"] != old || s["tabs"] != false || s["closed"] != true || trades() != 1 {
+		t.Errorf("opened with old launch data: %v, %d trades", s, trades())
+	}
+	noErrors(t, ctx)
+
+	// Opened again with launch data framy takes: what was typed is back.
+	runs.mu.Lock()
+	runs.expired = false
+	runs.mu.Unlock()
+	if _, err := chromedp.Run(ctx, chromedp.Reload()); err != nil {
+		t.Fatal(err)
+	}
+	ready(t, ctx)
+	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	for (let i = 0; i < 50 && !window.__tg?.main; i++) await wait(100);
+	const back = { prompt: document.querySelector("#prompt").value, button: window.__tg.params?.text || "" };
+	const p = document.querySelector("#prompt");
+	p.value = "stream:expired"; p.dispatchEvent(new Event("input"));
+	await wait(80);
+	window.__tg.main();
+	for (let i = 0; i < 100 && !/Open framy/.test(stage().sub); i++) await wait(100);
+	const s = stage(), toast = document.querySelector(".toast")?.textContent || "";
+	await wait(2500);
+	return { ...s, back, toast, button: window.__tg.params?.text || "", cap: document.querySelector("#pcap").textContent };`)
+	back, _ := s["back"].(map[string]any)
+	if back["prompt"] != "a fox in the snow" || back["button"] != "Create" {
+		t.Errorf("opened again: %v", back)
+	}
+	if s["sub"] != "Open framy again: the run goes on on the server" || s["button"] != "Close framy" || s["cap"] != old || s["toast"] != old || trades() != 3 {
+		t.Errorf("the session ended under a run: %v, %d trades", s, trades())
 	}
 	noErrors(t, ctx)
 }

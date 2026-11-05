@@ -4,14 +4,14 @@
 import { $, h, ic } from "./dom.js";
 import { anim, placeSegs } from "./motion.js";
 import { setTexts, t, lang, warmFormats } from "./i18n.js";
-import { session, setToken } from "./api.js";
+import { session, setToken, endSession } from "./api.js";
 import { loadCatalog } from "./catalog.js";
-import { S, initModels, useDefaults } from "./state.js";
+import { S, initModels, useDefaults, reopenText } from "./state.js";
 import { mountComposer, wireComposer, wireTuneSwipe, render, renderBar, tuneClosed } from "./composer.js";
 import { mountPicker, prefetchPicker } from "./picker.js";
 import { renderStage } from "./stage.js";
 import { closeSheets, onSheets, toast, sheetOpen } from "./ui.js";
-import { signIn, refreshMe, generate, netState } from "./run.js";
+import { signIn, refreshMe, generate, netState, closeMini, keepPrompt } from "./run.js";
 import { mountCutter, openCut } from "./clips.js";
 import { mountPrefs, openPrefs, renderPrefs, prefsOpen, oauthResult, oauthBack } from "./prefs.js";
 import { mountLibrary, mountViewer, mountFull, fullOpen, closeFull, tabs, go, route, libMe } from "./library.js";
@@ -89,7 +89,7 @@ function telegram(tg) {
   let run = null;
   const sync = (nx) => {
     if (!nx) return;
-    run = nx.act === "create" ? generate : nx.act === "signin" ? signIn : nx.act === "cut" ? openCut : nx.act === "key" ? () => openPrefs(nx.provider) : null;
+    run = nx.act === "create" ? generate : nx.act === "signin" ? signIn : nx.act === "cut" ? openCut : nx.act === "key" ? () => openPrefs(nx.provider) : nx.act === "close" ? closeMini : null;
     mb.setParams({ text: nx.label, is_active: !!nx.on, is_visible: S.view === "create", color: "#FFFFFF", text_color: "#00606E" });
   };
   addEventListener("framy:button", (e) => sync(e.detail));
@@ -122,6 +122,8 @@ async function main() {
   initModels();
   let authFail = null;
   try { const a = await B.auth; if (a) setToken(a); } catch (e) { authFail = e; }
+  // Launch data framy refused cannot be traded again: the Mini App has to be opened anew.
+  if (authFail?.status === 401 || authFail?.status === 400) { endSession(authFail.error); S.expired = session.dead; }
   try { S.me = authFail ? null : await B.me; } catch { S.me = null; }
   S.signed = !!S.me;
   useDefaults();
@@ -148,7 +150,17 @@ async function main() {
   let back = null;
   try { back = sessionStorage.getItem("framy.prefs"); sessionStorage.removeItem("framy.prefs"); } catch {}
   if (back && S.signed && !sp.get("connect")) openPrefs();
-  if (authFail) toast(t(authFail.error === "init_data_expired" ? "auth.mini_expired" : "auth.mini_failed"), { ms: 8000 });
+  if (authFail) toast(S.expired ? reopenText() : t("err.network"), { ms: 8000 });
+  // Opened too late, with what was kept from the last time in the prompt: kept again for the next open.
+  if (S.expired) keepPrompt();
+  // The session ends while the Mini App is open, an hour or so after Telegram opened it:
+  // the page says so once, and its button closes the Mini App to be opened again.
+  addEventListener("framy:expired", (e) => {
+    S.expired = e.detail; S.me = null; S.signed = false;
+    keepPrompt();
+    toast(reopenText(), { ms: 8000 });
+    window.dispatchEvent(new Event("framy:me"));
+  });
 
   addEventListener("framy:me", () => { renderTop(); render(); libMe(); if (prefsOpen()) { if (S.signed) renderPrefs(); else closeSheets(true); } });
   // Back on the page after a while: the free counts and the keys may have changed elsewhere.

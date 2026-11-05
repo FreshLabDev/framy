@@ -7,6 +7,9 @@ import { known, need } from "./price.js";
 
 export const S = {
   signed: false, me: null, mini: false, tg: null, online: navigator.onLine,
+  // expired is why framy refused the Mini App's launch data (init_data_expired or
+  // init_data_invalid): nobody is signed in until Telegram opens the Mini App anew.
+  expired: "",
   // meV counts the person's changes to the account on this page: a read of
   // /api/me begun before one is older than what the page holds.
   meV: 0,
@@ -362,6 +365,7 @@ export const famMisfit = (f) => (f.cur.every((v) => misfit(v.m)) ? misfit(f.def.
 export function next(prompt) {
   if (!M()) return { label: t("go.create"), on: false };
   const items = plan(), cont = items.some((it) => contFits(it.m, it.pay)), empty = !prompt.trim() && !S.files.length && !cont;
+  if (!S.signed && S.mini && S.expired) return { label: t("go.close"), act: "close", on: true, why: reopenText() };
   if (!S.signed) return { label: t(S.mini ? "go.create" : "go.signin"), act: "signin", on: !empty || S.mini };
   if (!S.online) return { label: t("go.offline"), on: false };
   if (S.busy) return { label: t("go.starting"), on: false };
@@ -388,6 +392,8 @@ export function next(prompt) {
   }
   return { label: t("go.create"), icon: "spark", act: "create", on: !empty };
 }
+// Why the Mini App has to be opened again, and that it has to.
+export const reopenText = () => t(S.expired === "init_data_expired" ? "auth.mini_expired" : "auth.mini_failed");
 // A key is missing or stopped working: the button opens the settings at it.
 const keyStep = (p) => ({ label: t(connection(p) ? "go.rekey" : "go.connect", { provider: PNAME[p] || p }), icon: "key", act: "key", provider: p, on: true });
 export function refusalLabel(r, m) {

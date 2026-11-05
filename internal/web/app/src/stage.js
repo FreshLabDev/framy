@@ -232,8 +232,9 @@ function runRatio(run, res = outsOf(run.job)[0]) {
   return f?.w && f?.h ? f.w / f.h : m?.kind === "video" ? 16 / 9 : 1;
 }
 
-// What a run that goes on says while the page cannot follow it: no connection, or nobody signed in.
-const NETLINE = { lost: "net.lost_line", signin: "net.signin_line" };
+// What a run that goes on says while the page cannot follow it: no connection, nobody signed
+// in, or the Mini App's session over.
+const NETLINE = { lost: "net.lost_line", signin: "net.signin_line", reopen: "net.reopen_line" };
 
 // A line that counts down: its text is asked again every second.
 const live = (text, cls = "") => { const el = h("small", { class: ("tk " + cls).trim() }, text()); el._text = text; return el; };

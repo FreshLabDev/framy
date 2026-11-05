@@ -12,7 +12,7 @@ export class ApiError extends Error {
   }
 }
 
-export const session = { mini: false, initData: "", token: "", until: 0 };
+export const session = { mini: false, initData: "", token: "", until: 0, dead: "" };
 
 export function setToken(a) {
   if (!a) return;
@@ -20,16 +20,36 @@ export function setToken(a) {
   session.until = Date.now() + Math.max(60, (a.expires_in || 3600) - 60) * 1000;
 }
 
+/* Telegram signs the launch data only when the Mini App opens, and framy takes it for an hour
+   (init_data_expired after that; init_data_invalid when it does not check out). Once it is
+   refused, nothing here can sign in again until the Mini App is opened anew: the session is
+   dead, every call fails at once as signed out without asking framy, and the page hears it
+   once, as "framy:expired" with the reason. */
+export function endSession(why) {
+  if (session.dead) return;
+  session.dead = why || "init_data_invalid";
+  session.token = "";
+  dispatchEvent(new CustomEvent("framy:expired", { detail: session.dead }));
+}
+const signedOut = () => new ApiError(401, { error: "sign_in", why: session.dead });
+
 let trading = null;
 async function trade() {
   trading ??= fetch("/auth/miniapp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ init_data: session.initData }) })
-    .then(async (r) => { const b = await r.json().catch(() => null); if (!r.ok) throw new ApiError(r.status, b, r); setToken(b); })
+    .catch(() => { throw new ApiError(0, { error: "network" }); })
+    .then(async (r) => {
+      const b = await r.json().catch(() => null);
+      if (r.status === 401 || r.status === 400) { endSession(b?.error); throw signedOut(); }
+      if (!r.ok) throw new ApiError(r.status, b, r);
+      setToken(b);
+    })
     .finally(() => { trading = null; });
   return trading;
 }
 
 async function authHeader(fresh) {
   if (!session.mini) return {};
+  if (session.dead) throw signedOut();
   if (fresh || !session.token || Date.now() > session.until) await trade();
   return { Authorization: "Bearer " + session.token };
 }
