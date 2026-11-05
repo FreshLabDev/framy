@@ -32,7 +32,9 @@ Which means the changelog has to be written for somebody else to read:
 
 ## Publishing a pre-release
 
-A pre-release is tagged on `dev`. Nothing merges anywhere.
+A pre-release is tagged on `dev`. Nothing merges anywhere, except that
+framy merges `dev` into `main` for a pre-release its production bot is to
+run (versioning.md, framy today).
 
 1. Finish the work on `dev` and run the verification below.
 2. Rename `## Unreleased` to the version, and open a fresh empty `## Unreleased`
@@ -188,22 +190,13 @@ docker pull ghcr.io/freshlabdev/framy:<tag>
 docker inspect --format '{{index .RepoDigests 0}}' ghcr.io/freshlabdev/framy:<tag>
 ```
 
-That pull used to be mandatory, and it is worth saying why it no longer is,
-because the reason was never the digest. Deploying straight to
-`ghcr.io/freshlabdev/framy@sha256:<digest>` answered `403` on a blob, and
-pulling the tag first always cleared it.
-
-The cause was the account doing the deploying. `ws04 deploy` runs as root, and
-root's stored GHCR credential could not read the private package; the
-pull-by-tag only worked because it was run as the login user, whose credential
-can — which left the image in the shared local store for `up` to find. The
-registry says which is which: asked for a manifest digest as if it were a blob,
-an account that can read the package answers `404`, one that cannot answers
-`403`. A `403` here is an access problem wearing a not-found costume.
-
-So the fix is on the host, not in the recipe: make sure the account the deploy
-runs as can read the package (`sudo docker login ghcr.io`), and pinning a digest
-works on its own. Pulling the tag first is still a fine way to warm the layers.
+The package `ghcr.io/freshlabdev/framy` is public, so any account on the
+host pulls a digest without logging in, and `ws04 deploy` pulls the one
+`FRAMY_IMAGE` names; pulling the tag first only warms the layers. Should the
+package ever be private again, a deploy straight to a digest answers `403` on
+a blob when the account doing it (root, for `ws04 deploy`) cannot read the
+package: an access problem that looks like a missing blob, fixed with
+`sudo docker login ghcr.io`.
 
 Without a shell on the host, the API answers the same question:
 

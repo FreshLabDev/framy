@@ -16,11 +16,14 @@
 #
 # With production's KEK, R2 token and database role, whatever it runs acts on
 # production's data (docs/design.md, Stacks). So the image is pulled, never
-# built here: FRAMY_IMAGE names a published pre-release of dev, which passed
-# CI before it was published (docs/releases.md), by its digest:
+# built here: FRAMY_IMAGE names a pre-release of dev that the release
+# workflow published after CI, by digest, before production takes it
+# (docs/releases.md):
+#
 #   FRAMY_IMAGE=ghcr.io/freshlabdev/framy@sha256:<digest>
-# Its sessions are its own: a cookie or a token of the test bot signs nobody
-# in on production.
+#
+# ws04 deploy framy-test pulls it. Its sessions are its own: a cookie or a
+# token of the test bot signs nobody in on production.
 #
 # .env holds FRAMY_IMAGE, R2_ACCOUNT_ID and TRUSTED_PROXIES, and
 # R2_INCOMING_BUCKET when production's .env names one (the same bucket, with
