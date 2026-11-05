@@ -63,8 +63,8 @@ What it does today:
   mode);
 - the free allowance, and OpenRouter, OpenAI and Gemini on your own keys.
 
-Still to come: the editor of a result, a mask for OpenAI edits, public links to
-results, and backups of the database. Work is tracked on the
+Still to come: the editor of a result, a mask for OpenAI edits and public links
+to results. Work is tracked on the
 [project board](https://github.com/orgs/FreshLabDev/projects/4/views/3).
 
 ---

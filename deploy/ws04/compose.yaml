@@ -30,7 +30,9 @@
 # sign-in and the Mini App still works. With R2_INCOMING_BUCKET come
 # r2-incoming-access-key-id and r2-incoming-secret-access-key, the halves of
 # a token that has Object Read & Write on that bucket and nothing else; they
-# are read only when it is set.
+# are read only when it is set. kek must stay out of the host's backup of
+# this directory, since its backup of core-postgres holds the keys kek opens
+# (docs/design.md, Backups).
 #
 # Telegram goes through the family's telegram-bot-api in --local mode, which
 # answers getFile with a path on its own disk and serves no files over HTTP.

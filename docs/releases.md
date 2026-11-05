@@ -200,6 +200,7 @@ the deploy.
 | Env file | `.env` on the host, never in git; file secrets beside it, owned by uid 101 |
 | Networks | `core_net` (core-postgres), `management` (the Cloudflare Tunnel for `framy.ws04.cc`), `telegram_bot_api_net` (the self-hosted `telegram-bot-api`) |
 | Storage | R2 buckets `framy` (inputs and results), and the clips' own bucket when `R2_INCOMING_BUCKET` names one (docs/design.md, Storage); `work/` and `anim/` beside the manifest; the bot's own media directory of `telegram-bot-api`, as the volume `framy_bot-api` |
+| Backups | The host's daily `ws04-backup`: `pg_dumpall` of `core-postgres`, which holds the `framy` schema, and a copy of `/opt/stacks`, both in restic on Google Drive. The KEK must stay out of it: the copy of `/opt/stacks` has to leave out `secrets/kek` of `framy` and `framy-test` and any copy of it beside them, and the KEK's own copy is kept apart (docs/design.md, Backups). On 6 November it does not leave them out yet. A restore of the schema has not been tried yet (#28) |
 | Database | core migration `019_framy.sql` applied, `FRAMY_CORE_PASSWORD` in core's `.env` and framy's |
 | Test bot | `framy-test` (`deploy/ws04-test/compose.yaml`) on the same schema with `FRAMY_STACK=test`, the same KEK and the same R2 bucket; it applies the migrations of `dev` before production does, so they are additive (docs/design.md, Stacks) |
 | Ports | `8080` for the tunnel, never published to the host; `9090` for `/metrics`, reachable on the Docker networks only and never routed by the tunnel |
@@ -225,9 +226,10 @@ curl -s "https://api.telegram.org/bot$(cat secrets/bot-token)/logOut"
 install -d -o 101 -g 101 "/opt/stacks/telegram-bot-api-next/files/$(cat secrets/bot-token)"
 ```
 
-Files live in R2, not on the host. The database is in core-postgres, which
-the home server's daily backup dumps to Google Drive (docs/design.md,
-Backups); the bucket `framy` is itself the copy off the home server.
+Files live in R2, not on the host, and the bucket `framy` is itself their copy
+off the home server. The database is in core-postgres, which the home server's
+daily backup dumps to Google Drive; that backup must not hold the KEK too
+(docs/design.md, Backups).
 
 ### Checking what is running
 

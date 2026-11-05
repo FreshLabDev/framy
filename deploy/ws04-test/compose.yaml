@@ -30,7 +30,8 @@
 # (a copy of production's: the keys people connect are stored once for
 # both; only production rewraps them, so a new line goes into production's
 # file first and is copied here once production has restarted,
-# docs/design.md, Keys at rest), r2-access-key-id, r2-secret-access-key,
+# docs/design.md, Keys at rest; like production's, it must stay out of the
+# host's backup of this directory), r2-access-key-id, r2-secret-access-key,
 # openrouter-key, hook-path-secret
 # (head -c 32 /dev/urandom | base64), and telegram-login-client-id and
 # telegram-login-client-secret: the OpenID Connect client of @framytest_bot

@@ -35,7 +35,9 @@ publish an advisory when disclosure is safe.
 - Keep `.env`, file secrets, PostgreSQL dumps and the R2 credentials outside
   Git.
 - Keep the key-encryption key (KEK) apart from the database backups. A dump and
-  its KEK together give away every stored key.
+  its KEK together give away every stored key, so a backup of the stack's
+  directory must leave out `secrets/kek`, and the copy that restores it is kept
+  elsewhere, behind something other than the backups' password.
 - Use a unique strong password for the `framy_core` role.
 - Give the R2 API token access to the bucket `framy` alone, and the clips'
   token, when `R2_INCOMING_BUCKET` is set, to that bucket alone. A token that
