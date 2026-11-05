@@ -525,3 +525,64 @@ func TestBrowserDropHidden(t *testing.T) {
 	}
 	noErrors(t, ctx)
 }
+
+// contrastHelpers lists the words on the screen that stand under WCAG AA
+// against the first colour painted behind them: 4.5 : 1, or 3 : 1 for large
+// text, with the opacity of what holds them. A disabled button is left out.
+const contrastHelpers = `
+function lowContrast() {
+  const bad = [];
+  const vis = (el) => el.getClientRects().length && getComputedStyle(el).visibility !== "hidden" && !el.closest("[hidden],[aria-hidden=true],.scrim");
+  const P = (c) => c.match(/[\d.]+/g).map(Number);
+  const Lum = (c) => { const v = c.map((x) => { x /= 255; return x <= .03928 ? x / 12.92 : ((x + .055) / 1.055) ** 2.4; }); return .2126 * v[0] + .7152 * v[1] + .0722 * v[2]; };
+  for (const el of document.querySelectorAll("body *")) {
+    if (!vis(el) || ![...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue;
+    const r = el.getBoundingClientRect(); if (r.bottom < 0 || r.top > innerHeight || r.right < 0 || r.left > innerWidth) continue;
+    if (el.closest("button:disabled, .ind")) continue;
+    const cs = getComputedStyle(el); let bg = null, op = 1;
+    for (let a = el; a; a = a.parentElement) { const ac = getComputedStyle(a); op *= +ac.opacity; const b = ac.backgroundColor; if (b && !/rgba\(0, 0, 0, 0\)|transparent/.test(b)) { bg = P(b); break; } }
+    if (!bg) continue;
+    const f = P(cs.color), fa = (f[3] ?? 1) * op, mix = f.slice(0, 3).map((x, i) => x * fa + bg[i] * (1 - fa));
+    const l1 = Lum(mix), l2 = Lum(bg.slice(0, 3)), cr = (Math.max(l1, l2) + .05) / (Math.min(l1, l2) + .05);
+    const fs = parseFloat(cs.fontSize), fw = +cs.fontWeight || 400, large = fs >= 24 || (fs >= 18.66 && fw >= 700);
+    if (cr < (large ? 3 : 4.5)) bad.push((el.className || el.tagName) + " '" + el.textContent.trim().slice(0, 24) + "' " + cr.toFixed(2) + " " + fs);
+  }
+  return bad;
+}
+`
+
+// TestBrowserContrast checks the contrast of every line in sight in the
+// composer, the picker (a dimmed model among them), the settings sheet of a
+// phone, the empty frame and the library: the secondary lines, the prices of
+// the variants, the labels of the settings and the ratio in the empty frame
+// read on a phone in the sun too.
+func TestBrowserContrast(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	check := func(name string, ctx context.Context, body string) {
+		t.Helper()
+		got := js[[]string](t, ctx, pageHelpers+contrastHelpers+body+`
+		await wait(700);
+		return lowContrast();`)
+		if len(got) > 0 {
+			t.Errorf("%s: too little contrast:\n%s", name, strings.Join(got, "\n"))
+		}
+	}
+	ctx := browserAs(t, ts.URL, 1440, 900, opened{})
+	check("composer", ctx, ``)
+	check("picker", ctx, `
+	document.querySelector("#how .mhead").click();
+	await wait(900);
+	if (!document.querySelector("#pkrows .frow.dim")) throw new Error("no dimmed model in the picker");`)
+	noErrors(t, ctx)
+
+	ctx = browserAs(t, ts.URL, 390, 844, opened{phone: true})
+	check("phone", ctx, ``)
+	check("phone settings", ctx, `document.querySelector("#dtools .chipbtn.set").click();`)
+	noErrors(t, ctx)
+
+	lib := newFakeLibrary()
+	ctx = browserAs(t, fakeSite(t, lib.mount).URL+"/library", 1440, 900, opened{})
+	check("library", ctx, `for (let i = 0; i < 40 && !document.querySelector("#library .li"); i++) await wait(100);`)
+	noErrors(t, ctx)
+}

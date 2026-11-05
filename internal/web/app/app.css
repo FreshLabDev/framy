@@ -4,7 +4,7 @@
    opacity only, done in JavaScript; here are only colour changes on hover. */
 @import "./fonts.css";
 
-:root {--field: #00606E; --deep: #00454F; --line: #0B7280; --ink: #FFFFFF; --soft: #D9E7E9; --muted: #A9C9CE;
+:root {--field: #00606E; --deep: #00454F; --line: #0B7280; --ink: #FFFFFF; --soft: #D9E7E9; --muted: #B8D4D8;
   --gap: 2px; --row: 46px;
   --display: "Sofia Sans Extra Condensed", "Arial Narrow", sans-serif;
   --text: "Sofia Sans", system-ui, sans-serif;
@@ -37,9 +37,9 @@ p {margin: 0;}
 .seg > button .row {display: flex; align-items: center; gap: 8px;}
 .seg > button small {font-size: 13px; font-weight: 500; color: var(--muted); white-space: nowrap;}
 .seg > button.off {color: var(--muted);}
-.seg > button.gap {background: transparent; outline: 1px dashed rgba(169, 201, 206, .5); outline-offset: -1px; color: var(--muted); font-weight: 500;}
+.seg > button.gap {background: transparent; outline: 1px dashed rgba(184, 212, 216, .5); outline-offset: -1px; color: var(--muted); font-weight: 500;}
 .seg > button.gap small {font-size: 11px;}
-.rt.gap {background: transparent; outline: 1px dashed rgba(169, 201, 206, .5); outline-offset: -1px; color: var(--muted);}
+.rt.gap {background: transparent; outline: 1px dashed rgba(184, 212, 216, .5); outline-offset: -1px; color: var(--muted);}
 .rt.gap .shp {border-style: dashed;}
 .seg > button:disabled {opacity: .35;}
 .seg.wrapping {flex-wrap: wrap;}
@@ -152,7 +152,7 @@ textarea#prompt::placeholder {color: var(--muted);}
 [dir="rtl"] .steps .ticks button:last-child {transform: translateX(calc(100% - 10px));}
 .steps .ticks button.on {color: var(--ink); font-weight: 700;}
 .steps .ticks small {font-size: 11px; font-weight: 400; color: var(--muted);}
-.steps .ticks button.gap {color: var(--muted); font-weight: 400; opacity: .8;}
+.steps .ticks button.gap {color: var(--muted); font-weight: 400;}
 .steps .ticks button.gap span {text-decoration: underline dashed 1px; text-underline-offset: 3px;}
 .rng {display: grid;}
 .tog {justify-self: start; display: inline-flex; align-items: center; gap: 12px; height: 44px; font-size: 14px; font-weight: 600; color: var(--muted);}
@@ -224,7 +224,8 @@ input[type="range"]::-moz-range-thumb {width: 20px; height: 20px; background: va
 /* What the price means wraps rather than ends in an ellipsis: how many free runs a sign-in gives,
    or when the next one comes, is why the line is there. */
 #pcap {font-size: 14px; color: var(--muted); min-height: 1.4em; text-wrap: pretty;}
-.go .kbd {font-size: 12px; font-weight: 500; opacity: .55; margin-left: 2px;}
+.go .kbd {font-size: 12px; font-weight: 500; color: var(--line); margin-left: 2px;}
+.go:disabled .kbd {color: inherit;}
 .go {flex: none; min-width: 150px; height: 52px; padding: 0 22px; display: flex; align-items: center; justify-content: center; gap: 10px; background: var(--ink); color: var(--field); font-size: 17px; font-weight: 700;}
 .go:disabled {background: var(--deep); color: var(--muted);}
 .usd {font-variant-numeric: tabular-nums;}
@@ -240,9 +241,9 @@ input[type="range"]::-moz-range-thumb {width: 20px; height: 20px; background: va
 .ghost > i:nth-of-type(3), .jbox > i:nth-of-type(3) {left: 10px; bottom: 10px; border-width: 0 0 3px 3px;}
 .ghost > i:nth-of-type(4), .jbox > i:nth-of-type(4) {right: 10px; bottom: 10px; border-width: 0 3px 3px 0;}
 .ghost .c, .jbox .c {display: grid; justify-items: center; gap: 6px; padding: 0 10px; text-align: center;}
-.ghost .c b, .jbox .c b {font: 700 clamp(20px, 4vw, 42px)/1 var(--display); color: var(--line);}
+.ghost .c b, .jbox .c b {font: 700 clamp(20px, 4vw, 42px)/1 var(--display); color: var(--muted);}
 .ghost .c small, .jbox .c small {font-size: 13px; color: var(--muted);}
-.ghost .c > .ic, .jbox .c > .ic {width: 34px; height: 34px; color: var(--line);}
+.ghost .c > .ic, .jbox .c > .ic {width: 34px; height: 34px; color: var(--muted);}
 @media (min-width: 960px) {
   .stage {position: sticky; top: 12px;}
 }
@@ -325,9 +326,12 @@ input.search::placeholder {color: var(--muted);}
 .pill {height: 28px; padding: 0 10px; display: inline-flex; align-items: center; gap: 6px; background: var(--field); font-size: 13px; font-weight: 600; white-space: nowrap;}
 .pill[aria-pressed="true"] {background: var(--ink); color: var(--field);}
 .pill.wide {color: var(--soft);}
-.pill.old {background: transparent; outline: 1px dashed rgba(169, 201, 206, .5); outline-offset: -1px; color: var(--muted); font-weight: 500;}
+.pill.old {background: transparent; outline: 1px dashed rgba(184, 212, 216, .5); outline-offset: -1px; color: var(--muted); font-weight: 500;}
 .pill .ic {width: 14px; height: 14px;}
-.frow.dim > .lg, .frow.dim .nm, .frow.dim .fprice, .frow.dim .fvars, .rcard.dim > :not(.why) {opacity: .45;}
+/* A model the person cannot run as things are is dimmed by its colours, not faded: its name and price
+   stay readable, and the line under the name says what it needs. */
+.frow.dim > .lg, .rcard.dim > .lg {opacity: .45;}
+.frow.dim .nm, .frow.dim .fprice b, .frow.dim .pill:not([aria-pressed="true"]), .rcard.dim:not([aria-current="true"]) :is(.nm, .pr) {color: var(--muted);}
 @media (max-width: 520px) {
   .frow {padding: 10px 12px;}
   .fvars {grid-column: 1 / -1;}
@@ -384,7 +388,7 @@ input.search::placeholder {color: var(--muted);}
 }
 @media (hover: hover) {
   .seg > button:not(:disabled):hover, .rt:hover, .mhead:hover, .frow:hover, .rcard:not([aria-current="true"]):hover, .acts button:not(.primary):hover, .link:not(:disabled):hover, .ib:hover, .addfile:hover, .pattach:hover, .me:hover, .x:hover, .chipbtn:hover {background-color: var(--line);}
-  .pill:not([aria-pressed="true"]):hover {background-color: #2B8A96;}
+  .pill:not([aria-pressed="true"]):hover {background-color: var(--line);}
   .vl:hover {background-color: var(--line);}
   .morebtn:hover, .dold button:hover {color: var(--ink);}
 }
