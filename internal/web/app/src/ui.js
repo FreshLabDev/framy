@@ -1,5 +1,5 @@
 // Sheets, the toast and the one question dialog.
-import { $, h, isWide } from "./dom.js";
+import { $, h, isWide, focusKey, refocus } from "./dom.js";
 import { anim, EASE, OUT } from "./motion.js";
 import { t } from "./i18n.js";
 
@@ -9,7 +9,8 @@ const open = [];
 export const sheetOpen = () => open.length > 0;
 
 // o.back: a sheet opened from another one goes back to it when it closes;
-// back is what opens that one again.
+// back is what opens that one again. o.focus: what has the focus when it
+// opens, else its first field or button.
 export function openSheet(sel, o = {}) {
   const el = $(sel), scrim = $("#scrim");
   if (!el.hidden) return;
@@ -22,10 +23,12 @@ export function openSheet(sel, o = {}) {
   const wide = isWide();
   anim(el, [{ transform: wide ? "translateX(64px)" : "translateY(100%)", opacity: wide ? 0 : 1 }, { transform: "none", opacity: 1 }], { duration: 420, easing: EASE });
   if (!had) anim(scrim, [{ opacity: 0 }, { opacity: 1 }], { duration: 260 });
-  el._focus = document.activeElement;
+  // What had the focus gets it back when the sheet closes, or its new self
+  // when a choice in the sheet drew it again.
+  el._focus = document.activeElement; el._focusKey = focusKey(el._focus);
   // Focus after the first frame: now it would lay the sheet out in the middle
   // of this task.
-  const first = el.querySelector("[autofocus], input, button");
+  const first = (o.focus && el.querySelector(o.focus)) || el.querySelector("input, button");
   requestAnimationFrame(() => setTimeout(() => { if (open.includes(el)) first?.focus({ preventScroll: true }); }));
   backHook(true);
 }
@@ -43,7 +46,7 @@ export function closeSheets(quick) {
     const a = quick ? null : anim(el, [{ transform: "none", opacity: 1 }, { transform: wide ? "translateX(64px)" : "translateY(100%)", opacity: wide ? 0 : 1 }], { duration: 260, easing: OUT, fill: "forwards" });
     const done = () => { el.hidden = true; a?.cancel(); el.dispatchEvent(new Event("closed")); };
     if (a) a.finished.then(done, done); else done();
-    el._focus?.focus?.({ preventScroll: true });
+    if (el._focus?.isConnected) el._focus.focus({ preventScroll: true }); else refocus(el._focusKey);
   }
   const b = quick ? null : anim(scrim, [{ opacity: 1 }, { opacity: 0 }], { duration: 220, fill: "forwards" });
   const sd = () => { scrim.hidden = true; b?.cancel(); };

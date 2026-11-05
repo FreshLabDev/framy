@@ -22,9 +22,10 @@ export function h(tag, attrs = {}, ...kids) {
    focus is a new element, and the old one took the focus away with it: the
    browser starts again from the top of the page. The control in focus is
    remembered in words that last a redraw: an option by its group and value,
-   anything else by the keyed block (data-k) it is in, its kind and its place
-   there. When a redraw takes it away, its new self gets the focus, and a
-   person on the keyboard goes on from where they were. */
+   anything else by its id, or by the keyed block (data-k) or the block with
+   an id it is in, its kind and its place there. When a redraw takes it away,
+   its new self gets the focus, and a person on the keyboard goes on from
+   where they were. */
 const FOCUSABLE = "button, input, select, textarea, a[href], [tabindex]";
 const live = (el) => el.isConnected && !el.closest(".mirror, [inert], [aria-hidden='true']");
 // The controls of a keyed block of one kind, the block itself first when it is one.
@@ -33,9 +34,10 @@ export function focusKey(el) {
   if (!el?.isConnected || el === document.body) return null;
   const g = el.getAttribute("role") === "radio" && el.closest("[data-seg]");
   if (g) return { seg: g.dataset.seg, v: el.dataset.v };
-  const k = el.closest("[data-k]");
-  if (k) return { k: k.dataset.k, i: controls(k, el.tagName).indexOf(el), tag: el.tagName };
-  return el.id ? { id: el.id } : null;
+  if (el.id) return { id: el.id };
+  const k = el.closest("[data-k], [id]");
+  if (!k) return null;
+  return { in: k.dataset.k != null ? `[data-k="${CSS.escape(k.dataset.k)}"]` : "#" + CSS.escape(k.id), i: controls(k, el.tagName).indexOf(el), tag: el.tagName };
 }
 export function refocus(key) {
   if (!key) return false;
@@ -44,8 +46,8 @@ export function refocus(key) {
   if (key.seg) {
     const rs = [...(first(`[data-seg="${CSS.escape(key.seg)}"]`)?.querySelectorAll(':scope > [role="radio"]') || [])];
     el = rs.find((r) => r.dataset.v === key.v) || rs.find((r) => r.getAttribute("aria-checked") === "true") || rs.find((r) => r.tabIndex === 0);
-  } else if (key.k) {
-    const all = controls(first(`[data-k="${CSS.escape(key.k)}"]`), key.tag);
+  } else if (key.in) {
+    const all = controls(first(key.in), key.tag);
     el = all[Math.min(Math.max(0, key.i), all.length - 1)];
   } else el = document.getElementById(key.id);
   if (!el || !live(el) || el.disabled || !el.getClientRects().length) return false;

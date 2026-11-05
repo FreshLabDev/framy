@@ -68,7 +68,9 @@ export function openPicker(o) {
   // Built while hidden, so the sheet is laid out once, with its new rows.
   renderSort(false);
   renderPicker({ fresh: true });
-  openSheet("#picker", { back: o?.back });
+  // With a mouse and a keyboard the search has the focus, to type in at
+  // once; on a touch screen it would bring up the keyboard over the list.
+  openSheet("#picker", { back: o?.back, focus: matchMedia("(pointer: fine)").matches ? "#pksearch" : null });
   $("#picker .body").scrollTop = 0;
   placeSegs($("#picker"));
 }
@@ -78,12 +80,17 @@ function renderSort(place = true) {
   if (place) placeSeg($("#pksort"));
 }
 
+// The card on the right is of the family under the mouse, or of the one the
+// keyboard is on: its row, a variant's pill or a suggestion.
 let hoverT = 0;
+const shows = (f, vid) => S.info == null && !(S.hover === f.idx && (!vid || S.detVar[f.idx] === vid));
+const showFam = (f, vid) => { S.hover = f.idx; if (vid) S.detVar[f.idx] = vid; renderDetail(); };
 const hoverFam = (f, wide, vid) => (e) => {
-  if (!wide || e.pointerType !== "mouse" || S.info != null || (S.hover === f.idx && (!vid || S.detVar[f.idx] === vid))) return;
+  if (!wide || e.pointerType !== "mouse" || !shows(f, vid)) return;
   clearTimeout(hoverT);
-  hoverT = setTimeout(() => { S.hover = f.idx; if (vid) S.detVar[f.idx] = vid; renderDetail(); }, 90);
+  hoverT = setTimeout(() => showFam(f, vid), 90);
 };
+const focusFam = (f, vid) => () => { if (isWide() && shows(f, vid)) { clearTimeout(hoverT); showFam(f, vid); } };
 let found = [];
 function clearSearch() { listUpdate(() => { query = ""; $("#pksearch").value = ""; renderPicker(); }, { dur: 300, step: 15 }); $("#pksearch").focus(); }
 const focusId = () => (FOR ? FOR.cur : M()?.id);
@@ -123,31 +130,44 @@ function renderPicker(o = {}) {
 }
 
 const perWord = (f) => t(f.kind === "image" ? "pick.per_image" : "pick.per_video");
-function famPrice(f) {
+function famPrice(f, id) {
   const free = shown(f).some((v) => freePlan(v.m)), items = shown(f).flatMap((v) => bestItems(v.m));
-  if (free) return h("span", { class: "fprice" }, h("b", {}, t("pay.free")), h("small", {}, minEl(items, { text: (e) => (e.kind === "unknown" ? "" : t("pick.or", { p: priceTextShort(e) })) })));
-  return h("span", { class: "fprice" }, h("b", {}, minEl(items)), h("small", {}, minEl(items, { wait: "", text: (e) => (e.kind === "unknown" ? t("pick.no_price") : (e.discount ? "−" + Math.round(e.discount * 100) + "% · " : "") + perWord(f)) })));
+  if (free) return h("span", { class: "fprice", id }, h("b", {}, t("pay.free")), h("small", {}, minEl(items, { text: (e) => (e.kind === "unknown" ? "" : t("pick.or", { p: priceTextShort(e) })) })));
+  return h("span", { class: "fprice", id }, h("b", {}, minEl(items)), h("small", {}, minEl(items, { wait: "", text: (e) => (e.kind === "unknown" ? t("pick.no_price") : (e.discount ? "−" + Math.round(e.discount * 100) + "% · " : "") + perWord(f)) })));
 }
 const priceTextShort = (e) => (e.kind === "from" ? t("price.from", { p: e.label }) : e.kind === "about" ? t("price.about", { p: e.label }) : e.kind === "up_to" ? t("price.up_to", { p: e.label }) : e.label);
 function recCard(m, wide) {
   const f = C.famOf[m.id], why = fit(m), plan = freePlan(m);
   const reason = why || [plan ? freePer(m.kind) : "", ...facts(m, 4).filter((x) => x[0] !== "ticket").map((x) => x[1])].filter(Boolean).slice(0, 2).join(" · ");
-  return h("button", { type: "button", class: "rcard" + (why ? " dim" : ""), "aria-current": String(focusId() === m.id), onclick: (e) => choose(C.varOf[m.id], e.currentTarget), onpointermove: hoverFam(f, wide, m.id) },
+  return h("button", { type: "button", class: "rcard" + (why ? " dim" : ""), "aria-current": String(focusId() === m.id), onclick: (e) => choose(C.varOf[m.id], e.currentTarget), onpointermove: hoverFam(f, wide, m.id), onfocus: focusFam(f, m.id) },
     lg(famLogo(f), f.maker), h("span", { class: "nm" }, vname(m)), h("span", { class: "why" }, reason), h("span", { class: "pr" }, plan ? t("pay.free") : minEl(bestItems(m))));
 }
 // A family is one row: the whole row picks it, the variants are pills inside it.
+// A screen reader hears the row's button with what the row shows, its facts
+// and its price, and a pill as the variant's whole name with its price.
 function famRow(f, wide) {
-  const cur = focusId(), mine = C.famOf[cur] === f, why = famFit(f), vs = shown(f);
+  const cur = focusId(), mine = C.famOf[cur] === f, why = famFit(f), vs = shown(f), id = "pk" + f.idx;
   const want = C.varOf[mine ? cur : S.lastVar[f.idx]] || f.def, pick = vs.includes(want) || (f.old.includes(want) && ok(want)) ? want : vs[0];
   const sub = why ? [ic("warn"), why] : facts(vs.map((v) => v.m), 3).filter((x) => x[0] !== "ticket").map((x) => x[1]).join(" · ");
   const olds = S.sort === "price" || query.trim() ? oldShown(f) : [];
-  const vars = vs.length > 1 || olds.length ? h("div", { class: "fvars" },
-    vs.length > 1 ? vs.map((v) => h("button", { type: "button", class: "pill", "aria-pressed": String(v.id === cur), onclick: () => choose(v, $(`#pkrows [data-k="fam-${f.idx}"]`)), onpointermove: hoverFam(f, wide, v.id) }, v.label)) : null,
-    olds.map((v) => h("button", { type: "button", class: "pill old", "aria-pressed": String(v.id === cur), title: t("pick.outdated", { v: v.by.label }), onclick: () => choose(v, $(`#pkrows [data-k="fam-${f.idx}"]`)) }, v.label))) : null;
+  // A pill's price is written when the pill gets the focus, where it is
+  // heard: the picker opens without a price to keep for every variant. An
+  // outdated variant says so before it, as its title says to the mouse.
+  const prices = [];
+  const pill = (v, old) => {
+    const say = h("span", { id: `${id}-v${prices.length}` }), show = focusFam(f, v.id);
+    const was = old ? h("span", { id: say.id + "-old" }, t("pick.outdated", { v: v.by.label })) : null;
+    prices.push(say, was);
+    return h("button", { type: "button", class: "pill" + (old ? " old" : ""), "aria-pressed": String(v.id === cur), "aria-label": vname(v.m), "aria-describedby": was ? `${was.id} ${say.id}` : say.id, title: was?.textContent ?? null,
+      onclick: () => choose(v, $(`#pkrows [data-k="fam-${f.idx}"]`)), onpointermove: old ? null : hoverFam(f, wide, v.id),
+      onfocus: () => { if (!say.firstChild) say.append(freePlan(v.m) ? t("pay.free") : minEl(bestItems(v.m))); show(); } }, v.label);
+  };
+  const vars = vs.length > 1 || olds.length ? h("div", { class: "fvars" }, vs.length > 1 ? vs.map((v) => pill(v, false)) : null, olds.map((v) => pill(v, true))) : null;
   return h("div", { class: "frow" + (why ? " dim" : ""), "aria-current": String(mine), "data-k": "fam-" + f.idx, onpointermove: hoverFam(f, wide) },
-    h("button", { type: "button", class: "fhit", "aria-label": t("pick.choose_name", { name: f.title }), onclick: (e) => choose(pick, e.currentTarget.parentNode) }),
-    lg(famLogo(f), f.maker), h("span", { class: "fbody" }, h("span", { class: "nm" }, f.title), sub && sub.length ? h("span", { class: "fsub" + (why ? " why" : "") }, sub) : null),
-    famPrice(f), vars);
+    h("button", { type: "button", class: "fhit", "aria-label": t("pick.choose_name", { name: f.title }), "aria-describedby": sub && sub.length ? `${id}-sub ${id}-pr` : `${id}-pr`,
+      onclick: (e) => choose(pick, e.currentTarget.parentNode), onfocus: focusFam(f) }),
+    lg(famLogo(f), f.maker), h("span", { class: "fbody" }, h("span", { class: "nm" }, f.title), sub && sub.length ? h("span", { class: "fsub" + (why ? " why" : ""), id: id + "-sub" }, sub) : null),
+    famPrice(f, id + "-pr"), vars, prices.length ? h("span", { hidden: true }, prices) : null);
 }
 
 let detFam = null;

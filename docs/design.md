@@ -194,6 +194,8 @@ Two tabs, Images and Video, with search. The suggestions for what is attached co
 - the price for the current settings in USD and the person's currency;
 - one line per connected provider.
 
+On a wide screen the card on the right shows the family under the mouse or the one the keyboard is on: its row, a variant or a suggestion. With a mouse the picker opens with the search in focus, to type in at once; on a touch screen it does not, so no keyboard comes up over the list. A screen reader hears a row with its facts and price, and a variant by its whole name ("FLUX 2 Max") with its price, an outdated one also that it is outdated. A model chosen gives the focus back to the model in the composer.
+
 Proposal: models that need a provider the person has not connected stay in the list, dimmed, with "Connect OpenRouter", so it is visible what a key would unlock.
 
 In a video the list shows only the models that can take what is in the slots (Video, below): a last frame leaves out the models with no last frame, four references the models that take fewer, a clip the models that take none, and the composer's row of variants does the same. A model that only needs more, as an editor with no clip or mischief 1 with no picture, stays, dimmed with what it needs. Nothing else changes: it is the same page and the same list.

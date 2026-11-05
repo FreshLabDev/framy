@@ -188,3 +188,94 @@ func TestBrowserPickerFromUpTo(t *testing.T) {
 		})
 	}
 }
+
+// TestBrowserPickerKeyboard checks the picker from the keyboard: it opens
+// with the search in focus; the card on the right follows the row and the
+// variant in focus, as it follows the mouse; a screen reader hears a row
+// with its facts and price and a variant by its whole name with its price;
+// and a model chosen gives the focus back to the model in the composer.
+func TestBrowserPickerKeyboard(t *testing.T) {
+	ts := fakeAPI(t)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	js[bool](t, ctx, pageHelpers+`document.querySelector("#how .mhead").focus(); return true;`)
+	enter(t, ctx)
+	got := js[map[string]any](t, ctx, pageHelpers+pickerHelpers+`
+	await wait(700);
+	const at = document.activeElement.id;
+	const row = famRow("FLUX"), hit = row.querySelector(".fhit");
+	hit.focus();
+	await wait(100);
+	const card = document.querySelector("#pkd h4")?.textContent || "";
+	for (let i = 0; i < 40 && row.querySelector(".q.wait"); i++) await wait(100);
+	const said = (el) => (el.getAttribute("aria-describedby") || "").split(" ").filter(Boolean).map((id) => document.getElementById(id)?.textContent.trim() || "?" + id).join(" | ");
+	const pill = [...row.querySelectorAll(".pill")].find((p) => p.getAttribute("aria-pressed") !== "true" && p.textContent.trim() !== "3");
+	pill.focus();
+	await wait(100);
+	const chosen = document.querySelector("#pkd .vlist [aria-checked=true] b")?.textContent || "";
+	return { at, card, hit: said(hit), pill: pill.textContent, pillName: pill.getAttribute("aria-label") || "", pillSaid: said(pill), chosen };`)
+	if got["at"] != "pksearch" {
+		t.Errorf("the picker opens with the focus on %q, want the search", got["at"])
+	}
+	if got["card"] != "FLUX" {
+		t.Errorf("with the focus on FLUX's row the card shows %q", got["card"])
+	}
+	if s, _ := got["hit"].(string); !regexp.MustCompile(`·.*\|.*\$\d`).MatchString(s) {
+		t.Errorf("FLUX's row is described as %q, want its facts and its price", s)
+	}
+	if got["pillName"] != "FLUX "+got["pill"].(string) {
+		t.Errorf("the variant %q is named %q, want its whole name", got["pill"], got["pillName"])
+	}
+	if s, _ := got["pillSaid"].(string); !regexp.MustCompile(`\$\d|^Free$`).MatchString(s) {
+		t.Errorf("the variant %q is described as %q, want its price", got["pill"], s)
+	}
+	if got["chosen"] != got["pill"] {
+		t.Errorf("with the focus on the variant %q the card shows %q", got["pill"], got["chosen"])
+	}
+	// An outdated variant, shown when the list goes by price, says so to a
+	// screen reader as its title says to the mouse, and its price.
+	old := js[map[string]any](t, ctx, pageHelpers+`
+	document.querySelector("#pksort [data-v=price]").click();
+	await wait(900);
+	const p = document.querySelector("#pkrows .pill.old");
+	if (!p) return { none: true };
+	p.focus();
+	await wait(100);
+	for (let i = 0; i < 40 && document.querySelector("#pkrows .q.wait"); i++) await wait(100);
+	const said = (p.getAttribute("aria-describedby") || "").split(" ").map((id) => document.getElementById(id)?.textContent.trim() || "?" + id).join(" | ");
+	const out = { title: p.title, said };
+	document.querySelector("#pksort [data-v=maker]").click();
+	await wait(900);
+	return out;`)
+	if old["none"] == true {
+		t.Fatal("no outdated variant in the list by price")
+	}
+	if s, _ := old["said"].(string); !strings.HasPrefix(s, old["title"].(string)+" | ") || !regexp.MustCompile(`\$\d|Free$`).MatchString(s) {
+		t.Errorf("an outdated variant is described as %q, want %q and its price", s, old["title"])
+	}
+	js[bool](t, ctx, pageHelpers+pickerHelpers+`famRow("FLUX").querySelector(".fhit").focus(); return true;`)
+	enter(t, ctx)
+	back := js[map[string]any](t, ctx, pageHelpers+`
+	await wait(900);
+	const a = document.activeElement;
+	return { open: !document.querySelector("#picker").hidden, mhead: a.matches("#how .mhead") && a.isConnected, name: document.querySelector("#how .mname")?.textContent || "" };`)
+	if back["open"].(bool) || !strings.HasPrefix(back["name"].(string), "FLUX") {
+		t.Fatalf("Enter on FLUX's row did not choose it: %v", back)
+	}
+	if !back["mhead"].(bool) {
+		t.Errorf("after a model is chosen the focus is not on the model in the composer")
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserPickerPhoneNoKeyboard checks the picker on a touch screen does
+// not open with the search in focus, which would bring up the keyboard over
+// the list.
+func TestBrowserPickerPhoneNoKeyboard(t *testing.T) {
+	ts := fakeAPI(t)
+	ctx := browser(t, ts.URL, 390, 844, true)
+	got := js[string](t, ctx, pageHelpers+pickerHelpers+`await openPicker(); await wait(300); return document.activeElement.tagName;`)
+	if got == "INPUT" {
+		t.Errorf("the picker opens on a phone with a field in focus")
+	}
+	noErrors(t, ctx)
+}
