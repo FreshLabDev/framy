@@ -57,8 +57,9 @@ const (
 	DefaultMaxVideoAnswer = 192 << 20
 	// DefaultMaxInput bounds one file sent, and DefaultMaxInputs all of them
 	// together. Google takes 100 MB of inline data in a request, and base64
-	// adds a third. Photos reach this point already at most 2048 px long; a
-	// video to edit is up to 10 s.
+	// adds a third. An upload reaches this point at most 2048 px long, a
+	// result as its model made it, up to a 4K PNG of 20 MB or more; a video
+	// to edit is up to 10 s.
 	DefaultMaxInput  = 48 << 20
 	DefaultMaxInputs = 60 << 20
 	// DefaultFetchTimeout bounds the download of one reference.
@@ -91,6 +92,11 @@ type Config struct {
 	// MaxInput and MaxInputs bound one reference and all of them, in bytes
 	// before base64; the defaults when zero.
 	MaxInput, MaxInputs int64
+	// Shrink makes a picture the size of an upload: the long side at most
+	// 2048 px, as JPEG, or PNG when it has alpha. When the files of a run
+	// come to more than MaxInputs, the largest pictures are shrunk until
+	// they fit. Without it such a run is refused before it is paid.
+	Shrink func(ctx context.Context, data []byte) ([]byte, string, error)
 }
 
 // Provider is the Gemini adapter of the job queue.
@@ -194,12 +200,20 @@ func (p *Provider) key(ctx context.Context, j jobs.Job) (string, error) {
 type file struct {
 	contentType string
 	data        []byte
+	// shrunk: Shrink has had it, or could not make it smaller.
+	shrunk bool
 }
 
 // fetchAll downloads the inputs from their presigned links. Gemini would take
 // the link itself only if it were a Files API one; the bytes go inline.
 // Nothing is paid yet, so a failure here is safe to try again, except for a
 // link that is gone.
+//
+// Results taken as inputs come as their models made them, so a few 4K PNGs
+// are over what a request carries inline. Then the largest pictures are made
+// the size of an upload, one at a time, until the files fit: the model reads
+// a picture at its own resolution anyway (media_resolution), and an upload
+// is already that size. A run whose files fit is sent as it was.
 func (p *Provider) fetchAll(ctx context.Context, inputs []jobs.Input) ([]file, error) {
 	var files []file
 	var total int64
@@ -208,12 +222,45 @@ func (p *Provider) fetchAll(ctx context.Context, inputs []jobs.Input) ([]file, e
 		if err != nil {
 			return nil, err
 		}
-		if total += int64(len(data)); total > p.cfg.MaxInputs {
-			return nil, refused("the files together are larger than %d MiB", p.cfg.MaxInputs>>20)
-		}
 		files = append(files, file{contentType: in.ContentType, data: data})
+		if total += int64(len(data)); total > p.cfg.MaxInputs {
+			if total, err = p.shrink(ctx, files, total); err != nil {
+				return nil, err
+			}
+		}
 	}
 	return files, nil
+}
+
+// shrink makes the largest pictures of files smaller until they come to
+// MaxInputs at most, and returns their new total.
+func (p *Provider) shrink(ctx context.Context, files []file, total int64) (int64, error) {
+	for total > p.cfg.MaxInputs {
+		big := -1
+		for i, f := range files {
+			if !f.shrunk && strings.HasPrefix(f.contentType, "image/") && (big < 0 || len(f.data) > len(files[big].data)) {
+				big = i
+			}
+		}
+		if big < 0 || p.cfg.Shrink == nil {
+			return 0, refused("the files together are larger than %d MiB, which Gemini takes inline", p.cfg.MaxInputs>>20)
+		}
+		f := &files[big]
+		f.shrunk = true
+		data, contentType, err := p.cfg.Shrink(ctx, f.data)
+		switch {
+		case ctx.Err() != nil:
+			// A deadline or a stop: the queue reads the context.
+			return 0, fmt.Errorf("shrink input %d: %w", big+1, ctx.Err())
+		case err != nil || len(data) == 0 || len(data) >= len(f.data):
+			// A picture ffmpeg cannot read, or one already as small: the
+			// next largest may do.
+			continue
+		}
+		total += int64(len(data) - len(f.data))
+		f.data, f.contentType = data, contentType
+	}
+	return total, nil
 }
 
 func (p *Provider) fetch(ctx context.Context, in jobs.Input, i int) ([]byte, error) {

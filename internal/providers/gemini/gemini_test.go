@@ -2,6 +2,7 @@
 package gemini
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -318,6 +319,67 @@ func TestAnEditSendsItsReferencesInline(t *testing.T) {
 	}
 	if strings.Contains(fmt.Sprint(u.body), "X-Amz-Signature") {
 		t.Errorf("the presigned link reached Google")
+	}
+}
+
+// Results taken as inputs come as their models made them. When a few 4K
+// PNGs would not fit in the request, the largest are made upload-sized, and
+// a run whose files fit goes as it came.
+func TestPicturesOverTheTotalAreShrunk(t *testing.T) {
+	pic := func(mime string, size int) jobs.Input {
+		data := bytes.Repeat([]byte{byte(size)}, size)
+		return jobs.Input{ContentType: mime, URL: "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data)}
+	}
+	small := []byte("\xff\xd8\xff\xe0small")
+	var shrunk []int
+	shrink := func(_ context.Context, data []byte) ([]byte, string, error) {
+		shrunk = append(shrunk, len(data))
+		return small, "image/jpeg", nil
+	}
+	p, u := serve(t, reply(200, answerOK()))
+	p.cfg.MaxInput, p.cfg.MaxInputs, p.cfg.Shrink = 4<<10, 4<<10, shrink
+	_, err := p.Submit(context.Background(), job(t, nil, pic("image/jpeg", 2<<10), pic("image/png", 3<<10), pic("image/jpeg", 1<<10)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The second file took the three past 4 KiB: the largest, itself, was
+	// shrunk, and the third then fitted.
+	if fmt.Sprint(shrunk) != "[3072]" {
+		t.Errorf("shrunk %v, want the 3 KiB PNG alone", shrunk)
+	}
+	input, _ := u.body["input"].([]any)
+	if len(input) != 4 {
+		t.Fatalf("input %v", u.body["input"])
+	}
+	if b := input[2].(map[string]any); b["mime_type"] != "image/jpeg" || b["data"] != base64.StdEncoding.EncodeToString(small) {
+		t.Errorf("the shrunk picture went as %v %v", b["mime_type"], b["data"])
+	}
+	if b := input[1].(map[string]any); b["data"] != base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0}, 2<<10)) {
+		t.Errorf("a picture that fitted was changed")
+	}
+
+	shrunk = nil
+	p.cfg.MaxInputs = 8 << 10
+	if _, err := p.Submit(context.Background(), job(t, nil, pic("image/jpeg", 2<<10), pic("image/png", 3<<10))); err != nil || len(shrunk) != 0 {
+		t.Errorf("files that fit: %v, shrunk %v", err, shrunk)
+	}
+
+	// Nothing to shrink with, or nothing it can make smaller: refused before
+	// anything is paid, saying why.
+	calls := u.calls
+	for name, shrink := range map[string]func(context.Context, []byte) ([]byte, string, error){
+		"no shrink":      nil,
+		"no smaller":     func(_ context.Context, data []byte) ([]byte, string, error) { return data, "image/png", nil },
+		"cannot be read": func(context.Context, []byte) ([]byte, string, error) { return nil, "", errors.New("unreadable") },
+	} {
+		p.cfg.MaxInputs, p.cfg.Shrink = 4<<10, shrink
+		_, err := p.Submit(context.Background(), job(t, nil, pic("image/jpeg", 2<<10), pic("image/png", 3<<10)))
+		if pe := classOf(t, err); pe.Class != jobs.Invalid || !strings.Contains(err.Error(), "together") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if u.calls != calls {
+		t.Errorf("%d paid calls for runs that were refused", u.calls-calls)
 	}
 }
 

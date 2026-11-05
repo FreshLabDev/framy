@@ -171,6 +171,9 @@ func run(log *slog.Logger) error {
 			catalog.Gemini: people.Track(gemini.New(gemini.Config{
 				UserAgent: userAgent,
 				Key:       people.JobKey,
+				// Results taken as inputs are made upload-sized when a
+				// run's files would not fit inline.
+				Shrink: shrinker(files),
 			})),
 		},
 		Log:       log.With("component", "jobs"),
@@ -466,6 +469,16 @@ func parseLevel(s string) slog.Level {
 	default:
 		return slog.LevelInfo
 	}
+}
+
+// shrinker is the bucket's way of making a picture upload-sized, for an
+// adapter that carries files inline; none without a bucket, when every job
+// ends as storage before it is sent anyway.
+func shrinker(files *storage.Store) func(context.Context, []byte) ([]byte, string, error) {
+	if files == nil {
+		return nil
+	}
+	return files.Shrink
 }
 
 // openStorage connects the bucket and checks ffmpeg. Without an R2 token it

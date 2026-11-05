@@ -280,6 +280,30 @@ func (s *Store) UploadCopy(ctx context.Context, userID int64, r io.Reader, copyT
 	return a, nil
 }
 
+// Shrink makes a picture the size an upload is, from its bytes: the long
+// side at most 2048 px, JPEG, or PNG when it has alpha. Gemini, which carries
+// a run's files inline, takes it for results used as inputs when the files
+// would not fit otherwise.
+func (s *Store) Shrink(ctx context.Context, data []byte) ([]byte, string, error) {
+	dir, done, err := s.work.Dir("shrink")
+	if err != nil {
+		return nil, "", err
+	}
+	defer done()
+	if err := os.WriteFile(filepath.Join(dir, media.In), data, 0o600); err != nil {
+		return nil, "", err
+	}
+	img, err := s.media.Normalize(ctx, dir)
+	if err != nil {
+		return nil, "", err
+	}
+	out, err := os.ReadFile(img.Path)
+	if err != nil {
+		return nil, "", err
+	}
+	return out, img.ContentType, nil
+}
+
 // Inputs presigns a job's files for its provider: jobs.Inputs. A file the
 // person deleted fails the job before anything is paid.
 func (s *Store) Inputs(ctx context.Context, j jobs.Job) ([]jobs.Input, error) {
