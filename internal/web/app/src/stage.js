@@ -27,8 +27,7 @@ function ratioLabel(set) {
   if (set.aspect_ratio && set.aspect_ratio !== "auto") return set.aspect_ratio;
   return sourceRatio() ? t("val.photo") : t("val.auto");
 }
-// The room a frame has on the stage, with room under it for what a run says
-// (more for the reason it failed).
+// The room a frame has on the stage, with room under it for what a run says.
 function space(under = 0) {
   const st = $("#stage"), phone = isPhone();
   const W = Math.max(160, phone ? innerWidth - 32 : st.clientWidth);
@@ -458,10 +457,10 @@ function renderPress(st, run) {
   const models = [...new Set(run.frames.map((fm) => fm.model))], mixed = models.length > 1, items = doneItems(cells);
   // Nothing came: the first frame's reason stands for the press, and Again runs all of it.
   if (!live.length) return renderRun(st, failed[0].sub);
-  const under = failed.length ? 110 : 70, rs = live.map((c) => c.r), L = live.length > 1 ? board(rs, under) : null;
-  const box = h("div", { class: "board run", "data-k": "pv" }, live.map((c) => runCell(run, c, mixed, items)));
-  if (L) { box._fit = () => lay(box, board(rs, under)); lay(box, L); }
-  else { const b = fit(rs[0], under); box._fit = () => { const x = fit(rs[0], under); lay(box, { w: x.w, h: x.h, pos: [{ x: 0, y: 0, w: x.w, h: x.h }] }); }; lay(box, { w: b.w, h: b.h, pos: [{ x: 0, y: 0, w: b.w, h: b.h }] }); }
+  const rs = live.map((c) => c.r), box = h("div", { class: "board run", "data-k": "pv" }, live.map((c) => runCell(run, c, mixed, items)));
+  const size = live.length > 1 ? (u) => { const L = board(rs, u); lay(box, L); return L.h; }
+    : (u) => { const x = fit(rs[0], u); lay(box, { w: x.w, h: x.h, pos: [{ x: 0, y: 0, w: x.w, h: x.h }] }); return x.h; };
+  size(UNDER);
   const js = jobsOf(run), going = run.phase === "prep" || js.some((j) => !isFinal(j.status)), over = runOver(run);
   // Once it is over, what each paid job cost: its bill, or nothing when it failed before any charge.
   const paidJobs = js.filter((j) => !j.free), zero = (j) => cells.some((c) => c.sub.job === j && c.v.zero);
@@ -479,6 +478,8 @@ function renderPress(st, run) {
   const prompt = run.prompt ? h("p", { class: "jprompt", "data-k": "j-prompt", hidden: samePrompt(run) }, h("span", { class: "tx" }, run.prompt),
     h("button", { type: "button", class: "cp", "aria-label": t("act.copy"), title: t("act.copy"), onclick: () => copyPrompt(run.prompt) }, ic("copy"))) : null;
   st.replaceChildren(h("div", { class: "preview", "data-k": "pvbox" }, box), h("div", { class: "jfoot", "data-k": "j-foot" }, line, why, h("div", { class: "jacts acts", "data-k": "j-acts" }, acts.filter(Boolean)), prompt));
+  box._fit = () => roomUnder(st, size);
+  box._fit();
 }
 // Every result of the press saved, one after another: a browser asks once to allow them, Telegram asks for each.
 // They are the cells right above it, so its label gives no count.
@@ -493,8 +494,28 @@ function allDown(items) {
   }, "primary");
 }
 
+/* A run's frame keeps one size for its shape in every state: while it is made,
+   once it is done and once it failed, the same room is left under it, and
+   nothing on the stage moves but what changed. A failure's reason with the
+   buttons that help can need more: then, and only then, the frame gives up
+   the room that is missing, so they are seen without scrolling, and never
+   behind the dock on a phone. The prompt under them is not counted: it shows
+   while the composer holds another, and the frame does not shrink as the
+   person types. size(under) lays the frame out and gives its height. */
+const UNDER = 70;
+function roomUnder(st, size) {
+  const h0 = size(UNDER), acts = st.querySelector(":scope > .jfoot > .jacts");
+  // A stage out of sight has nothing to measure; it is drawn again when it comes back.
+  if (!acts?.getClientRects().length) return;
+  // Where the stage stands with the page at its top (on a computer it sticks once scrolled).
+  const phone = isPhone(), top0 = (phone ? st : st.parentElement).getBoundingClientRect().top + scrollY;
+  const edge = innerHeight - (phone ? $("#composer").offsetHeight : 0) - 24;
+  const over = Math.ceil(acts.getBoundingClientRect().bottom - st.getBoundingClientRect().top + top0 - edge);
+  if (over > 0) size(UNDER + space(UNDER).H - h0 + over);
+}
+
 function renderRun(st, run) {
-  const v = view(run), r = runRatio(run), b = fit(r, v.fail ? 150 : 70), j = run.job, m = C.byId[run.model];
+  const v = view(run), r = runRatio(run), b = fit(r, UNDER), j = run.job, m = C.byId[run.model];
   let media = null;
   if (v.done) {
     const res = v.res;
@@ -513,7 +534,6 @@ function renderRun(st, run) {
   }
   const box = h("div", { class: "jbox" + (v.done ? " done" : "") + (v.fail ? " failed" : ""), "data-k": "pv", style: { width: b.w + "px", height: b.h + "px" } },
     v.done ? media : [h("i"), h("i"), h("i"), h("i")], v.status || null);
-  box._r = r; box._under = v.fail ? 150 : 70;
   // The dots: a figure for the state, or the result showing through them as it arrives.
   if (v.ht) halftone(box, v.ht.fig, { ...v.ht, n: run.n, lost: going && run.net === "lost" });
   else if (v.done) halftone(box, "reveal", { n: run.n });
@@ -530,6 +550,8 @@ function renderRun(st, run) {
   const acts = h("div", { class: "jacts acts", "data-k": "j-acts" }, v.acts.filter(Boolean),
     runOver(run) ? h("button", { type: "button", class: "sq", "aria-label": t("stage.next"), title: t("stage.next"), onclick: () => drop() }, ic("plus"), h("span", { class: "t" }, t("stage.next"))) : null);
   st.replaceChildren(h("div", { class: "preview", "data-k": "pvbox" }, box), h("div", { class: "jfoot", "data-k": "j-foot" }, line, why, acts, prompt));
+  box._fit = () => roomUnder(st, (u) => { const f = fit(r, u); box.style.width = f.w + "px"; box.style.height = f.h + "px"; return f.h; });
+  box._fit();
 }
 
 // The composer holds the run's prompt still: the stage does not say it twice.

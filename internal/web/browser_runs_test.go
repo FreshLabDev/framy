@@ -671,6 +671,60 @@ func TestBrowserRunsPhone(t *testing.T) {
 	}
 }
 
+// TestBrowserRunFrameSize checks that a run's frame keeps one size for its
+// shape while it is made, waits, is done and fails, and gives up room only
+// when the buttons under a failure would go below the screen or behind the
+// dock, and then only the room that is missing.
+func TestBrowserRunFrameSize(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	for _, size := range [][3]int64{{1440, 900, 0}, {390, 844, 1}, {320, 568, 1}} {
+		ctx := browser(t, ts.URL, size[0], size[1], size[2] == 1)
+		s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const out = {};
+	for (const [k, p, until] of [["running", "running", (s) => s.label === "Making it"], ["retry", "retry", (s) => /again/.test(s.label)], ["done", "done", (s) => s.done],
+	  ["faces", "faces", (s) => s.failed], ["money", "fail:money", (s) => s.failed], ["limit", "refuse:free_limit", (s) => s.failed]]) {
+	  const s = await press(p, until);
+	  await wait(700);
+	  scrollTo(0, 0); await wait(50);
+	  const box = document.querySelector("#stage [data-k=pv]"), acts = document.querySelector("#stage .jacts").getBoundingClientRect();
+	  const edge = (innerWidth < 960 ? document.querySelector("#composer").getBoundingClientRect().top : innerHeight) - 24;
+	  // A frame at its smallest gives up nothing more: a short phone scrolls to the buttons.
+	  out[k] = { timeout: !!s.timeout, w: box.offsetWidth, h: box.offsetHeight, room: Math.round(edge - acts.bottom), least: box.offsetHeight <= (innerWidth < 960 ? 96 : 160) };
+	}
+	return out;`)
+		base := s["running"].(map[string]any)
+		for k, v := range s {
+			x := v.(map[string]any)
+			if x["timeout"] == true {
+				t.Errorf("%v %s: timed out", size, k)
+				continue
+			}
+			same := x["w"] == base["w"] && x["h"] == base["h"]
+			switch k {
+			case "running", "retry", "done":
+				if !same {
+					t.Errorf("%v %s: the frame is %v×%v, while it was made %v×%v", size, k, x["w"], x["h"], base["w"], base["h"])
+				}
+			default:
+				// A failure's buttons stand over the edge; the frame shrinks only to put them there.
+				room := x["room"].(float64)
+				if x["h"].(float64) > base["h"].(float64) || (room < -1 && x["least"] != true) || (!same && room > 3) {
+					t.Errorf("%v %s: frame %v×%v (made %v×%v), %v px from the buttons to the edge", size, k, x["w"], x["h"], base["w"], base["h"], room)
+				}
+			}
+		}
+		if size[0] == 1440 {
+			for _, k := range []string{"faces", "money", "limit"} {
+				if x := s[k].(map[string]any); x["h"] != base["h"] {
+					t.Errorf("%s on a computer: the frame shrank to %v from %v with room to spare", k, x["h"], base["h"])
+				}
+			}
+		}
+		noErrors(t, ctx)
+	}
+}
+
 // fakeTelegram stands in for telegram-web-app.js: what the Mini App asks of
 // Telegram is kept in window.__tg for the checks to read, and its main
 // button is pressed by calling window.__tg.main().
