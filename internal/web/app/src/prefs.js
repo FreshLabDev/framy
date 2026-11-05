@@ -335,16 +335,30 @@ async function setDeliver(on) {
 }
 
 /* Currency and language: PATCH /api/me. */
+// The arrows choose a currency at every press, so the saves go one at a
+// time: a choice made while one is saving waits for it, and only the newest
+// is sent. Sent together, they could be answered, or kept, out of order, and
+// the page and the account end on different currencies.
+let curNext = null, curSaving = false;
 async function setCurrency(c) {
   if (!S.me || S.me.currency === c) return;
   const was = S.me.currency;
-  S.me.currency = c;
+  S.me.currency = curNext = c;
   renderPrefs();
-  try { S.me = await patchMe({ currency: c }); }
-  catch (e) {
-    if (e.code === "sign_in") return lost();
-    S.me.currency = was;
-    toast(e.code === "network" ? t("err.network") : t("prefs.not_saved"));
+  if (curSaving) return;
+  curSaving = true;
+  let me = null, err = null;
+  while (curNext) {
+    const want = curNext;
+    curNext = null;
+    try { me = await patchMe({ currency: want }); err = null; } catch (e) { err = e; }
+  }
+  curSaving = false;
+  if (err?.code === "sign_in") return lost();
+  if (me) S.me = me;
+  if (err) {
+    S.me.currency = me ? me.currency : was;
+    toast(err.code === "network" ? t("err.network") : t("prefs.not_saved"));
   }
   clearPrices();
   meChanged();

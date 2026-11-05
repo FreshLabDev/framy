@@ -54,7 +54,7 @@ const segRO = new ResizeObserver((es) => {
   fitSegs(gs);
   for (const draw of gs.map((g) => measureSeg(g, true))) draw?.(false);
 });
-export function placeSeg(g, animate = true, force = false) { measureSeg(g, force)?.(animate); }
+export function placeSeg(g, animate = true, force = false) { rove(g); measureSeg(g, force)?.(animate); }
 // measureSeg only reads, and gives back the writes: many groups then share
 // one layout instead of one each.
 function measureSeg(g, force = false) {
@@ -100,6 +100,7 @@ function drawSeg(g, on, key, r, cw, animate) {
 }
 export function placeSegs(root = document) {
   const gs = [...root.querySelectorAll("[data-seg]")];
+  gs.forEach(rove);
   fitSegs(gs);
   for (const draw of gs.map((g) => measureSeg(g))) draw?.(true);
   segLead = null; segChain = 0;
@@ -118,13 +119,44 @@ export function fitSegs(gs) {
   return gs.filter((g, i) => stack[i] !== was[i]);
 }
 // An option of a choice. key names the group, so the pressed group leads and the ones that follow it come a beat later.
+// A choice is one stop for Tab, as a radio group is: the chosen option is in the order, the others
+// are reached by the arrows.
 export function opt(o, ...kids) {
   return h("button", {
-    type: "button", class: o.cls, role: "radio", "aria-checked": String(!!o.on), "data-v": String(o.v), disabled: o.disabled, title: o.title,
+    type: "button", class: o.cls, role: "radio", "aria-checked": String(!!o.on), "data-v": String(o.v), disabled: o.disabled, title: o.title, tabindex: o.on ? 0 : -1,
     onclick: () => { if (o.on) return; segLead = o.key; o.pick(); },
   }, ...kids);
 }
 export const leadSeg = (key) => { segLead = key; };
+const radios = (g) => [...g.querySelectorAll(':scope > [role="radio"]')].filter((r) => !r.disabled);
+// A choice with nothing chosen (no currency picked yet), or with the chosen option disabled, is still
+// a stop: at its first option. A choice whose sheet has the arrows (data-arrows="own": the clip
+// editor's edges, where ← and → move the chosen edge) keeps every option a stop instead.
+function rove(g) {
+  const rs = radios(g);
+  if (g.dataset.arrows === "own") for (const r of rs) r.tabIndex = 0;
+  else if (rs.length && !rs.some((r) => r.tabIndex === 0)) rs[0].tabIndex = 0;
+}
+// The arrows choose the next or the previous option, round the end; in a right-to-left line the left
+// arrow is the next. Home and End choose the first and the last.
+const STEP = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
+document.addEventListener("keydown", (e) => {
+  const r = e.target, g = r.parentElement;
+  if (r.getAttribute?.("role") !== "radio" || !g?.matches("[role=radiogroup]") || g.dataset.arrows === "own" || e.altKey || e.ctrlKey || e.metaKey) return;
+  const rs = radios(g), i = rs.indexOf(r);
+  let to;
+  if (e.key === "Home") to = rs[0];
+  else if (e.key === "End") to = rs[rs.length - 1];
+  else if (STEP[e.key]) {
+    const flip = (e.key === "ArrowLeft" || e.key === "ArrowRight") && getComputedStyle(g).direction === "rtl";
+    const d = flip ? -STEP[e.key] : STEP[e.key];
+    to = rs[(i + d + rs.length) % rs.length];
+  } else return;
+  e.preventDefault();
+  if (!to || to === r) return;
+  to.focus();
+  to.click();
+});
 
 /* Things that keep their key (data-k) move from where they were to where they are now; new ones come in
    and gone ones leave, each place says how. Moves are translate; a box that also changes size (the frame
