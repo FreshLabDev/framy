@@ -53,8 +53,13 @@ type ChatRun struct {
 	// GenerateAt is when Generate was pressed; zero before.
 	GenerateAt time.Time
 	Stopped    bool
-	// ResultMessageID is the message the result went out in; zero before.
+	// ResultMessageID is the message the result went out in; zero before,
+	// and zero while a video sent to a large group is still being re-encoded
+	// and has no id yet (see ResultFileUniqueID).
 	ResultMessageID int64
+	// ResultFileUniqueID is the file the result went out as, which tells its
+	// message from others when that had no id when sent; empty before.
+	ResultFileUniqueID string
 	// InlineMessageID is the answer to a guest message (Guest mode): every
 	// message of the run is that one, changed by this id. ChatID is then the
 	// chat framy was summoned into, which nothing is sent to.
@@ -86,7 +91,7 @@ const chatRunColumns = `
 	r.job_id, r.chat_id, r.thread_id, r.command_message_id, COALESCE(r.preview_message_id, 0),
 	r.preview_ephemeral, r.command_ephemeral, COALESCE(r.panel_message_id, 0), r.lang,
 	r.taken, r.album, r.note, r.clip_file_id, r.clip_bytes, r.clip_seconds, r.stage, r.generate_at, r.stopped,
-	COALESCE(r.result_message_id, 0), COALESCE(r.inline_message_id, ''), j.user_id, j.prompt, j.free, j.kind, j.status, COALESCE(j.error_class, ''), COALESCE(j.error, ''), COALESCE(m.name, o.name, j.model_id),
+	COALESCE(r.result_message_id, 0), COALESCE(r.result_file_unique_id, ''), COALESCE(r.inline_message_id, ''), j.user_id, j.prompt, j.free, j.kind, j.status, COALESCE(j.error_class, ''), COALESCE(j.error, ''), COALESCE(m.name, o.name, j.model_id),
 	j.offer_id, j.settings, j.created_at, j.finished_at`
 
 const chatRunFrom = `
@@ -100,7 +105,7 @@ func scanChatRun(row pgx.Row) (ChatRun, error) {
 	err := row.Scan(&r.JobID, &r.ChatID, &r.ThreadID, &r.CommandMessageID, &r.PreviewMessageID,
 		&r.PreviewEphemeral, &r.CommandEphemeral, &r.PanelMessageID, &r.Lang,
 		&r.Taken, &r.Album, &r.Note, &r.ClipFileID, &r.ClipBytes, &r.ClipSeconds, &r.Stage, &at, &r.Stopped,
-		&r.ResultMessageID, &r.InlineMessageID, &r.UserID, &r.Prompt, &r.Free, &r.Kind, &r.Status, &r.ErrorClass, &r.Error, &r.Model,
+		&r.ResultMessageID, &r.ResultFileUniqueID, &r.InlineMessageID, &r.UserID, &r.Prompt, &r.Free, &r.Kind, &r.Status, &r.ErrorClass, &r.Error, &r.Model,
 		&r.OfferID, &r.Settings, &r.Created, &finished)
 	if at != nil {
 		r.GenerateAt = *at
@@ -324,6 +329,20 @@ func (s *Store) FinishChatRun(ctx context.Context, jobID int64, stage string, re
 		WHERE job_id = $1 AND stage = 'generating'`, jobID, stage, res.MessageID, res.FileID, res.FileUniqueID, res.FileType)
 	if err != nil {
 		return false, fmt.Errorf("finish the chat run of job %d: %w", jobID, err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// FoundResultMessage records the message of a result that had no id when
+// it was sent: a video Telegram was still re-encoding for a large group, now
+// found by a press on it. A result whose message is known keeps it. It tells
+// whether the id was recorded.
+func (s *Store) FoundResultMessage(ctx context.Context, jobID, messageID int64) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE chat_run SET result_message_id = $2, updated_at = now()
+		WHERE job_id = $1 AND stage = 'done' AND result_message_id IS NULL AND $2 > 0`, jobID, messageID)
+	if err != nil {
+		return false, fmt.Errorf("record the result message of job %d: %w", jobID, err)
 	}
 	return tag.RowsAffected() == 1, nil
 }

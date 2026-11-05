@@ -49,6 +49,14 @@ func (f *Flow) press(ctx context.Context, cq *tg.CallbackQuery) error {
 	if !ok || !allowed(run, action) {
 		return answer("")
 	}
+	if on == onResult && run.ResultMessageID == 0 {
+		// The result's message is found at last: what replies to it, and
+		// what changes it, needs its id.
+		run.ResultMessageID = cq.Message.MessageID
+		if _, err := f.cfg.Store.FoundResultMessage(ctx, jobID, run.ResultMessageID); err != nil {
+			f.log.Warn("result message not recorded", "job", jobID, "error", err)
+		}
+	}
 	if on == onPreview && cq.Message != nil && fileIDOf(*cq.Message) != "" {
 		on = onPhoto
 	}
@@ -162,7 +170,14 @@ func pressedOn(cq *tg.CallbackQuery, run db.ChatRun, action string) (place, bool
 		return 0, false
 	}
 	if onTheResult(action) {
-		return onResult, run.ResultMessageID != 0 && cq.Message.EphemeralMessageID == 0 && cq.Message.MessageID == run.ResultMessageID
+		m := cq.Message
+		if m.EphemeralMessageID != 0 || m.MessageID == 0 {
+			return onResult, false
+		}
+		if run.ResultMessageID != 0 {
+			return onResult, m.MessageID == run.ResultMessageID
+		}
+		return onResult, run.Stage == db.StageDone && unnumberedResult(*m, run)
 	}
 	if onTheCard(action) {
 		// The loop, and the card it turned into, is a message the chat sees.
@@ -179,6 +194,20 @@ func pressedOn(cq *tg.CallbackQuery, run db.ChatRun, action string) (place, bool
 		return 0, false
 	}
 	return onPreview, !run.PreviewEphemeral && cq.Message.MessageID == run.PreviewMessageID
+}
+
+// unnumberedResult tells the message of a result that had no id when it was
+// sent: Telegram gives a video sent to a large group the id 0 while it
+// re-encodes it, and the message appears in the chat with its own id later.
+// It is the one with the result's file, or framy's video answering the
+// command, when its file is no longer the one sent.
+func unnumberedResult(m tg.Message, run db.ChatRun) bool {
+	if run.ResultFileUniqueID != "" && fileUniqueIDOf(m) == run.ResultFileUniqueID {
+		return true
+	}
+	r := m.ReplyToMessage
+	return run.CommandMessageID != 0 && r != nil && r.MessageID == run.CommandMessageID &&
+		m.From != nil && m.From.IsBot && fileTypeOf(m) == db.FileVideo
 }
 
 // generate queues the draft and turns the preview into the generating loop.

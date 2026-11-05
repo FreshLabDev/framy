@@ -374,6 +374,78 @@ func TestAVideoResultHasAgain(t *testing.T) {
 	}
 }
 
+// A video sent to a large group comes back with no id while Telegram
+// re-encodes it. Again under it, once it is in the chat, is pressed on the
+// message with the result's file, which is then the result's: a new draft
+// answers it, and a press on another message still makes nothing. Before,
+// Again under such a video did nothing for good.
+func TestAgainUnderAVideoThatHadNoIDWorks(t *testing.T) {
+	h := videoHarness(t)
+	withHeyGen(h)
+	h.tg.videoUnnumbered = true
+	id := h.generatingVideo(t)
+	h.store.setStatus(id, jobs.Done, "")
+	h.files.results[id] = []storage.Asset{{ID: 60, UserID: 7, Kind: "result", ContentType: "video/mp4", Width: 1280, Height: 720, Seconds: 4.2, Bytes: 2 << 20}}
+	h.flow.step(context.Background(), id)
+	if r := h.store.runs[id]; r.Stage != db.StageDone || r.ResultMessageID != 0 || r.ResultFileUniqueID != "video-unique" {
+		t.Fatalf("run = %+v", r)
+	}
+	press := func(qid string, msg tg.Message) {
+		t.Helper()
+		cq := &tg.CallbackQuery{ID: qid, From: tg.User{ID: 7, LanguageCode: "en"}, Data: callback(id, actAgain), Message: &msg}
+		if err := h.flow.press(context.Background(), cq); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Another message of the chat, and one with another file, are not it.
+	press("cq-0", tg.Message{MessageID: 555, Chat: group, Date: 1, Video: &tg.Video{FileUniqueID: "other"}})
+	press("cq-1", tg.Message{MessageID: 555, Chat: group, Date: 1})
+	if len(h.store.jobs) != 1 || h.store.runs[id].ResultMessageID != 0 {
+		t.Fatalf("jobs %d, run %+v", len(h.store.jobs), h.store.runs[id])
+	}
+	press("cq-2", tg.Message{MessageID: 777, Chat: group, Date: 1, Video: &tg.Video{FileID: "video-file", FileUniqueID: "video-unique"}})
+	if r := h.store.runs[id]; r.ResultMessageID != 777 {
+		t.Fatalf("result message not recorded: %+v", r)
+	}
+	if job := h.store.jobs[2]; job == nil || job.status != jobs.Draft || job.n.MessageID != 777 {
+		t.Fatalf("job = %+v", job)
+	}
+	// From now on the result is that message and no other.
+	h.now = h.now.Add(10 * time.Second)
+	press("cq-3", tg.Message{MessageID: 778, Chat: group, Date: 1, Video: &tg.Video{FileUniqueID: "video-unique"}})
+	if len(h.store.jobs) != 2 {
+		t.Fatalf("jobs %d", len(h.store.jobs))
+	}
+}
+
+// When its file changed in the re-encoding, the result is framy's video
+// answering the command.
+func TestAVideoThatHadNoIDIsFramysAnswerToTheCommand(t *testing.T) {
+	run := db.ChatRun{JobID: 1, ChatID: group.ID, CommandMessageID: 10, Stage: db.StageDone, ResultFileUniqueID: "video-unique"}
+	bot := &tg.User{ID: 1, IsBot: true}
+	for _, c := range []struct {
+		msg  tg.Message
+		want bool
+	}{
+		{tg.Message{MessageID: 5, Chat: group, From: bot, Video: &tg.Video{FileUniqueID: "re-encoded"}, ReplyToMessage: &tg.Message{MessageID: 10}}, true},
+		{tg.Message{MessageID: 5, Chat: group, From: bot, Video: &tg.Video{FileUniqueID: "re-encoded"}, ReplyToMessage: &tg.Message{MessageID: 11}}, false},
+		{tg.Message{MessageID: 5, Chat: group, From: &tg.User{ID: 7}, Video: &tg.Video{FileUniqueID: "re-encoded"}, ReplyToMessage: &tg.Message{MessageID: 10}}, false},
+		{tg.Message{MessageID: 5, Chat: group, From: bot, Photo: []tg.Photo{{FileUniqueID: "p"}}, ReplyToMessage: &tg.Message{MessageID: 10}}, false},
+		{tg.Message{EphemeralMessageID: 5, Chat: group, From: bot, Video: &tg.Video{FileUniqueID: "video-unique"}}, false},
+	} {
+		cq := &tg.CallbackQuery{Data: callback(1, actAgain), Message: &c.msg}
+		if _, ok := pressedOn(cq, run, actAgain); ok != c.want {
+			t.Errorf("%+v: pressed %v", c.msg, ok)
+		}
+	}
+	// A run not yet done has no result to press on.
+	run.Stage = db.StageGenerating
+	cq := &tg.CallbackQuery{Data: callback(1, actAgain), Message: &tg.Message{MessageID: 5, Chat: group, Video: &tg.Video{FileUniqueID: "video-unique"}}}
+	if _, ok := pressedOn(cq, run, actAgain); ok {
+		t.Error("pressed on a run still generating")
+	}
+}
+
 // A guest run's buttons are on its inline answer, which has none of these.
 func TestAGuestRunHasNoResultButtons(t *testing.T) {
 	run := db.ChatRun{JobID: 1, InlineMessageID: "inline-1", Stage: db.StageFailed}

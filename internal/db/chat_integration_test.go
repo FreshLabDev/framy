@@ -217,8 +217,12 @@ func TestAClipRunKeepsItsClip(t *testing.T) {
 	if _, err := store.FinishChatRun(ctx, job, StageDone, ChatResult{MessageID: 42, FileID: "f", FileUniqueID: "u"}); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := store.ChatRun(ctx, job); got.ResultMessageID != 42 {
-		t.Fatalf("result message = %d", got.ResultMessageID)
+	if got, _ := store.ChatRun(ctx, job); got.ResultMessageID != 42 || got.ResultFileUniqueID != "u" {
+		t.Fatalf("result message = %d, file %q", got.ResultMessageID, got.ResultFileUniqueID)
+	}
+	// A result whose message is known keeps it.
+	if found, err := store.FoundResultMessage(ctx, job, 43); err != nil || found {
+		t.Fatalf("a known result message changed: %v %v", found, err)
 	}
 	if id, found, err := store.ResultRun(ctx, -100, 42); err != nil || !found || id != job {
 		t.Fatalf("result run = %d %v %v", id, found, err)
@@ -226,6 +230,37 @@ func TestAClipRunKeepsItsClip(t *testing.T) {
 	// The same message number in another chat is another message.
 	if _, found, err := store.ResultRun(ctx, -101, 42); err != nil || found {
 		t.Fatalf("another chat: %v %v", found, err)
+	}
+
+	// A video sent to a large group comes back with no id; the press on its
+	// message, once it is in the chat, records it.
+	video := chatJob(t, store, 4306, "tg:-100:60")
+	if err := store.AddChatRun(ctx, ChatRun{JobID: video, ChatID: -100, CommandMessageID: 60, PreviewMessageID: 61, Lang: "en"}); err != nil {
+		t.Fatal(err)
+	}
+	if found, err := store.FoundResultMessage(ctx, video, 70); err != nil || found {
+		t.Fatalf("a preview took a result message: %v %v", found, err)
+	}
+	if _, err := store.MoveChatRun(ctx, video, StagePreview, StageGenerating); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.FinishChatRun(ctx, video, StageDone, ChatResult{FileID: "v", FileUniqueID: "vu", FileType: FileVideo}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := store.ChatRun(ctx, video); got.ResultMessageID != 0 || got.ResultFileUniqueID != "vu" {
+		t.Fatalf("an unnumbered result = %+v", got)
+	}
+	if found, err := store.FoundResultMessage(ctx, video, 0); err != nil || found {
+		t.Fatalf("recorded 0: %v %v", found, err)
+	}
+	if found, err := store.FoundResultMessage(ctx, video, 70); err != nil || !found {
+		t.Fatalf("not recorded: %v %v", found, err)
+	}
+	if id, found, err := store.ResultRun(ctx, -100, 70); err != nil || !found || id != video {
+		t.Fatalf("result run = %d %v %v", id, found, err)
+	}
+	if found, err := store.FoundResultMessage(ctx, video, 71); err != nil || found {
+		t.Fatalf("recorded twice: %v %v", found, err)
 	}
 
 	// A run of pictures has no clip, and the columns say so.

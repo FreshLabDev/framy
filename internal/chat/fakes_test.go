@@ -82,6 +82,9 @@ type fakeTelegram struct {
 	// onPhoto runs as a photo send starts, as a stop would come in the
 	// middle of one; a send whose context has ended by then fails.
 	onPhoto func()
+	// videoUnnumbered has a video come back with the id 0, as one sent to
+	// a large group does while Telegram re-encodes it.
+	videoUnnumbered bool
 }
 
 func newTelegram() *fakeTelegram {
@@ -179,6 +182,9 @@ func (f *fakeTelegram) SendVideo(_ context.Context, chatID int64, v tg.InputFile
 	}
 	m, err := f.record(c)
 	m.Video = &tg.Video{FileID: "video-file", FileUniqueID: "video-unique"}
+	if f.videoUnnumbered {
+		m.MessageID = 0
+	}
 	return m, err
 }
 
@@ -893,8 +899,19 @@ func (s *fakeStore) FinishChatRun(_ context.Context, jobID int64, stage string, 
 	if !ok || r.Stage != db.StageGenerating {
 		return false, nil
 	}
-	r.Stage, r.ResultMessageID = stage, res.MessageID
+	r.Stage, r.ResultMessageID, r.ResultFileUniqueID = stage, res.MessageID, res.FileUniqueID
 	s.results[jobID] = res
+	return true, nil
+}
+
+func (s *fakeStore) FoundResultMessage(_ context.Context, jobID, messageID int64) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.runs[jobID]
+	if !ok || r.Stage != db.StageDone || r.ResultMessageID != 0 || messageID <= 0 {
+		return false, nil
+	}
+	r.ResultMessageID = messageID
 	return true, nil
 }
 

@@ -93,6 +93,7 @@ type Store interface {
 	SetChatRunInline(ctx context.Context, jobID int64, inlineMessageID string) error
 	SetChatRunNote(ctx context.Context, jobID int64, note string) error
 	ResultRun(ctx context.Context, chatID, messageID int64) (int64, bool, error)
+	FoundResultMessage(ctx context.Context, jobID, messageID int64) (bool, error)
 	StopChatRun(ctx context.Context, jobID int64) (bool, error)
 	FinishChatRun(ctx context.Context, jobID int64, stage string, res db.ChatResult) (bool, error)
 	SiteResults(ctx context.Context, since time.Time, limit int) ([]db.SiteResult, error)
