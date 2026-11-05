@@ -522,6 +522,8 @@ function toggle(name, v, set, sub) {
     onclick: (e) => { e.currentTarget.setAttribute("aria-checked", String(!v)); setTimeout(() => set(!v), 160); } },
     h("span", { class: "knob" }), h("span", { class: "tt" }, t(v ? "val.on" : "val.off")), sub);
 }
+// A slider over a long list goes by the value's place in it: a screen reader
+// is told the value ("6 s"), not the place ("4").
 function rangeControl(name, p, v) {
   const vals = p.type === "enum" ? ordered(p.values) : null;
   const step = p.type === "range" ? (p.max - p.min > 3 ? 0.5 : 0.1) : 1;
@@ -529,8 +531,9 @@ function rangeControl(name, p, v) {
     : h("input", { type: "range", min: p.min, max: p.max, step, value: v, "aria-label": label(name) });
   const val = () => (vals ? vals[+r.value] : +r.value);
   const cur = h("b", {}, show(name, v));
+  r.setAttribute("aria-valuetext", cur.textContent);
   fillRange(r);
-  r.addEventListener("input", () => { setWanted(name, val()); cur.textContent = show(name, val()); fillRange(r); renderBar(); });
+  r.addEventListener("input", () => { setWanted(name, val()); cur.textContent = show(name, val()); r.setAttribute("aria-valuetext", cur.textContent); fillRange(r); renderBar(); });
   r.addEventListener("change", () => act(() => render()));
   return h("div", { class: "rng" }, h("div", { class: "rline" }, r, cur),
     h("div", { class: "rends", "aria-hidden": "true" }, h("span", {}, show(name, vals ? vals[0] : p.min)), h("span", {}, show(name, vals ? vals[vals.length - 1] : p.max))));
