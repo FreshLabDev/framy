@@ -1,6 +1,7 @@
 -- SPDX-License-Identifier: Apache-2.0
 -- A job's notice names the job and nobody (docs/design.md, Jobs), and the
--- files a chat run points at are found by an index.
+-- files a chat run points at, and the runs of the last month that ended
+-- done, are found by an index.
 --
 -- framy shares core-postgres with the family's other bots, and LISTEN asks
 -- for no rights: any role connected to the database can hear framy_events.
@@ -20,3 +21,9 @@ END $$;
 -- scan of every chat run for every file. Few runs point at a file at all:
 -- only a result sent from the site that is not the job's first.
 CREATE INDEX chat_run_result_asset ON chat_run (result_asset_id) WHERE result_asset_id IS NOT NULL;
+
+-- The site's typical wait (db.TypicalSeconds) reads, every minute in each
+-- process, the runs that ended done in the last 30 days. Without an index
+-- that is a scan of every job framy ever ran, which grows with no end while
+-- the month it needs does not.
+CREATE INDEX job_done ON job (finished_at) WHERE status = 'done';
