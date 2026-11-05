@@ -2861,6 +2861,24 @@
     "ja": "価格は不明",
     "ar": "السعر غير معروف"
   },
+  "run.setting_gone": {
+    "en": "The model no longer offers this choice, so nothing changed. Here are its settings now.",
+    "ru": "Модель больше не предлагает этот вариант, поэтому ничего не изменилось. Вот её настройки сейчас.",
+    "uk": "Модель більше не пропонує цей варіант, тож нічого не змінилося. Ось її налаштування зараз.",
+    "es": "El modelo ya no ofrece esta opción, así que no cambió nada. Estos son sus ajustes ahora.",
+    "fr": "Le modèle ne propose plus ce choix, donc rien n’a changé. Voici ses réglages actuels.",
+    "de": "Das Modell bietet diese Auswahl nicht mehr an, also hat sich nichts geändert. Hier sind seine aktuellen Einstellungen.",
+    "it": "Il modello non offre più questa scelta, quindi non è cambiato nulla. Ecco le sue impostazioni attuali.",
+    "pl": "Model nie oferuje już tej opcji, więc nic się nie zmieniło. Oto jego obecne ustawienia.",
+    "cs": "Model už tuto možnost nenabízí, takže se nic nezměnilo. Tady je jeho současné nastavení.",
+    "tr": "Model artık bu seçeneği sunmuyor, bu yüzden hiçbir şey değişmedi. Güncel ayarları bunlar.",
+    "sv": "Modellen erbjuder inte längre det här valet, så inget har ändrats. Här är dess inställningar nu.",
+    "be": "Мадэль больш не прапануе гэты варыянт, таму нічога не змянілася. Вось яе налады цяпер.",
+    "ca": "El model ja no ofereix aquesta opció, així que no ha canviat res. Aquests són els seus ajustos ara.",
+    "zh": "该模型已不再提供这个选项，所以什么都没有改变。这是它现在的设置。",
+    "ja": "このモデルではこの選択肢がもう使えないため、何も変わっていません。現在の設定を表示しています。",
+    "ar": "لم يعد النموذج يقدّم هذا الخيار، لذلك لم يتغيّر شيء. هذه إعداداته الآن."
+  },
   "run.settings": {
     "en": "Settings",
     "ru": "Настройки",

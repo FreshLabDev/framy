@@ -541,9 +541,8 @@ func richSettings(lang string, jobID int64, d draft, open bool) string {
 			now = append(now, valueLabel(lang, set.name, cur))
 		}
 		var buttons []string
-		for vi, v := range set.values {
-			data := callback(jobID, actPickSetting+set.name+"."+strconv.Itoa(vi))
-			buttons = append(buttons, richButton(valueLabel(lang, set.name, v), data, has && sameSetting(cur, v)))
+		for _, v := range set.values {
+			buttons = append(buttons, richButton(valueLabel(lang, set.name, v), settingData(jobID, set.name, v), has && sameSetting(cur, v)))
 		}
 		per := 5
 		if labelled(set.name) {

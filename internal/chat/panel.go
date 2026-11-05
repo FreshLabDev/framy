@@ -337,14 +337,14 @@ func (f *Flow) keyboardOf(ctx context.Context, run db.ChatRun, s state, v view) 
 		return f.modelKeyboard(ctx, run, s, v)
 	case screenSettings:
 		var rows [][]tg.InlineKeyboardButton
-		for pi, set := range panelSettings(s.offer, s.many) {
+		for _, set := range panelSettings(s.offer, s.many) {
 			rows = append(rows, []tg.InlineKeyboardButton{{Text: t(run.Lang, "set."+set.name), Disabled: &tg.DisabledButton{}}})
 			for vi, v := range set.values {
 				text := valueLabel(run.Lang, set.name, v)
 				if cur, ok := s.settings[set.name]; ok && sameSetting(cur, v) {
 					text = "✓ " + text
 				}
-				b := button(text, callback(run.JobID, actPickSetting+strconv.Itoa(pi)+"."+strconv.Itoa(vi)), "")
+				b := button(text, settingData(run.JobID, set.name, v), "")
 				if vi%perRow == 0 {
 					rows = append(rows, nil)
 				}
@@ -495,9 +495,10 @@ func carried(settings map[string]any, o catalog.Offer) map[string]any {
 	return out
 }
 
-// pickSetting changes one setting of a run on the person's key. A rich
-// preview names the setting, "aspect_ratio.2"; a keyboard's panel numbers
-// it as panelSettings lists them, "0.2".
+// pickSetting changes one setting of a run on the person's key. A press
+// whose value the model no longer offers, since the hourly sync changed its
+// list or another press its model, changes nothing: the settings are drawn
+// again as they are, with a line saying so.
 func (f *Flow) pickSetting(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun, on place, pick string) error {
 	answer := func(text string) error { return f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, text) }
 	if run.Stage != db.StagePreview || run.ClipFileID != "" {
@@ -506,32 +507,76 @@ func (f *Flow) pickSetting(ctx context.Context, cq *tg.CallbackQuery, run db.Cha
 	if run.Free {
 		return f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, t(run.Lang, "panel.free_fixed"))
 	}
-	ps, vs, ok := strings.Cut(pick, ".")
-	vi, err := strconv.Atoi(vs)
-	if !ok || err != nil {
-		return answer("")
-	}
 	model, offer, err := f.cfg.Store.Offer(ctx, run.OfferID)
 	if err != nil {
 		_ = answer("")
 		return err
 	}
-	many := severalResults(run)
-	sets := settingsOf(offer, many)
-	pi := slices.IndexFunc(sets, func(s setting) bool { return s.name == ps })
-	if n, err := strconv.Atoi(ps); err == nil {
-		sets, pi = panelSettings(offer, many), n
-	}
-	if pi < 0 || pi >= len(sets) || vi < 0 || vi >= len(sets[pi].values) {
+	name, v, ok := settingPick(offer, severalResults(run), pick)
+	if !ok && !strings.Contains(pick, "#") {
+		// An older button that numbers nothing the offer has: it cannot
+		// say which value it showed.
 		return answer("")
 	}
+	if !ok {
+		if err := f.redrawAfter(ctx, run, cq.ID, on, viewSettings); err != nil {
+			_ = f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, t(run.Lang, "run.not_redrawn"))
+			return err
+		}
+		return answer(t(run.Lang, "run.setting_gone"))
+	}
 	settings := wholeNumbers(run.Settings)
-	name, v := sets[pi].name, sets[pi].values[vi]
 	if cur, ok := settings[name]; ok && sameSetting(cur, v) {
 		return answer("")
 	}
 	settings[name] = v
 	return f.revise(ctx, cq, run, on, model, offer, settings, false, false, viewSettings)
+}
+
+// settingData is the data of a setting's button: the setting's name and a
+// hash of the value, "aspect_ratio#1a2b3c4d". A position in the list would
+// be shorter, but the hourly sync may add a value before it while the
+// preview is up, and the press would then pick the button's neighbour.
+func settingData(jobID int64, name string, v any) string {
+	return callback(jobID, actPickSetting+name+"#"+valueHash(v))
+}
+
+func valueHash(v any) string { return modelHash("value:" + fmt.Sprint(v)) }
+
+// settingPick reads the data of a setting's button against the offer as it
+// is now: the setting and its value, or ok false when the offer no longer
+// has them. Buttons sent before settingData number the value as the list
+// had it when they were drawn, a rich preview's "aspect_ratio.2" and a
+// keyboard panel's "0.2" (its setting numbered as panelSettings lists
+// them), and are read as they always were.
+func settingPick(o catalog.Offer, many bool, pick string) (name string, v any, ok bool) {
+	if ps, h, found := strings.Cut(pick, "#"); found {
+		for _, sets := range [][]setting{settingsOf(o, many), panelSettings(o, many)} {
+			for _, set := range sets {
+				if set.name != ps {
+					continue
+				}
+				if i := slices.IndexFunc(set.values, func(x any) bool { return valueHash(x) == h }); i >= 0 {
+					return ps, set.values[i], true
+				}
+			}
+		}
+		return "", nil, false
+	}
+	ps, vs, found := strings.Cut(pick, ".")
+	vi, err := strconv.Atoi(vs)
+	if !found || err != nil {
+		return "", nil, false
+	}
+	sets := settingsOf(o, many)
+	pi := slices.IndexFunc(sets, func(s setting) bool { return s.name == ps })
+	if n, err := strconv.Atoi(ps); err == nil {
+		sets, pi = panelSettings(o, many), n
+	}
+	if pi < 0 || pi >= len(sets) || vi < 0 || vi >= len(sets[pi].values) {
+		return "", nil, false
+	}
+	return sets[pi].name, sets[pi].values[vi], true
 }
 
 // revise moves the draft to the offer and settings given, on the free tier

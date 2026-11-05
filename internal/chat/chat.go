@@ -324,8 +324,8 @@ const (
 
 // Actions a run's buttons carry. They are a contract with previews and
 // results already sent. A model is picked with actPickModel and the hash of
-// its id, a setting with actPickSetting and "<setting>.<value>", numbered as
-// the panel lists them.
+// its id, a setting with actPickSetting and "<setting>#<hash of the value>"
+// (settingData); older buttons number the value, "<setting>.<index>".
 const (
 	actGenerate    = "go"
 	actNo          = "no"

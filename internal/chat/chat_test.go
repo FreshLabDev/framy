@@ -723,7 +723,7 @@ func TestSeveralResultsOfADirectChatComeAsOneAlbum(t *testing.T) {
 	}
 	edits := h.tg.methods("editMessageRich")
 	if len(edits) != 1 || !strings.Contains(edits[0].text, "Settings: <b>Auto · 1K · ×3</b>") ||
-		!strings.Contains(edits[0].text, `data="j:1:Sn.3">×4<`) {
+		!strings.Contains(edits[0].text, `data="j:1:Sn#`+valueHash(4)+`">×4<`) {
 		t.Fatalf("preview = %+v", edits)
 	}
 	if n := h.queue.revised[len(h.queue.revised)-1]; n.Settings["n"] != 3 {
@@ -767,7 +767,7 @@ func TestARunOfAGroupMakesOneResult(t *testing.T) {
 	if err := h.press(1, 7, pick("google/nano-banana-pro")); err != nil {
 		t.Fatal(err)
 	}
-	if body := h.tg.methods("editMessageRich")[0].text; strings.Contains(body, "Sn.") || strings.Contains(body, "×") {
+	if body := h.tg.methods("editMessageRich")[0].text; strings.Contains(body, "Sn#") || strings.Contains(body, "×") {
 		t.Fatalf("preview = %s", body)
 	}
 	h.tg.reset()

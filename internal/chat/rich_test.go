@@ -174,7 +174,8 @@ func TestAModelTheRunCannotTakeIsRefused(t *testing.T) {
 }
 
 // A setting is picked by its name, and the card comes back with the
-// settings open, the pick marked and in their title.
+// settings open, the pick marked and in their title. A button sent before
+// the values were hashed, which numbers the value, still works.
 func TestASettingPickKeepsTheSettingsOpen(t *testing.T) {
 	h := panelHarness(t)
 	if err := h.press(1, 7, pick("google/nano-banana-pro")); err != nil {
@@ -194,17 +195,57 @@ func TestASettingPickKeepsTheSettingsOpen(t *testing.T) {
 	}
 	body := edits[0].text
 	if !strings.Contains(body, "<details open><summary>Settings: <b>Auto · 2K</b></summary>") ||
-		!strings.Contains(body, `<tg-button type="callback_data" style="primary" data="j:1:Sresolution.1">2K</tg-button>`) {
+		!strings.Contains(body, `<tg-button type="callback_data" style="primary" data="j:1:Sresolution#`+valueHash("2K")+`">2K</tg-button>`) {
 		t.Fatalf("preview = %s", body)
 	}
 	// The same value again changes nothing.
 	h.tg.reset()
 	revised := len(h.queue.revised)
-	if err := h.press(1, 7, actPickSetting+"resolution.1"); err != nil {
+	if err := h.press(1, 7, actPickSetting+"resolution#"+valueHash("2K")); err != nil {
 		t.Fatal(err)
 	}
 	if len(h.queue.revised) != revised || len(h.tg.calls) != 0 {
 		t.Fatalf("revised again: %+v", h.tg.calls)
+	}
+}
+
+// A setting's button means the value it showed: the hourly sync may put a
+// new value before it while the preview is up, and the press still picks
+// it, not its new neighbour. One the model no longer has changes nothing,
+// and the settings come back as they are now, with a line saying so.
+func TestASettingPressMeansTheValueItShowed(t *testing.T) {
+	h := panelHarness(t)
+	if err := h.press(1, 7, pick("google/nano-banana-pro")); err != nil {
+		t.Fatal(err)
+	}
+	wide := actPickSetting + "aspect_ratio#" + valueHash("16:9")
+	if body := h.tg.methods("editMessageRich")[0].text; !strings.Contains(body, `data="j:1:`+wide+`">16:9<`) {
+		t.Fatalf("preview = %s", body)
+	}
+	// Both offers of the model share these parameters.
+	h.store.models[0].Offers[0].Params["aspect_ratio"] = catalog.Param{Type: catalog.Enum, Values: []any{"auto", "1:1", "21:9", "16:9", "9:16"}}
+	h.tg.reset()
+	if err := h.press(1, 7, wide); err != nil {
+		t.Fatal(err)
+	}
+	if n := h.queue.revised[len(h.queue.revised)-1]; n.Settings["aspect_ratio"] != "16:9" {
+		t.Fatalf("revision = %+v", n.Settings)
+	}
+	h.tg.reset()
+	revised := len(h.queue.revised)
+	if err := h.press(1, 7, actPickSetting+"aspect_ratio#"+valueHash("4:3")); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.queue.revised) != revised {
+		t.Fatalf("revised: %+v", h.queue.revised[revised:])
+	}
+	edits := h.tg.methods("editMessageRich")
+	if len(edits) != 1 || !strings.Contains(edits[0].text, "<details open><summary>Settings: <b>16:9 · 1K</b></summary>") ||
+		!strings.Contains(edits[0].text, ">21:9<") || strings.Contains(edits[0].text, ">4:3<") {
+		t.Fatalf("calls = %+v", h.tg.calls)
+	}
+	if !reflect.DeepEqual(h.tg.answers, []string{i18n.T("en", "run.setting_gone")}) {
+		t.Fatalf("answers = %q", h.tg.answers)
 	}
 }
 
@@ -269,7 +310,7 @@ func TestTheSettingsAreTheComposers(t *testing.T) {
 	d := draft{pay: payKey, offer: video, settings: map[string]any{"duration": 10, "generate_audio": true}}
 	body := richSettings("en", 1, d, false)
 	if !strings.HasPrefix(body, "<details><summary>Settings: <b>"+i18n.T("en", "web.unit.s", "n", "10")+" · "+i18n.T("en", "web.val.with_sound")+"</b></summary>") ||
-		!strings.Contains(body, `data="j:1:Sgenerate_audio.0">`+i18n.T("en", "web.val.no_sound")+"<") {
+		!strings.Contains(body, `data="j:1:Sgenerate_audio#`+valueHash(false)+`">`+i18n.T("en", "web.val.no_sound")+"<") {
 		t.Fatalf("settings = %s", body)
 	}
 	// A free run has its settings fixed.
@@ -392,11 +433,11 @@ func TestAVideoPicksItsModelAndSettings(t *testing.T) {
 		t.Fatalf("revision = %s, estimate %+v", settings, n.Estimate)
 	}
 	body := h.tg.methods("editMessageRich")[0].text
-	if !strings.Contains(body, "Settings: <b>") || !strings.Contains(body, `data="j:1:Sduration.1"`) {
+	if !strings.Contains(body, "Settings: <b>") || !strings.Contains(body, `data="j:1:Sduration#`+valueHash(10)+`"`) {
 		t.Fatalf("preview = %s", body)
 	}
 	h.tg.reset()
-	if err := h.press(1, 7, actPickSetting+"duration.1"); err != nil {
+	if err := h.press(1, 7, actPickSetting+"duration#"+valueHash(10)); err != nil {
 		t.Fatal(err)
 	}
 	settings, _ = json.Marshal(h.queue.revised[len(h.queue.revised)-1].Settings)

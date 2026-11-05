@@ -139,7 +139,7 @@ func TestThePreviewHasModelAndSettingsWhenThereAreAny(t *testing.T) {
 	// After a model, both lists are folded. In a group one run makes one
 	// result, so there is no count.
 	if !strings.Contains(e.text, "<details><summary>Model: <b>Nano Banana Pro</b></summary>") ||
-		!strings.Contains(e.text, "<details><summary>Settings: <b>Auto · 1K</b></summary>") || strings.Contains(e.text, "Sn.") {
+		!strings.Contains(e.text, "<details><summary>Settings: <b>Auto · 1K</b></summary>") || strings.Contains(e.text, "Sn#") {
 		t.Fatalf("preview = %s", e.text)
 	}
 }
@@ -307,11 +307,11 @@ func TestASettingChangesTheRunOnTheKey(t *testing.T) {
 		got[3][0] != i18n.T("en", "set.resolution") || strings.Join(got[4], "|") != "✓ 1K|2K|4K" || len(got) != 6 {
 		t.Fatalf("settings = %v", got)
 	}
-	if kb.InlineKeyboard[1][2].CallbackData != "j:1:S0.2" {
+	if kb.InlineKeyboard[1][2].CallbackData != "j:1:Saspect_ratio#"+valueHash("16:9") {
 		t.Fatalf("16:9 = %+v", kb.InlineKeyboard[1][2])
 	}
 	h.tg.reset()
-	if err := h.pressPanel(1, 7, actPickSetting+"0.2"); err != nil {
+	if err := h.pressPanel(1, 7, kb.InlineKeyboard[1][2].CallbackData[len("j:1:"):]); err != nil {
 		t.Fatal(err)
 	}
 	n := h.queue.revised[len(h.queue.revised)-1]
@@ -326,7 +326,8 @@ func TestASettingChangesTheRunOnTheKey(t *testing.T) {
 	if len(eph) != 1 || labels(eph[0].markup)[1][2] != "✓ 16:9" {
 		t.Fatalf("panel = %+v", eph)
 	}
-	// The same value again changes nothing.
+	// The same value again changes nothing, and a panel's button sent
+	// before the values were hashed, which numbers both, still means it.
 	h.tg.reset()
 	revised := len(h.queue.revised)
 	if err := h.pressPanel(1, 7, actPickSetting+"0.2"); err != nil {
