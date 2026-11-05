@@ -494,11 +494,12 @@ func count(e ending, provider, model, kind string, free bool, actual, took *floa
 	}
 }
 
-// Waiting is how many jobs are queued and how many running, for the
-// metrics.
+// Waiting is how many jobs of this stack are queued and how many running,
+// for the metrics. Each stack's process answers for its own, so the two
+// scrape targets add up to the whole and never count a job twice.
 func (q *Queue) Waiting(ctx context.Context) (map[string]float64, error) {
 	rows, err := q.pool.Query(ctx, `
-		SELECT status, count(*)::float8 FROM job WHERE status IN ('queued', 'running') GROUP BY status`)
+		SELECT status, count(*)::float8 FROM job WHERE stack = $1 AND status IN ('queued', 'running') GROUP BY status`, q.cfg.Stack)
 	if err != nil {
 		return nil, err
 	}

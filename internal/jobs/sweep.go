@@ -29,6 +29,11 @@ func (w *sweepWorker) Work(ctx context.Context, _ *river.Job[sweepArgs]) error {
 //   - drafts left unconfirmed and unchanged for 10 minutes;
 //   - jobs River gave up on without working them, as it does with a job
 //     whose worker died on its last attempt.
+//
+// It runs on River's leader and ends the jobs of both stacks, so that one
+// stopped stack's job holds no slot of the free allowance. Its failures go
+// into this process's metrics only for its own stack's jobs: each process's
+// counters are its own stack's, and another's is in the log.
 func (q *Queue) sweep(ctx context.Context) (int64, error) {
 	var (
 		n      int64
@@ -67,8 +72,10 @@ func (q *Queue) sweep(ctx context.Context) (int64, error) {
 				rows.Close()
 				return err
 			}
-			q.log.Warn("job ended by the sweep; River gave up on it", "job", id)
-			failed = append(failed, class)
+			q.log.Warn("job ended by the sweep; River gave up on it", "job", id, "stack", stack, "class", class)
+			if stack == q.cfg.Stack {
+				failed = append(failed, class)
+			}
 			people[person{user, stack}] = true
 			n++
 		}

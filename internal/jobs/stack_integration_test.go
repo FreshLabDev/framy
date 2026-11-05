@@ -102,3 +102,42 @@ func TestAStoppedStackHoldsUpNothingOnTheOther(t *testing.T) {
 		}
 	}
 }
+
+// Each stack's process answers in its metrics for its own jobs: the jobs
+// waiting, and the jobs its sweep ended. Scraped together, the two add up
+// to the whole and count no job twice.
+func TestEachStackCountsOnlyItsOwnJobs(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	prod := stackQueue(t, pool, "", newFake())
+	test := stackQueue(t, pool, "test", newFake())
+	mine := enqueue(t, prod, job(alice, imageOffer))
+	theirs := enqueue(t, test, job(bob, imageOffer))
+	enqueue(t, test, job(bob, imageOffer))
+
+	for q, want := range map[*Queue]float64{prod: 1, test: 2} {
+		if waiting, err := q.Waiting(ctx); err != nil || waiting["queued"] != want {
+			t.Errorf("stack %q: waiting %v, %v; want %v queued", q.cfg.Stack, waiting, err, want)
+		}
+	}
+
+	// River gave up on one job of each stack; production's process sweeps
+	// both, and counts only its own.
+	if _, err := pool.Exec(ctx, `UPDATE framy.river_job SET state='discarded', finalized_at=now()
+		WHERE id IN (SELECT river_job_id FROM framy.job WHERE id = ANY($1))`, []int64{mine, theirs}); err != nil {
+		t.Fatal(err)
+	}
+	internal := `framy_job_failures_total{reason="internal"}`
+	before := sample(t, internal)
+	if n, err := prod.sweep(ctx); err != nil || n != 2 {
+		t.Fatalf("sweep = %d, %v; want 2", n, err)
+	}
+	if got := sample(t, internal) - before; got != 1 {
+		t.Errorf("the sweep counted %v failures, want 1: production's own", got)
+	}
+	for _, id := range []int64{mine, theirs} {
+		if j := get(t, prod, id); j.Status != Failed {
+			t.Errorf("job %d: %s, want failed by the sweep", id, j.Status)
+		}
+	}
+}

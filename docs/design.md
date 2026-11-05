@@ -991,7 +991,7 @@ Details and sources in [research/build.md](research/build.md).
   - `framy_sse_streams_open`: the event streams open now;
   - `framy_busy_total{what}`: the requests answered 503 `busy`, by what was full: `photo_slots` (every photo conversion, for 20 s), `photo_person` (2 photos of the person's coming in), `clip_queue` (16 clips of everyone's), `clip_person` (3 of the person's), `clip_slots` (a last frame waited 20 s). The first time in a UTC day that `photo_slots`, `clip_queue` or `clip_slots` was full, the operator chat hears it as well; a restart that day may tell it again.
 
-  The job counters start from zero with the process, as a scraper expects of a counter; the database keeps the whole history. Each job keeps a snapshot of the price it was estimated with. The operator chat hears when a fuse closes the free tier (the day's budget, or `limit_remaining` of framy's OpenRouter key) and each time the `framy` bucket passes another 10 GB.
+  The job counters start from zero with the process, as a scraper expects of a counter; the database keeps the whole history. Each stack's process counts only its own stack's jobs, so production's and the test bot's pages add up to the whole and never count a job twice; the sweep, which runs on River's leader and ends either stack's drafts and abandoned jobs, writes a failure of the other stack to the log only. Each job keeps a snapshot of the price it was estimated with. The operator chat hears when a fuse closes the free tier (the day's budget, or `limit_remaining` of framy's OpenRouter key) and each time the `framy` bucket passes another 10 GB.
 - **Deleting an account** removes the rows, the files and the encrypted keys at once.
 
 ## Architecture
