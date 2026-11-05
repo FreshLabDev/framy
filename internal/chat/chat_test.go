@@ -847,9 +847,11 @@ func TestAFailedRunShowsTheCard(t *testing.T) {
 		// The model's own sound: the same run without it may pass. This
 		// run had no sound to turn off.
 		{jobs.Failed, jobs.Sound, false, "err.sound", retry},
-		// The person's key needs the site.
-		{jobs.Failed, jobs.Money, false, "err.money", nil},
+		// The person's key out of money: a link to top it up, then another
+		// try ("" is the link, which carries no data).
+		{jobs.Failed, jobs.Money, false, "err.money", []string{"", actRetry}},
 		{jobs.Failed, jobs.Money, true, "err.failed", retry},
+		// A refused key needs the site.
 		{jobs.Failed, jobs.Key, false, "err.key", nil},
 		// A free run is paid by framy's key, not the person's.
 		{jobs.Failed, jobs.Key, true, "err.failed", retry},
@@ -861,7 +863,7 @@ func TestAFailedRunShowsTheCard(t *testing.T) {
 		h.store.jobs[id].n.Free = tc.free
 		h.store.setStatus(id, tc.status, tc.class)
 		h.flow.step(context.Background(), id)
-		if len(h.renderer.cards) != 1 || h.renderer.cards[0] != i18n.T("en", tc.want) {
+		if len(h.renderer.cards) != 1 || h.renderer.cards[0] != i18n.T("en", tc.want, "provider", "OpenRouter") {
 			t.Errorf("%s/%s: cards %v, want %s", tc.status, tc.class, h.renderer.cards, tc.want)
 			continue
 		}
@@ -874,11 +876,22 @@ func TestAFailedRunShowsTheCard(t *testing.T) {
 		if tc.acts != nil {
 			want = [][]string{{}}
 			for _, a := range tc.acts {
+				if a == "" {
+					want[0] = append(want[0], "")
+					continue
+				}
 				want[0] = append(want[0], callback(id, a))
 			}
 		}
 		if got := buttons(edits[0].markup); !reflect.DeepEqual(got, want) {
 			t.Errorf("%s/%s: buttons %v, want %v", tc.status, tc.class, got, want)
+			continue
+		}
+		if tc.class == jobs.Money && !tc.free {
+			top := edits[0].markup.InlineKeyboard[0][0]
+			if top.Text != i18n.T("en", "web.act.topup", "provider", "OpenRouter") || top.URL != "https://openrouter.ai/settings/credits" {
+				t.Errorf("top up = %+v", top)
+			}
 		}
 	}
 }

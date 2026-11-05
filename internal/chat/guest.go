@@ -292,7 +292,7 @@ func (f *Flow) guestDeliver(ctx context.Context, run db.ChatRun, a storage.Asset
 // guestFailed puts the error card on the answer, or its line in the
 // caption when Telegram does not take the card.
 func (f *Flow) guestFailed(ctx context.Context, run db.ChatRun, key string) {
-	text := t(run.Lang, key)
+	text := failureText(run, key)
 	model := "<b>" + html.EscapeString(run.Model) + "</b>"
 	card, err := f.cfg.Renderer.ErrorCard(ctx, text, run.Lang)
 	if err == nil {

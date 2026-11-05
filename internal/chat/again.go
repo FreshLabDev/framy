@@ -10,6 +10,7 @@ import (
 
 	"github.com/FreshLabDev/tg"
 
+	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/db"
 	"github.com/FreshLabDev/framy/internal/jobs"
 	"github.com/FreshLabDev/framy/internal/price"
@@ -183,10 +184,26 @@ func (f *Flow) original(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRu
 	return nil
 }
 
+// billing is where a provider's balance is topped up, as on the site's
+// card of a failed run (errors.js, BILLING).
+var billing = map[string]string{
+	catalog.OpenRouter: "https://openrouter.ai/settings/credits",
+	catalog.OpenAI:     "https://platform.openai.com/settings/organization/billing/overview",
+	catalog.Gemini:     "https://console.cloud.google.com/billing",
+}
+
+// runProvider is the provider of the run's offer: "openrouter" of
+// "openrouter:google/nano-banana-pro".
+func runProvider(run db.ChatRun) string {
+	p, _, _ := strings.Cut(run.OfferID, ":")
+	return p
+}
+
 // failureKeyboard is what helps after the run failed, as the site's card of
 // a failed run has it (internal/web/app/src/errors.js): another try, another
-// model, or the same run without its sound. A key out of money or refused
-// needs the site, which the card's line says; past framy's own key a free
+// model, or the same run without its sound. A key out of money gets a link
+// to its provider's billing and another try for after it; a refused key
+// needs the site, which the card's line says. Past framy's own key a free
 // run goes again on the person's, which the new preview shows. An edit of a
 // clip keeps its model, and a run of the site has no card in the chat.
 func failureKeyboard(run db.ChatRun) *tg.InlineKeyboardMarkup {
@@ -197,7 +214,12 @@ func failureKeyboard(run db.ChatRun) *tg.InlineKeyboardMarkup {
 	other := button(t(run.Lang, "web.act.other_model"), callback(run.JobID, actOther), "")
 	var row []tg.InlineKeyboardButton
 	switch jobs.Class(run.ErrorClass) {
-	case jobs.Money, jobs.Key:
+	case jobs.Money:
+		if url, ok := billing[runProvider(run)]; ok && !run.Free {
+			row = append(row, tg.InlineKeyboardButton{Text: t(run.Lang, "web.act.topup", "provider", providerName(runProvider(run))), URL: url})
+		}
+		row = append(row, retry)
+	case jobs.Key:
 		if run.Free {
 			row = append(row, retry)
 		}
