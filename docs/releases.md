@@ -192,7 +192,7 @@ v0.1.0-alpha.1 on top of it cannot write that cache.
 | Manifest | `deploy/ws04/compose.yaml` in this repository, copied to the host; its header lists the `.env` variables and the files in `secrets/` |
 | Env file | `.env` on the host, never in git; file secrets beside it, owned by uid 101 |
 | Networks | `core_net` (core-postgres), `management` (the Cloudflare Tunnel for `framy.ws04.cc`), `telegram_bot_api_net` (the self-hosted `telegram-bot-api`) |
-| Storage | R2 buckets `framy` (inputs and results), the clips' own bucket when `R2_INCOMING_BUCKET` names one (docs/design.md, Storage), and `framy-backups`; `work/` and `anim/` beside the manifest; the bot's own media directory of `telegram-bot-api`, mounted at the server's path |
+| Storage | R2 buckets `framy` (inputs and results), and the clips' own bucket when `R2_INCOMING_BUCKET` names one (docs/design.md, Storage); `work/` and `anim/` beside the manifest; the bot's own media directory of `telegram-bot-api`, mounted at the server's path |
 | Database | core migration `019_framy.sql` applied, `FRAMY_CORE_PASSWORD` in core's `.env` and framy's |
 | Test bot | `framy-test` (`deploy/ws04-test/compose.yaml`) on the same schema with `FRAMY_STACK=test`, the same KEK and the same R2 bucket; it applies the migrations of `dev` before production does, so they are additive (docs/design.md, Stacks) |
 | Ports | `8080` for the tunnel, never published to the host; `9090` for `/metrics`, reachable on the Docker networks only and never routed by the tunnel |
@@ -215,8 +215,9 @@ curl -s "https://api.telegram.org/bot$(cat secrets/bot-token)/logOut"
 install -d -o 101 -g 101 "/opt/stacks/telegram-bot-api-next/files/$(cat secrets/bot-token)"
 ```
 
-Files live in R2, not on the host. The database is backed up into
-`framy-backups`; the bucket `framy` is itself the copy off the home server.
+Files live in R2, not on the host. The database is in core-postgres, which
+the home server's daily backup dumps to Google Drive (docs/design.md,
+Backups); the bucket `framy` is itself the copy off the home server.
 
 ### Checking what is running
 

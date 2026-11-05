@@ -35,8 +35,9 @@ publish an advisory when disclosure is safe.
 - Keep the key-encryption key (KEK) apart from the database backups. A dump and
   its KEK together give away every stored key.
 - Use a unique strong password for the `framy_core` role.
-- Give the R2 API token access to framy's two buckets only, and the clips'
-  token, when `R2_INCOMING_BUCKET` is set, to that bucket alone. Keep the
-  bucket `framy` private; files are served through presigned links.
+- Give the R2 API token access to the bucket `framy` alone, and the clips'
+  token, when `R2_INCOMING_BUCKET` is set, to that bucket alone. A token that
+  also reaches a bucket of backups can delete the data and its copy together.
+  Keep the bucket `framy` private; files are served through presigned links.
 - Do not publish the PostgreSQL port or the service port to the internet. The
   service is reached only through the Cloudflare Tunnel.

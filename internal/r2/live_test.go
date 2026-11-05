@@ -8,9 +8,9 @@
 //	  go test -tags r2live -run Live ./internal/r2
 //
 // It writes small objects under incoming/r2live-, which the bucket's
-// lifecycle clears after a day, and removes them itself. R2_BACKUP_BUCKET
-// (default framy-backups) is the second bucket the token must reach;
-// R2_FOREIGN_BUCKET, when set, is a bucket of the same account it must not.
+// lifecycle clears after a day, and removes them itself. The token must
+// reach no other bucket: not R2_BACKUP_BUCKET (default framy-backups), nor
+// R2_FOREIGN_BUCKET, when set, another bucket of the same account.
 // R2_INCOMING_BUCKET, with R2_INCOMING_ACCESS_KEY_ID_FILE and
 // R2_INCOMING_SECRET_ACCESS_KEY_FILE, is the clips' bucket and its token,
 // which must reach nothing else. Nothing here prints a credential or a
@@ -255,35 +255,38 @@ func TestLivePresigned(t *testing.T) {
 	}
 }
 
-// TestLiveScope: the token reaches the backups bucket too, and nothing else.
+// TestLiveScope: the token reaches framy's bucket and nothing else. Not
+// the backups bucket: framy writes no backup there (docs/design.md,
+// Backups), and a token that can delete the data and its copy alike would
+// leave nothing to restore from when it leaks.
 func TestLiveScope(t *testing.T) {
 	ctx := context.Background()
 	body := []byte("framy r2live scope")
+	refused := func(bucket string, gone bool) {
+		t.Helper()
+		c := liveClient(t, bucket)
+		key := liveKey(t)
+		if err := c.Put(ctx, key, "text/plain", bytes.NewReader(body), int64(len(body)), sum(body)); !isRefused(err, gone) {
+			_ = c.Delete(ctx, key)
+			t.Errorf("put into %s: want it refused, got %v", bucket, err)
+			return
+		}
+		if _, err := c.Head(ctx, key); !isRefused(err, gone) {
+			t.Errorf("head in %s: want it refused, got %v", bucket, err)
+		}
+	}
+	// A bucket deleted since answers 404.
+	refused(envOr("R2_BACKUP_BUCKET", "framy-backups"), true)
+	if foreign := os.Getenv("R2_FOREIGN_BUCKET"); foreign != "" {
+		refused(foreign, false)
+	} else {
+		t.Log("R2_FOREIGN_BUCKET is not set: the refusal in another bucket of the account is not checked")
+	}
+}
 
-	backups := liveClient(t, envOr("R2_BACKUP_BUCKET", "framy-backups"))
-	key := "r2live/" + strings.TrimPrefix(liveKey(t), "incoming/")
-	t.Cleanup(func() { _ = backups.Delete(ctx, key) })
-	if err := backups.Put(ctx, key, "text/plain", bytes.NewReader(body), int64(len(body)), sum(body)); err != nil {
-		t.Fatalf("put into the backups bucket: %v", err)
-	}
-	if err := backups.Delete(ctx, key); err != nil {
-		t.Fatalf("delete from the backups bucket: %v", err)
-	}
-
-	foreign := os.Getenv("R2_FOREIGN_BUCKET")
-	if foreign == "" {
-		t.Log("R2_FOREIGN_BUCKET is not set: the refusal outside framy's buckets is not checked")
-		return
-	}
-	other := liveClient(t, foreign)
-	fkey := liveKey(t)
-	if err := other.Put(ctx, fkey, "text/plain", bytes.NewReader(body), int64(len(body)), sum(body)); status(err) != http.StatusForbidden {
-		_ = other.Delete(ctx, fkey)
-		t.Fatalf("put into %s: want 403, got %v", foreign, err)
-	}
-	if _, err := other.Head(ctx, fkey); status(err) != http.StatusForbidden {
-		t.Fatalf("head in %s: want 403, got %v", foreign, err)
-	}
+// isRefused: a 403, or the 404 of a bucket that may be gone.
+func isRefused(err error, gone bool) bool {
+	return status(err) == http.StatusForbidden || (gone && errors.Is(err, r2.ErrNotFound))
 }
 
 // copied tells whether a presigned PUT to dst, sent with an
