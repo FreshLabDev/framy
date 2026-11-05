@@ -65,7 +65,8 @@ const fakeOdd = `<div class="headline" style="display: flex; margin-right: 4px">
 
 // fakeRuns is the API of a signed-in person with a working OpenRouter key and
 // no free pictures left, whose jobs follow the prompt: "fail:<class>" fails
-// with that class, "retry" waits for a retry, "running" runs and never ends,
+// with that class, "expired:<class>" passes the run's hour with it as the
+// last poll's, "retry" waits for a retry, "running" runs and never ends,
 // "poll" is read without the event stream, "done" makes a picture ("slow"
 // after two seconds of running), "faces" and "wrapped" are refused by the
 // provider in its own JSON, and "refuse:<code>" is refused before any job.
@@ -245,6 +246,9 @@ func (f *fakeRuns) create(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(p, "fail:"):
 		cls := strings.TrimPrefix(p, "fail:")
 		steps = append(steps, at("running", nil), at("failed", map[string]any{"error": map[string]any{"class": cls, "message": fakeMessage}}))
+	case strings.HasPrefix(p, "expired:"):
+		cls := strings.TrimPrefix(p, "expired:")
+		steps = append(steps, at("running", nil), at("expired", map[string]any{"error": map[string]any{"class": cls, "message": fakeMessage}}))
 	case p == "faces", p == "wrapped":
 		msg := map[string]string{"faces": fakeFaces, "wrapped": fakeWrapped}[p]
 		steps = append(steps, at("running", nil), at("failed", map[string]any{"error": map[string]any{"class": "refused", "message": msg}}))
@@ -446,7 +450,7 @@ func (f *fakeRuns) events(w http.ResponseWriter, r *http.Request) {
 		j.shown = max(j.shown, n+1)
 		f.mu.Unlock()
 		say(n+1, j.steps[n])
-		if st := j.steps[n]["status"]; st == "failed" || st == "done" {
+		if st := j.steps[n]["status"]; st == "failed" || st == "expired" || st == "done" {
 			return
 		}
 		select {
@@ -534,7 +538,7 @@ func TestBrowserRuns(t *testing.T) {
 		"refused":         {"Not accepted", "did not accept the request", "Edit the prompt", true, true},
 		"rate_limited":    {"No answer", "Try again in a few minutes", "Try again", false, true},
 		"unavailable":     {"No answer", "Try again in a few minutes", "Try again", false, true},
-		"timeout":         {"Over an hour", "may have charged up to $0.040", "Try again", false, false},
+		"timeout":         {"Took too long", "may have charged up to $0.040", "Try again", false, false},
 		"provider":        {"Provider failure", "may have charged up to $0.040", "Try again", true, false},
 		"interrupted":     {"Run interrupted", "was not sent again", "Try again", false, false},
 		"storage":         {"Not saved", "The provider charged for it", "Try again", false, false},
@@ -560,9 +564,16 @@ func TestBrowserRuns(t *testing.T) {
 		}
 	}
 
+	// Only a run past its hour says so; whatever the last poll said, the
+	// provider may have charged for it.
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`return await press("expired:provider", (s) => s.failed);`)
+	if s["timeout"] == true || s["label"] != "Over an hour" || !strings.Contains(s["why"].(string), "may have charged up to $0.040") || s["said"] != "" {
+		t.Errorf("expired: %v", s)
+	}
+
 	// A refusal for a real person in a file says so in framy's words, with no
 	// JSON, and offers another model; Another model opens the picker.
-	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+`
 	const s = await press("faces", (s) => s.failed);
 	const other = [...document.querySelectorAll("#stage .jacts > button")].find((b) => b.textContent.trim() === "Another model");
 	other?.click();

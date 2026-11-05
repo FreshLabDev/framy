@@ -57,6 +57,10 @@ export function failure(j) {
   const said = msg ? t("fail.said", { provider: P, text: msg }) : "";
   const again = ["retry", "edit"];
   if (j.status === "cancelled") return { cls: "cancelled", label: t("stage.cancelled"), text: "", ...none, acts: again };
+  // Expired is the run deadline, an hour after the request went out, whatever
+  // the last poll said; a failed timeout is a call that got no answer in time
+  // (180 s for an image, a 408, 504 or 524), so it says no hour.
+  if (j.status === "expired") return { cls: "timeout", label: t("fail.timeout_l"), text: "", note: may, acts: again };
   const face = faceOf(j, cls), m = C.byId[j.model];
   if (face) return { cls: "faces", label: t(face === "video" ? "fail.faces_clip_l" : "fail.faces_photo_l"), text: t("fail.faces", { model: m ? vname(m) : P }),
     ...(cls === "moderation" && free ? { note: t("fail.free_spent") } : none), acts: ["model", "edit"] };
@@ -72,7 +76,7 @@ export function failure(j) {
     // The model refused the sound it made (copyright); nothing was charged.
     case "sound": return { cls, label: t("fail.sound_l"), text: t("fail.sound"), ...none, acts: m && hasAudio(m) ? ["quiet", "edit"] : again };
     case "rate_limited": case "unavailable": return { cls, label: t("fail.no_answer_l"), text: "", ...none, note: (free ? back + " " : "") + t("fail.later"), acts: again };
-    case "timeout": return { cls, label: t("fail.timeout_l"), text: "", note: may, acts: again };
+    case "timeout": return { cls, label: t("stage.expired"), text: "", note: may, acts: again };
     case "provider": return { cls, label: t("fail.provider_l"), text: "", note: may, said, acts: again };
     case "interrupted": return { cls, label: t("fail.interrupted_l"), text: t("fail.interrupted"), note: may, acts: again };
     case "storage": return { cls, label: t("fail.storage_l"), text: t(vid ? "fail.storage_video" : "fail.storage"), note: t(free ? "fail.free_back" : "fail.charged"), acts: again };
@@ -80,7 +84,7 @@ export function failure(j) {
     // framy did not send it: a setting the offer lacks, so nothing reached the provider.
     case "invalid_request": return { cls, label: t("fail.invalid_l"), text: t("fail.invalid"), ...none, acts: ["edit"] };
     case "draft_expired": return { cls, label: t("stage.expired"), text: t("fail.draft_expired"), ...none, acts: again };
-    default: return { cls: cls || "unknown", label: t(j.status === "expired" ? "stage.expired" : "stage.failed"), text: t("fail.unknown"), note: "", acts: again };
+    default: return { cls: cls || "unknown", label: t("stage.failed"), text: t("fail.unknown"), note: "", acts: again };
   }
 }
 
