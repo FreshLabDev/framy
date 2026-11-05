@@ -265,6 +265,7 @@ func New(cfg Config) (*Flow, error) {
 		cfg.MaxVideo = storage.DefaultMaxVideo
 	}
 	cfg.AppURL = miniAppURL(cfg.AppURL)
+	cfg.Telegram = guarded{cfg.Telegram}
 	f := &Flow{cfg: cfg, log: cfg.Log, now: time.Now, slot: make(chan struct{}, cfg.Commands),
 		shareKey: newShareKey(), shareSlots: make(chan struct{}, shareSlots)}
 	if name := strings.TrimPrefix(cfg.Username, "@"); name != "" {

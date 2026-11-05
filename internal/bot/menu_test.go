@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"unicode"
+	"unicode/utf16"
 
 	"github.com/FreshLabDev/tg"
 
@@ -453,5 +454,17 @@ func TestProfileIsPublishedPerLanguageAndWrittenOnlyOnChange(t *testing.T) {
 	b.publishProfile(ctx)
 	if client.writes != first {
 		t.Fatalf("a restart wrote %d unchanged texts again", client.writes-first)
+	}
+}
+
+// Telegram refuses an answer to a press over 200 characters, and the button
+// then says nothing at all.
+func TestPanelAlertsFitTelegram(t *testing.T) {
+	for _, key := range []string{"msg.not_yours", "msg.admin_only"} {
+		for _, code := range i18n.Codes() {
+			if n := len(utf16.Encode([]rune(i18n.T(code, key)))); n > 200 {
+				t.Errorf("%s [%s] is %d characters, over 200", key, code, n)
+			}
+		}
 	}
 }
