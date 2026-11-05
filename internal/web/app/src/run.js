@@ -19,8 +19,10 @@ export function signIn() {
   // The Mini App signs in with its launch data, which a load trades again.
   if (S.mini) { location.reload(); return; }
   try { sessionStorage.setItem("framy.draft", $("#prompt").value); } catch {}
-  // Back where the person was: the composer, the library or one run of it.
-  const back = /^\/(library|r\/\d+)$/.test(location.pathname) ? location.pathname : "/";
+  // Back where the person was: the composer, the library or one run of it. A run the stage
+  // still follows comes back as that run of the library, which goes on following it.
+  const r = S.run, on = r?.phase === "job" && r.job && !(r.jobs || [r.job]).every((j) => isFinal(j.status));
+  const back = on ? "/r/" + r.job.id : /^\/(library|r\/\d+)$/.test(location.pathname) ? location.pathname : "/";
   location.assign("/auth/login?return_to=" + encodeURIComponent(back));
 }
 
@@ -178,7 +180,7 @@ function followAll(run) {
     if (S.run !== run) return;
     if (!was && run.jobs.every((x) => isFinal(x.status))) ended(run);
     runChanged();
-  }, () => {}, (net) => { run.net = net; netState(net); if (S.run === run) runChanged(); }));
+  }, (e) => unwatched(run, e), (net) => { run.net = net; netState(net); if (S.run === run) runChanged(); }));
   stopWatch = () => stops.forEach((f) => f?.());
 }
 
@@ -210,7 +212,24 @@ function follow(run) {
     if (S.run !== run) return;
     if (isFinal(j.status) && !isFinal(was)) ended(run);
     runChanged();
-  }, () => {}, (net) => { run.net = net; netState(net); if (S.run === run) runChanged(); });
+  }, (e) => unwatched(run, e), (net) => { run.net = net; netState(net); if (S.run === run) runChanged(); });
+}
+// The page stopped hearing of a run before it ended. A job that is not the
+// person's (another account signed in in this browser, or theirs deleted)
+// leaves the stage; signed out, the run stays and says it goes on without
+// the page.
+function unwatched(run, e) {
+  const here = S.run === run;
+  if (e.status === 404) {
+    if (run.gone) return;
+    run.gone = true;
+    toast(t("view.not_found"), { ms: 6000 });
+    if (here) { stopWatch?.(); stopWatch = null; S.run = null; S.showJob = false; runChanged(); renderBar(); }
+  } else {
+    run.net = "signin";
+    if (here) runChanged();
+  }
+  refreshMe();
 }
 // What the end of a job changes beyond the stage: the free counts, and a key
 // or the free tier found not to work.

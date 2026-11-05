@@ -232,6 +232,9 @@ function runRatio(run, res = outsOf(run.job)[0]) {
   return f?.w && f?.h ? f.w / f.h : m?.kind === "video" ? 16 / 9 : 1;
 }
 
+// What a run that goes on says while the page cannot follow it: no connection, or nobody signed in.
+const NETLINE = { lost: "net.lost_line", signin: "net.signin_line" };
+
 // A line that counts down: its text is asked again every second.
 const live = (text, cls = "") => { const el = h("small", { class: ("tk " + cls).trim() }, text()); el._text = text; return el; };
 // The wait: how long since the press, or since the job was made, and how long
@@ -364,8 +367,8 @@ function runCell(run, c, mixed, items) {
     media = vid ? h("video", { src: res.url, poster: res.thumb?.url || null, loop: true, playsinline: true, autoplay: true, preload: "auto" }) : h("img", { src: res.url, alt: run.prompt || "", decoding: "async" });
     if (vid) media.muted = true;
   }
-  if (going && run.net === "lost" && v.status) {
-    const lost = h("small", { class: "lost" }, t("net.lost_line")), sub2 = v.status.querySelector("small");
+  if (going && NETLINE[run.net] && v.status) {
+    const lost = h("small", { class: "lost" }, t(NETLINE[run.net])), sub2 = v.status.querySelector("small");
     if (sub2) sub2.replaceWith(lost); else v.status.append(lost);
   }
   const at = items.findIndex((x) => x.i === i), open = () => at >= 0 && openFull(at, items);
@@ -377,7 +380,7 @@ function runCell(run, c, mixed, items) {
     onkeydown: v.done ? (e) => { if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) { e.preventDefault(); open(); } } : null },
     v.done ? media : [h("i"), h("i"), h("i"), h("i")], v.done ? null : v.status || null,
     h("span", { class: "num" }, String(i + 1)), mixed && f && m ? h("span", { class: "chip tm" }, lg(famLogo(f), f.maker, "s"), h("span", {}, vname(m))) : null, dl);
-  if (v.ht) halftone(cell, v.ht.fig, { ...v.ht, n: run.n, id, lost: going && run.net === "lost" });
+  if (v.ht) halftone(cell, v.ht.fig, { ...v.ht, n: run.n, id, lost: going && !!NETLINE[run.net] });
   else if (v.done) halftone(cell, "reveal", { n: run.n, id });
   return cell;
 }
@@ -433,17 +436,17 @@ function renderRun(st, run) {
     const pic = media.tagName === "IMG" ? media : media.querySelector("video");
     pic.addEventListener(media === pic ? "load" : "loadeddata", () => anim(pic, [{ opacity: 0 }, { opacity: 1 }], { duration: 420 }), { once: true });
   }
-  // While the page cannot reach framy, the frame says so; it hears again by itself.
+  // While the page cannot follow the run, the frame says why; it hears again by itself once it can.
   const going = run.phase === "job" && !isFinal(j.status);
-  if (going && run.net === "lost" && v.status) {
-    const lost = h("small", { class: "lost" }, t("net.lost_line")), sub = v.status.querySelector("small");
+  if (going && NETLINE[run.net] && v.status) {
+    const lost = h("small", { class: "lost" }, t(NETLINE[run.net])), sub = v.status.querySelector("small");
     if (sub) sub.replaceWith(lost); else v.status.append(lost);
   }
   const box = h("div", { class: "jbox" + (v.done ? " done" : "") + (v.fail ? " failed" : ""), "data-k": "pv", style: { width: b.w + "px", height: b.h + "px" } },
     v.done ? media : [h("i"), h("i"), h("i"), h("i")], v.status || null);
   box._r = r; box._under = v.fail ? 150 : 70;
   // The dots: a figure for the state, or the result showing through them as it arrives.
-  if (v.ht) halftone(box, v.ht.fig, { ...v.ht, n: run.n, lost: going && run.net === "lost" });
+  if (v.ht) halftone(box, v.ht.fig, { ...v.ht, n: run.n, lost: going && !!NETLINE[run.net] });
   else if (v.done) halftone(box, "reveal", { n: run.n });
   const cost = j?.cost?.label ? j.cost.label : v.zero ? zeroOf(j?.estimate?.label || run.priceLabel)
     : j?.free || (run.pay === "free" && !v.fail) ? t("bar.free") : run.shownLabel && !v.fail ? run.shownLabel : "";

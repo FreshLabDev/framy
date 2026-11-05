@@ -58,6 +58,7 @@ type fakeRuns struct {
 	jobs    map[int64]*fakeJob
 	shares  int              // how many results were prepared for sharing
 	batches []map[string]any // the bodies of POST /api/batches, in order
+	out     bool             // signed out: a "stream:401" job was watched
 }
 
 type fakeJob struct {
@@ -69,6 +70,13 @@ type fakeJob struct {
 func (f *fakeRuns) mount(srv *Server) {
 	f.jobs = map[int64]*fakeJob{}
 	srv.HandleFunc("GET /api/me", func(w http.ResponseWriter, _ *http.Request) {
+		f.mu.Lock()
+		out := f.out
+		f.mu.Unlock()
+		if out {
+			writeTestJSON(w, http.StatusUnauthorized, map[string]any{"error": "sign_in"})
+			return
+		}
 		writeTestJSON(w, http.StatusOK, map[string]any{
 			"user_id": 1, "name": "Ada", "language": "en", "currency": "USD",
 			"connections": []map[string]any{{"id": "c1", "provider": "openrouter", "last4": "abcd", "status": "ok"}},
@@ -88,7 +96,7 @@ func (f *fakeRuns) mount(srv *Server) {
 		}
 		f.mu.Lock()
 		// Read without the stream, the job moves one step a read.
-		if j.steps[0]["prompt"] == "poll" && j.shown < len(j.steps) {
+		if p := j.steps[0]["prompt"]; (p == "poll" || p == "stream:500") && j.shown < len(j.steps) {
 			j.shown++
 		}
 		cur := j.steps[max(0, j.shown-1)]
@@ -204,7 +212,7 @@ func (f *fakeRuns) create(w http.ResponseWriter, r *http.Request) {
 	case p == "retry":
 		steps = append(steps, at("queued", map[string]any{"error": map[string]any{"class": "rate_limited", "message": fakeMessage},
 			"retry_at": time.Now().Add(30 * time.Second).UTC()}))
-	case p == "running":
+	case p == "running", p == "stream:404", p == "stream:401":
 		steps = append(steps, at("running", nil))
 	case p == "done:video":
 		url := "http://" + r.Host + "/test/clip.mp4"
@@ -224,7 +232,7 @@ func (f *fakeRuns) create(w http.ResponseWriter, r *http.Request) {
 			steps = append(steps, at("running", nil))
 		}
 		fallthrough
-	case p == "done", p == "poll", p == "done:big":
+	case p == "done", p == "poll", p == "done:big", p == "stream:500":
 		// Result 8 is one Telegram will not take.
 		url, rid := "http://"+r.Host+"/test/result.png", 7
 		if p == "done:big" {
@@ -340,8 +348,23 @@ func (f *fakeRuns) events(w http.ResponseWriter, r *http.Request) {
 		writeTestJSON(w, http.StatusNotFound, map[string]any{"error": "not_found"})
 		return
 	}
-	if j.steps[0]["prompt"] == "poll" {
+	switch j.steps[0]["prompt"] {
+	case "poll":
 		writeTestJSON(w, http.StatusTooManyRequests, map[string]any{"error": "too_many_streams"})
+		return
+	case "stream:500":
+		// framy failing, or the tunnel in front of it: an answer that is not the stream.
+		w.Header().Set("Retry-After", "1")
+		writeTestJSON(w, http.StatusInternalServerError, map[string]any{"error": "internal"})
+		return
+	case "stream:404":
+		writeTestJSON(w, http.StatusNotFound, map[string]any{"error": "not_found"})
+		return
+	case "stream:401":
+		f.mu.Lock()
+		f.out = true
+		f.mu.Unlock()
+		writeTestJSON(w, http.StatusUnauthorized, map[string]any{"error": "sign_in"})
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -575,6 +598,48 @@ func TestBrowserRuns(t *testing.T) {
 		t.Errorf("result: %v", s)
 	}
 	noErrors(t, ctx)
+}
+
+// TestBrowserStreamFails checks a run whose events cannot be heard: a stream
+// framy keeps failing gives way to reading the job, which ends with the
+// result; a job that is not the person's leaves the stage saying so; signed
+// out, the run says it goes on.
+func TestBrowserStreamFails(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const s = await press("stream:500", (s) => s.done);
+	return { ...s, tag: document.querySelector("#stage .jtag")?.textContent || "" };`)
+	if s["done"] != true {
+		t.Errorf("a stream that fails: %v", s)
+	}
+	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	document.querySelector("#stage .jacts .sq[aria-label]:last-child")?.click();
+	await wait(300);
+	const s = await press("stream:404", () => !document.querySelector("#stage .jbox"));
+	return { ...s, toast: document.querySelector(".toast")?.textContent || "", ghost: !!document.querySelector("#stage .ghost") };`)
+	if s["timeout"] == true || s["ghost"] != true || s["toast"] != "There is no such run in your library." {
+		t.Errorf("a job that is gone: %v", s)
+	}
+	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const s = await press("stream:401", (s) => /Sign in again/.test(s.sub));
+	for (let i = 0; i < 30 && !/^Sign in/.test(document.querySelector("#go")?.textContent); i++) await wait(100);
+	return { ...s, go: document.querySelector("#go")?.textContent || "" };`)
+	if s["timeout"] == true || s["sub"] != "Sign in again: the run goes on on the server" || !strings.HasPrefix(s["go"].(string), "Sign in") {
+		t.Errorf("signed out under a run: %v", s)
+	}
+	noErrors(t, ctx)
+	// Signing in again comes back to the run, which the library goes on following.
+	js[bool](t, ctx, `setTimeout(() => document.querySelector("#go").click(), 50); return true;`)
+	back := ""
+	for i := 0; i < 30 && !strings.HasPrefix(back, "/auth/"); i++ {
+		time.Sleep(100 * time.Millisecond)
+		back = js[string](t, ctx, `return location.pathname + location.search;`)
+	}
+	if !strings.HasPrefix(back, "/auth/login?return_to=%2Fr%2F") {
+		t.Errorf("signing in from the run goes to %q", back)
+	}
 }
 
 // TestBrowserRunsPhone checks a failure on a phone: the reason and its

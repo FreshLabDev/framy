@@ -8405,6 +8405,24 @@
     "ja": "framy が複数のタブで開かれています。このタブは 5 秒ごとに結果を確認します",
     "ar": "framy مفتوح في عدة علامات تبويب: هذه العلامة تتحقق من النتيجة كل 5 ثوانٍ"
   },
+  "web.net.signin_line": {
+    "en": "Sign in again: the run goes on on the server",
+    "ru": "Войди ещё раз: запуск идёт на сервере",
+    "uk": "Увійди ще раз: запуск триває на сервері",
+    "es": "Inicia sesión de nuevo: la ejecución sigue en el servidor",
+    "fr": "Reconnecte-toi : la génération continue sur le serveur",
+    "de": "Melde dich erneut an: Der Lauf geht auf dem Server weiter",
+    "it": "Accedi di nuovo: la generazione prosegue sul server",
+    "pl": "Zaloguj się ponownie: uruchomienie trwa na serwerze",
+    "cs": "Znovu se přihlas: spuštění běží na serveru",
+    "tr": "Tekrar giriş yap: çalıştırma sunucuda sürüyor",
+    "sv": "Logga in igen: körningen fortsätter på servern",
+    "be": "Увайдзі яшчэ раз: запуск ідзе на серверы",
+    "ca": "Torna a iniciar la sessió: l’execució continua al servidor",
+    "zh": "请重新登录：生成仍在服务器上进行",
+    "ja": "もう一度ログインしてください：生成はサーバー上で続いています",
+    "ar": "سجّل الدخول مرة أخرى: يستمر التشغيل على الخادم"
+  },
   "web.oauth.cancelled": {
     "en": "The OpenRouter sign-in was cancelled, no key is connected.",
     "ru": "Вход в OpenRouter отменён, ключ не подключён.",
