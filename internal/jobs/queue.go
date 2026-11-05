@@ -496,6 +496,12 @@ func draftVideos(ctx context.Context, tx pgx.Tx, id int64) ([]float64, error) {
 // admitDraft asks the allowance about a free draft about to be queued. The
 // draft is read first and queued after, both under the allowance's locks. A
 // draft that cannot be queued is left to Generate's own update to refuse.
+//
+// The draft is locked as it is read, before the allowance's locks: a second
+// press waits here for the first to queue it, then finds no draft and is
+// refused as ErrNotDraft. Read without the lock, it would be asked about
+// with the first press's job already in the count, and a press on the last
+// free slot would answer that the allowance is used up while its run goes.
 func (q *Queue) admitDraft(ctx context.Context, tx pgx.Tx, id int64) error {
 	if q.cfg.Admit == nil {
 		return nil
@@ -508,7 +514,8 @@ func (q *Queue) admitDraft(ctx context.Context, tx pgx.Tx, id int64) error {
 		       GREATEST(estimate_usd, (estimate->>'max_usd')::numeric)::float8,
 		       (SELECT count(*) FROM job_input WHERE job_id = job.id)
 		FROM job
-		WHERE id=$1 AND status='draft' AND created_at > now() - make_interval(secs => $2)`, id, draftTTL.Seconds()).Scan(
+		WHERE id=$1 AND status='draft' AND created_at > now() - make_interval(secs => $2)
+		FOR UPDATE`, id, draftTTL.Seconds()).Scan(
 		&a.UserID, &a.Offer, &a.Kind, &a.Settings, &free, &estimate, &a.Inputs)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !free) {
 		return nil

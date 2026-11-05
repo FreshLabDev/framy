@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -159,5 +160,62 @@ func TestARefusedFreeJobLeavesNothingBehind(t *testing.T) {
 	spy.answer = nil
 	if err := q.Generate(ctx, draft); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// lastSlot is an allowance of one free run at a time: it refuses while the
+// person has one queued or running, under the person's lock, as
+// internal/free counts. It waits a little after counting, so that a second
+// press reads the draft while the first is being asked about.
+type lastSlot struct{ full error }
+
+func (s lastSlot) Admit(ctx context.Context, tx pgx.Tx, a Admission) error {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('test.free.person:' || $1::bigint::text, 0))`, a.UserID); err != nil {
+		return err
+	}
+	var taken int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM job WHERE free AND user_id = $1 AND status IN ('queued', 'running')`, a.UserID).Scan(&taken); err != nil {
+		return err
+	}
+	time.Sleep(100 * time.Millisecond)
+	if taken > 0 {
+		return s.full
+	}
+	return nil
+}
+
+func TestTwoPressesOnTheLastFreeSlotStartOneRunAndSayNoMoreThanThat(t *testing.T) {
+	full := errors.New("the free allowance is used")
+	q := admitQueue(t, lastSlot{full: full})
+	pool := testPool(t)
+	ctx := context.Background()
+	n := job(alice, imageOffer)
+	n.Free = true
+	draft, _, err := q.Draft(ctx, n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	errs := make(chan error, 2)
+	for range 2 {
+		go func() { errs <- q.Generate(ctx, draft) }()
+	}
+	var started, notDraft int
+	for range 2 {
+		switch err := <-errs; {
+		case err == nil:
+			started++
+		case errors.Is(err, ErrNotDraft):
+			notDraft++
+		default:
+			// The run of the first press is going: the second is a repeat,
+			// not a run the allowance refused.
+			t.Fatalf("a press = %v, want nil or ErrNotDraft", err)
+		}
+	}
+	if started != 1 || notDraft != 1 {
+		t.Fatalf("%d presses started the run and %d were told it is not a draft, want 1 and 1", started, notDraft)
+	}
+	if got := scalar[string](t, pool, `SELECT status FROM framy.job WHERE id = $1`, draft); got != string(Queued) {
+		t.Fatalf("status = %s", got)
 	}
 }
