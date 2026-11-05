@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/FreshLabDev/framy/internal/catalog"
+	"github.com/FreshLabDev/framy/internal/db"
 	"github.com/FreshLabDev/framy/internal/fx"
 	"github.com/FreshLabDev/framy/internal/i18n"
 	"github.com/FreshLabDev/framy/internal/keys"
@@ -188,7 +189,8 @@ type settingsRequest struct {
 // settings answers PATCH /api/me: the person's currency, language, default
 // models and DM, and the answer is /api/me as it is after. The language is
 // the family's: core keeps it for every bot, as picking it in any of them
-// does. Every field is checked before any is kept.
+// does. Every field is checked before any is kept, and they are kept in one
+// transaction, so a save that fails changes nothing.
 func (a *API) settings(w http.ResponseWriter, r *http.Request) {
 	user, ok := a.person(w, r)
 	if !ok {
@@ -228,37 +230,14 @@ func (a *API) settings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if req.Currency != nil {
-		if err := a.cfg.Store.SetCurrency(ctx, user, *req.Currency); err != nil {
-			a.internal(w, r, err)
-			return
-		}
-	}
-	if req.Language != nil {
-		var err error
-		if *req.Language == "" {
-			err = a.cfg.Store.ClearUserLang(ctx, user)
-		} else {
-			err = a.cfg.Store.SetUserLang(ctx, user, *req.Language)
-		}
-		if err != nil {
-			a.internal(w, r, err)
-			return
-		}
-	}
-	for _, kind := range []catalog.Kind{catalog.Image, catalog.Video} {
-		if id := defaults[kind]; id != nil {
-			if err := a.cfg.Store.SetDefaultModel(ctx, user, kind, *id); err != nil {
-				a.internal(w, r, err)
-				return
-			}
-		}
-	}
-	if req.DeliverToTelegram != nil {
-		if err := a.cfg.Store.SetDelivery(ctx, user, *req.DeliverToTelegram); err != nil {
-			a.internal(w, r, err)
-			return
-		}
+	err := a.cfg.Store.ChangeSettings(ctx, user, db.SettingsChange{
+		Currency: req.Currency, Language: req.Language,
+		DefaultImage: defaults[catalog.Image], DefaultVideo: defaults[catalog.Video],
+		Deliver: req.DeliverToTelegram,
+	})
+	if err != nil {
+		a.internal(w, r, err)
+		return
 	}
 	a.me(w, r)
 }

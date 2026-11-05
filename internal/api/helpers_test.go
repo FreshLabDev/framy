@@ -363,6 +363,8 @@ type fakeStore struct {
 	// person's runs cost, by provider.
 	settings map[int64]db.Settings
 	spent    map[int64]map[string]db.Spent
+	// changeErr fails a save of the settings, which then keeps nothing.
+	changeErr error
 }
 
 func newFakeStore() *fakeStore {
@@ -402,19 +404,39 @@ func (s *fakeStore) UserLang(_ context.Context, userID int64) (string, error) {
 	return s.lang[userID], nil
 }
 
-func (s *fakeStore) SetCurrency(_ context.Context, userID int64, code string) error {
-	if code == "" {
-		delete(s.chosen, userID)
-	} else {
-		s.chosen[userID] = code
+// ChangeSettings keeps the whole change, or nothing of it when changeErr is
+// set, as the database's transaction does.
+func (s *fakeStore) ChangeSettings(ctx context.Context, userID int64, c db.SettingsChange) error {
+	if s.changeErr != nil {
+		return s.changeErr
 	}
-	return nil
-}
-
-func (s *fakeStore) SetUserLang(_ context.Context, userID int64, lang string) error {
-	s.lang[userID] = lang
+	if c.Currency != nil {
+		if *c.Currency == "" {
+			delete(s.chosen, userID)
+		} else {
+			s.chosen[userID] = *c.Currency
+		}
+	}
+	if c.Language != nil {
+		if *c.Language == "" {
+			_ = s.ClearUserLang(ctx, userID)
+		} else {
+			s.lang[userID] = *c.Language
+			st := s.settingsOf(userID)
+			st.LanguagePicked = true
+			s.settings[userID] = st
+		}
+	}
 	st := s.settingsOf(userID)
-	st.LanguagePicked = true
+	if c.DefaultImage != nil {
+		st.DefaultImage = *c.DefaultImage
+	}
+	if c.DefaultVideo != nil {
+		st.DefaultVideo = *c.DefaultVideo
+	}
+	if c.Deliver != nil {
+		st.Deliver = *c.Deliver
+	}
 	s.settings[userID] = st
 	return nil
 }
@@ -439,24 +461,6 @@ func (s *fakeStore) settingsOf(userID int64) db.Settings {
 
 func (s *fakeStore) Settings(_ context.Context, userID int64) (db.Settings, error) {
 	return s.settingsOf(userID), nil
-}
-
-func (s *fakeStore) SetDefaultModel(_ context.Context, userID int64, kind catalog.Kind, modelID string) error {
-	st := s.settingsOf(userID)
-	if kind == catalog.Video {
-		st.DefaultVideo = modelID
-	} else {
-		st.DefaultImage = modelID
-	}
-	s.settings[userID] = st
-	return nil
-}
-
-func (s *fakeStore) SetDelivery(_ context.Context, userID int64, on bool) error {
-	st := s.settingsOf(userID)
-	st.Deliver = on
-	s.settings[userID] = st
-	return nil
 }
 
 func (s *fakeStore) Spent(_ context.Context, userID int64) (map[string]db.Spent, error) {

@@ -114,10 +114,14 @@ func (s *Store) Currency(ctx context.Context, userID int64) (string, error) {
 // SetCurrency records the person's choice; empty goes back to the default.
 // The person must be in core already (Touch).
 func (s *Store) SetCurrency(ctx context.Context, userID int64, code string) error {
+	return setCurrency(ctx, s.pool, userID, code)
+}
+
+func setCurrency(ctx context.Context, q execer, userID int64, code string) error {
 	if code != "" && !fx.Valid(code) {
 		return fmt.Errorf("fx: unknown currency %q", code)
 	}
-	_, err := s.pool.Exec(ctx, `
+	_, err := q.Exec(ctx, `
 		INSERT INTO profile (user_id, currency) VALUES ($1, NULLIF($2, ''))
 		ON CONFLICT (user_id) DO UPDATE SET currency = EXCLUDED.currency, updated_at = now()`,
 		userID, code)

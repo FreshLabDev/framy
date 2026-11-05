@@ -202,6 +202,20 @@ func TestTheSettingsKeepTheDefaultModelsAndTheDM(t *testing.T) {
 	}
 }
 
+// A save the database cannot keep is framy's failure, and the settings stay
+// as they were: the answer and the next GET agree.
+func TestASettingsSaveThatFailsKeepsNothing(t *testing.T) {
+	r := newRig(t)
+	r.store.changeErr = errors.New("connection reset")
+	if status, m := r.send(alice, http.MethodPatch, "/api/me", `{"currency":"UAH","language":"uk","deliver_to_telegram":false}`); status != http.StatusInternalServerError {
+		t.Fatalf("%d %v", status, m)
+	}
+	m := jsonOf(t, r.do(alice, "GET", "/api/me", nil))
+	if m["currency_chosen"] != false || m["language_chosen"] != false || m["deliver_to_telegram"] != true {
+		t.Errorf("after a failed save: %v", m)
+	}
+}
+
 func TestDeletingTheAccount(t *testing.T) {
 	r := newRig(t)
 	history(r)

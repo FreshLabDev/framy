@@ -6,6 +6,7 @@ package db
 import (
 	"context"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -77,6 +78,48 @@ func TestTheSettingsAreKept(t *testing.T) {
 	// The settings are the person's own.
 	if st := settings(4602); st != (Settings{Deliver: true}) {
 		t.Errorf("another person: %+v", st)
+	}
+}
+
+// A save of the site's settings is kept whole: a field the database refuses
+// takes the fields before it back with it, and the person keeps what they
+// had.
+func TestASaveOfTheSettingsIsWholeOrNothing(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+	const user = 4606
+	if err := store.Touch(ctx, tg.User{ID: user, FirstName: "Ann"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	text := func(v string) *string { return &v }
+	off := false
+	if err := store.ChangeSettings(ctx, user, SettingsChange{
+		Currency: text("EUR"), Language: text("pl"), DefaultVideo: text("test/video"), Deliver: &off,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	want := Settings{LanguagePicked: true, DefaultVideo: "test/video"}
+	if st, err := store.Settings(ctx, user); err != nil || st != want {
+		t.Fatalf("after a save: %+v %v", st, err)
+	}
+
+	// The model's id is longer than the column takes: the currency and the
+	// language before it go back too.
+	on := true
+	err := store.ChangeSettings(ctx, user, SettingsChange{
+		Currency: text(""), Language: text(""), DefaultImage: text(strings.Repeat("m", 201)), Deliver: &on,
+	})
+	if err == nil {
+		t.Fatal("a model id over 200 characters was kept")
+	}
+	if st, err := store.Settings(ctx, user); err != nil || st != want {
+		t.Errorf("after a refused save: %+v %v", st, err)
+	}
+	if code, err := store.Currency(ctx, user); err != nil || code != "EUR" {
+		t.Errorf("currency %q %v", code, err)
+	}
+	if lang, err := store.UserLang(ctx, user); err != nil || lang != "pl" {
+		t.Errorf("language %q %v", lang, err)
 	}
 }
 

@@ -100,18 +100,16 @@ type Store interface {
 	Currency(ctx context.Context, userID int64) (string, error)
 	// UserLang is the person's language in core, "" when it has none.
 	UserLang(ctx context.Context, userID int64) (string, error)
-	// SetCurrency keeps the person's currency, "" for the default.
-	SetCurrency(ctx context.Context, userID int64, code string) error
-	// SetUserLang is the person's pick in core, for every bot of the family;
-	// ClearUserLang withdraws framy's pick.
-	SetUserLang(ctx context.Context, userID int64, lang string) error
-	ClearUserLang(ctx context.Context, userID int64) error
 	// Settings are the rest of the person's settings: whether framy picked
-	// the language, the composer's models, the DM. SetDefaultModel and
-	// SetDelivery change them.
+	// the language, the composer's models, the DM.
 	Settings(ctx context.Context, userID int64) (db.Settings, error)
-	SetDefaultModel(ctx context.Context, userID int64, kind catalog.Kind, modelID string) error
-	SetDelivery(ctx context.Context, userID int64, on bool) error
+	// ChangeSettings keeps a save of the settings whole or not at all: the
+	// currency, "" for the default; the language, the person's pick in core
+	// for every bot of the family, "" to withdraw framy's; the composer's
+	// models and the DM.
+	ChangeSettings(ctx context.Context, userID int64, c db.SettingsChange) error
+	// ClearUserLang withdraws framy's pick of the language.
+	ClearUserLang(ctx context.Context, userID int64) error
 	// Spent is what the person's runs cost on each of their keys, by
 	// provider.
 	Spent(ctx context.Context, userID int64) (map[string]db.Spent, error)
