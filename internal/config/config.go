@@ -2,8 +2,11 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"log/slog"
 	"math"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -17,8 +20,8 @@ import (
 // --local mode, which lifts the 20 MB download and 50 MB upload caps.
 const DefaultTelegramAPIBase = "https://api.telegram.org"
 
-// DefaultOpenRouterAPIBase is where the catalog sync reads OpenRouter's
-// public catalogs.
+// DefaultOpenRouterAPIBase is OpenRouter's API: the catalog sync, the runs
+// on framy's key and on people's, their checks and the OAuth exchange.
 const DefaultOpenRouterAPIBase = "https://openrouter.ai/api/v1"
 
 type Config struct {
@@ -48,9 +51,13 @@ type Config struct {
 	// MetricsAddr serves /metrics apart from HTTPAddr, which the tunnel makes
 	// public with the site. Empty turns it off.
 	MetricsAddr string
-	LogLevel    string
-	// OpenRouterAPIBase and CatalogEvery drive the catalog sync; a zero
-	// CatalogEvery turns it off.
+	// LogLevel is the least level logged (LOG_LEVEL: debug, info, warn or
+	// error, in any case).
+	LogLevel slog.Level
+	// OpenRouterAPIBase is where every call to OpenRouter goes, with
+	// framy's key, a person's key or an OAuth code, so it is https; http
+	// reaches only this machine, for a stand-in. CatalogEvery drives the
+	// catalog sync; zero turns it off.
 	OpenRouterAPIBase string
 	CatalogEvery      time.Duration
 	// FXSync keeps the currency rates (internal/fx); off for work without
@@ -139,13 +146,16 @@ func Load() (Config, error) {
 		TelegramAPIBase: strings.TrimRight(valueOrDefault("TELEGRAM_API_BASE", DefaultTelegramAPIBase), "/"),
 		HTTPAddr:        valueOrDefault("HTTP_ADDR", ":8080"),
 		MetricsAddr:     valueOrDefault("METRICS_ADDR", ":9090"),
-		LogLevel:        valueOrDefault("LOG_LEVEL", "info"),
 
 		OpenRouterAPIBase: strings.TrimRight(valueOrDefault("OPENROUTER_API_BASE", DefaultOpenRouterAPIBase), "/"),
 	}
 	cfg.Stack = valueOrDefault("FRAMY_STACK", "")
 	if cfg.Stack != "" && !stackPattern.MatchString(cfg.Stack) {
 		return Config{}, fmt.Errorf("FRAMY_STACK must be empty for production, or a short name of lowercase letters and digits")
+	}
+	// A level nobody can read was a typo, not a wish for info.
+	if err := cfg.LogLevel.UnmarshalText([]byte(valueOrDefault("LOG_LEVEL", "info"))); err != nil {
+		return Config{}, fmt.Errorf("LOG_LEVEL must be debug, info, warn or error")
 	}
 	var err error
 	if cfg.TelegramBotToken, err = secret("TELEGRAM_BOT_TOKEN"); err != nil {
@@ -181,8 +191,8 @@ func Load() (Config, error) {
 	case cfg.BotAPIBotDir == cfg.BotAPIFilesDir || strings.HasPrefix(cfg.BotAPIBotDir, cfg.BotAPIFilesDir+"/"):
 		return Config{}, fmt.Errorf("BOT_API_BOT_DIR must be outside BOT_API_FILES_DIR, where the link to it is made")
 	}
-	if !strings.HasPrefix(cfg.OpenRouterAPIBase, "https://") && !strings.HasPrefix(cfg.OpenRouterAPIBase, "http://") {
-		return Config{}, fmt.Errorf("OPENROUTER_API_BASE must be an http or https URL")
+	if err := keyBase(cfg.OpenRouterAPIBase); err != nil {
+		return Config{}, fmt.Errorf("OPENROUTER_API_BASE %w", err)
 	}
 	if every := valueOrDefault("CATALOG_SYNC_INTERVAL", "1h"); every != "off" {
 		if cfg.CatalogEvery, err = time.ParseDuration(every); err != nil || cfg.CatalogEvery < time.Minute {
@@ -241,6 +251,33 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("DATABASE_URL or DATABASE_URL_FILE is required")
 	}
 	return cfg, nil
+}
+
+// keyBase checks the base of an API that keys are sent to: https, or http to
+// this machine only, where nothing crosses a network in the clear.
+func keyBase(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return errors.New("must be an https URL, such as " + DefaultOpenRouterAPIBase)
+	}
+	switch {
+	case u.Scheme == "https":
+		return nil
+	case u.Scheme == "http" && localHost(u.Hostname()):
+		return nil
+	case u.Scheme == "http":
+		return errors.New("must be https: keys are sent to it; http is for localhost only")
+	}
+	return errors.New("must be an https URL, such as " + DefaultOpenRouterAPIBase)
+}
+
+// localHost: the name or address of this machine itself.
+func localHost(host string) bool {
+	switch host {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	}
+	return false
 }
 
 // loadR2 reads the bucket: R2_ENDPOINT, or R2_ACCOUNT_ID for R2's own

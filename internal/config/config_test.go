@@ -2,6 +2,7 @@
 package config
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,7 +29,7 @@ func TestLoadDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.TelegramAPIBase != DefaultTelegramAPIBase || cfg.HTTPAddr != ":8080" || cfg.MetricsAddr != ":9090" || !cfg.AutoMigrate || cfg.LogLevel != "info" ||
+	if cfg.TelegramAPIBase != DefaultTelegramAPIBase || cfg.HTTPAddr != ":8080" || cfg.MetricsAddr != ":9090" || !cfg.AutoMigrate || cfg.LogLevel != slog.LevelInfo ||
 		cfg.OpenRouterAPIBase != DefaultOpenRouterAPIBase || cfg.CatalogEvery != time.Hour || cfg.JobsStopGrace != 210*time.Second ||
 		cfg.OpenRouterKey != "" || cfg.R2.Enabled() || cfg.R2.Bucket != "framy" || cfg.FFmpeg != "ffmpeg" || cfg.FFprobe != "ffprobe" ||
 		cfg.WorkDir != filepath.Join(os.TempDir(), "framy") || cfg.OperatorChatID != 0 || !cfg.FXSync || !cfg.Primary() {
@@ -177,6 +178,13 @@ func TestLoadRejects(t *testing.T) {
 		{"bad auto migrate", map[string]string{"AUTO_MIGRATE": "sometimes"}},
 		{"metrics on the public listener", map[string]string{"HTTP_ADDR": ":8080", "METRICS_ADDR": ":8080"}},
 		{"bad openrouter base", map[string]string{"OPENROUTER_API_BASE": "openrouter.ai"}},
+		// framy's key and people's go to it.
+		{"openrouter over http", map[string]string{"OPENROUTER_API_BASE": "http://openrouter.ai/api/v1"}},
+		{"openrouter with credentials", map[string]string{"OPENROUTER_API_BASE": "https://user:pass@openrouter.ai/api/v1"}},
+		{"openrouter on another scheme", map[string]string{"OPENROUTER_API_BASE": "ftp://openrouter.ai/api/v1"}},
+		// A typo used to be logged at info, quietly.
+		{"unknown log level", map[string]string{"LOG_LEVEL": "warning"}},
+		{"log level not a word", map[string]string{"LOG_LEVEL": "3"}},
 		{"bad catalog interval", map[string]string{"CATALOG_SYNC_INTERVAL": "hourly"}},
 		{"catalog interval too short", map[string]string{"CATALOG_SYNC_INTERVAL": "5s"}},
 		{"bad stop grace", map[string]string{"JOBS_STOP_GRACE": "soon"}},
@@ -191,6 +199,39 @@ func TestLoadRejects(t *testing.T) {
 				t.Fatal("accepted")
 			}
 		})
+	}
+}
+
+func TestLogLevel(t *testing.T) {
+	for value, want := range map[string]slog.Level{
+		"":      slog.LevelInfo,
+		"debug": slog.LevelDebug,
+		"DEBUG": slog.LevelDebug,
+		"info":  slog.LevelInfo,
+		"warn":  slog.LevelWarn,
+		"Error": slog.LevelError,
+	} {
+		setBase(t)
+		t.Setenv("LOG_LEVEL", value)
+		cfg, err := Load()
+		if err != nil || cfg.LogLevel != want {
+			t.Errorf("LOG_LEVEL=%q: %v, %v; want %v", value, cfg.LogLevel, err, want)
+		}
+	}
+}
+
+// The OpenRouter base gets framy's key, people's keys and OAuth codes: in
+// the clear only to this machine, where a stand-in may answer.
+func TestOpenRouterBaseOverHTTPOnlyToThisMachine(t *testing.T) {
+	for _, base := range []string{"https://openrouter.ai/api/v1", "https://openrouter.ai/api/v1/", "http://localhost:8089/api/v1", "http://127.0.0.1:8089", "http://[::1]:8089/v1"} {
+		setBase(t)
+		t.Setenv("OPENROUTER_API_BASE", base)
+		cfg, err := Load()
+		if err != nil {
+			t.Errorf("%s: %v", base, err)
+		} else if cfg.OpenRouterAPIBase != strings.TrimRight(base, "/") {
+			t.Errorf("%s: base %q", base, cfg.OpenRouterAPIBase)
+		}
 	}
 }
 

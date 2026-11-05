@@ -65,19 +65,23 @@ const shutdownTimeout = 20 * time.Second
 const queueHardStop = 10 * time.Second
 
 func main() {
-	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: parseLevel(os.Getenv("LOG_LEVEL"))}))
-	if err := run(log); err != nil {
+	// Info until the configuration names the level, so a configuration that
+	// cannot be read is still logged.
+	level := new(slog.LevelVar)
+	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
+	if err := run(log, level); err != nil {
 		log.Error("exit", "error", err)
 		os.Exit(1)
 	}
 	log.Info("stopped")
 }
 
-func run(log *slog.Logger) error {
+func run(log *slog.Logger, level *slog.LevelVar) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
+	level.Set(cfg.LogLevel)
 	// A broken catalog file stops the start, not a sync an hour later.
 	catalogFiles, err := catalog.LoadFiles(catalogfiles.FS)
 	if err != nil {
@@ -544,19 +548,6 @@ func connect(ctx context.Context, url, stack string, log *slog.Logger) (*db.Stor
 		}
 	}
 	return nil, lastErr
-}
-
-func parseLevel(s string) slog.Level {
-	switch s {
-	case "debug":
-		return slog.LevelDebug
-	case "warn":
-		return slog.LevelWarn
-	case "error":
-		return slog.LevelError
-	default:
-		return slog.LevelInfo
-	}
 }
 
 // openStorage connects the bucket and checks ffmpeg. Without an R2 token it
