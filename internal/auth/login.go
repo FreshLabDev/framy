@@ -167,7 +167,7 @@ type failure struct {
 // by the state, trades the code (with the PKCE verifier, the client
 // authenticated in a header) for tokens, verifies the id_token and its nonce, takes the
 // account from the `id` claim, records the person in core and starts a
-// session. A failure redirects to `/?sign_in=<reason>` with reason one of
+// session in place of the browser's earlier one. A failure redirects to `/?sign_in=<reason>` with reason one of
 // `cancelled`, `expired` and `failed`, and sets no session.
 func (a *Auth) Callback() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -219,10 +219,31 @@ func (a *Auth) Callback() http.Handler {
 			redirect(w, "/?sign_in=failed")
 			return
 		}
+		a.endReplaced(r)
 		a.setSessionCookie(w, secret, expires)
 		metrics.AuthResults.Inc("site_ok")
 		redirect(w, safeReturnTo(st.ReturnTo))
 	})
+}
+
+// endReplaced ends the session of the cookie a new sign-in is about to
+// replace: signing in again, or as someone else, leaves no older session
+// open behind the browser's back, and a copy of the old cookie that got out
+// stops working. A failure is only logged; the old session then ends when
+// its time is up.
+func (a *Auth) endReplaced(r *http.Request) {
+	c, err := r.Cookie(SessionCookie)
+	if err != nil {
+		return
+	}
+	h, ok := hashToken(c.Value)
+	if !ok {
+		return
+	}
+	a.forget(h)
+	if err := a.sessions.Delete(r.Context(), h); err != nil {
+		a.log.Warn("end the session a sign-in replaced", "error", err)
+	}
 }
 
 // providerError is an answer of Telegram's that carries an error.

@@ -355,3 +355,46 @@ func sha(secret string) [32]byte {
 	h, _ := hashToken(secret)
 	return h
 }
+
+// Signing in again ends the session the browser had: a copy of the old
+// cookie stops working, and one person signing in many times keeps one
+// session, not one per sign-in. A sign-in that fails leaves the old one.
+func TestSigningInAgainEndsTheOldSession(t *testing.T) {
+	h := newHarness(t)
+	b := h.browser()
+	b.signIn("")
+	old := b.cookies[SessionCookie]
+	if _, ok := b.signedIn(); !ok {
+		t.Fatal("not signed in")
+	}
+
+	h.idp.mu.Lock()
+	h.idp.deny = true
+	h.idp.mu.Unlock()
+	b.signIn("")
+	if b.cookies[SessionCookie] != old {
+		t.Fatal("a refused sign-in replaced the cookie")
+	}
+	if _, ok := b.signedIn(); !ok {
+		t.Fatal("a refused sign-in ended the session the browser had")
+	}
+
+	h.idp.mu.Lock()
+	h.idp.deny = false
+	h.idp.mu.Unlock()
+	b.signIn("")
+	if b.cookies[SessionCookie] == old {
+		t.Fatal("the same session after signing in again")
+	}
+	if _, ok := b.signedIn(); !ok {
+		t.Fatal("not signed in with the new session")
+	}
+	if n := h.sessions.(*memSessions).count(); n != 1 {
+		t.Errorf("%d sessions after signing in twice", n)
+	}
+	copied := h.browser()
+	copied.cookies[SessionCookie] = old
+	if _, ok := copied.signedIn(); ok {
+		t.Error("a copy of the old cookie still signs in")
+	}
+}
