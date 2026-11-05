@@ -640,7 +640,8 @@ input.search::placeholder {color: var(--muted);}
 .tab {height: 40px; padding: 0 14px; display: flex; align-items: center; gap: 8px; background: var(--deep); color: var(--ink); font-weight: 600; text-decoration: none;}
 @media (max-width: 520px) {
   .tab {width: 44px; padding: 0; justify-content: center;}
-  .tab .t {display: none;}
+  /* Only the icon shows; the word stays the tab's name for a screen reader. */
+  .tab .t {position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;}
 }
 
 /* The library: the runs by day, a grid of covers with the prompt and the model under each. */

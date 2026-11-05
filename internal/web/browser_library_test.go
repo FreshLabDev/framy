@@ -486,7 +486,7 @@ func TestBrowserLibraryPhone(t *testing.T) {
 		got := js[map[string]any](t, ctx, libHelpers+`
 		await settled();
 		const r = { overflow: document.documentElement.scrollWidth - innerWidth, cols: getComputedStyle(document.querySelector("#library .libgrid")).gridTemplateColumns.split(" ").length,
-		  tabText: vis(document.querySelector("#top .tab .t")), dock: vis(document.querySelector("#composer")) };
+		  tabText: document.querySelector("#top .tab .t").getBoundingClientRect().width > 1, dock: vis(document.querySelector("#composer")) };
 		tiles()[6].click();
 		await wait(700);
 		const v = document.querySelector("#viewer"), acts = [...v.querySelectorAll(".jacts > *")];

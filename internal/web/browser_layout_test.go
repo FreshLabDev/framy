@@ -6,10 +6,12 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"testing"
 
+	"github.com/chromedp/cdproto/accessibility"
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
@@ -207,6 +209,52 @@ func TestBrowserSignInButton(t *testing.T) {
 		// The short line is on a phone only; the whole one is the name everywhere.
 		if (c.w >= 480) != (shown[0] == got["label"]) {
 			t.Errorf("%s at %d: the button says %q, named %q", c.lang, c.w, shown[0], got["label"])
+		}
+		noErrors(t, ctx)
+	}
+}
+
+// axNames gives the names Chrome's accessibility tree has for the nodes of a
+// role, as a screen reader reads them.
+func axNames(t *testing.T, ctx context.Context, role string) []string {
+	t.Helper()
+	var names []string
+	err := chromedp.Do(ctx, chromedp.Func(func(ctx context.Context, tg *chromedp.Target) error {
+		res, err := cdp.Call(ctx, tg, accessibility.GetFullAXTree, accessibility.GetFullAXTreeParams{})
+		if err != nil {
+			return err
+		}
+		for _, n := range res.Nodes {
+			var r, name string
+			if n.Ignored || n.Role == nil || json.Unmarshal(n.Role.Value, &r) != nil || r != role {
+				continue
+			}
+			if n.Name != nil {
+				_ = json.Unmarshal(n.Name.Value, &name)
+			}
+			names = append(names, name)
+		}
+		return nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return names
+}
+
+// TestBrowserTabNames checks that the tabs of a phone, icons only, keep
+// their words as their names, as they have them on a wide screen.
+func TestBrowserTabNames(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	for _, w := range []int64{390, 1440} {
+		ctx := browserAs(t, ts.URL, w, 844, opened{phone: w < 960})
+		if got := fmt.Sprint(axNames(t, ctx, "link")); got != "[Create Library]" {
+			t.Errorf("at %d px the tabs are named %s", w, got)
+		}
+		wide := js[bool](t, ctx, `return document.documentElement.scrollWidth <= innerWidth;`)
+		if !wide {
+			t.Errorf("at %d px the page scrolls sideways", w)
 		}
 		noErrors(t, ctx)
 	}
