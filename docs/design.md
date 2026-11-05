@@ -54,7 +54,7 @@ Each run uses one **offer**: a model at a provider, paid either by the free allo
 | Provider | Connect | Check on save | What it unlocks |
 |:--|:--|:--|:--|
 | OpenRouter | "Connect" button: OAuth PKCE, no app registration; pasting a key as a fallback | `GET /api/v1/key` | 61 image models, 30 video models |
-| OpenAI | Paste a key | `GET /v1/models` | `gpt-image-2.5-sunburst`, `gpt-image-2.5-flare`, `gpt-image-2`; no video, Sora closed on 24 September 2026 |
+| OpenAI | Paste a key | `GET /v1/models` | `gpt-image-2.6-sunburst`, `gpt-image-2.6-flare`, `gpt-image-2.5-sunburst`, `gpt-image-2.5-flare`, `gpt-image-2`; no video, Sora closed on 24 September 2026 |
 | Gemini | Paste a key from a project with billing | `GET /v1beta/models` | Nano Banana 2.1, 3.1 Flash, 3.1 Flash Lite, 3 Pro; video only `gemini-omni-1.1-flash` |
 
 OpenRouter OAuth (`internal/oauth`, `SITE_URL` for the callback, a KEK file for the key):
@@ -143,12 +143,12 @@ The owner asked for effort settings. Four models have them, each under its own n
 
 | Model | Parameter | Values | Effect on price |
 |:--|:--|:--|:--|
-| GPT Image 2.5 (OpenAI) | `quality` | `low`, `medium`, `high`, `xhigh`, `max` | 1024×1024 from $0.006 to $0.21 |
+| GPT Image 2.5 and 2.6 (OpenAI) | `quality` | `low`, `medium`, `high`, `xhigh`, `max` | 1024×1024 from $0.006 to $0.21; 2.6 costs $0.025 at `low` and $0.043 at `medium`, as 2.5 from `high` up |
 | Nano Banana 2.1, 3.1 Flash, Lite (Gemini direct) | `thinking_level` | `minimal`, `medium`, `high` (2.1); `minimal`, `high` (3.1) | thinking tokens are billed |
 | Riverflow 2.5 | `reasoning` | `low`, `medium`, `high`; Pro also `xhigh` | dynamic price |
 | Krea K3 Edit | `thinking_mode` | values not documented | +$0.02 on high |
 
-`quality=auto` and `size=auto` of OpenAI are not offered: their price cannot be known before the run. Neither is `aspect_ratio=auto` of OpenAI's models on OpenRouter, for the same reason.
+`quality=auto` and `size=auto` of OpenAI are not offered: their price cannot be known before the run. Neither is `aspect_ratio=auto` of OpenAI's models on OpenRouter, for the same reason: an `exclude` rule of the overlay takes both from every `openai/gpt-image-*`, so a version OpenRouter adds comes without them before anyone writes it in. GPT Image 2.6's GIF output, its SVG output and its `complexity` are not offered yet: what a GIF's frames or an SVG's authoring model cost is not published.
 
 In the catalog of 27 October only GPT Image 2.5 and the direct Gemini models have effort: Riverflow's `reasoning` is on OpenRouter's Images API neither as a parameter nor as a pass-through, and Krea's values are not documented.
 
@@ -337,6 +337,7 @@ An estimate never rounds in framy's favour, and an approximate one says so. An o
 Where OpenRouter's rates are not enough, a model's `price` in `catalog/overlay.yaml` fills in:
 - `tokens`: tokens per output image by resolution (Gemini, MAI, Tencent HY Image by Tencent's price table), per input image, per second of video (Omni);
 - `openai_tokens`: the base of OpenAI's formula by quality;
+- `openai_token_factor`: what OpenAI's calculator multiplies the formula's tokens by, rounded, by quality: GPT Image 2.6 has 2.5's base, times 4.2 at `low` and 3.3 at `medium` (823 and 1,449 tokens at 1024×1024, where 2.5 takes 196 and 439);
 - `openai_input_patches`: GPT Image 2 and 2.5 count an input image in 32 px patches, a token each, at most this many (1,536). OpenAI does not publish the count; the one worked out on OpenAI's forum, with a small image magnified to a long side of 1024 and a canvas over 3:1 counted as 3:1, matched a run on the test bot (a 1280×853 photo, 1,080 tokens);
 - `input_tokens_per_mp`: tokens an input image takes per megapixel, for a model that counts them by size (MAI, about 1,050 measured, 1,100 set);
 - `variants`: the settings a dearer rate is for, such as Krea's style references, so it is not taken otherwise;
@@ -346,7 +347,7 @@ Where OpenRouter's rates are not enough, a model's `price` in `catalog/overlay.y
 - `sizes`: the width and height a video model makes, by resolution and aspect ratio, where it bills by them and OpenRouter lists others: Seedance 2.0 makes 864×496 at 480p 16:9, OpenRouter lists 854×480. The values are BytePlus's, as APIYI lists and checked them, and 864×496 is on framy's own bill;
 - `clip_min_seconds`: a reference clip is billed as at least this long (Seedance, 3 s).
 
-`picks_length` is the range of a model that picks its own length. The build warns about a hint that matches no route; every sync logs the price lines and SKUs the estimate cannot read (`catalog price not understood`), so a new kind of price shows up before someone sees it as "about".
+`picks_length` is the range of a model that picks its own length. The build warns about a hint that matches no route; every sync logs the price lines and SKUs the estimate cannot read (`catalog price not understood`), and an output image billed by the token with no count of its tokens, so a new kind of price, or a new GPT Image or Gemini that OpenRouter lists before the overlay does, shows up before someone sees it as "about" or with no price.
 
 Of the video SKUs that fit a run, the most specific wins. When two fit equally, one whose rate is the same as a broader SKU's that fits says nothing of its own qualifier and is left out: Seedance without sound and with a source takes `with_video_input` (its silent rate is the base rate), and Kling with sound takes its sound rate. Two that still differ give the dearer, as "about".
 

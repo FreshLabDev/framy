@@ -86,8 +86,8 @@ func TestFetchReadsEveryCatalog(t *testing.T) {
 	for _, of := range up.Offers {
 		kinds[of.Kind]++
 	}
-	if kinds[Image] != 62 || kinds[Video] != 31 {
-		t.Fatalf("offers by kind = %v, want 62 images and 31 videos", kinds)
+	if kinds[Image] != 64 || kinds[Video] != 31 {
+		t.Fatalf("offers by kind = %v, want 64 images and 31 videos", kinds)
 	}
 
 	nb := offerByID(t, up.Offers, "openrouter:google/gemini-nano-banana-2.1")

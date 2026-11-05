@@ -47,7 +47,7 @@ func TestThePickerArrangesTheCatalog(t *testing.T) {
 		"google/gemini-3.1-flash-image":     "google/gemini-nano-banana-2.1",
 		"recraft/recraft-v4-pro-vector":     "recraft/recraft-v4.1-pro-vector",
 		// A plain variant gives way to the newest of any tier.
-		"openai/gpt-image-2":      "openai/gpt-image-2.5-sunburst",
+		"openai/gpt-image-2":      "openai/gpt-image-2.6-sunburst",
 		"recraft/recraft-v3":      "recraft/recraft-v4.1",
 		"microsoft/mai-image-2.5": "microsoft/mai-image-2.6",
 		"alibaba/wan-2.6":         "alibaba/wan-3.0",
@@ -66,7 +66,7 @@ func TestThePickerArrangesTheCatalog(t *testing.T) {
 	for _, id := range []string{
 		"google/gemini-3-pro-image", "google/gemini-3.1-flash-lite-image", "black-forest-labs/flux.2-pro",
 		"recraft/recraft-v4-styles", "bytedance/seedance-2.0", "qwen/qwen-image-2.1-pro",
-		"x-ai/grok-imagine-video",
+		"x-ai/grok-imagine-video", "openai/gpt-image-2.5-sunburst", "openai/gpt-image-2.5-flare",
 	} {
 		if by := family(id).OutdatedBy; by != "" {
 			t.Errorf("%s is outdated by %s", id, by)
@@ -76,6 +76,8 @@ func TestThePickerArrangesTheCatalog(t *testing.T) {
 		"flux": "black-forest-labs/flux-3-image", "recraft": "recraft/recraft-v4.1", "mai": "microsoft/mai-image-2.6",
 		"wan": "alibaba/wan-3.0", "seedance": "bytedance/seedance-2.5", "krea-2": "krea/krea-2-medium",
 		"grok-image": "x-ai/grok-imagine-image-2.0",
+		// 2.6 is not featured yet: the row opens on 2.5.
+		"gpt-image": "openai/gpt-image-2.5-sunburst",
 	} {
 		var defaults []string
 		for _, id := range row(fam) {

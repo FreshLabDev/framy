@@ -3,6 +3,7 @@ package catalog
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -152,21 +153,28 @@ func TestBuildHides(t *testing.T) {
 
 func TestBuildAppliesExclusionsAndPassthrough(t *testing.T) {
 	snap := Build(fixtureUpstream(t), embeddedFiles(t), fixtureDay)
-	sunburst := modelByID(t, snap, "openai/gpt-image-2.5-sunburst")
-	or := sunburst.Offers[1]
-	if or.ID != "openrouter:openai/gpt-image-2.5-sunburst" {
-		t.Fatalf("offers = %v", offerIDs(sunburst))
-	}
-	for _, params := range append([]map[string]Param{or.Params}, or.Routes[0].Params) {
-		if slices.Contains(params["quality"].Values, any("auto")) || slices.Contains(params["aspect_ratio"].Values, any("auto")) {
-			t.Fatalf("auto is still offered: %v", params)
+	// The overlay's rule over openai/gpt-image-* takes auto from every GPT
+	// Image, 2.6 as well, which has no exclude of auto of its own.
+	for _, id := range []string{"openai/gpt-image-2.5-sunburst", "openai/gpt-image-2.6-sunburst", "openai/gpt-image-2.6-flare", "openai/gpt-image-2"} {
+		m := modelByID(t, snap, id)
+		or := m.Offers[1]
+		if or.ID != "openrouter:"+id {
+			t.Fatalf("offers = %v", offerIDs(m))
 		}
-		if !sameValue(params["quality"].Values, []string{"low", "medium", "high", "xhigh", "max"}) {
-			t.Fatalf("quality = %v", params["quality"].Values)
+		for _, params := range append([]map[string]Param{or.Params}, or.Routes[0].Params) {
+			if slices.Contains(params["quality"].Values, any("auto")) || slices.Contains(params["aspect_ratio"].Values, any("auto")) {
+				t.Fatalf("%s: auto is still offered: %v", id, params)
+			}
+			if !strings.HasPrefix(fmt.Sprint(params["quality"].Values), "[low medium high") {
+				t.Fatalf("%s: quality = %v", id, params["quality"].Values)
+			}
+			if slices.Contains(params["output_format"].Values, any("gif")) {
+				t.Fatalf("%s: a GIF, of no published price, is offered", id)
+			}
 		}
-	}
-	if e := sunburst.Traits.Effort; e == nil || e.Parameter != "quality" {
-		t.Fatalf("effort = %+v", e)
+		if e := m.Traits.Effort; id != "openai/gpt-image-2" && (e == nil || e.Parameter != "quality") {
+			t.Fatalf("%s: effort = %+v", id, e)
+		}
 	}
 
 	// MiniMax makes Hailuo 2.3 at 1080p in 6 s only; OpenRouter lists 10 s too.

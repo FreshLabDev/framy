@@ -102,6 +102,13 @@ func TestEstimates(t *testing.T) {
 		// OpenRouter's example: high at 16:9 is 1536×864 and $0.13.
 		{"gpt-image-2 on OpenRouter at 16:9", "openrouter:openai/gpt-image-2", Request{Settings: set{"aspect_ratio": "16:9", "quality": "high"}}, 4312 * 3e-5, 0, About},
 		{"gpt-image-2.5 with no quality chosen", "openai:gpt-image-2.5-sunburst", Request{Settings: set{"size": "1024x1024"}}, 196 * 3e-5, 7024 * 3e-5, UpTo},
+		// OpenAI's calculator: 2.6 takes 2.5's tokens times 4.2 at low and
+		// 3.3 at medium, rounded, and the same from high up.
+		{"gpt-image-2.6 low square", "openai:gpt-image-2.6-flare", Request{Settings: set{"size": "1024x1024", "quality": "low"}}, 823 * 3e-5, 0, About},
+		{"gpt-image-2.6 medium square", "openai:gpt-image-2.6-sunburst", Request{Settings: set{"size": "1024x1024", "quality": "medium"}}, 1449 * 3e-5, 0, About},
+		{"gpt-image-2.6 high square", "openai:gpt-image-2.6-sunburst", Request{Settings: set{"size": "1024x1024", "quality": "high"}}, 1756 * 3e-5, 0, About},
+		{"gpt-image-2.6 on OpenRouter at 16:9", "openrouter:openai/gpt-image-2.6-flare", Request{Settings: set{"aspect_ratio": "16:9", "quality": "low"}}, 504 * 3e-5, 0, About},
+		{"gpt-image-2.6 with no quality chosen", "openrouter:openai/gpt-image-2.6-sunburst", Request{Settings: set{"aspect_ratio": "1:1"}}, 823 * 3e-5, 7024 * 3e-5, UpTo},
 
 		// Google's pricing page: Nano Banana 2.1 at 1K is $0.0336, at 4K $0.113.
 		{"nano banana direct 1K", "gemini:gemini-nano-banana-2.1", Request{Settings: set{"resolution": "1K"}}, 1120 * 3e-5, 0, About},
@@ -315,6 +322,8 @@ func TestPublishedPrices(t *testing.T) {
 		{"openai:gpt-image-2", set{"size": "1024x1536", "quality": "medium"}, 0.041, 0.001},
 		{"openai:gpt-image-2", set{"size": "1536x1024", "quality": "high"}, 0.165, 0.001},
 		{"openrouter:openai/gpt-image-2", set{"aspect_ratio": "16:9", "quality": "high"}, 0.13, 0.01},
+		// OpenAI's calculator for GPT Image 2.6 at low 1024×1024: $0.02469.
+		{"openai:gpt-image-2.6-sunburst", set{"size": "1024x1024", "quality": "low"}, 0.02469, 0.00001},
 		// Tencent's 20,000 tokens at 4K at OpenRouter's rate.
 		{"openrouter:tencent/hy-image-v3.5-preview", set{"resolution": "4K"}, 0.032, 0.001},
 	} {
@@ -366,6 +375,19 @@ func TestCheckReadsTheWholeCatalog(t *testing.T) {
 	}}}}}}}
 	if got := Check(broken); len(got) != 2 {
 		t.Fatalf("check = %v, want the billable and the SKU", got)
+	}
+	// A GPT Image OpenRouter adds before the overlay knows it: its tokens are
+	// counted by nothing, and the price would be "known after the run".
+	uncounted := catalog.Snapshot{Models: []catalog.Model{{ID: "openai/gpt-image-9", Offers: []catalog.Offer{{ID: "openrouter:openai/gpt-image-9", Routes: []catalog.Route{
+		{Prices: []catalog.Price{{Billable: "input_text", Unit: "token", CostUSD: 5e-6}, {Billable: "output_image", Unit: "token", CostUSD: 3e-5}}},
+		{Prices: []catalog.Price{{Billable: "output_image", Unit: "token", CostUSD: 3e-5}}},
+	}}}}}}
+	if got := Check(uncounted); len(got) != 1 || !strings.Contains(got[0], "openrouter:openai/gpt-image-9 bills its output image by the token") {
+		t.Fatalf("check = %v, want one line of the uncounted output", got)
+	}
+	uncounted.Models[0].Traits.Price = &catalog.PriceHints{OpenAITokens: map[string]int{"low": 16}}
+	if got := Check(uncounted); len(got) != 0 {
+		t.Fatalf("check with a count = %v", got)
 	}
 }
 

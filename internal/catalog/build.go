@@ -26,7 +26,9 @@ func Build(up Upstream, files Files, now time.Time) Snapshot {
 	byModel := map[string][]Offer{}
 	for _, offer := range append(slices.Clone(up.Offers), files.Offers...) {
 		offer.ModelID = o.modelOf(offer)
-		offer = applyOverlay(offer, o.Models[offer.ModelID])
+		ov := o.Models[offer.ModelID]
+		ov.Exclude = o.excludeOf(offer.ModelID)
+		offer = applyOverlay(offer, ov)
 		switch {
 		case len(offer.Routes) == 0:
 			offer.Hidden = "no route runs it"
@@ -345,6 +347,11 @@ func checkPrice(model string, h PriceHints, offers []Offer, warn func(string, ..
 	for _, quality := range slices.Sorted(maps.Keys(h.OpenAITokens)) {
 		if !offered("quality", quality) {
 			warn("model %s: price.openai_tokens.%s, but no offer has that quality", model, quality)
+		}
+	}
+	for _, quality := range slices.Sorted(maps.Keys(h.OpenAITokenFactor)) {
+		if !offered("quality", quality) {
+			warn("model %s: price.openai_token_factor.%s, but no offer has that quality", model, quality)
 		}
 	}
 	for _, variant := range slices.Sorted(maps.Keys(h.Variants)) {

@@ -5,14 +5,17 @@
 # enum, range or boolean, and pricing as billable, unit and cost_usd.
 # overlay.yaml joins each one to its model.
 #
-# Sources, read on 26 October 2026 (docs/research/providers.md, section 1;
-# docs/research/images.md, section 3):
+# Sources, read on 26 October 2026, and for GPT Image 2.6 on 5 November 2026
+# (docs/research/providers.md, section 1; docs/research/images.md, section 3):
 #   https://developers.openai.com/api/docs/guides/image-generation
 #   https://developers.openai.com/api/docs/pricing
 #   https://developers.openai.com/api/docs/deprecations
 #
 # Left out on purpose:
 #   - quality=auto and size=auto: their price cannot be known before the run;
+#   - GPT Image 2.6's GIF and SVG output and its complexity setting: what a
+#     GIF's frames or an SVG's authoring model cost is not published, and
+#     the composer has no control for them yet;
 #   - gpt-image-1 (shut down on 23 October 2026), gpt-image-1-mini and
 #     gpt-image-1.5 (closing on 1 December 2026).
 #
@@ -24,6 +27,46 @@
 provider: openai
 
 models:
+  # 2.6 bills the tokens of 2.5's formula times 4.2 at low quality and 3.3 at
+  # medium (overlay.yaml, price.openai_token_factor).
+  - id: gpt-image-2.6-sunburst
+    kind: image
+    name: GPT Image 2.6 Sunburst
+    input_modalities: [text, image]
+    supported_parameters:
+      size:
+        type: enum
+        values: [1024x1024, 1536x1024, 1024x1536, 2048x2048, 2048x1152, 1152x2048, 3840x2160, 2160x3840]
+      quality: {type: enum, values: [low, medium, high, xhigh, max]}
+      background: {type: enum, values: [auto, transparent, opaque]}
+      output_format: {type: enum, values: [png, jpeg, webp]}
+      output_compression: {type: range, min: 0, max: 100}
+      n: {type: range, min: 1, max: 10}
+      input_references: {type: range, min: 0, max: 16}
+    pricing:
+      - {billable: input_text, unit: token, cost_usd: 0.000005}
+      - {billable: input_image, unit: token, cost_usd: 0.000008}
+      - {billable: output_image, unit: token, cost_usd: 0.00003}
+
+  - id: gpt-image-2.6-flare
+    kind: image
+    name: GPT Image 2.6 Flare
+    input_modalities: [text, image]
+    supported_parameters:
+      size:
+        type: enum
+        values: [1024x1024, 1536x1024, 1024x1536, 2048x2048, 2048x1152, 1152x2048, 3840x2160, 2160x3840]
+      quality: {type: enum, values: [low, medium, high, xhigh, max]}
+      background: {type: enum, values: [auto, transparent, opaque]}
+      output_format: {type: enum, values: [png, jpeg, webp]}
+      output_compression: {type: range, min: 0, max: 100}
+      n: {type: range, min: 1, max: 10}
+      input_references: {type: range, min: 0, max: 16}
+    pricing:
+      - {billable: input_text, unit: token, cost_usd: 0.000005}
+      - {billable: input_image, unit: token, cost_usd: 0.000008}
+      - {billable: output_image, unit: token, cost_usd: 0.00003}
+
   - id: gpt-image-2.5-sunburst
     kind: image
     name: GPT Image 2.5 Sunburst

@@ -162,8 +162,11 @@ The first five reference images are free at MiniMax and on OpenRouter's page; fr
 | `partial_images`, `safety_identifier`, Batch at half price | yes | no | progress previews; cheaper bulk runs |
 | `moderation` | a field | only `provider.options.openai.moderation` | |
 | transparent background on GPT Image 2 | preview since 20 August 2026 | auto and opaque only | |
+| GIF output on 2.6 | `output_format: gif` on generations, 2 to 64 frames | `gif` in `output_format` | an animation; left out while a GIF's frames have no published price |
+| SVG output on 2.6 | `output_format: svg` on generations, n = 1, billed as a reference image plus the authoring model's tokens | no | vector art; the authoring model's tokens are not published |
+| `complexity` on 2.6 | low, medium, high (the default), no fee | a pass-through | a lighter edit; no control in the composer yet |
 
-Both ports take 16 references, n up to 10 and every quality. gpt-image-1 shut on 23 October 2026, gpt-image-1-mini shuts on 1 December 2026. `gpt-5-image` and its siblings exist only on OpenRouter, as chat models around GPT Image.
+Both ports take 16 references, n up to 10 and every quality; GPT Image 2.6 Sunburst and Flare (4 November 2026) are on both. gpt-image-1 shut on 23 October 2026, gpt-image-1-mini shuts on 1 December 2026. `gpt-5-image` and its siblings exist only on OpenRouter, as chat models around GPT Image.
 
 ## Qwen (Alibaba)
 

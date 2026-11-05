@@ -74,6 +74,13 @@ hide:
   - match: openrouter/auto*
     why: a router, not a model
 
+# Values left out of every model whose id matches, so a new version comes
+# without them too.
+exclude:
+  - match: openai/gpt-image-*
+    values: {quality: [auto], aspect_ratio: [auto]}
+    why: OpenAI decides the quality and the shape of an auto run, so its price is known only after it
+
 models:
   # Images.
 
@@ -82,23 +89,48 @@ models:
   # price.openai_input_patches: an input image takes a token a 32 px patch,
   # at most 1,536, by the count worked out on OpenAI's forum; a 1280×853
   # photo took 1,080 on the test bot.
+  #
+  # GPT Image 2.6 (4 November 2026) has 2.5's base and rates, and the
+  # calculator multiplies its tokens by 4.2 at low quality and 3.3 at
+  # medium: $0.025 and $0.043 for 1024×1024, where 2.5 costs $0.006 and
+  # $0.013. OpenAI says nothing of its input tokens, so they are 2.5's and
+  # the estimate stays "about". Its GIF output has no published price: left
+  # out. Not featured before a blind test, so the family still opens on 2.5,
+  # which stays current for its price.
+  openai/gpt-image-2.6-sunburst:
+    family: {id: gpt-image, gen: "2.6", tier: sunburst, label: 2.6 Sunburst}
+    offers: [openai:gpt-image-2.6-sunburst]
+    effort: {parameter: quality, values: [low, medium, high, xhigh, max]}
+    exclude: {output_format: [gif]}
+    price:
+      openai_tokens: {low: 16, medium: 24, high: 48, xhigh: 64, max: 96}
+      openai_token_factor: {low: 4.2, medium: 3.3}
+      openai_input_patches: 1536
+
+  openai/gpt-image-2.6-flare:
+    family: {id: gpt-image, gen: "2.6", tier: flare, label: 2.6 Flare}
+    offers: [openai:gpt-image-2.6-flare]
+    effort: {parameter: quality, values: [low, medium, high, xhigh, max]}
+    exclude: {output_format: [gif]}
+    price:
+      openai_tokens: {low: 16, medium: 24, high: 48, xhigh: 64, max: 96}
+      openai_token_factor: {low: 4.2, medium: 3.3}
+      openai_input_patches: 1536
+
   openai/gpt-image-2.5-sunburst:
-    family: {id: gpt-image, gen: "2.5", tier: sunburst, label: 2.5 Sunburst}
+    family: {id: gpt-image, gen: "2.5", tier: sunburst, label: 2.5 Sunburst, keep: "a quarter to a third of 2.6's price at low and medium quality, and OpenAI still sells it"}
     offers: [openai:gpt-image-2.5-sunburst]
     featured: true
     effort: {parameter: quality, values: [low, medium, high, xhigh, max]}
-    # Neither price can be known before the run.
-    exclude: {quality: [auto], aspect_ratio: [auto]}
     price:
       openai_tokens: {low: 16, medium: 24, high: 48, xhigh: 64, max: 96}
       openai_input_patches: 1536
 
   openai/gpt-image-2.5-flare:
-    family: {id: gpt-image, gen: "2.5", tier: flare, label: 2.5 Flare}
+    family: {id: gpt-image, gen: "2.5", tier: flare, label: 2.5 Flare, keep: "a quarter to a third of 2.6's price at low and medium quality, and OpenAI still sells it"}
     offers: [openai:gpt-image-2.5-flare]
     featured: true
     effort: {parameter: quality, values: [low, medium, high, xhigh, max]}
-    exclude: {quality: [auto], aspect_ratio: [auto]}
     price:
       openai_tokens: {low: 16, medium: 24, high: 48, xhigh: 64, max: 96}
       openai_input_patches: 1536
@@ -106,7 +138,6 @@ models:
   openai/gpt-image-2:
     family: {id: gpt-image, gen: "2", tier: std, label: "2"}
     offers: [openai:gpt-image-2]
-    exclude: {quality: [auto], aspect_ratio: [auto]}
     price:
       openai_tokens: {low: 16, medium: 48, high: 96}
       openai_input_patches: 1536
