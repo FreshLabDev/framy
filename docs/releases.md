@@ -221,7 +221,9 @@ v0.1.0-alpha.4 or older does not link the bot's Bot API directory
 (`BOT_API_BOT_DIR`), so with a newer manifest it finds no files directory and
 stops at start. Rolling back to one of them takes its own manifest too:
 `git show v0.1.0-alpha.4:deploy/ws04/compose.yaml`, copied to the host before
-the deploy.
+the deploy. That manifest builds the database URL from `FRAMY_CORE_PASSWORD`
+in `.env`, where the newer one reads `secrets/database-url`, so the line
+stays in `.env` while a rollback to it may be wanted.
 
 ### What this stack needs to exist
 
@@ -233,7 +235,7 @@ the deploy.
 | Networks | `core_net` (core-postgres), `management` (the Cloudflare Tunnel for `framy.ws04.cc`), `telegram_bot_api_net` (the self-hosted `telegram-bot-api`) |
 | Storage | R2 buckets `framy` (inputs and results), and the clips' own bucket when `R2_INCOMING_BUCKET` names one (docs/design.md, Storage); `work/` and `anim/` beside the manifest; the bot's own media directory of `telegram-bot-api`, as the volume `framy_bot-api` |
 | Backups | The host's daily `ws04-backup`: `pg_dumpall` of `core-postgres`, which holds the `framy` schema, and a copy of `/opt/stacks`, both in restic on Google Drive. The KEK must stay out of it: the copy of `/opt/stacks` has to leave out `secrets/kek` of `framy` and `framy-test` and any copy of it beside them, and the KEK's own copy is kept apart (docs/design.md, Backups). On 6 November it does not leave them out yet. A restore of the schema has not been tried yet (#28) |
-| Database | core migration `019_framy.sql` applied, `FRAMY_CORE_PASSWORD` in core's `.env` and framy's |
+| Database | core migration `019_framy.sql` applied; `secrets/database-url` holds framy_core's URL, with the password `FRAMY_CORE_PASSWORD` of core's `.env`. It is a file, not a variable, so `docker inspect` does not show it |
 | Test bot | `framy-test` (`deploy/ws04-test/compose.yaml`) on the same schema with `FRAMY_STACK=test`, the same KEK and the same R2 bucket; it applies the migrations of `dev` before production does, so they are additive (docs/design.md, Stacks) |
 | Ports | `8080` for the tunnel, never published to the host; `9090` for `/metrics`, reachable on the Docker networks only and never routed by the tunnel |
 | Proxies | `TRUSTED_PROXIES` in `.env`: the subnet of the Cloudflare Tunnel network. Without it the rate limits see cloudflared's address instead of the visitor, and the log says so once |

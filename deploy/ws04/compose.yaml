@@ -9,8 +9,8 @@
 #
 #   FRAMY_IMAGE=ghcr.io/freshlabdev/framy@sha256:<digest>
 #
-# .env holds FRAMY_IMAGE, FRAMY_CORE_PASSWORD (the same as in core's .env),
-# R2_ACCOUNT_ID, TRUSTED_PROXIES, BOT_API_TOKEN (see the Bot API mount below)
+# .env holds FRAMY_IMAGE, R2_ACCOUNT_ID, TRUSTED_PROXIES, BOT_API_TOKEN (see
+# the Bot API mount below)
 # and OPERATOR_CHAT_ID: the chat that hears a fuse closing the free tier, the
 # bucket passing another 10 GB, the host's disk past 80% and jobs nothing
 # takes; the operator's own id, once they have started the bot. Without it
@@ -19,7 +19,10 @@
 # watch from outside on https://framy.ws04.cc/healthz (docs/design.md,
 # Security and operations). If wanted, R2_INCOMING_BUCKET, the bucket the
 # site's clips go into (docs/design.md, Storage and retention). The files in
-# secrets/ belong to uid 101, mode 0400: bot-token, kek (a line "1:" and 32
+# secrets/ belong to uid 101, mode 0400: database-url (one line,
+# postgres://framy_core:<password>@core-postgres:5432/core?sslmode=disable,
+# the password of framy_core in core's .env; a file, since an environment
+# variable shows in docker inspect), bot-token, kek (a line "1:" and 32
 # random bytes in base64), r2-access-key-id, r2-secret-access-key,
 # openrouter-key, hook-path-secret (head -c 32 /dev/urandom | base64),
 # openrouter-webhook-secret (the signing secret of the OpenRouter workspace
@@ -88,7 +91,7 @@ services:
     pids_limit: 512
     mem_limit: 1g
     environment:
-      DATABASE_URL: "postgres://framy_core:${FRAMY_CORE_PASSWORD:?FRAMY_CORE_PASSWORD must be set}@core-postgres:5432/core?sslmode=disable"
+      DATABASE_URL_FILE: /run/secrets/database-url
       AUTO_MIGRATE: "true"
       HTTP_ADDR: :8080
       METRICS_ADDR: :9090
