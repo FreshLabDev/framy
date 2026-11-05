@@ -4,6 +4,7 @@ package chat
 import (
 	"context"
 	"reflect"
+	"sync/atomic"
 	"testing"
 
 	"github.com/FreshLabDev/tg"
@@ -93,6 +94,36 @@ func TestWordsInADirectChatAreAskedAbout(t *testing.T) {
 	h.tg.reset()
 	if q := h.ask(t, said("a fox in the snow")); q != 0 || len(h.tg.calls) != 0 {
 		t.Fatalf("asked again: %+v", h.tg.calls)
+	}
+}
+
+// Image pressed twice: the second press comes while the first keeps the
+// photo, and keeps nothing again.
+func TestADoubleTapOnImageKeepsThePhotoOnce(t *testing.T) {
+	h := dmHarness(t)
+	m := photoSaid("make it night")
+	q := h.ask(t, m)
+	in, out := make(chan struct{}), make(chan struct{})
+	var first atomic.Bool
+	h.tg.beforeDownload = func() {
+		if first.CompareAndSwap(false, true) {
+			close(in)
+			<-out
+		}
+	}
+	done := make(chan error, 1)
+	go func() { done <- h.answer(q, "d:10:i", 7, m) }()
+	<-in
+	err := h.answer(q, "d:10:i", 7, m)
+	close(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if h.files.uploads != 1 || len(h.tg.methods("download")) != 1 || len(h.store.jobs) != 1 || len(h.tg.methods("sendRichMessage")) != 1 {
+		t.Fatalf("%d uploads, %d jobs, calls %+v", h.files.uploads, len(h.store.jobs), h.tg.calls)
 	}
 }
 

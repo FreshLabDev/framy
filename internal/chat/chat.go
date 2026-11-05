@@ -205,6 +205,8 @@ type Flow struct {
 	made sync.Map // "<job>:<action>" → time.Time
 	// originals are the results whose file went out, once each.
 	originals sync.Map // job id → struct{}
+	// drafting are the keys of the commands being worked (claim).
+	drafting sync.Map // dedupe key → struct{}
 	// asks are the plain messages of a DM waiting for their answer, by the
 	// question; dmAlbums the albums of a DM being collected.
 	asks     sync.Map // askKey → ask

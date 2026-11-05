@@ -76,6 +76,9 @@ type fakeTelegram struct {
 	beforeEphemeral func()
 	// onVideo sees a video send before its files are read.
 	onVideo func(tg.VideoOptions)
+	// beforeDownload runs as a download starts, as a slow one would let
+	// another update come.
+	beforeDownload func()
 }
 
 func newTelegram() *fakeTelegram {
@@ -338,6 +341,9 @@ func (f *fakeTelegram) GetFile(_ context.Context, fileID string) (tg.File, error
 }
 
 func (f *fakeTelegram) DownloadToFile(_ context.Context, filePath, dst string, _ int64) error {
+	if f.beforeDownload != nil {
+		f.beforeDownload()
+	}
 	if _, err := f.record(call{method: "download", file: filePath}); err != nil {
 		return err
 	}

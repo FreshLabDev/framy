@@ -212,6 +212,11 @@ func (f *Flow) command(ctx context.Context, m *tg.Message, command, prompt strin
 		return f.reply(ctx, m, t(lang, "run.empty"))
 	}
 	key := dedupeKey(f.cfg.Stack, m)
+	release, ok := f.claim(key)
+	if !ok {
+		return nil
+	}
+	defer release()
 	if _, seen, err := f.cfg.Store.JobByKey(ctx, key); err != nil {
 		return err
 	} else if seen {
@@ -277,6 +282,18 @@ func (f *Flow) command(ctx context.Context, m *tg.Message, command, prompt strin
 		return f.fail(ctx, m, lang, err)
 	}
 	return nil
+}
+
+// claim marks a command's key as being worked. The job exists only once
+// its files are downloaded and kept, so until then a second copy of the
+// command (Image pressed twice on the question of a DM, a replayed update)
+// would download and keep them all again for a draft the key then refuses.
+// ok is false while another works the key.
+func (f *Flow) claim(key string) (release func(), ok bool) {
+	if _, busy := f.drafting.LoadOrStore(key, struct{}{}); busy {
+		return nil, false
+	}
+	return func() { f.drafting.Delete(key) }, true
 }
 
 // fail tells the chat a command could not be worked. The error goes on to
