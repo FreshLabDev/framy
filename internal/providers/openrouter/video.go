@@ -241,9 +241,7 @@ type videoJob struct {
 	// number is used, since the video is downloaded from /content.
 	UnsignedURLs []string `json:"unsigned_urls"`
 	URLs         []string `json:"urls"`
-	Usage        *struct {
-		Cost *float64 `json:"cost"`
-	} `json:"usage"`
+	Usage        *usage   `json:"usage"`
 }
 
 // submitVideo sends the paid request. The answer is the job's id, which the
@@ -342,10 +340,7 @@ func (p *Provider) pollVideo(ctx context.Context, j jobs.Job) (jobs.Outcome, err
 // outcome reads a job object. A status it does not know is taken for a run
 // still going: the queue gives up on it after an hour.
 func (p *Provider) outcome(ctx context.Context, key string, r videoJob) (jobs.Outcome, error) {
-	var out jobs.Outcome
-	if r.Usage != nil {
-		out.CostUSD = r.Usage.Cost
-	}
+	out := jobs.Outcome{CostUSD: r.Usage.total()}
 	switch r.Status {
 	case videoCompleted:
 		n := max(len(r.UnsignedURLs), len(r.URLs))

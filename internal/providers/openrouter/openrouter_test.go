@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -406,6 +407,44 @@ func TestAnImageThatWasNotMadeIsAskedFewerTimes(t *testing.T) {
 	if _, err := p.Submit(context.Background(), job(nil)); classOf(t, err).Tries != 0 {
 		t.Errorf("a 503 is capped: %v", err)
 	}
+}
+
+// usage.cost is what OpenRouter charged. With the account's own key of the
+// provider (BYOK) that is only OpenRouter's fee, and the provider bills the
+// run itself: the cost is both, or unknown when OpenRouter does not give the
+// provider's bill. Outside BYOK that field is not read.
+func TestTheCostIsWhatTheRunCostThePerson(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		usage string
+		want  *float64
+	}{
+		{"OpenRouter's credits", `{"cost":0.04,"is_byok":false,"cost_details":{"upstream_inference_cost":0.04}}`, ptr(0.04)},
+		{"no is_byok", `{"cost":0.04}`, ptr(0.04)},
+		{"BYOK, with the provider's bill", `{"cost":0.002,"is_byok":true,"cost_details":{"upstream_inference_cost":0.04}}`, ptr(0.042)},
+		{"BYOK within the free requests", `{"cost":0,"is_byok":true,"cost_details":{"upstream_inference_cost":0.04}}`, ptr(0.04)},
+		{"BYOK, the bill not given", `{"cost":0.002,"is_byok":true}`, nil},
+		{"no cost", `{"prompt_tokens":0}`, nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			p, _ := serve(t, reply(200, `{"created":1,"data":[{"b64_json":"`+base64.StdEncoding.EncodeToString(png)+`"}],"usage":`+c.usage+`}`))
+			sub, err := p.Submit(context.Background(), job(nil))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := sub.Outcome.CostUSD
+			if (got == nil) != (c.want == nil) || got != nil && math.Abs(*got-*c.want) > 1e-12 {
+				t.Errorf("cost %v, want %v", deref(got), deref(c.want))
+			}
+		})
+	}
+}
+
+func deref(f *float64) any {
+	if f == nil {
+		return nil
+	}
+	return *f
 }
 
 func TestAnErrorInA200IsReadAndNotRetried(t *testing.T) {

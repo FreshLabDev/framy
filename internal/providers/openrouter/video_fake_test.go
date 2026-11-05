@@ -43,6 +43,7 @@ type fakeOR struct {
 	status      string          // the job's status; pending until a test says otherwise
 	errorJSON   json.RawMessage // the job's "error", raw
 	cost        *float64
+	usage       map[string]any // the job's whole usage, in place of cost's
 	urls        int
 	urlHost     string // where the job's unsigned_urls point; the fake itself when empty
 	video       []byte
@@ -134,6 +135,9 @@ func (f *fakeOR) jobObject(id string) []byte {
 	}
 	if f.cost != nil {
 		job["usage"] = map[string]any{"cost": *f.cost, "is_byok": false}
+	}
+	if f.usage != nil {
+		job["usage"] = f.usage
 	}
 	b, _ := json.Marshal(job)
 	return b

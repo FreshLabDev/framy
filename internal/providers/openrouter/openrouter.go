@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"strings"
@@ -158,10 +159,45 @@ func (p *Provider) key(ctx context.Context, j jobs.Job) (string, error) {
 // read one at a time (answer.Each). An error can come with a 200 when it
 // happened after the provider took the request.
 type imageResponse struct {
-	Usage *struct {
-		Cost *float64 `json:"cost"`
-	} `json:"usage"`
+	Usage *usage     `json:"usage"`
 	Error *errorBody `json:"error"`
+}
+
+// usage is what OpenRouter says a run cost. cost is what it charged the
+// account's credits. When the account runs the model with its own key of
+// the provider behind OpenRouter (BYOK, is_byok), that charge is only
+// OpenRouter's fee, and the provider bills the run itself; OpenRouter gives
+// that bill as cost_details.upstream_inference_cost. It documents that
+// field for BYOK runs only: outside BYOK it is null, 0 or the charge again,
+// so it is read only for a BYOK run.
+type usage struct {
+	Cost        *float64 `json:"cost"`
+	BYOK        bool     `json:"is_byok"`
+	CostDetails *struct {
+		Upstream *float64 `json:"upstream_inference_cost"`
+	} `json:"cost_details"`
+}
+
+// total is what the run cost the person: OpenRouter's charge, and beside it
+// for a BYOK run the provider's own bill. A BYOK run whose bill OpenRouter
+// does not give has no known cost, since the fee alone is a small part of
+// what was spent. It is rounded to a nano-dollar, which hides only binary
+// noise.
+func (u *usage) total() *float64 {
+	switch {
+	case u == nil:
+		return nil
+	case !u.BYOK:
+		return u.Cost
+	case u.CostDetails == nil || u.CostDetails.Upstream == nil:
+		return nil
+	}
+	usd := *u.CostDetails.Upstream
+	if u.Cost != nil {
+		usd += *u.Cost
+	}
+	usd = math.Round(usd*1e9) / 1e9
+	return &usd
 }
 
 // image is one element of the answer's data: base64, or a data URL.
@@ -235,10 +271,7 @@ func (p *Provider) images(ctx context.Context, key string, body map[string]any) 
 		// The run was likely paid, so this is not tried again.
 		return jobs.Outcome{}, &jobs.Error{Class: jobs.ProviderFailed, Err: fmt.Errorf("read the answer of openrouter: %w", err)}
 	}
-	var out jobs.Outcome
-	if r.Usage != nil {
-		out.CostUSD = r.Usage.Cost
-	}
+	out := jobs.Outcome{CostUSD: r.Usage.total()}
 	if r.Error != nil {
 		out.Err = bodyError(r.Error)
 		return out, nil

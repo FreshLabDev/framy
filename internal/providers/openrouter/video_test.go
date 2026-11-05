@@ -472,6 +472,21 @@ func TestACompletedVideoIsDownloadedWithTheKeyAndPriced(t *testing.T) {
 	}
 }
 
+// With the account's own key of the provider (BYOK), usage.cost is only
+// OpenRouter's fee: the video is priced by the provider's bill beside it.
+func TestABYOKVideoIsPricedByTheProvidersBill(t *testing.T) {
+	f := newFakeOR(t)
+	f.complete(0)
+	f.usage = map[string]any{"cost": 0.025, "is_byok": true, "cost_details": map[string]any{"upstream_inference_cost": 0.5}}
+	out, err := fakeProvider(f, testCallbacks()).Poll(context.Background(), pollJob())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Results) != 1 || out.CostUSD == nil || *out.CostUSD != 0.525 {
+		t.Errorf("outcome %+v, cost %v: want the fee and the provider's bill, 0.525", out, out.CostUSD)
+	}
+}
+
 func TestEveryVideoOfAJobIsDownloaded(t *testing.T) {
 	f := newFakeOR(t)
 	f.complete(0.1)
