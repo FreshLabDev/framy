@@ -217,6 +217,31 @@ func TestEveryNoteNamesAModel(t *testing.T) {
 	}
 }
 
+// A note is read only beside a variant in its family's row: in the picker's
+// list of the current variants and under the composer's card. So every
+// current variant of a row has one, and an outdated variant, which shows what
+// replaced it, a model alone in its family and a hidden one have none: that
+// would be a line in 16 languages nobody reads.
+func TestEveryVariantInARowHasANote(t *testing.T) {
+	snap := Build(fixtureUpstream(t), embeddedFiles(t), fixtureDay)
+	inRow := func(m Model) bool { return m.Traits.Family != nil && shown(m) && m.Traits.FastOf == "" }
+	size := map[string]int{}
+	for _, m := range snap.Models {
+		if inRow(m) {
+			size[m.Traits.Family.ID]++
+		}
+	}
+	for _, m := range snap.Models {
+		read := inRow(m) && m.Traits.Family.OutdatedBy == "" && size[m.Traits.Family.ID] > 1
+		switch has := i18n.Has("note." + m.ID); {
+		case read && !has:
+			t.Errorf("%s has no note, and its row %s shows one beside it", m.ID, m.Traits.Family.ID)
+		case !read && has:
+			t.Errorf("note.%s is never shown", m.ID)
+		}
+	}
+}
+
 func TestVersionsCompareByPart(t *testing.T) {
 	for _, tc := range []struct {
 		a, b string
