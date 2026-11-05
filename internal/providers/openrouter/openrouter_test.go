@@ -364,6 +364,14 @@ func TestErrorsAreToldApart(t *testing.T) {
 		{"an internal error", 500, `{"error":{"code":500,"message":"Internal Server Error","metadata":{"error_type":"server"}}}`, nil, jobs.ProviderFailed, 0},
 		{"Cloudflare's timeout", 524, `<html>A timeout occurred</html>`, nil, jobs.Timeout, 0},
 		{"a request timeout", 408, `{"error":{"code":408,"message":"Request timed out"}}`, nil, jobs.Timeout, 0},
+		// Cloudflare could not hand the request to OpenRouter: nothing ran.
+		{"Cloudflare: the origin is down", 521, `<html>Web server is down</html>`, nil, jobs.Unavailable, 0},
+		{"Cloudflare: the connection timed out", 522, `<html>Connection timed out</html>`, nil, jobs.Unavailable, 0},
+		{"Cloudflare: the origin is unreachable", 523, `<html>Origin is unreachable</html>`, nil, jobs.Unavailable, 0},
+		{"Cloudflare: the TLS handshake failed", 525, `<html>SSL handshake failed</html>`, nil, jobs.Unavailable, 0},
+		{"Cloudflare: the origin's certificate", 526, `<html>Invalid SSL certificate</html>`, nil, jobs.Unavailable, 0},
+		// An answer Cloudflare could not read came after OpenRouter had the request.
+		{"Cloudflare: an unknown error", 520, `<html>Web server is returning an unknown error</html>`, nil, jobs.ProviderFailed, 0},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			p, _ := serve(t, reply(c.status, c.body, c.headers...))

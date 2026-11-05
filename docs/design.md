@@ -505,9 +505,9 @@ Progress for SSE goes through `pg_notify('framy_events', …)` in the transactio
 | a refusal of the sound the model made ("the output audio may be related to copyright restrictions", BytePlus for Seedance) | `sound` | no |
 | 400, 404, 413, 422, image errors such as `image_download_failed` | `refused` | no |
 | 429 | `rate_limited` | after `Retry-After` |
-| 502, 503, 529, a connection that was never made | `unavailable` | after `Retry-After` or 5 s × requests² |
+| 502, 503, 529, a connection that was never made; Cloudflare's 521, 522, 523, 525 and 526, a request it could not hand to OpenRouter | `unavailable` | after `Retry-After` or 5 s × requests² |
 | 408, 504, Cloudflare's 524 | `timeout` | no: the run may go on and be paid |
-| 500, an answer that cannot be read | `provider` | no |
+| 500, Cloudflare's 520, an answer that cannot be read | `provider` | no |
 
 The moderation's reasons and the provider's name go into the job's error; the flagged text itself does not. OpenRouter passes on the answer of the provider behind it as its message, `HTTP 400: {"error": {"code", "message"}}`: framy reads the provider's code and words out of it and drops the request id at their end. The code goes into the job's error for the logs. The words, the provider's own as every adapter has them (`Said`), are kept apart in `job.provider_message` (migration 023), and the API gives them as `error.message` in place of framy's whole line: "The request failed because the input video 'content[1]' may contain real person." A run framy did not send, or an answer with no words of the provider's, keeps framy's line. OpenRouter's documentation calls a 502 a model that is down or an answer it could not read; whether a run that ended in a 502 is ever billed is not checked.
 
@@ -539,9 +539,9 @@ A webhook that lands while the job is being polled brings nothing forward: River
 | 403 `unsupported_country_region_territory`: framy's server is where OpenAI does not serve | `region` | no |
 | other 4xx, such as a setting or a link OpenAI cannot fetch | `refused` | no |
 | 429 for the rate | `rate_limited` | after `Retry-After` |
-| 503, a connection that was never made | `unavailable` | after `Retry-After` or 5 s × requests² |
+| 503, a connection that was never made; Cloudflare's 521, 522, 523, 525 and 526, a request it could not hand to OpenAI | `unavailable` | after `Retry-After` or 5 s × requests² |
 | 408, 504, Cloudflare's 524 | `timeout` | no: the run may go on and be paid |
-| 500, 502, an answer that cannot be read | `provider` | no |
+| 500, 502, Cloudflare's 520, an answer that cannot be read | `provider` | no |
 
 A message OpenAI echoes with the start of a wrong key is cut of it before it is stored. `APIError.NeedsVerification` tells the 403 about an unverified organization from other 403s, for the connection's `needs_verification` status.
 

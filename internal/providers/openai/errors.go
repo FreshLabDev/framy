@@ -120,8 +120,9 @@ func (e *APIError) KeyStatus() string {
 }
 
 // class is what the queue does with the error. Only a refusal before the run
-// started is tried again: a 429 for the rate, a 503 for a busy engine. A 500
-// or a 502 is not: nobody can tell whether the run was paid.
+// started is tried again: a 429 for the rate, a 503 for a busy engine, a
+// request Cloudflare could not hand to OpenAI. A 500 or a 502 is not: nobody
+// can tell whether the run was paid.
 func (e *APIError) class() jobs.Class {
 	switch s := e.Status; {
 	case e.Moderated():
@@ -143,7 +144,7 @@ func (e *APIError) class() jobs.Class {
 		return jobs.Key
 	case s == http.StatusTooManyRequests:
 		return jobs.RateLimited
-	case s == http.StatusServiceUnavailable:
+	case s == http.StatusServiceUnavailable || unreached[s]:
 		return jobs.Unavailable
 	case s == http.StatusRequestTimeout || s == http.StatusGatewayTimeout || s == 524:
 		// The run may go on, and be paid, after the answer gave up.
@@ -153,6 +154,15 @@ func (e *APIError) class() jobs.Class {
 	}
 	return jobs.ProviderFailed
 }
+
+// unreached are the answers of Cloudflare, in front of OpenAI's API, for a
+// request it could not hand on: 521, the origin refused the connection; 522,
+// the origin did not take the connection or acknowledge the request; 523,
+// the origin cannot be reached; 525 and 526, the TLS to it failed. The
+// request never got to OpenAI, so nothing ran, nothing was billed and
+// sending it again is safe. A 520 (an answer Cloudflare could not read) and
+// a 524 (no answer in time) came after OpenAI had the request.
+var unreached = map[int]bool{521: true, 522: true, 523: true, 525: true, 526: true}
 
 // statusError reads an answer that is not a 200. key is cut out of the
 // message.
