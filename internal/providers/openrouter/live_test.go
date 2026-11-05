@@ -18,7 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"image"
+	goimage "image"
 	"image/color"
 	imagepng "image/png"
 	"net/http"
@@ -144,7 +144,7 @@ func dataURL(r jobs.Result) string {
 // backdrop is a second reference framy draws itself: a blue gradient.
 func backdrop(t *testing.T) jobs.Result {
 	t.Helper()
-	img := image.NewRGBA(image.Rect(0, 0, 512, 512))
+	img := goimage.NewRGBA(goimage.Rect(0, 0, 512, 512))
 	for y := range 512 {
 		for x := range 512 {
 			img.Set(x, y, color.RGBA{R: 20, G: uint8(60 + y/8), B: uint8(140 + x/5), A: 255})
