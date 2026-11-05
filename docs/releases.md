@@ -277,13 +277,16 @@ ws04 docker inspect -f '{{.Config.Image}} {{index .Config.Labels "org.opencontai
 
 The last line prints the digest the container runs, its version and its
 commit, and nothing else: a whole `inspect` prints the environment and the
-mounts too, which is more than a terminal or a transcript should hold. The
-service reports its own version on `/healthz`. The two should agree; if they
+mounts too, which is more than a terminal or a transcript should hold.
+
+The metrics and the service's own account of its health answer inside the
+container only. The public `https://framy.ws04.cc/healthz` says just
+`{"ok":true}` or `{"ok":false}`; the one beside the metrics gives each part,
+the version and the commit, which should agree with the labels above. If they
 do not, something was deployed by hand.
 
-The metrics answer inside the container only:
-
 ```sh
+ws04 container exec framy-bot -- wget -qO- http://127.0.0.1:9090/healthz
 ws04 container exec framy-bot -- wget -qO- http://127.0.0.1:9090/metrics
 ```
 

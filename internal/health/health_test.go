@@ -5,10 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
-	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 )
@@ -17,28 +17,40 @@ type fakeStore struct{ err error }
 
 func (f fakeStore) Ping(context.Context) error { return f.err }
 
-func serve(t *testing.T, store Store, lastPoll time.Time, initialized bool, startedAt time.Time) (int, response) {
+func handler(store Store, lastPoll time.Time, initialized bool, startedAt time.Time) *Handler {
+	return New(Config{
+		Store:       store,
+		LastPoll:    func() time.Time { return lastPoll },
+		Initialized: func() bool { return initialized },
+		StartedAt:   startedAt,
+		Build:       Build{Version: "v1", Commit: "abc", Date: "today"},
+	})
+}
+
+// serve asks the public /healthz for its status and the metrics listener's
+// for the parts.
+func serve(t *testing.T, store Store, lastPoll time.Time, initialized bool, startedAt time.Time) (int, report) {
 	t.Helper()
-	h := New(store,
-		func() time.Time { return lastPoll },
-		func() bool { return initialized },
-		startedAt,
-		Build{Version: "v1", Commit: "abc", Date: "today"},
-		slog.New(slog.NewTextHandler(io.Discard, nil)),
-	)
-	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/healthz", nil))
-	var got response
-	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+	h := handler(store, lastPoll, initialized, startedAt)
+	public := httptest.NewRecorder()
+	h.Public(public, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	detail := httptest.NewRecorder()
+	h.Detail(detail, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	// Read by hand with busybox wget, which shows no body of an error.
+	if detail.Code != http.StatusOK {
+		t.Errorf("the detail answered %d", detail.Code)
+	}
+	var got report
+	if err := json.Unmarshal(detail.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	return rr.Code, got
+	return public.Code, got
 }
 
 func TestHealthy(t *testing.T) {
 	now := time.Now()
 	code, got := serve(t, fakeStore{}, now, true, now.Add(-time.Hour))
-	if code != http.StatusOK || !got.OK || !got.DB || got.Version != "v1" {
+	if code != http.StatusOK || !got.OK || !got.DB || got.Version != "v1" || got.Commit != "abc" {
 		t.Fatalf("code = %d, response = %+v", code, got)
 	}
 }
@@ -61,6 +73,33 @@ func TestUnhealthy(t *testing.T) {
 			code, got := serve(t, tc.store, tc.lastPoll, tc.initialized, tc.startedAt)
 			if code != http.StatusServiceUnavailable || got.OK {
 				t.Fatalf("code = %d, response = %+v", code, got)
+			}
+		})
+	}
+}
+
+// The public /healthz says whether framy works and nothing else: not the
+// commit, not the build, not which part failed.
+func TestPublicSaysOnlyOK(t *testing.T) {
+	now := time.Now()
+	for _, tc := range []struct {
+		name  string
+		store Store
+		code  int
+		ok    bool
+	}{
+		{"healthy", fakeStore{}, http.StatusOK, true},
+		{"database down", fakeStore{err: errors.New("down")}, http.StatusServiceUnavailable, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			handler(tc.store, now, true, now.Add(-time.Hour)).Public(rr, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+			var got map[string]any
+			if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+				t.Fatal(err)
+			}
+			if rr.Code != tc.code || got["ok"] != tc.ok || !slices.Equal(slices.Collect(maps.Keys(got)), []string{"ok"}) {
+				t.Fatalf("code = %d, body = %s", rr.Code, rr.Body)
 			}
 		})
 	}

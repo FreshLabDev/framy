@@ -261,9 +261,14 @@ func run(log *slog.Logger, level *slog.LevelVar) error {
 	}
 	app.Mount(site)
 	signIn.Mount(site)
-	site.Handle("/healthz", health.New(store, b.LastPoll, b.Initialized, started, health.Build{
-		Version: version, Commit: commit, Date: date,
-	}, log))
+	// Whether framy works: the public /healthz says only that, and the
+	// metrics listener gives each part with the version and the commit.
+	checks := health.New(health.Config{
+		Store: store, LastPoll: b.LastPoll, Initialized: b.Initialized, StartedAt: started,
+		Build: health.Build{Version: version, Commit: commit, Date: date},
+		Log:   log,
+	})
+	site.Handle("/healthz", http.HandlerFunc(checks.Public))
 	// Connect OpenRouter with OAuth PKCE (#12). The routes exist when the
 	// callback URL is known (SITE_URL) and the key they end with can be kept
 	// (a KEK file).
@@ -355,6 +360,7 @@ func run(log *slog.Logger, level *slog.LevelVar) error {
 		metricsMux := http.NewServeMux()
 		metrics.JobsWaiting.Set(queue.Waiting)
 		metricsMux.Handle("GET /metrics", metrics.Handler())
+		metricsMux.HandleFunc("GET /healthz", checks.Detail)
 		servers = append(servers, &http.Server{
 			Addr:              cfg.MetricsAddr,
 			Handler:           metricsMux,
