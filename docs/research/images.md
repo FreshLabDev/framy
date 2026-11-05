@@ -247,7 +247,7 @@ refs это диапазон `input_references` (0 = можно только т�
 | `bytedance-seed/seedream-4.5` | 0,04 при любом размере | 0 | n до 10 |
 | `bytedance-seed/seedream-5-0-flash` | 0,018 (1K и 2K) | 0 | |
 | `bytedance-seed/seedream-5-0-lite` | 0,035 (2K и 4K) | 0 | n до 4 |
-| `bytedance-seed/seedream-5-0-pro` | 0,045 по умолчанию, 0,09 (вариант `high_resolution`) | 0,003 за ref | какой размер = `high_resolution`, не раскрыто [?] |
+| `bytedance-seed/seedream-5-0-pro` | 0,045 по умолчанию, 0,09 (вариант `high_resolution`) | 0,003 за ref | `high_resolution` берётся выше 2 360 000 пикселей результата, то есть за 2K; 1K по базовой цене (`output_tier_pixel_threshold` в pricing_json на странице модели в OpenRouter, 5 ноября 2026) |
 | `krea/krea-2-medium-turbo` | 0,015 | - | со стилевыми референсами 0,0175, с мудбордами 0,02 |
 | `krea/krea-2-medium` | 0,03 | - | 0,035 / 0,04 |
 | `krea/krea-2-large` | 0,06 | - | 0,065 / 0,07 |

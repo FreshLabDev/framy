@@ -127,8 +127,10 @@ func TestEstimates(t *testing.T) {
 		{"krea without style references", "openrouter:krea/krea-2-medium", Request{Settings: set{"resolution": "1K"}}, 0.03, 0, Exact},
 		{"recraft styles once per request", "openrouter:recraft/recraft-v4-styles", Request{Images: images(1)}, 0.04, 0, Exact},
 		{"grok low at 2K with a reference", "openrouter:x-ai/grok-imagine-image-2.0", Request{Settings: set{"quality": "low", "resolution": "2K"}, Images: images(1)}, 0.07, 0, Exact},
-		// What high_resolution is, Seedream does not say.
-		{"seedream pro", "openrouter:bytedance-seed/seedream-5-0-pro", Request{Settings: set{"resolution": "1K"}, Images: images(1)}, 0.048, 0.093, UpTo},
+		// OpenRouter's high_resolution line is above 2.36 MP: 2K, not 1K.
+		{"seedream pro at 1K", "openrouter:bytedance-seed/seedream-5-0-pro", Request{Settings: set{"resolution": "1K"}, Images: images(1)}, 0.048, 0, Exact},
+		{"seedream pro at 2K", "openrouter:bytedance-seed/seedream-5-0-pro", Request{Settings: set{"resolution": "2K"}, Images: images(1)}, 0.093, 0, Exact},
+		{"seedream pro with no resolution chosen", "openrouter:bytedance-seed/seedream-5-0-pro", Request{Images: images(1)}, 0.048, 0.093, UpTo},
 		{"riverflow 2.5 is a floor", "openrouter:sourceful/riverflow-v2.5-pro", Request{Settings: set{"resolution": "2K"}}, 0.15, 0.15, From},
 		{"riverflow 2 without super-resolution references", "openrouter:sourceful/riverflow-v2-pro", Request{Settings: set{"resolution": "1K"}, Images: images(2)}, 0.15, 0, Exact},
 

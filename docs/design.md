@@ -326,7 +326,7 @@ The composer shows the price before the run. `internal/price` works it out from 
 |:--|:--|:--|
 | `exact` | the price | the rates and the quantities are known: tables by size and quality (FLUX.3, Seedream, Krea, Qwen, Recraft, Grok, Riverflow 2), video seconds by resolution and sound, Seedance's video tokens at a size in the overlay's table |
 | `about` | "about" | a formula or a rounding decides: OpenAI's and Gemini's tokens, FLUX.2's megapixels, the prompt's tokens, routes at different prices, two video rates that both fit and differ, the seconds of a reference clip as the provider measures it, a reference sound (no rate names one and no bill with one has been seen) |
-| `up_to` | "up to" the most | a setting is not chosen yet, or the model picks it: Omni's 3 to 10 s, FLUX Video Upscale's factor, Seedream Pro's high resolution |
+| `up_to` | "up to" the most | a setting is not chosen yet, or the model picks it: Omni's 3 to 10 s, FLUX Video Upscale's factor |
 | `from` | "from" the least | the provider sets the price after the run: Riverflow 2.5 |
 | `unknown` | "known after the run" | nothing says how many output tokens a run makes: Omni at 1080p |
 

@@ -251,10 +251,15 @@ models:
     featured: true
 
   # ByteDance takes 10 references on 5.0 Pro and Flash; OpenRouter lists 14.
+  # OpenRouter bills Pro's high_resolution line above 2,360,000 output
+  # pixels (its pricing_json, output_tier_pixel_threshold). 1K is about one
+  # megapixel at every aspect ratio and 2K about four, so 2K is that line.
   bytedance-seed/seedream-5-0-pro:
     family: {id: seedream, gen: "5", tier: pro, label: 5.0 Pro}
     featured: true
     references: {image: 10}
+    price:
+      variants: {high_resolution: {resolution: 2K}}
 
   # Up to 20 references, which are not billed. Tencent's price table counts
   # 15,000 tokens an image at 1K and 2K and 20,000 at 4K; 1.5K lies between
