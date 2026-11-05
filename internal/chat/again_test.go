@@ -387,3 +387,31 @@ func TestAGuestRunHasNoResultButtons(t *testing.T) {
 		t.Fatalf("a guest card's buttons: %v", buttons(kb))
 	}
 }
+
+// Two buttons share a row only when both labels fit half of it; a long
+// one, as in Belarusian, takes a row of its own, so neither is cut.
+func TestALongLabelTakesARowOfItsOwn(t *testing.T) {
+	run := db.ChatRun{JobID: 1, CommandMessageID: 10, Status: string(jobs.Failed), ErrorClass: string(jobs.Internal)}
+	for lang, want := range map[string][][]string{
+		"en": {{callback(1, actRetry), callback(1, actOther)}},
+		"be": {{callback(1, actRetry)}, {callback(1, actOther)}},
+	} {
+		run.Lang = lang
+		if got := buttons(failureKeyboard(run)); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: %v (%q), want %v", lang, got, labels(failureKeyboard(run)), want)
+		}
+	}
+	// The same for what a guest run's card can change: Model and Make a
+	// video share a row in English, not in French.
+	d := draft{pay: payFree, offer: catalog.Offer{Kind: catalog.Image}, taken: 1}
+	for lang, rows := range map[string]int{"en": 2, "fr": 3} {
+		if got := previewKeyboard(lang, 1, d).InlineKeyboard; len(got) != rows {
+			t.Errorf("%s: %q", lang, labels(previewKeyboard(lang, 1, d)))
+		}
+	}
+	// Three that fit go two and one.
+	three := []tg.InlineKeyboardButton{{Text: "a"}, {Text: "b"}, {Text: "c"}}
+	if rows := inPairs(three); len(rows) != 2 || len(rows[0]) != 2 || len(rows[1]) != 1 {
+		t.Errorf("rows = %v", rows)
+	}
+}

@@ -7,7 +7,6 @@ import (
 	"html"
 	"math"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -252,10 +251,34 @@ func button(text, data, style string) tg.InlineKeyboardButton {
 	return tg.InlineKeyboardButton{Text: text, CallbackData: data, Style: style}
 }
 
+// halfRow is the longest label that shares a row with another. Telegram
+// gives the buttons of a row equal widths, and half a row of a phone 320
+// to 375 points wide shows about this many characters before it cuts the
+// label: "Паспрабаваць яшчэ раз" next to "Іншая мадэль" read
+// "Паспрабав…".
+const halfRow = 14
+
+// inPairs puts buttons two to a row where both labels fit half a row,
+// and each on a row of its own otherwise, in their order.
+func inPairs(buttons []tg.InlineKeyboardButton) [][]tg.InlineKeyboardButton {
+	fits := func(b tg.InlineKeyboardButton) bool { return utf8.RuneCountInString(b.Text) <= halfRow }
+	var rows [][]tg.InlineKeyboardButton
+	for i := 0; i < len(buttons); i++ {
+		if i+1 < len(buttons) && fits(buttons[i]) && fits(buttons[i+1]) {
+			rows = append(rows, []tg.InlineKeyboardButton{buttons[i], buttons[i+1]})
+			i++
+			continue
+		}
+		rows = append(rows, []tg.InlineKeyboardButton{buttons[i]})
+	}
+	return rows
+}
+
 // previewKeyboard is a guest run's keyboard, whose preview is an inline
 // message and so not rich (richKeyboard is the others'): Generate and No,
-// and under them, two to a row, what the run can change. An image run has Model, Settings when there is one to
-// change (a free run has its settings fixed) and, from a prompt and at most
+// and under them, two to a row where they fit (inPairs), what the run can
+// change. An image run has Model, Settings when there is one to change (a
+// free run has its settings fixed) and, from a prompt and at most
 // one photo, Make a video of them; a video from a prompt has Make an image;
 // an edit of a clip offers the other length of it, when there is one. A
 // video run has no Model or Settings yet.
@@ -281,10 +304,7 @@ func previewKeyboard(lang string, jobID int64, d draft) *tg.InlineKeyboardMarkup
 			more = append(more, button(t(lang, "run.as_video"), callback(jobID, actVideo), ""))
 		}
 	}
-	for b := range slices.Chunk(more, 2) {
-		rows = append(rows, b)
-	}
-	return &tg.InlineKeyboardMarkup{InlineKeyboard: rows}
+	return &tg.InlineKeyboardMarkup{InlineKeyboard: append(rows, inPairs(more)...)}
 }
 
 // generatingKeyboard: Stop.

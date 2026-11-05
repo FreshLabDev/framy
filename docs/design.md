@@ -668,6 +668,7 @@ In groups and in guest mode one run makes one result, and the card offers no cou
 - **Message rate:** Telegram allows about 20 bot messages a minute in a group. framy queues sends per chat and keeps edits to the cadence above.
 - **Video in large groups:** sending one can return `message_id = 0` while the server re-encodes. Such a message is not edited or deleted right away.
 - **Media to text:** media cannot become text again. Back to text means delete and send anew.
+- **Button labels:** Telegram gives the buttons of a row equal widths and cuts a label that does not fit, and half a row of a phone 320 to 375 points wide shows about 14 characters. Two buttons share a row only when both labels are that short; a longer one takes a row of its own, as Belarusian "Паспрабаваць яшчэ раз" does on the error card, and English "Top up OpenRouter". A label alone on its row stays within about 33 characters in every language. Generate and No stay one row: the price on Generate may be cut on a narrow phone, and the card shows it whole.
 
 ### Loops and cards
 

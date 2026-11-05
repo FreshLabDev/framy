@@ -53,12 +53,7 @@ func resultKeyboard(lang string, jobID int64, a storage.Asset, again, original b
 	if image && original && photoFits(a) {
 		more = append(more, button(t(lang, "result.original"), callback(jobID, actOriginal), ""))
 	}
-	var rows [][]tg.InlineKeyboardButton
-	for _, row := range [][]tg.InlineKeyboardButton{top, more} {
-		if len(row) > 0 {
-			rows = append(rows, row)
-		}
-	}
+	rows := append(inPairs(top), inPairs(more)...)
 	if len(rows) == 0 {
 		return nil
 	}

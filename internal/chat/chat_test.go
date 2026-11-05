@@ -838,25 +838,27 @@ func TestAFailedRunShowsTheCard(t *testing.T) {
 		class  jobs.Class
 		free   bool
 		want   string
-		// acts are the buttons under the card.
-		acts []string
+		// acts are the buttons under the card, in one row unless apart.
+		acts  []string
+		apart bool
 	}{
-		{jobs.Failed, jobs.Moderation, true, "err.moderation", other},
+		{jobs.Failed, jobs.Moderation, true, "err.moderation", other, false},
 		// A real person in an input: another model may take it.
-		{jobs.Failed, jobs.Faces, false, "err.faces", other},
+		{jobs.Failed, jobs.Faces, false, "err.faces", other, false},
 		// The model's own sound: the same run without it may pass. This
 		// run had no sound to turn off.
-		{jobs.Failed, jobs.Sound, false, "err.sound", retry},
+		{jobs.Failed, jobs.Sound, false, "err.sound", retry, false},
 		// The person's key out of money: a link to top it up, then another
-		// try ("" is the link, which carries no data).
-		{jobs.Failed, jobs.Money, false, "err.money", []string{"", actRetry}},
-		{jobs.Failed, jobs.Money, true, "err.failed", retry},
+		// try ("" is the link, which carries no data), each on its own row
+		// since "Top up OpenRouter" is too long to share one.
+		{jobs.Failed, jobs.Money, false, "err.money", []string{"", actRetry}, true},
+		{jobs.Failed, jobs.Money, true, "err.failed", retry, false},
 		// A refused key needs the site.
-		{jobs.Failed, jobs.Key, false, "err.key", nil},
+		{jobs.Failed, jobs.Key, false, "err.key", nil, false},
 		// A free run is paid by framy's key, not the person's.
-		{jobs.Failed, jobs.Key, true, "err.failed", retry},
-		{jobs.Expired, "", true, "err.timeout", []string{actRetry, actOther}},
-		{jobs.Failed, jobs.Internal, true, "err.failed", []string{actRetry, actOther}},
+		{jobs.Failed, jobs.Key, true, "err.failed", retry, false},
+		{jobs.Expired, "", true, "err.timeout", []string{actRetry, actOther}, false},
+		{jobs.Failed, jobs.Internal, true, "err.failed", []string{actRetry, actOther}, false},
 	} {
 		h := newHarness(t)
 		id := h.generating(t)
@@ -875,12 +877,15 @@ func TestAFailedRunShowsTheCard(t *testing.T) {
 		var want [][]string
 		if tc.acts != nil {
 			want = [][]string{{}}
-			for _, a := range tc.acts {
-				if a == "" {
-					want[0] = append(want[0], "")
-					continue
+			for i, a := range tc.acts {
+				data := ""
+				if a != "" {
+					data = callback(id, a)
 				}
-				want[0] = append(want[0], callback(id, a))
+				if tc.apart && i > 0 {
+					want = append(want, nil)
+				}
+				want[len(want)-1] = append(want[len(want)-1], data)
 			}
 		}
 		if got := buttons(edits[0].markup); !reflect.DeepEqual(got, want) {

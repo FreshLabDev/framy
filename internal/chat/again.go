@@ -240,5 +240,5 @@ func failureKeyboard(run db.ChatRun) *tg.InlineKeyboardMarkup {
 	if len(row) == 0 {
 		return nil
 	}
-	return &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{row}}
+	return &tg.InlineKeyboardMarkup{InlineKeyboard: inPairs(row)}
 }
