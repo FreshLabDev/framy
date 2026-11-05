@@ -203,7 +203,7 @@ var (
 	KeyDecryptFailures = registerCounter("framy_key_decrypt_failures_total", "Stored keys that could not be decrypted: a lost or wrong KEK, or a row that was tampered with.")
 	KeysInChat         = registerCounter("framy_keys_in_chat_total", "Messages to framy that looked like a key: direct messages, commands and guest messages. None of them is kept or sent to a model.")
 
-	TelegramErrors  = registerVec("framy_telegram_errors_total", "Telegram API and transport errors, by method.", "method")
+	TelegramErrors  = registerVec("framy_telegram_errors_total", "Telegram API and transport errors, by method: each failed attempt, but no 429, capability probe or edit to what the message already showed.", "method")
 	TelegramLimited = registerVec("framy_telegram_rate_limited_total", "Telegram 429 responses observed, by method.", "method")
 
 	HTTPRateLimited        = registerVec("framy_http_rate_limited_total", "Public HTTP requests answered 429, by rate class.", "class")

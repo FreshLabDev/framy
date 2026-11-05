@@ -107,18 +107,7 @@ func run(log *slog.Logger) error {
 		// edited_message, which can swap the file of an album's item.
 		tg.WithAllowedUpdates("message", "edited_message", "callback_query", "my_chat_member", "inline_query", "guest_message"),
 		tg.WithLogger(log),
-		tg.WithObserver(func(e tg.Event) {
-			switch {
-			// A capability probe is answered with a parameter error on
-			// purpose; counting it would add a phantom incident per probed
-			// method to every start.
-			case e.Probe, e.Err == nil:
-			case e.Status == http.StatusTooManyRequests:
-				metrics.TelegramLimited.Inc(e.Method)
-			default:
-				metrics.TelegramErrors.Inc(e.Method)
-			}
-		}),
+		tg.WithObserver(observeTelegram(metrics.TelegramErrors, metrics.TelegramLimited)),
 	}
 	// A --local server hands files over by path on its own disk.
 	if cfg.BotAPIFilesDir != "" {
@@ -493,6 +482,24 @@ func stopWhenDone(ctx context.Context, stop func(context.Context) error, limit t
 		wait()
 	}()
 	return wait
+}
+
+// observeTelegram counts what went wrong with Telegram, by method: the 429s
+// apart from the rest.
+func observeTelegram(failed, limited interface{ Inc(string) }) tg.Observer {
+	return func(e tg.Event) {
+		switch {
+		// A capability probe is answered with a parameter error on purpose;
+		// counting it would add a phantom incident per probed method to
+		// every start. "Message is not modified" answers a press that draws
+		// the panel it already shows, and tg and framy take it for success.
+		case e.Probe, e.Err == nil, tg.IsMessageNotModified(e.Err):
+		case e.Status == http.StatusTooManyRequests:
+			limited.Inc(e.Method)
+		default:
+			failed.Inc(e.Method)
+		}
+	}
 }
 
 // connect retries the first PostgreSQL connection. Container DNS inside the

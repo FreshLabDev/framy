@@ -7,9 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/FreshLabDev/tg"
 
 	"github.com/FreshLabDev/framy/internal/config"
 	"github.com/FreshLabDev/framy/internal/jobs"
@@ -185,5 +188,38 @@ func TestTheQueueStopsWhenTheProcessDoes(t *testing.T) {
 	early := stopWhenDone(context.Background(), stop, time.Minute)
 	if err := early(); !errors.Is(err, failed) || len(stopped) != 1 {
 		t.Errorf("an early return: %v, stopped %d times", err, len(stopped))
+	}
+}
+
+type countByMethod map[string]int
+
+func (c countByMethod) Inc(method string) { c[method]++ }
+
+// framy_telegram_errors_total counts what went wrong: not a probe, not a
+// 429 (counted apart), and not "message is not modified", which a second
+// press on the same button of a panel gets and tg and framy take for
+// success.
+func TestTelegramErrorsAreWhatWentWrong(t *testing.T) {
+	errs, limited := countByMethod{}, countByMethod{}
+	observe := observeTelegram(errs, limited)
+	apiErr := func(code int, desc string) error {
+		return &tg.APIError{ErrorCode: code, Description: desc}
+	}
+	for _, e := range []tg.Event{
+		{Method: "sendMessage", Status: 200},
+		{Method: "editEphemeralMessageText", Status: 400, Err: apiErr(400, "Bad Request: message is not modified: specified new message content and reply markup are exactly the same")},
+		{Method: "editMessageText", Status: 400, Err: apiErr(400, "Bad Request: message is not modified")},
+		{Method: "deleteEphemeralMessage", Status: 400, Err: apiErr(400, "Bad Request: invalid parameters"), Probe: true},
+		{Method: "sendPhoto", Status: 429, Err: apiErr(429, "Too Many Requests: retry after 3")},
+		{Method: "editMessageText", Status: 400, Err: apiErr(400, "Bad Request: message to edit not found")},
+		{Method: "getUpdates", Err: errors.New("connection reset by peer"), Retryable: true},
+	} {
+		observe(e)
+	}
+	if want := (countByMethod{"editMessageText": 1, "getUpdates": 1}); !maps.Equal(errs, want) {
+		t.Errorf("errors %v, want %v", errs, want)
+	}
+	if want := (countByMethod{"sendPhoto": 1}); !maps.Equal(limited, want) {
+		t.Errorf("rate limited %v, want %v", limited, want)
 	}
 }
