@@ -64,6 +64,9 @@ func main() {
 }
 
 func run(log *slog.Logger) error {
+	if limit := limitMemoryHere(); limit > 0 {
+		log.Info("memory limit", "go_mib", limit>>20)
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		return err

@@ -312,7 +312,7 @@ func (p *Provider) do(ctx context.Context, key, method, path string, body []byte
 		data, _ := io.ReadAll(io.LimitReader(limited, 1<<20))
 		return nil, statusError(resp.StatusCode, resp.Header, data, key)
 	}
-	raw, err := io.ReadAll(limited)
+	raw, err := readAll(limited, resp.ContentLength, limit)
 	if err != nil {
 		if ctx.Err() != nil {
 			// Cut short by the deadline or a stop: the queue reads which.
@@ -325,6 +325,20 @@ func (p *Provider) do(ctx context.Context, key, method, path string, body []byte
 		return nil, &jobs.Error{Class: jobs.ProviderFailed, Err: fmt.Errorf("read the answer of gemini: %w", err)}
 	}
 	return raw, nil
+}
+
+// readAll reads a body whole: into one buffer of its length when the answer
+// gives one, so a large answer is not copied each time the buffer grows.
+func readAll(r io.Reader, length, limit int64) ([]byte, error) {
+	if length <= 0 || length > limit {
+		return io.ReadAll(r)
+	}
+	var buf bytes.Buffer
+	// The room to read the end of the body in, so the last read does not
+	// grow the buffer.
+	buf.Grow(int(length) + bytes.MinRead)
+	_, err := buf.ReadFrom(r)
+	return buf.Bytes(), err
 }
 
 // authorize puts the key and the pinned revision on a request to Gemini. The

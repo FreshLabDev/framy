@@ -11,7 +11,6 @@ package openai
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,6 +22,7 @@ import (
 
 	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/FreshLabDev/framy/internal/providers/answer"
 )
 
 // DefaultBase is OpenAI's API.
@@ -112,16 +112,19 @@ func (p *Provider) key(ctx context.Context, j jobs.Job) (string, error) {
 	return key, nil
 }
 
-// imagesResponse is the answer of both endpoints. An error can come with a
-// 200 when it happened after OpenAI took the request.
+// imagesResponse is the answer of both endpoints, but for its images, which
+// are read one at a time (answer.Each). An error can come with a 200 when it
+// happened after OpenAI took the request.
 type imagesResponse struct {
-	Data []struct {
-		B64JSON string `json:"b64_json"`
-	} `json:"data"`
 	// OutputFormat is png, jpeg or webp.
 	OutputFormat string     `json:"output_format"`
 	Usage        *usage     `json:"usage"`
 	Error        *errorBody `json:"error"`
+}
+
+// image is one element of the answer's data.
+type image struct {
+	B64JSON answer.Base64 `json:"b64_json"`
 }
 
 func (p *Provider) call(ctx context.Context, key string, r request) (jobs.Outcome, error) {
@@ -151,7 +154,16 @@ func (p *Provider) call(ctx context.Context, key string, r request) (jobs.Outcom
 		return jobs.Outcome{}, statusError(resp.StatusCode, resp.Header, data, key)
 	}
 	var a imagesResponse
-	if err := json.NewDecoder(limited).Decode(&a); err != nil {
+	var images []image
+	err = answer.Each(limited, "data", func(dec *json.Decoder) error {
+		var im image
+		if err := dec.Decode(&im); err != nil {
+			return err
+		}
+		images = append(images, im)
+		return nil
+	}, &a)
+	if err != nil {
 		if ctx.Err() != nil {
 			// Cut short by the deadline or a stop: the queue reads which.
 			return jobs.Outcome{}, fmt.Errorf("read the answer of openai: %w", err)
@@ -171,8 +183,8 @@ func (p *Provider) call(ctx context.Context, key string, r request) (jobs.Outcom
 		out.Err = bodyError(a.Error, key)
 		return out, nil
 	}
-	for i, d := range a.Data {
-		res, err := result(d.B64JSON, a.OutputFormat, r.body)
+	for i, im := range images {
+		res, err := result(im.B64JSON, a.OutputFormat, r.body)
 		if err != nil {
 			out.Err = &jobs.Error{Class: jobs.ProviderFailed, Err: fmt.Errorf("image %d of the answer: %w", i+1, err)}
 			return out, nil
@@ -185,11 +197,11 @@ func (p *Provider) call(ctx context.Context, key string, r request) (jobs.Outcom
 // result decodes one image of the answer. The bytes say what they are; the
 // answer's output_format, then the one asked for, name the type when they
 // do not.
-func result(b64, format string, asked map[string]any) (jobs.Result, error) {
-	data, err := base64.StdEncoding.DecodeString(b64)
-	if err != nil {
-		return jobs.Result{}, fmt.Errorf("decode base64: %w", err)
+func result(b64 answer.Base64, format string, asked map[string]any) (jobs.Result, error) {
+	if b64.Err != nil {
+		return jobs.Result{}, b64.Err
 	}
+	data := b64.Data
 	if len(data) == 0 {
 		return jobs.Result{}, errors.New("an empty image")
 	}

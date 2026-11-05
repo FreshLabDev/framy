@@ -4,7 +4,6 @@ package gemini
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -162,24 +161,17 @@ func final(c jobs.Class) bool {
 	return true
 }
 
-// video decodes one video of the answer, or downloads it when Google gave a
-// link instead.
+// video is one video of the answer, decoded as the answer was read, or
+// downloaded when Google gave a link instead.
 func (p *Provider) video(ctx context.Context, key string, b block) (jobs.Result, error) {
-	if b.Data == "" {
-		if b.URI == "" {
-			return jobs.Result{}, &jobs.Error{Class: jobs.ProviderFailed, Err: errors.New("a video with no data")}
-		}
-		return p.download(ctx, key, b.URI)
-	}
-	if int64(base64.StdEncoding.DecodedLen(len(b.Data))) > p.cfg.MaxVideo+2 {
-		return jobs.Result{}, &tooLargeError{what: "the video", limit: p.cfg.MaxVideo}
-	}
-	data, err := base64.StdEncoding.DecodeString(b.Data)
+	data := b.Data.Data
 	switch {
-	case err != nil:
-		return jobs.Result{}, &jobs.Error{Class: jobs.ProviderFailed, Err: fmt.Errorf("decode base64: %w", err)}
+	case b.Data.Err != nil:
+		return jobs.Result{}, &jobs.Error{Class: jobs.ProviderFailed, Err: b.Data.Err}
+	case len(data) == 0 && b.URI != "":
+		return p.download(ctx, key, b.URI)
 	case len(data) == 0:
-		return jobs.Result{}, &jobs.Error{Class: jobs.ProviderFailed, Err: errors.New("an empty video")}
+		return jobs.Result{}, &jobs.Error{Class: jobs.ProviderFailed, Err: errors.New("a video with no data")}
 	case int64(len(data)) > p.cfg.MaxVideo:
 		return jobs.Result{}, &tooLargeError{what: "the video", limit: p.cfg.MaxVideo}
 	}

@@ -2,6 +2,7 @@
 package openai
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -12,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -720,6 +722,33 @@ func TestTheAnswerIsReadCarefully(t *testing.T) {
 			t.Errorf("%v", err)
 		}
 	})
+}
+
+// Ten 4K images make an answer of 300 MB, and four workers may read one each:
+// the answer is read one image at a time, never held whole beside its
+// strings and its bytes.
+func TestALargeAnswerIsReadAnImageAtATime(t *testing.T) {
+	const n, size = 6, 3 << 20
+	files := make([][]byte, n)
+	for i := range files {
+		files[i] = append(append([]byte{}, png...), bytes.Repeat([]byte{byte(i)}, size-len(png))...)
+	}
+	body := images(10, 0, 100, files...)
+	p, _ := serve(t, reply(200, body))
+	j := job(t, medium())
+
+	runtime.GC()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	sub, err := p.Submit(context.Background(), j)
+	runtime.ReadMemStats(&after)
+	if err != nil || len(sub.Outcome.Results) != n || sub.Outcome.CostUSD == nil {
+		t.Fatalf("outcome %+v, %v", sub.Outcome, err)
+	}
+	spent := int64(after.TotalAlloc-before.TotalAlloc) - n*size
+	if spent > int64(len(body)) {
+		t.Errorf("a %d MiB answer allocated %d MiB beside its images", len(body)>>20, spent>>20)
+	}
 }
 
 func TestTheCostIsEachKindOfTokenAtItsOwnRate(t *testing.T) {
