@@ -20,10 +20,12 @@ these counts as a vulnerability:
 - a way to spend the free allowance past its limits, or framy's own key outside
   the free allowance.
 
-Use GitHub's private vulnerability reporting for `FreshLabDev/framy`. If it is
-not available, contact an Asterfield maintainer privately through an existing
-trusted channel and include only the minimum reproduction details needed to
-investigate.
+Report it privately through GitHub:
+[Security → Report a vulnerability](https://github.com/FreshLabDev/framy/security/advisories/new)
+on `FreshLabDev/framy`. Only you and the maintainers see the report. If the
+form does not open for you, open an issue titled "Security contact" with no
+details in it, and a maintainer will reach you privately. Include only the
+minimum reproduction details needed to investigate.
 
 We will acknowledge a report, assess affected versions, coordinate a fix, and
 publish an advisory when disclosure is safe.
