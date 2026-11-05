@@ -344,7 +344,7 @@ func stoppedText(run db.ChatRun) string {
 }
 
 // halt cancels a queued job, or lets a running one end in the person's
-// history without the chat, since a request already sent is paid for. The
+// library without the chat, since a request already sent is paid for. The
 // loop goes either way, but for a job that ended as Stop was pressed: its
 // result, paid for already, or its error card takes the loop's place at the
 // next round, as if Stop had come a moment later. It tells whether the job

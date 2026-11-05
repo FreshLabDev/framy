@@ -569,7 +569,7 @@ func TestStopARunningJob(t *testing.T) {
 		{"free image", true, catalog.Offer{ID: "openrouter:mai/image", Provider: catalog.OpenRouter, Kind: catalog.Image}, i18n.T("en", "run.stopped_image")},
 		{"free video", true, catalog.Offer{ID: "openrouter:wan/video", Provider: catalog.OpenRouter, Kind: catalog.Video}, i18n.T("en", "run.stopped_video")},
 		{"own key", false, catalog.Offer{ID: "gemini:gemini-3-pro-image", Provider: catalog.Gemini, Kind: catalog.Image},
-			"The model had already started, so the run goes on and your Google Gemini key pays for it. The result goes to your history on the site, not to the chat."},
+			"The model had already started, so the run goes on and your Google Gemini key pays for it. The result goes to your library on the site, not to the chat."},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			h := newHarness(t)

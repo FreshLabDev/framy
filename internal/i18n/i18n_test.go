@@ -460,3 +460,17 @@ func TestNoSettingValueReadsAsFree(t *testing.T) {
 		}
 	}
 }
+
+// The site keeps a person's runs under the Library tab. A line of the bot
+// that sends them to their "history" on the site sends them to a page the
+// site does not have.
+func TestTheBotNamesTheLibraryAsTheSiteDoes(t *testing.T) {
+	if got := T("en", "web.tab.library"); got != "Library" {
+		t.Fatalf("the tab is %q now: say it so in the bot's lines too", got)
+	}
+	for _, key := range Keys() {
+		if !strings.HasPrefix(key, "web.") && strings.Contains(strings.ToLower(T("en", key)), "history") {
+			t.Errorf("%s sends the person to a history: %q", key, T("en", key))
+		}
+	}
+}

@@ -305,7 +305,7 @@ func (f *Flow) guestEnd(ctx context.Context, run db.ChatRun) {
 
 // guestDeliver puts the result on the answer: a picture as a JPEG framy
 // makes, a video as it is kept. What Telegram cannot fetch, or will not
-// show, stays in the person's history, and the answer says where.
+// show, stays in the person's library on the site, and the answer says where.
 func (f *Flow) guestDeliver(ctx context.Context, run db.ChatRun, a storage.Asset) {
 	caption := resultCaption(run.Prompt, run.Model)
 	var item tg.InputMedia

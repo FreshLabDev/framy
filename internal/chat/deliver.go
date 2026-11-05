@@ -809,7 +809,7 @@ func (f *Flow) finish(ctx context.Context, run db.ChatRun, stage string, res db.
 // the chat, and tells whether the run ends now. A refusal (refused) would be
 // the same every time: the bot was removed or blocked, it may not post
 // there, or the chat or the topic is gone. So the run ends at once, and the
-// person has the result in their history on the site; before, it was sent
+// person has the result in their library on the site; before, it was sent
 // again every round for good, the file read and the video readied each
 // time. Telegram asking to wait is the chat's hold (telegram.go), and a
 // stop is no failure. Anything else is tried again later, retryFirst after
@@ -839,7 +839,7 @@ func (f *Flow) giveUp(ctx context.Context, run db.ChatRun, what string, err erro
 }
 
 // undelivered ends a run whose result the chat will not get. Where the
-// loop can still be changed, it says the result is in the person's history
+// loop can still be changed, it says the result is in the person's library
 // and loses its Stop; in a chat the bot was removed from it stays as it
 // was, and nothing more is sent there.
 func (f *Flow) undelivered(ctx context.Context, run db.ChatRun) {
