@@ -28,7 +28,7 @@ import (
 // how it went.
 const (
 	// DefaultVideoSlots is how many clips are worked on at once: ffmpeg
-	// takes every core it gets for one.
+	// takes four threads for one (internal/media), the CPUs framy has.
 	DefaultVideoSlots = 2
 	// maxVideoTasks is how many clips may wait or be worked on at once,
 	// everyone's, and maxPersonVideoTasks one person's.

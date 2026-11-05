@@ -78,10 +78,10 @@ func (c *Converter) Join(ctx context.Context, dir string, upTo float64) (v Video
 	out := filepath.Join(dir, "joined.mp4")
 	pixels := strconv.FormatInt(c.maxPixels(), 10)
 	args := []string{"-hide_banner", "-nostdin", "-v", "error",
-		"-protocol_whitelist", "file", "-max_pixels", pixels, "-f", a.demuxer, "-i", "file:" + first,
-		"-protocol_whitelist", "file", "-max_pixels", pixels, "-f", b.demuxer, "-i", "file:" + next,
+		"-protocol_whitelist", "file", "-max_pixels", pixels, "-threads", clipThreads, "-f", a.demuxer, "-i", "file:" + first,
+		"-protocol_whitelist", "file", "-max_pixels", pixels, "-threads", clipThreads, "-f", b.demuxer, "-i", "file:" + next,
 		"-filter_complex", strings.Join(graph, ";"), "-map", "[v]",
-		"-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
+		"-threads", clipThreads, "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
 		"-preset", "veryfast", "-crf", "20", "-maxrate", maxBitrate, "-bufsize", "16M",
 		"-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709"}
 	if sound {

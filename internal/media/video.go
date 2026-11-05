@@ -421,9 +421,9 @@ func (c *Converter) NormalizeVideo(ctx context.Context, dir string, cut *Cut) (V
 			args = append(args, "-ss", seconds(start), "-t", seconds(length))
 		}
 		args = append(args, "-max_pixels", strconv.FormatInt(c.maxPixels(), 10),
-			"-f", k.demuxer, "-i", "file:"+in, "-map", video,
+			"-threads", clipThreads, "-f", k.demuxer, "-i", "file:"+in, "-map", video,
 			"-vf", c.videoFilters(ctx, k, "yuv420p"),
-			"-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
+			"-threads", clipThreads, "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
 			"-preset", "veryfast", "-crf", "20", "-maxrate", maxBitrate, "-bufsize", "16M")
 		if k.hdr() {
 			args = append(args, "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709")
@@ -582,7 +582,7 @@ func (c *Converter) readClip(ctx context.Context, in string) (clip, error) {
 func (c *Converter) still(ctx context.Context, k clip, in, out string, seek, limit []string) error {
 	args := append([]string{"-hide_banner", "-nostdin", "-v", "error", "-protocol_whitelist", "file"}, seek...)
 	args = append(args, "-max_pixels", strconv.FormatInt(c.maxPixels(), 10),
-		"-f", k.demuxer, "-i", "file:"+in, "-map", "0:"+strconv.Itoa(k.videoIndex),
+		"-threads", clipThreads, "-f", k.demuxer, "-i", "file:"+in, "-map", "0:"+strconv.Itoa(k.videoIndex),
 		"-vf", c.videoFilters(ctx, k, "rgb24"), "-map_metadata", "-1")
 	args = append(args, limit...)
 	args = append(args, "-c:v", "png", "-f", "image2", "-update", "1", "-y", "file:"+out)

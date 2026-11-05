@@ -32,6 +32,20 @@ const (
 	DefaultTimeout  = time.Minute
 )
 
+// Threads. ffmpeg gives every decoder and encoder a thread per core, and a
+// HEIC or an AVIF is a grid of tiles with a decoder each: a 12 MP photo
+// from an iPhone, 48 tiles, started over 400 threads on ten cores, more
+// than the container's pids_limit allows, and was no faster for them. The
+// tiles of a picture are decoded on one thread each, which already keeps
+// several cores busy, and a clip is decoded and encoded on four, the CPUs
+// the stacks give framy (deploy/ws04/compose.yaml). A sound needs no more
+// than one: a FLAC's decoder would take a thread per core too.
+const (
+	pictureThreads = "1"
+	clipThreads    = "4"
+	soundThreads   = "1"
+)
+
 var (
 	// ErrUnsupported: not a JPEG, PNG, WebP, HEIC or AVIF.
 	ErrUnsupported = errors.New("not an image framy takes")
@@ -172,6 +186,7 @@ func (c *Converter) Normalize(ctx context.Context, dir string) (Image, error) {
 		"-hide_banner", "-nostdin", "-v", "error",
 		"-protocol_whitelist", "file",
 		"-max_pixels", strconv.FormatInt(c.maxPixels(), 10),
+		"-threads", pictureThreads,
 		"-f", demuxer[h.format], "-i", "file:" + in,
 		"-filter_complex", p.input + c.filters(h.p3) + "[v]", "-map", "[v]",
 		"-map_metadata", "-1", "-frames:v", "1",

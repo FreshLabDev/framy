@@ -157,8 +157,8 @@ func TestFFmpegRunsWithNothingAndReadsOnlyThePipe(t *testing.T) {
 	for _, want := range [][]string{
 		{"-protocol_whitelist", "pipe", "-f", "rawvideo"}, // before the only input
 		{"-i", "pipe:0"},
-		{"-an"}, // a loop with a sound track is a video to Telegram, not a GIF
-		{"-c:v", "libx264"},
+		{"-an"},                              // a loop with a sound track is a video to Telegram, not a GIF
+		{"-c:v", "libx264", "-threads", "4"}, // not a thread and a half per core of the host
 		{"-pix_fmt", "yuv420p"},
 		{"-movflags", "+faststart"},
 		{"-f", "mp4", out + ".part"},
