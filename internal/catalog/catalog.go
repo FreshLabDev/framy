@@ -121,7 +121,12 @@ type Price struct {
 type Route struct {
 	// Provider is OpenRouter's slug of the upstream, such as
 	// "google-ai-studio"; empty for a direct provider and for video.
-	Provider    string           `json:"provider,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	// Upstream is the tag of a video model's one upstream at OpenRouter,
+	// such as "google-vertex": the key its own options go under
+	// (provider.options.<tag>). Empty when it has several or they were not
+	// read, and for an image route, whose Provider is that key.
+	Upstream    string           `json:"upstream,omitempty"`
 	Params      map[string]Param `json:"params,omitempty"`
 	Passthrough []string         `json:"passthrough,omitempty"`
 	Prices      []Price          `json:"prices,omitempty"`

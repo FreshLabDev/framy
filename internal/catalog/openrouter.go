@@ -193,6 +193,7 @@ func (s *OpenRouterSource) Fetch(ctx context.Context) (Upstream, error) {
 			InputModalities: meta[m.ID].Architecture.InputModalities,
 			Params:          m.params(),
 			Routes: d.apply([]Route{{
+				Upstream:    d.only(),
 				Passthrough: m.PassthroughParameter,
 				SKUs:        m.PricingSKUs,
 			}}),
@@ -297,6 +298,19 @@ func (s *OpenRouterSource) endpoints(ctx context.Context, images []orImageModel)
 // discount is what /models/{id}/endpoints says of one model: the discount of
 // each upstream, by its tag.
 type discount map[string]float64
+
+// only is the tag of a model's one upstream, "" when it has several or the
+// answer was not read. A video model's own options go under it
+// (provider.options.<slug>), as an image route's go under its provider slug.
+func (d discount) only() string {
+	if len(d) != 1 {
+		return ""
+	}
+	for tag := range d {
+		return tag
+	}
+	return ""
+}
 
 // apply puts the discount on routes. An image route takes its upstream's,
 // by the tag that is its provider slug. A route the answer does not name,

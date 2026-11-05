@@ -112,6 +112,37 @@ func TestTheVideoRequestCarriesTheSettingsAndTheFiles(t *testing.T) {
 	}
 }
 
+// A model's own setting goes under its one upstream, which the catalog
+// names: Veo's one level down, in parameters, as OpenRouter documents for
+// Veo alone; another model on the same upstream takes it directly.
+func TestAVideoPassThroughGoesUnderItsUpstream(t *testing.T) {
+	for _, tc := range []struct {
+		model, upstream string
+		settings        map[string]any
+		want            string
+	}{
+		{"test/video", "atlas-cloud", map[string]any{"negative_prompt": "blur, text", "seed": 42.0},
+			`{"model":"test/video","prompt":"a fox in the snow","provider":{"options":{"atlas-cloud":{"negative_prompt":"blur, text"}}},"seed":42}`},
+		{"google/veo-3.1", "google-vertex", map[string]any{"negative_prompt": "watermark"},
+			`{"model":"google/veo-3.1","prompt":"a fox in the snow","provider":{"options":{"google-vertex":{"parameters":{"negative_prompt":"watermark"}}}}}`},
+		{"google/gemini-omni-1.2-flash", "google-vertex", map[string]any{"negative_prompt": "watermark"},
+			`{"model":"google/gemini-omni-1.2-flash","prompt":"a fox in the snow","provider":{"options":{"google-vertex":{"negative_prompt":"watermark"}}}}`},
+		// A blank negative prompt says nothing and is not sent.
+		{"test/video", "atlas-cloud", map[string]any{"negative_prompt": "  "}, `{"model":"test/video","prompt":"a fox in the snow"}`},
+	} {
+		j := videoJobOf(tc.settings)
+		j.Offer.ProviderModelID = tc.model
+		j.Offer.Routes[0].Upstream = tc.upstream
+		body, err := videoRequest(j, "")
+		if err != nil {
+			t.Fatalf("%s: %v", tc.model, err)
+		}
+		if got := bodyJSON(t, body); got != tc.want {
+			t.Errorf("%s\n got %s\nwant %s", tc.model, got, tc.want)
+		}
+	}
+}
+
 // A person's id never leaves framy in a video request: the Videos API
 // documents no user field.
 func TestAVideoRequestHasNoUserAndNoProviderPreferences(t *testing.T) {

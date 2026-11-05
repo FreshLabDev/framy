@@ -57,10 +57,22 @@ const (
 	previousSetting = "previous_job_id"
 )
 
+// nested is the object a model's own options go in under its upstream's
+// tag: "Google Veo models are the only video models that nest options in a
+// parameters object. Other video models, including other Google video
+// models, take their allowed passthrough keys directly" (OpenRouter, Video
+// Generation). So it follows the model, not the upstream, which Veo shares.
+func nested(model string) string {
+	if strings.HasPrefix(model, "google/veo-") {
+		return "parameters"
+	}
+	return ""
+}
+
 // videoRequest builds the body of POST /videos. What framy can tell is wrong
 // comes back as refused, so nothing is paid for it. A pass-through setting
-// (a negative prompt, say) is refused too: it goes under
-// provider.options.<slug>, and the video catalog names no slug.
+// (a negative prompt, say) goes under provider.options.<tag> of the model's
+// one upstream, which the catalog names; without it the run is refused.
 func videoRequest(j jobs.Job, callbackURL string) (map[string]any, error) {
 	of := j.Offer
 	if of.ProviderModelID == "" {
@@ -75,6 +87,7 @@ func videoRequest(j jobs.Job, callbackURL string) (map[string]any, error) {
 	}
 
 	var frames []string
+	own := map[string]any{}
 	for _, name := range slices.Sorted(maps.Keys(j.Settings)) {
 		v := j.Settings[name]
 		switch {
@@ -97,13 +110,31 @@ func videoRequest(j jobs.Job, callbackURL string) (map[string]any, error) {
 			switch {
 			case !ok:
 				return nil, refused("%s is not a setting of %s", name, of.ID)
-			case p.Passthrough:
-				return nil, refused("%s is a setting of the model's own provider, which framy cannot address yet", name)
 			case !accepts(name, p, v):
 				return nil, refused("%s=%v is not allowed for %s", name, v, of.ID)
+			case p.Passthrough:
+				// A blank text says nothing; it is not sent.
+				if s, ok := v.(string); !ok || strings.TrimSpace(s) != "" {
+					own[name] = normalize(name, v)
+				}
+				continue
 			}
 			body[name] = normalize(name, v)
 		}
+	}
+	if len(own) > 0 {
+		upstream := ""
+		if len(of.Routes) == 1 {
+			upstream = of.Routes[0].Upstream
+		}
+		if upstream == "" {
+			return nil, refused("%s is a setting of the model's own provider, and the catalog does not say which provider runs %s", slices.Sorted(maps.Keys(own))[0], of.ID)
+		}
+		var options any = own
+		if key := nested(of.ProviderModelID); key != "" {
+			options = map[string]any{key: own}
+		}
+		body["provider"] = map[string]any{"options": map[string]any{upstream: options}}
 	}
 	if _, bySize := body["size"]; bySize {
 		for _, other := range []string{"resolution", "aspect_ratio"} {

@@ -246,8 +246,8 @@ The other controls:
 - **Duration.** Chips for discrete sets such as Veo's 4, 6 and 8 s (8 s alone while References hold a picture), a slider for ranges such as Wan's 2–30 s.
 - **Resolution and aspect ratio.**
 - **Sound,** with the price difference next to the toggle where it changes the price: Veo, Kling, Seedance 1.5.
-- **Seed.**
-- **Negative prompt,** where the model takes it as a pass-through: Veo, Kling, Wan 2.6 and 2.7.
+- **Seed,** where the model lists one: Veo, Seedance, Wan, HappyHorse, HeyGen, Runway and mischief 1 on 5 November. The API takes it as a whole number and the adapter sends it; the composer does not draw it yet.
+- **Negative prompt,** where the model takes it as a pass-through: Veo, Kling, Wan 2.6 and 2.7. The API takes it and the adapter sends it under `provider.options` (OpenRouter video, below); the composer does not draw it yet.
 
 Omni has no duration control. It says "length chosen by the model, 3 to 10 s", and its price is "up to"; extending a clip may bill the whole result, so the most is the source's length plus 10 s. The adapter can send `response_format.duration` ("6s"), but the catalog lists no `duration` until a run shows that Google keeps to it, since an ignored length would make an exact price wrong.
 
@@ -511,7 +511,7 @@ The moderation's reasons and the provider's name go into the job's error; the fl
 
 **OpenRouter video** (`internal/providers/openrouter`, `video.go` and `hook.go`). `POST /api/v1/videos` answers 202 with a job id. The settings go as fields of the request and are checked against the offer's parameters before anything is paid:
 - a file is a frame or a reference. The `frame_images` setting lists the frame type of each of the job's first files (`["first_frame"]`, `["first_frame", "last_frame"]`), and the other files go in `input_references` as `image_url`, `video_url` or `audio_url`. OpenRouter keeps the frames and drops the references when both come, so a run with both is refused. The free plans of a video from a start frame (`internal/free`) set `frame_images` themselves, since a photo sent as a reference is priced apart: HeyGen's 768p is $0.10 a second that way and $0.036 as a start frame;
-- `size` replaces `resolution` and `aspect_ratio`. A pass-through setting such as a negative prompt is refused, since the video catalog names no provider to put it under. No `user` is sent: the Videos API documents none;
+- `size` replaces `resolution` and `aspect_ratio`. A pass-through setting such as a negative prompt goes under `provider.options.<tag>`, the tag of the model's one upstream, which the hourly sync reads from `/models/{id}/endpoints` (`google-vertex` for Veo, `atlas-cloud` for Kling and Wan); Veo's go one level down, in `parameters`, as OpenRouter documents for Veo alone. A blank one is not sent, and a model whose upstream is unknown or not alone refuses it before anything is paid. No `user` is sent: the Videos API documents none;
 - `completed` is the downloaded results with `usage.cost`; `failed` is `sound` when the provider refused the sound the model made (Seedance 2.0 Mini with sound on, 31 October: no usage, and the same run without sound went through), `moderation` when its text names a content filter and `provider` otherwise; `cancelled` is `provider` and `expired` is `timeout`. A status framy does not know is a run still going, and the hour's deadline ends it. A GET that answers 404 or 400 says nothing about a run that may be paid and finishing, so it is asked again;
 - results come from `/videos/{id}/content?index=N` with the key, never from the URLs in the job object: unsigned ones need a key that must go only to OpenRouter, and signed ones are secrets. The download goes through `safehttp`, the key is dropped on a redirect to another host, and a link never reaches an error. A video above `MaxResponse` ends the run as `storage` with its cost kept.
 

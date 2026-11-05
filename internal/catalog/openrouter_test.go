@@ -232,6 +232,14 @@ func TestFetchReadsDiscounts(t *testing.T) {
 	if heygen.Routes[0].Discount != 0.5 {
 		t.Fatalf("heygen discount = %v, want 0.5", heygen.Routes[0].Discount)
 	}
+	// A video model's one upstream names its route, so its own options can
+	// be addressed; one whose upstreams were not read stays unnamed.
+	if r := heygen.Routes[0]; r.Upstream != "heygen" || r.Provider != "" {
+		t.Errorf("heygen's route is %+v", r)
+	}
+	if u := offerByID(t, up.Offers, "openrouter:google/veo-3.1").Routes[0].Upstream; u != "" {
+		t.Errorf("veo's unread route is under %q", u)
+	}
 	flash := offerByID(t, up.Offers, "openrouter:google/gemini-3.1-flash-image")
 	got := map[string]float64{}
 	for _, r := range flash.Routes {
