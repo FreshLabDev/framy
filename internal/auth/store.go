@@ -50,25 +50,38 @@ type Sessions interface {
 
 // PGSessions keeps sessions in framy.session. The pool's search_path is
 // framy, as everywhere in the service.
-type PGSessions struct{ pool *pgxpool.Pool }
+//
+// Production and the test bot share the table (docs/design.md, Stacks),
+// and a session works only on the stack that made it: a cookie or a token
+// of the test bot, which runs code not yet released, signs nobody in on
+// production. Ending a person's sessions ends them on every stack: the
+// person is one.
+type PGSessions struct {
+	pool  *pgxpool.Pool
+	stack string
+}
 
-// NewPGSessions keeps sessions in the pool's database.
-func NewPGSessions(pool *pgxpool.Pool) *PGSessions { return &PGSessions{pool: pool} }
+// NewPGSessions keeps the sessions of stack (FRAMY_STACK, "" for
+// production) in the pool's database.
+func NewPGSessions(pool *pgxpool.Pool, stack string) *PGSessions {
+	return &PGSessions{pool: pool, stack: stack}
+}
 
 // Create implements Sessions.
 func (p *PGSessions) Create(ctx context.Context, s Session) error {
 	_, err := p.pool.Exec(ctx,
-		`INSERT INTO session (token_hash, user_id, kind, created_at, expires_at) VALUES ($1, $2, $3, $4, $5)`,
-		s.Hash[:], s.UserID, string(s.Kind), s.Created, s.Expires)
+		`INSERT INTO session (token_hash, user_id, kind, created_at, expires_at, stack) VALUES ($1, $2, $3, $4, $5, $6)`,
+		s.Hash[:], s.UserID, string(s.Kind), s.Created, s.Expires, p.stack)
 	return err
 }
 
-// Lookup implements Sessions with one query on the primary key.
+// Lookup implements Sessions with one query on the primary key. A session
+// of another stack is not found.
 func (p *PGSessions) Lookup(ctx context.Context, hash [32]byte, kind Kind, now time.Time) (Session, bool, error) {
 	s := Session{Hash: hash, Kind: kind}
 	err := p.pool.QueryRow(ctx,
-		`SELECT user_id, created_at, expires_at FROM session WHERE token_hash = $1 AND kind = $2 AND expires_at > $3`,
-		hash[:], string(kind), now).Scan(&s.UserID, &s.Created, &s.Expires)
+		`SELECT user_id, created_at, expires_at FROM session WHERE token_hash = $1 AND kind = $2 AND expires_at > $3 AND stack = $4`,
+		hash[:], string(kind), now, p.stack).Scan(&s.UserID, &s.Created, &s.Expires)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return Session{}, false, nil

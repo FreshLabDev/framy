@@ -77,7 +77,7 @@ func testStore(t *testing.T) *db.Store {
 func TestPGSessions(t *testing.T) {
 	ctx := context.Background()
 	store := testStore(t)
-	sessions := NewPGSessions(store.Pool())
+	sessions := NewPGSessions(store.Pool(), "")
 	for _, id := range []int64{pgAnn, pgBob} {
 		if err := store.Touch(ctx, tg.User{ID: id, FirstName: "P"}, nil); err != nil {
 			t.Fatal(err)
@@ -152,12 +152,56 @@ func TestPGSessions(t *testing.T) {
 	}
 }
 
+// A session works only on the stack that made it, and ending a person's
+// sessions ends them on both.
+func TestPGSessionsStayOnTheirStack(t *testing.T) {
+	ctx := context.Background()
+	store := testStore(t)
+	prod, test := NewPGSessions(store.Pool(), ""), NewPGSessions(store.Pool(), "test")
+	if err := store.Touch(ctx, tg.User{ID: pgAnn, FirstName: "P"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Truncate(time.Second)
+	mk := func(secret string) Session {
+		return Session{Hash: sha256.Sum256([]byte(secret)), UserID: pgAnn, Kind: KindMiniApp, Created: now, Expires: now.Add(time.Hour)}
+	}
+	ofTest, ofProd := mk("of test"), mk("of production")
+	if err := test.Create(ctx, ofTest); err != nil {
+		t.Fatal(err)
+	}
+	if err := prod.Create(ctx, ofProd); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name  string
+		store *PGSessions
+		s     Session
+		found bool
+	}{
+		{"the test bot's on the test bot", test, ofTest, true},
+		{"the test bot's on production", prod, ofTest, false},
+		{"production's on production", prod, ofProd, true},
+		{"production's on the test bot", test, ofProd, false},
+	} {
+		if _, ok, err := c.store.Lookup(ctx, c.s.Hash, KindMiniApp, now); err != nil || ok != c.found {
+			t.Errorf("%s: found %v, %v", c.name, ok, err)
+		}
+	}
+	var stack string
+	if err := store.Pool().QueryRow(ctx, `SELECT stack FROM framy.session WHERE token_hash = $1`, ofTest.Hash[:]).Scan(&stack); err != nil || stack != "test" {
+		t.Errorf("the test bot's session is of %q, %v", stack, err)
+	}
+	if n, err := prod.DeleteUser(ctx, pgAnn); err != nil || n != 2 {
+		t.Errorf("DeleteUser = %d, %v", n, err)
+	}
+}
+
 // The site and the bot are one account, and what the database holds of a
 // session is a hash.
 func TestPGSignInEndToEnd(t *testing.T) {
 	ctx := context.Background()
 	store := testStore(t)
-	h := newHarness(t, withSessions(NewPGSessions(store.Pool())), withPeople(store))
+	h := newHarness(t, withSessions(NewPGSessions(store.Pool(), "")), withPeople(store))
 
 	// Ann has talked to the bot: core has her names.
 	if err := store.Touch(ctx, tg.User{ID: pgAnn, FirstName: "Ann", LastName: "Lee", Username: "ann_lee", LanguageCode: "en"}, nil); err != nil {
@@ -212,12 +256,13 @@ func TestPGSignInEndToEnd(t *testing.T) {
 		cols[c] = true
 	}
 	rows.Close()
-	for _, want := range []string{"token_hash", "user_id", "kind", "created_at", "expires_at"} {
+	// stack names the bot that made the session (migration 032).
+	for _, want := range []string{"token_hash", "user_id", "kind", "created_at", "expires_at", "stack"} {
 		if !cols[want] {
 			t.Errorf("column %s is missing from %v", want, cols)
 		}
 	}
-	if len(cols) != 5 {
+	if len(cols) != 6 {
 		t.Errorf("columns = %v: a new column may hold something it should not", cols)
 	}
 
@@ -255,7 +300,7 @@ func TestPGSignInEndToEnd(t *testing.T) {
 func TestPGNewPersonSignsInOnTheSite(t *testing.T) {
 	ctx := context.Background()
 	store := testStore(t)
-	h := newHarness(t, withSessions(NewPGSessions(store.Pool())), withPeople(store))
+	h := newHarness(t, withSessions(NewPGSessions(store.Pool(), "")), withPeople(store))
 	h.idp.userID, h.idp.name, h.idp.username = pgNew, "Nina", "nina_n"
 	b := h.browser()
 	b.signIn("")
@@ -282,7 +327,7 @@ func TestPGNewPersonSignsInOnTheSite(t *testing.T) {
 func TestPGMiniAppTokenExpiresAndIsSwept(t *testing.T) {
 	ctx := context.Background()
 	store := testStore(t)
-	h := newHarness(t, withSessions(NewPGSessions(store.Pool())), withPeople(store))
+	h := newHarness(t, withSessions(NewPGSessions(store.Pool(), "")), withPeople(store))
 	app := h.browser()
 	h.mini(app, signInitData(testBotToken, miniAppFields(h.clock.Now(), pgBob)), http.StatusOK)
 	if _, ok := app.signedIn(); !ok {

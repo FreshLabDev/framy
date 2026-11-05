@@ -217,7 +217,7 @@ func run(log *slog.Logger) error {
 		ClientSecret: cfg.TelegramLogin.ClientSecret,
 		SiteURL:      cfg.SiteURL,
 		BotToken:     cfg.TelegramBotToken,
-		Sessions:     auth.NewPGSessions(store.Pool()),
+		Sessions:     auth.NewPGSessions(store.Pool(), cfg.Stack),
 		People:       store,
 		Log:          log.With("component", "auth"),
 	})

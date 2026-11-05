@@ -14,12 +14,13 @@
 # It shares the R2 bucket and the object keys with production (no R2_PREFIX):
 # both read every person's files. It talks to the cloud Bot API.
 #
-# Until there is a release to pin, the image is built on the host from a
-# commit of dev:
-#   git -C <checkout> checkout <commit>
-#   docker build -t framy:test-<commit> --build-arg VERSION=dev-<commit> \
-#     --build-arg COMMIT=<commit> <checkout>
-# and FRAMY_IMAGE in .env names it.
+# With production's KEK, R2 token and database role, whatever it runs acts on
+# production's data (docs/design.md, Stacks). So the image is pulled, never
+# built here: FRAMY_IMAGE names a published pre-release of dev, which passed
+# CI before it was published (docs/releases.md), by its digest:
+#   FRAMY_IMAGE=ghcr.io/freshlabdev/framy@sha256:<digest>
+# Its sessions are its own: a cookie or a token of the test bot signs nobody
+# in on production.
 #
 # .env holds FRAMY_IMAGE, FRAMY_CORE_PASSWORD (the same as production's and
 # core's), R2_ACCOUNT_ID and TRUSTED_PROXIES. The files in secrets/ belong to
@@ -44,8 +45,7 @@ name: framy-test
 
 services:
   bot:
-    image: ${FRAMY_IMAGE:?FRAMY_IMAGE is required}
-    pull_policy: never
+    image: ${FRAMY_IMAGE:?FRAMY_IMAGE must be an immutable GHCR reference}
     container_name: framy-test-bot
     restart: unless-stopped
     # Longer than JOBS_STOP_GRACE (3m30s): a stop waits for runs in progress.
