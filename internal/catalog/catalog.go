@@ -285,6 +285,19 @@ type PriceHints struct {
 	// FLUX.2 Pro's input megapixels. The estimate adds each to a route that
 	// lists prices but no line of that billable and unit.
 	Unlisted []Price `json:"unlisted,omitempty" yaml:"unlisted"`
+	// Long says when a video model's long_* SKUs apply, which their names
+	// do not: HeyGen Video's are "Video Output (over 15 s)" on OpenRouter's
+	// page. Without it a long SKU stays a maybe.
+	Long *LongRate `json:"long,omitempty" yaml:"long"`
+}
+
+// LongRate is when a video is billed at its long rate.
+type LongRate struct {
+	// AfterSeconds is the length past which the long rate applies.
+	AfterSeconds float64 `json:"after_seconds" yaml:"after_seconds"`
+	// Undiscounted: OpenRouter's discount leaves the long rate out, as the
+	// model's page marks it.
+	Undiscounted bool `json:"undiscounted,omitempty" yaml:"undiscounted"`
 }
 
 // Traits is what the overlay knows about a model and no API says.

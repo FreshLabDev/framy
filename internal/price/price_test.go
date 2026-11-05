@@ -218,6 +218,53 @@ func TestEstimates(t *testing.T) {
 	}
 }
 
+// HeyGen Video bills a video over 15 s at its long SKUs, which OpenRouter's
+// page calls "Video Output (over 15 s)" and leaves out of the 50% discount.
+// Whether the long rate is for the seconds past 15 or for the whole video,
+// no run has shown: the likely price takes the first, the most the dearer.
+func TestHeyGenPastFifteenSeconds(t *testing.T) {
+	m, of := offer(t, "openrouter:heygen/heygen-video-1")
+	of.Routes = slices.Clone(of.Routes)
+	of.Routes[0].Discount = 0.5
+	for _, tc := range []struct {
+		name     string
+		req      Request
+		usd, max float64
+		list     float64
+		kind     Kind
+	}{
+		// Check 13: 5 s of 768p was billed $0.09. The long SKU is for longer
+		// videos only, so it no longer makes this a range.
+		{"5 s", Request{Settings: set{"resolution": "768p", "duration": 5}}, 0.09, 0.09, 0.18, Exact},
+		{"15 s", Request{Settings: set{"resolution": "768p", "duration": 15}}, 0.27, 0.27, 0.54, Exact},
+		{"20 s", Request{Settings: set{"resolution": "768p", "duration": 20}}, 0.27 + 5*0.075, 20 * 0.075, 0.54 + 5*0.075, UpTo},
+		{"30 s at 1080p", Request{Settings: set{"resolution": "1080p", "duration": 30}}, 0.75 + 15*0.105, 30 * 0.105, 1.5 + 15*0.105, UpTo},
+		// A reference clip is billed at the plain reference rate beside the
+		// output, as below 15 s.
+		{"20 s with a clip", Request{Settings: set{"resolution": "480p", "duration": 20}, Video: &Video{Seconds: 5, Width: 1280, Height: 720}}, (15+5)*0.035 + 5*0.045, 20*0.045 + 5*0.035, (15+5)*0.07 + 5*0.045, UpTo},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := Of(m, of, tc.req)
+			if !near(e.USD, tc.usd) || !near(e.MaxUSD, tc.max) || !near(e.ListUSD, tc.list) || e.Kind != tc.kind {
+				t.Errorf("estimate = $%.6f up to $%.6f (listed $%.6f), %s; want $%.6f up to $%.6f (listed $%.6f), %s\nlines %+v", e.USD, e.MaxUSD, e.ListUSD, e.Kind, tc.usd, tc.max, tc.list, tc.kind, e.Lines)
+			}
+			if e.ListMaxUSD < e.MaxUSD {
+				t.Errorf("listed most $%.6f below the most $%.6f", e.ListMaxUSD, e.MaxUSD)
+			}
+		})
+	}
+
+	// Without the hint nothing says when the long SKU applies: it is a
+	// maybe, and every run is a range up to its rate.
+	bare := m
+	hints := *m.Traits.Price
+	hints.Long = nil
+	bare.Traits.Price = &hints
+	if e := Of(bare, of, Request{Settings: set{"resolution": "768p", "duration": 5}}); e.Kind != UpTo || !near(e.MaxUSD, 5*0.075*0.5) {
+		t.Errorf("without price.long = %+v", e)
+	}
+}
+
 // Seedance with a clip longer than 3 s counts the clip's frames and says it
 // is about; from words alone it stays exact.
 func TestSeedanceWithAClipCountsItsSeconds(t *testing.T) {

@@ -3,6 +3,7 @@ package api
 
 import (
 	"context"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -85,10 +86,11 @@ type estimateJSON struct {
 	Label     string  `json:"label"`
 	// RateDate is the day of the rate; absent for USD.
 	RateDate string `json:"rate_date,omitempty"`
-	// Discount is the share OpenRouter takes off the listed price, 0.15 for
-	// 15%, and the figures above are after it. ListUSD, ListAmount and
-	// ListLabel are the listed price of the figure Label speaks of, for a
-	// price shown struck through. All absent without a discount.
+	// Discount is the share OpenRouter takes off the listed price of the
+	// figure Label speaks of, 0.15 for 15%, and the figures above are after
+	// it. ListUSD, ListAmount and ListLabel are that listed price, for a
+	// price shown struck through. All absent without a discount, and where
+	// the figure is all at a rate the discount leaves out.
 	Discount   float64 `json:"discount,omitempty"`
 	ListUSD    float64 `json:"list_usd,omitempty"`
 	ListAmount float64 `json:"list_amount,omitempty"`
@@ -285,12 +287,23 @@ func estimateJSONOf(usd float64, est *price.Estimate, code string, perUSD float6
 		e.Label = fx.Format(e.Amount, code, lang)
 	}
 	if est != nil && est.Discount > 0 && kind != price.Unknown {
-		e.Discount, e.ListUSD = est.Discount, est.ListUSD
+		shown, list := usd, est.ListUSD
 		if kind == price.UpTo {
-			e.ListUSD = est.ListMaxUSD
+			shown, list = maxUSD, est.ListMaxUSD
 		}
-		e.ListAmount = e.ListUSD * perUSD
-		e.ListLabel = fx.Format(e.ListAmount, code, lang)
+		// The share off the figure shown: the route's discount, less where
+		// part of the figure is at a rate the discount leaves out, as
+		// HeyGen's past 15 s, and none where all of it is. A listed price
+		// equal to the one billed is not shown struck through.
+		off := 1 - shown/list
+		if math.Abs(off-est.Discount) < 1e-9 {
+			off = est.Discount
+		}
+		if list > 0 && off >= 0.005 {
+			e.Discount, e.ListUSD = off, list
+			e.ListAmount = e.ListUSD * perUSD
+			e.ListLabel = fx.Format(e.ListAmount, code, lang)
+		}
 	}
 	return e
 }

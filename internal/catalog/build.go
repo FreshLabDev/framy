@@ -289,6 +289,12 @@ func day(t time.Time) time.Time {
 	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 }
 
+// IsLongSKU reports whether a video SKU is for a long video only, as
+// HeyGen's long_duration_seconds_768p is (PriceHints.Long).
+func IsLongSKU(name string) bool {
+	return slices.Contains(strings.Split(name, "_"), "long")
+}
+
 // checkPrice warns when the overlay's price hints name what no offer bills or
 // offers, so a renamed variant or a new resolution shows up in the log.
 func checkPrice(model string, h PriceHints, offers []Offer, warn func(string, ...any)) {
@@ -352,6 +358,13 @@ func checkPrice(model string, h PriceHints, offers []Offer, warn func(string, ..
 		if !needed {
 			warn("model %s: price.unlisted %s per %s, but no route lists prices without it", model, u.Billable, u.Unit)
 		}
+	}
+	if h.Long != nil && !slices.ContainsFunc(offers, func(of Offer) bool {
+		return slices.ContainsFunc(of.Routes, func(r Route) bool {
+			return slices.ContainsFunc(slices.Collect(maps.Keys(r.SKUs)), IsLongSKU)
+		})
+	}) {
+		warn("model %s: price.long, but no offer has a long SKU", model)
 	}
 	for _, res := range slices.Sorted(maps.Keys(h.Sizes)) {
 		if !offered("resolution", res) {

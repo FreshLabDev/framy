@@ -563,8 +563,12 @@ models:
   heygen/heygen-video-1:
     featured: true
     free: true
-    # OpenRouter's page: "Reference Image Input (after first 2)".
-    price: {free_images: 2}
+    # OpenRouter's page: "Reference Image Input (after first 2)", and the
+    # long_* SKUs are "Video Output (over 15 s)", marked as left out of the
+    # discount.
+    price:
+      free_images: 2
+      long: {after_seconds: 15, undiscounted: true}
     references:
       image: 9
       video: 3

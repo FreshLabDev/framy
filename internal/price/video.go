@@ -44,6 +44,9 @@ type sku struct {
 	res      string
 	audio    string // "yes", "no" or ""
 	mode     string
+	// long: the rate of a video past a length the name does not give
+	// (price.long), as HeyGen's long_duration_seconds_768p.
+	long bool
 	// open are the parts of the name the parser does not know, such as
 	// "precise"; a SKU with any stays a maybe.
 	open []string
@@ -114,6 +117,8 @@ func parseSKU(name, value string) (sku, error) {
 		case p == "" || filler[p]:
 		case resolution.MatchString(p):
 			s.res = p
+		case p == "long":
+			s.long = true
 		default:
 			s.open = append(s.open, p)
 		}
@@ -137,9 +142,11 @@ func (s sku) quals() []string {
 	return q
 }
 
-// matchSKU says whether a SKU is for the request.
+// matchSKU says whether a SKU is for the request. A long SKU is for the
+// seconds past price.long, which perSecond prices on its own; without the
+// hint nothing says when it applies, so it stays a maybe.
 func (c *calc) matchSKU(s sku) (applies, contradicted bool) {
-	applies = len(s.open) == 0
+	applies = len(s.open) == 0 && !s.long
 	if s.res != "" {
 		switch res := c.resolution(); {
 		case res == "":
@@ -263,6 +270,11 @@ func (c *calc) skus(m map[string]string) {
 		if len(rows) == 0 {
 			continue
 		}
+		var long []sku
+		if q == perSecond && c.hints.Long != nil {
+			long = slices.DeleteFunc(slices.Clone(rows), func(s sku) bool { return !s.long })
+			rows = slices.DeleteFunc(rows, func(s sku) bool { return s.long })
+		}
 		chosen, hiRate, ok := c.pickSKU(rows)
 		if !ok {
 			if q != perImage {
@@ -272,6 +284,9 @@ func (c *calc) skus(m map[string]string) {
 		}
 		qLo, qHi, ok := c.skuQuantity(chosen)
 		if !ok {
+			continue
+		}
+		if len(long) > 0 && c.pastLong(chosen, hiRate, long) {
 			continue
 		}
 		c.add(chosen.name, "", unitOf[q], chosen.rate, hiRate, qLo, qHi)
@@ -328,6 +343,60 @@ func (c *calc) pickSKU(rows []sku) (chosen sku, hiRate float64, ok bool) {
 		hiRate = math.Max(hiRate, s.rate)
 	}
 	return chosen, hiRate, ok
+}
+
+// pastLong prices the seconds of a video that may run past price.long's
+// length, where the long SKU's rate takes over: HeyGen Video bills a video
+// over 15 s at "Video Output (over 15 s)", left out of the discount. It
+// reports false when the video cannot be that long, for the caller to price
+// it at the plain rate.
+//
+// Whether the long rate is for the seconds past 15 or for the whole video
+// is not known, since no run over 15 s has been made: the likely price
+// takes the seconds past it, and the most is the dearer of the two.
+func (c *calc) pastLong(plain sku, plainHi float64, rows []sku) bool {
+	after := c.hints.Long.AfterSeconds
+	sLo, sHi, ok := c.seconds()
+	if !ok || sHi <= after {
+		return false
+	}
+	long, longHi, ok := c.pickSKU(rows)
+	if !ok {
+		// No long rate for these settings: the plain one, as a guess.
+		c.about()
+		return false
+	}
+	// What the provider bills of a listed amount on the long rate.
+	kept, keep := 0.0, 1-c.discount
+	if c.hints.Long.Undiscounted {
+		kept, keep = 1, 1
+	}
+	clips := c.clipSeconds()
+	if clips > 0 {
+		c.about()
+	}
+
+	// The likely price: the plain rate up to the length, the long one past
+	// it, and the reference clips at the plain rate as below 15 s.
+	plainQ, longQ := math.Min(sLo, after)+clips, math.Max(0, sLo-after)
+	c.lines = append(c.lines, Line{Billable: plain.name, Unit: unitOf[perSecond], Quantity: plainQ, RateUSD: plain.rate, USD: plain.rate * plainQ})
+	if longQ > 0 {
+		c.lines = append(c.lines, Line{Billable: long.name, Unit: unitOf[perSecond], Quantity: longQ, RateUSD: long.rate, USD: long.rate * longQ})
+	}
+	c.lo += plain.rate*plainQ + long.rate*longQ
+	c.loKept += kept * long.rate * longQ
+
+	// The most: the long rate past the length, or on the whole video.
+	split := struct{ plain, long float64 }{plainHi * (after + clips), longHi * (sHi - after)}
+	whole := struct{ plain, long float64 }{plainHi * clips, longHi * sHi}
+	billed := func(p, l float64) float64 { return p*(1-c.discount) + l*keep }
+	if billed(whole.plain, whole.long) > billed(split.plain, split.long) {
+		split = whole
+	}
+	c.hi += split.plain + split.long
+	c.hiKept += kept * split.long
+	c.kind = worse(c.kind, UpTo)
+	return true
 }
 
 // narrower reports whether a is a strict subset of b.

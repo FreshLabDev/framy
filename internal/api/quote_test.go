@@ -31,14 +31,20 @@ func heygen() catalog.Model {
 		Kind: catalog.Video, Name: "HeyGen", InputModalities: []string{"text", "image", "video", "audio"},
 		Params: map[string]catalog.Param{
 			"resolution":   {Type: catalog.Enum, Values: []any{"480p", "768p"}},
-			"duration":     {Type: catalog.Enum, Values: []any{5.0, 10.0}},
+			"duration":     {Type: catalog.Enum, Values: []any{5.0, 10.0, 20.0}},
 			"frame_images": {Type: catalog.Enum, Values: []any{"first_frame"}},
 		},
-		Routes: []catalog.Route{{SKUs: map[string]string{"duration_seconds_480p": "0.02", "duration_seconds_768p": "0.036"}, Discount: 0.5}},
+		Routes: []catalog.Route{{SKUs: map[string]string{
+			"duration_seconds_480p": "0.02", "duration_seconds_768p": "0.036",
+			"long_duration_seconds_480p": "0.045", "long_duration_seconds_768p": "0.075",
+		}, Discount: 0.5}},
 	}
 	return catalog.Model{
 		ID: of.ModelID, Kind: catalog.Video, Name: "HeyGen Video", Maker: "HeyGen", Free: true, Offers: []catalog.Offer{of},
-		Traits: catalog.Traits{References: &catalog.References{Image: 9, Video: 3, Audio: 3, Files: 15}},
+		Traits: catalog.Traits{
+			References: &catalog.References{Image: 9, Video: 3, Audio: 3, Files: 15},
+			Price:      &catalog.PriceHints{Long: &catalog.LongRate{AfterSeconds: 15, Undiscounted: true}},
+		},
 	}
 }
 
@@ -311,13 +317,14 @@ func TestAQuotePricesEveryItem(t *testing.T) {
 		{"offer":%q,"files":[{"content_type":"image/jpeg","bytes":3000000,"width":4032,"height":3024},{"content_type":"image/png","width":800,"height":600}]},
 		{"offer":%q},
 		{"offer":"openrouter:gone/model"},
-		{"offer":%q,"settings":{"resolution":"768p","duration":5}}
-	]}`, testOffer, refsOffer, discounted, heygenOff), "Accept-Language", "en")
+		{"offer":%q,"settings":{"resolution":"768p","duration":5}},
+		{"offer":%q,"settings":{"resolution":"768p","duration":20}}
+	]}`, testOffer, refsOffer, discounted, heygenOff, heygenOff), "Accept-Language", "en")
 	if code != http.StatusOK || m["currency"] != "USD" {
 		t.Fatalf("%d %v", code, m)
 	}
 	it := items(t, m)
-	if len(it) != 5 {
+	if len(it) != 6 {
 		t.Fatalf("%d items", len(it))
 	}
 	if e := estimate(t, it[0]); e["usd"] != 0.04 || e["label"] != "$0.04" || e["kind"] != "exact" || it[0]["refusal"] != nil {
@@ -338,6 +345,12 @@ func TestAQuotePricesEveryItem(t *testing.T) {
 	// HeyGen at half price: $0.09 for 5 s, $0.18 listed.
 	if e := estimate(t, it[4]); !near(e["usd"].(float64), 0.09) || !near(e["list_usd"].(float64), 0.18) {
 		t.Errorf("heygen = %v", e)
+	}
+	// Past 15 s HeyGen may bill the whole video at its long rate, which the
+	// discount leaves out: "up to $1.50", with no listed price struck
+	// through beside it and no "-50%".
+	if e := estimate(t, it[5]); e["kind"] != "up_to" || e["label"] != "$1.50" || e["discount"] != nil || e["list_label"] != nil {
+		t.Errorf("heygen past 15 s = %v", e)
 	}
 	// Nobody is signed in: no refusals, whatever the payer.
 	_, m = quoteOf(t, r, 0, fmt.Sprintf(`{"items":[{"offer":%q,"pay":"key"},{"offer":%q,"pay":"free"}]}`, testOffer, testOffer))

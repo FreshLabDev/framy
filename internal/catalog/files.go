@@ -465,7 +465,7 @@ func (h *PriceHints) validate() error {
 	if h == nil {
 		return nil
 	}
-	if len(h.Tokens) == 0 && len(h.OpenAITokens) == 0 && h.OpenAIInputPatches == 0 && h.InputTokensPerMP == 0 && len(h.Variants) == 0 && len(h.Skip) == 0 && h.From == "" && h.FreeImages == 0 && len(h.Sizes) == 0 && h.ClipMinSeconds == 0 && len(h.Unlisted) == 0 {
+	if len(h.Tokens) == 0 && len(h.OpenAITokens) == 0 && h.OpenAIInputPatches == 0 && h.InputTokensPerMP == 0 && len(h.Variants) == 0 && len(h.Skip) == 0 && h.From == "" && h.FreeImages == 0 && len(h.Sizes) == 0 && h.ClipMinSeconds == 0 && len(h.Unlisted) == 0 && h.Long == nil {
 		return errors.New("price says nothing")
 	}
 	for i, p := range h.Unlisted {
@@ -475,6 +475,9 @@ func (h *PriceHints) validate() error {
 		if p.Variant != "" {
 			return fmt.Errorf("price.unlisted[%d]: a line of the overlay has no variant", i)
 		}
+	}
+	if l := h.Long; l != nil && (!(l.AfterSeconds > 0) || math.IsInf(l.AfterSeconds, 0)) {
+		return errors.New("price.long.after_seconds must be above zero")
 	}
 	if h.ClipMinSeconds < 0 || math.IsNaN(h.ClipMinSeconds) || math.IsInf(h.ClipMinSeconds, 0) {
 		return errors.New("price.clip_min_seconds cannot be negative")

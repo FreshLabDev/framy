@@ -79,6 +79,7 @@ func TestLoadFilesRejects(t *testing.T) {
 		{"bad size", map[string]string{"overlay.yaml": "models:\n  a/b:\n    price: {sizes: {480p: {\"16:9\": 864×496}}}\n"}, "not a size"},
 		{"no sizes", map[string]string{"overlay.yaml": "models:\n  a/b:\n    price: {sizes: {480p: {}}}\n"}, "lists no sizes"},
 		{"unlisted without rate", map[string]string{"overlay.yaml": "models:\n  a/b:\n    price: {unlisted: [{billable: input_image, unit: megapixel}]}\n"}, "positive cost_usd"},
+		{"long without a length", map[string]string{"overlay.yaml": "models:\n  a/b:\n    price: {long: {undiscounted: true}}\n"}, "after_seconds must be above zero"},
 		{"unlisted variant", map[string]string{"overlay.yaml": "models:\n  a/b:\n    price: {unlisted: [{billable: input_image, unit: megapixel, cost_usd: 0.01, variant: hd}]}\n"}, "no variant"},
 		{"clip without count", map[string]string{"overlay.yaml": "models:\n  a/b:\n    references: {image: 2, video_clip: {max_seconds: 5}}\n"}, "video_clip without references.video"},
 		{"inverted clip", map[string]string{"overlay.yaml": "models:\n  a/b:\n    references: {audio: 2, audio_clip: {min_seconds: 9, max_seconds: 5}}\n"}, "min_seconds <= max_seconds"},
