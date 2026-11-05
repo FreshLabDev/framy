@@ -720,9 +720,12 @@ func newRig(t *testing.T, opts ...func(*rigOptions)) *rig {
 			r.revoked = append(r.revoked, userID)
 			return nil
 		},
-		Person: func(req *http.Request) (int64, bool) {
+		Person: func(req *http.Request) (int64, bool, error) {
+			if req.Header.Get("X-Test-User") == "down" {
+				return 0, false, errors.New("the sessions are unreadable")
+			}
 			id, err := strconv.ParseInt(req.Header.Get("X-Test-User"), 10, 64)
-			return id, err == nil
+			return id, err == nil, nil
 		},
 		Ping: time.Hour, WriteTimeout: 500 * time.Millisecond, data: r.data,
 	}

@@ -163,11 +163,11 @@ func TestFirstTagOfAcceptLanguage(t *testing.T) {
 }
 
 func TestPersonKeyCountsByTheId(t *testing.T) {
-	key := PersonKey(func(*http.Request) (int64, bool) { return 42, true })
+	key := PersonKey(func(*http.Request) (int64, bool, error) { return 42, true, nil })
 	if got := key(nil); got != "42" {
 		t.Errorf("%q", got)
 	}
-	if got := PersonKey(func(*http.Request) (int64, bool) { return 0, false })(nil); got != "" {
+	if got := PersonKey(func(*http.Request) (int64, bool, error) { return 0, false, nil })(nil); got != "" {
 		t.Errorf("%q", got)
 	}
 }

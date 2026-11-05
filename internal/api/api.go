@@ -9,10 +9,12 @@
 //
 // Who is asking is not decided here. Config.Person names the signed-in
 // person behind a request, or says there is none: main gives it
-// internal/auth's Person. GET /api/catalog and POST /api/quote answer anyone,
-// since the site shows models and prices before a sign-in; every other route
-// answers 401 {"error":"sign_in"} without a person, and a job is visible to
-// its owner only: anyone else gets 404, as for a job that does not exist.
+// internal/auth's Identify. GET /api/catalog and POST /api/quote answer
+// anyone, since the site shows models and prices before a sign-in; every
+// other route answers 401 {"error":"sign_in"} without a person, 503
+// {"error":"unavailable"} when the sessions cannot be read, and a job is
+// visible to its owner only: anyone else gets 404, as for a job that does
+// not exist.
 //
 // Progress comes from the database. A trigger on framy.job bumps the job's
 // event_seq and does pg_notify('framy_events', …) in the transaction that
@@ -194,8 +196,10 @@ type Config struct {
 	// would go.
 	Allowance Allowance
 	// Person names the signed-in person behind a request. No person: ok is
-	// false. It is asked on every request, so it has to be cheap.
-	Person func(*http.Request) (userID int64, ok bool)
+	// false. err is a lookup that failed, which is not nobody: the person is
+	// told to try again, not to sign in. It is asked on every request, so it
+	// has to be cheap.
+	Person func(*http.Request) (userID int64, ok bool, err error)
 	// Revoke ends every session of the person, on the site and in the Mini
 	// App: internal/auth's RevokeAll. Deleting an account calls it last.
 	Revoke func(ctx context.Context, userID int64) error
@@ -337,10 +341,10 @@ func (a *API) Register(site *web.Server) {
 }
 
 // PersonKey makes web.Config.Person of the API's Person: the per-person rate
-// limits count by it.
-func PersonKey(person func(*http.Request) (int64, bool)) func(*http.Request) string {
+// limits count by it. A lookup that failed counts as nobody, by address.
+func PersonKey(person func(*http.Request) (int64, bool, error)) func(*http.Request) string {
 	return func(r *http.Request) string {
-		if id, ok := person(r); ok {
+		if id, ok, err := person(r); ok && err == nil {
 			return strconv.FormatInt(id, 10)
 		}
 		return ""
@@ -378,6 +382,7 @@ func (a *API) Close() {
 // for whoever reads a curl answer.
 const (
 	codeSignIn            = "sign_in"
+	codeUnavailable       = "unavailable"
 	codeBadRequest        = "bad_request"
 	codeNotFound          = "not_found"
 	codeUnknownOffer      = "unknown_offer"
@@ -496,14 +501,37 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_, _ = w.Write(append(b, '\n'))
 }
 
-// person is the signed-in person, or false after answering 401.
+// person is the signed-in person, or false after answering 401, or 503
+// when the sessions could not be read: a person whose session is fine is
+// not told to sign in again because the database missed a beat.
 func (a *API) person(w http.ResponseWriter, r *http.Request) (int64, bool) {
-	id, ok := a.cfg.Person(r)
-	if !ok || id == 0 {
+	id, ok, err := a.cfg.Person(r)
+	switch {
+	case err != nil:
+		a.log.Error("look up the person of a request", "method", r.Method, "path", r.URL.Path, "error", err)
+		e := newError(http.StatusServiceUnavailable, codeUnavailable, "framy cannot tell who is signed in just now; try again")
+		e.retryAfter = 5 * time.Second
+		e.write(w)
+		return 0, false
+	case !ok || id == 0:
 		signIn(w)
 		return 0, false
 	}
 	return id, true
+}
+
+// anyone is the signed-in person of a route that answers anyone, 0 for
+// nobody. A lookup that failed is answered as for nobody.
+func (a *API) anyone(r *http.Request) int64 {
+	id, ok, err := a.cfg.Person(r)
+	if err != nil {
+		a.log.Warn("look up the person of a request", "method", r.Method, "path", r.URL.Path, "error", err)
+		return 0
+	}
+	if !ok {
+		return 0
+	}
+	return id
 }
 
 // language is the person's language for writing amounts: core's, else the

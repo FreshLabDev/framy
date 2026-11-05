@@ -299,7 +299,7 @@ func run(log *slog.Logger) error {
 	}
 	jobAPI, err := api.New(api.Config{
 		Pool: store.Pool(), Queue: queue, Store: store, Uploads: uploads, Links: links, Files: kept, Videos: clips, Keys: people,
-		Allowance: allowance, Person: signIn.Person, Sharing: sharing, Log: log.With("component", "api"),
+		Allowance: allowance, Person: signIn.Identify, Sharing: sharing, Log: log.With("component", "api"),
 		Revoke: func(ctx context.Context, userID int64) error {
 			_, err := signIn.RevokeAll(ctx, userID)
 			return err

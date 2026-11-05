@@ -240,6 +240,13 @@ func (a *Auth) Person(r *http.Request) (userID int64, ok bool) {
 	return id, ok
 }
 
+// Identify is Person for a caller that answers a failed lookup itself:
+// (0, false, nil) is nobody signed in, an error a database that did not
+// answer. The job API gives 503 for the one and 401 for the other.
+func (a *Auth) Identify(r *http.Request) (userID int64, ok bool, err error) {
+	return a.identify(r)
+}
+
 // PersonKey is Person for web.Config.Person: the user id as text, or "" when
 // nobody is signed in.
 func (a *Auth) PersonKey(r *http.Request) string {

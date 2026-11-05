@@ -132,7 +132,7 @@ export function refusal(err, ctx = {}) {
     case "storage_unavailable": return R(t("ref.storage_l"), t("ref.storage"), ["again"]);
     case "shutting_down": return R(t("ref.restart_l"), t("ref.restart"), ["again"]);
     case "network": return R(t("ref.offline_l"), t("err.network"), ["again"]);
-    case "http_429": case "busy": return R(t("ref.busy_l"), t("err.busy"), ["again"]);
+    case "http_429": case "busy": case "unavailable": return R(t("ref.busy_l"), t("err.busy"), ["again"]);
     case "sign_in": return R(t("ref.signin_l"), t("err.sign_in"));
     default: return R(t("stage.failed"), t("err.generic", { code }), ["again"]);
   }

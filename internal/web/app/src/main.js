@@ -120,9 +120,12 @@ async function main() {
   setTexts(B.lang, texts);
   loadCatalog(cat);
   initModels();
-  let authFail = null;
+  let authFail = null, meLost = false;
   try { const a = await B.auth; if (a) setToken(a); } catch (e) { authFail = e; }
-  try { S.me = authFail ? null : await B.me; } catch { S.me = null; }
+  try { S.me = authFail ? null : await B.me; } catch { S.me = null; meLost = true; }
+  // Telegram's launch data refused (4xx) is said; framy or the network not answering is asked again.
+  const refused = authFail && authFail.status >= 400 && authFail.status < 500;
+  if (authFail && !refused) meLost = true;
   S.signed = !!S.me;
   useDefaults();
   // The person's own language, where it is another than the one guessed for the first paint.
@@ -148,7 +151,8 @@ async function main() {
   let back = null;
   try { back = sessionStorage.getItem("framy.prefs"); sessionStorage.removeItem("framy.prefs"); } catch {}
   if (back && S.signed && !sp.get("connect")) openPrefs();
-  if (authFail) toast(t(authFail.error === "init_data_expired" ? "auth.mini_expired" : "auth.mini_failed"), { ms: 8000 });
+  if (refused) toast(t(authFail.error === "init_data_expired" ? "auth.mini_expired" : "auth.mini_failed"), { ms: 8000 });
+  if (meLost) meAgain();
 
   addEventListener("framy:me", () => { renderTop(); render(); libMe(); if (prefsOpen()) { if (S.signed) renderPrefs(); else closeSheets(true); } });
   // Back on the page after a while: the free counts and the keys may have changed elsewhere.
@@ -164,6 +168,15 @@ async function main() {
   (window.requestIdleCallback || setTimeout)(warmFormats);
   prefetchPicker();
   B.tg.then(telegram);
+}
+
+// The person could not be read at start, framy or the network having missed a beat (a 503, not a
+// 401): ask again a few times, so a moment's outage does not show a signed-in person signed out.
+async function meAgain() {
+  for (const ms of [3000, 10000, 30000]) {
+    await new Promise((done) => setTimeout(done, ms));
+    if (S.signed || (await refreshMe()) !== undefined) return;
+  }
 }
 
 main();

@@ -92,6 +92,18 @@ func TestRequire(t *testing.T) {
 		if _, ok := b.signedIn(); ok {
 			t.Fatal("Person invented a person")
 		}
+		// Identify says it, for the job API to answer 503 as Require does.
+		req := httptest.NewRequest(http.MethodGet, "/api/jobs", nil)
+		req.AddCookie(&http.Cookie{Name: SessionCookie, Value: b.cookies[SessionCookie]})
+		if id, ok, err := h.auth.Identify(req); err == nil || ok || id != 0 {
+			t.Errorf("Identify: %d %v %v", id, ok, err)
+		}
+		mem.mu.Lock()
+		mem.err = nil
+		mem.mu.Unlock()
+		if id, ok, err := h.auth.Identify(req); err != nil || !ok || id != testUserID {
+			t.Errorf("Identify once the database is back: %d %v %v", id, ok, err)
+		}
 	})
 }
 

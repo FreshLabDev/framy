@@ -148,3 +148,23 @@ func TestMeHasTheConnectionsAndTheAllowance(t *testing.T) {
 		t.Errorf("%d", resp.StatusCode)
 	}
 }
+
+// A session the database could not read is not a sign-out: the person is
+// told to try again (503), and only a request with no session at all is sent
+// to sign in. The site keeps the person shown, and the Mini App does not
+// trade its launch data again for nothing.
+func TestASessionThatCannotBeReadIsNoSignOut(t *testing.T) {
+	r := newRig(t)
+	resp := r.do(0, "GET", "/api/me", nil, "X-Test-User", "down")
+	if m := jsonOf(t, resp); resp.StatusCode != http.StatusServiceUnavailable || m["error"] != "unavailable" || resp.Header.Get("Retry-After") == "" {
+		t.Errorf("unreadable: %d %v, Retry-After %q", resp.StatusCode, m, resp.Header.Get("Retry-After"))
+	}
+	resp = r.do(0, "GET", "/api/jobs", nil)
+	if m := jsonOf(t, resp); resp.StatusCode != http.StatusUnauthorized || m["error"] != "sign_in" {
+		t.Errorf("nobody: %d %v", resp.StatusCode, m)
+	}
+	// What anyone may read is still answered, as for nobody.
+	if resp := r.do(0, "GET", "/api/catalog", nil, "X-Test-User", "down"); resp.StatusCode != http.StatusOK {
+		t.Errorf("the catalog: %d", resp.StatusCode)
+	}
+}

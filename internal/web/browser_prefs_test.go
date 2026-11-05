@@ -39,6 +39,9 @@ type fakePrefs struct {
 	// slowMe: GET /api/me answers this late with the account as it was, and
 	// a PATCH sent with it is kept only after the GET has read it.
 	slowMe time.Duration
+	// meDown: GET /api/me answers this many times 503 unavailable first, as
+	// when the sessions cannot be read for a moment.
+	meDown int
 }
 
 func (f *fakePrefs) me() map[string]any {
@@ -76,6 +79,13 @@ func (f *fakePrefs) mount(srv *Server) {
 	}
 	srv.HandleFunc("GET /api/me", func(w http.ResponseWriter, _ *http.Request) {
 		f.mu.Lock()
+		if f.meDown > 0 {
+			f.meDown--
+			f.mu.Unlock()
+			w.Header().Set("Retry-After", "5")
+			writeTestJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "unavailable"})
+			return
+		}
 		if !signIn(w) {
 			f.mu.Unlock()
 			return
@@ -466,6 +476,27 @@ func TestBrowserPrefs(t *testing.T) {
 		}
 	})
 	noErrors(t, ctx)
+}
+
+// The sessions could not be read when the page opened: /api/me answered 503,
+// not 401. The person is asked for again and appears, and no sign-in is
+// offered for good on the strength of a moment's outage.
+func TestBrowserASessionUnreadAtStartIsAskedAgain(t *testing.T) {
+	f := &fakePrefs{meDown: 1}
+	ts := fakeSite(t, f.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := prefs(t, ctx, `
+	const first = { me: !!document.querySelector("#meBtn"), signin: !!document.querySelector(".top .signin") };
+	const back = await until(() => document.querySelector("#meBtn"), 80);
+	return { first, back: !!back, signin: !!document.querySelector(".top .signin"), toast: toastText() };`)
+	if fmt.Sprint(s["first"]) != "map[me:false signin:true]" || s["back"] != true || s["signin"] != false || s["toast"] != "" {
+		t.Errorf("after an outage at start: %v", s)
+	}
+	f.with(func() {
+		if f.meDown != 0 {
+			t.Errorf("the page never asked again: %d", f.meDown)
+		}
+	})
 }
 
 // TestBrowserPrefsLanguage checks that a new language is the server's and

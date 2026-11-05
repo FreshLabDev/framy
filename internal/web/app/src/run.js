@@ -39,19 +39,23 @@ export function forget() {
   window.dispatchEvent(new Event("framy:me"));
 }
 
+// It says what it learnt: true signed in, false signed out, undefined when framy
+// or the network did not answer and nothing changed.
 export async function refreshMe() {
   const v = S.meV;
+  let known;
   try {
     const me = await api("/api/me");
     // A setting changed meanwhile, and its answer is the newer account.
-    if (S.meV !== v) return;
+    if (S.meV !== v) return true;
     const was = S.me?.currency;
-    S.me = me; S.signed = true;
+    S.me = me; S.signed = known = true;
     if (was && was !== me.currency) clearPrices();
   } catch (e) {
-    if (e.status === 401) { S.me = null; S.signed = false; }
+    if (e.status === 401) { S.me = null; S.signed = known = false; }
   }
   window.dispatchEvent(new Event("framy:me"));
+  return known;
 }
 
 /* A run: what was pressed, and where it stands. phase is "prep" while the

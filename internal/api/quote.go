@@ -116,10 +116,8 @@ func (a *API) quoteRoute(w http.ResponseWriter, r *http.Request) {
 		aerr.write(w)
 		return
 	}
-	user, signedIn := a.cfg.Person(r)
-	if !signedIn || user == 0 {
-		user, signedIn = 0, false
-	}
+	user := a.anyone(r)
+	signedIn := user != 0
 	models, byOffer, _, err := a.catalog.get(ctx, a.cfg.Store, a.now())
 	if err != nil {
 		a.internal(w, r, err)

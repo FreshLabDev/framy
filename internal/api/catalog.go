@@ -198,11 +198,7 @@ func (a *API) catalogRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	typical := a.catalog.typicalSeconds()
-	user, signedIn := a.cfg.Person(r)
-	if !signedIn {
-		user = 0
-	}
-	lang := a.language(ctx, r, user)
+	lang := a.language(ctx, r, a.anyone(r))
 	out := catalogJSON{
 		Models: make([]catalogModelJSON, 0, len(models)), Recommend: recommendJSON(models), Free: freeAllowanceJSON(),
 	}
