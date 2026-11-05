@@ -218,6 +218,8 @@ func (f *fakeRuns) create(w http.ResponseWriter, r *http.Request) {
 		case "free_limit":
 			status = http.StatusTooManyRequests
 			body["frees_at"] = time.Now().Add(50 * time.Hour).UTC()
+		case "key_in_prompt":
+			body["provider"] = "openrouter"
 		}
 		writeTestJSON(w, status, body)
 		return
@@ -616,6 +618,8 @@ func TestBrowserRuns(t *testing.T) {
 		"free_closed":     {"Free runs paused", "On my OpenRouter key"},
 		"wrong_inputs":    {"The files do not fit", "Edit the prompt"},
 		"unknown_setting": {"Not sent", "Edit the prompt"},
+		// A key pasted into the prompt: its settings, where it belongs.
+		"key_in_prompt": {"A key in the prompt", "Replace the OpenRouter key"},
 	} {
 		s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`return await press("refuse:`+code+`", (s) => s.failed);`)
 		acts, _ := s["acts"].([]any)

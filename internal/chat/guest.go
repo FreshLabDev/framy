@@ -62,6 +62,10 @@ func (f *Flow) Guest(ctx context.Context, m *tg.Message, prompt string) {
 }
 
 func (f *Flow) guest(ctx context.Context, m *tg.Message, prompt string) error {
+	// A key is answered even without a site: the answer is text.
+	if handled, err := f.keyInCommand(ctx, m, prompt); handled {
+		return err
+	}
 	lang := f.langOf(ctx, m)
 	if f.cfg.AppURL == "" {
 		// Telegram fetches every picture of the run from the site.

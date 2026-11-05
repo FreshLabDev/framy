@@ -627,6 +627,17 @@ func checkCreate(prefix string, req createRequest) *apiError {
 	if strings.TrimSpace(req.Prompt) == "" && len(req.Inputs) == 0 {
 		return badRequest(prefix+"prompt", "send a prompt or an input file")
 	}
+	// A key pasted into the prompt would go to the model's provider, into
+	// the job and into every caption of it; the person meant the settings.
+	// A quote is not refused: it reaches no provider, and the price shows
+	// while the person types.
+	if provider, ok := keys.KeyIn(req.Prompt); ok {
+		e := newError(http.StatusUnprocessableEntity, codeKeyInPrompt, "the prompt holds what looks like a provider key: keys go in the settings").with("field", prefix+"prompt")
+		if provider != "" {
+			e.with("provider", provider)
+		}
+		return e
+	}
 	return nil
 }
 

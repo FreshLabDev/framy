@@ -90,6 +90,43 @@ func TestACreateRequestIsChecked(t *testing.T) {
 	}
 }
 
+// A key pasted into the prompt is refused before anything keeps it or sends
+// it on, and the answer names the settings it belongs in. The answer does
+// not repeat it.
+func TestAKeyInThePromptIsRefused(t *testing.T) {
+	r := jobRig(t)
+	openRouter := "sk-or-v1-" + strings.Repeat("0123456789abcdef", 4)
+	for _, c := range []struct{ prompt, provider string }{
+		{"a fox, my key " + openRouter, "openrouter"},
+		{"AIza" + strings.Repeat("Xy7_-Qw", 5), "gemini"},
+		{"sk-ant-api03-" + strings.Repeat("Ab1_", 10), ""},
+	} {
+		resp := r.post(alice, "/api/jobs", nextKey(), fmt.Sprintf(`{"offer":%q,"pay":"key","prompt":%q}`, testOffer, c.prompt))
+		m := jsonOf(t, resp)
+		if resp.StatusCode != http.StatusUnprocessableEntity || m["error"] != "key_in_prompt" || m["field"] != "prompt" {
+			t.Errorf("%q: %d %v", c.prompt, resp.StatusCode, m)
+		}
+		if got, _ := m["provider"].(string); got != c.provider {
+			t.Errorf("%q: provider %q, want %q", c.prompt, got, c.provider)
+		}
+		if msg, _ := m["message"].(string); strings.Contains(msg, "sk-") || strings.Contains(msg, "AIza") {
+			t.Errorf("the answer repeats the key: %q", msg)
+		}
+	}
+	// A frame of a press is checked as a job is.
+	resp := r.post(alice, "/api/batches", nextKey(), fmt.Sprintf(`{"prompt":%q,"frames":[{"offer":%q,"pay":"key"}]}`, "a fox "+openRouter, testOffer))
+	if m := jsonOf(t, resp); resp.StatusCode != http.StatusUnprocessableEntity || m["error"] != "key_in_prompt" {
+		t.Errorf("a press: %d %v", resp.StatusCode, m)
+	}
+	// Prose that only looks like one at a glance runs.
+	if resp := r.post(alice, "/api/jobs", nextKey(), body(testOffer, "key")); resp.StatusCode != http.StatusAccepted {
+		t.Errorf("a plain prompt: %d %v", resp.StatusCode, jsonOf(t, resp))
+	}
+	if r.queue.calls() != 1 {
+		t.Errorf("the queue was called %d times, want 1", r.queue.calls())
+	}
+}
+
 func TestACreateRequestNeedsAnIdempotencyKey(t *testing.T) {
 	r := jobRig(t)
 	for _, key := range []string{"", "has space", strings.Repeat("a", 129), "ключ"} {

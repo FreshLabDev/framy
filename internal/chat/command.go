@@ -226,6 +226,9 @@ type draft struct {
 func (d draft) video() bool { return d.offer.Kind == catalog.Video }
 
 func (f *Flow) command(ctx context.Context, m *tg.Message, command, prompt string) error {
+	if handled, err := f.keyInCommand(ctx, m, prompt); handled {
+		return err
+	}
 	lang := f.langOf(ctx, m)
 	edit, motion := command == CommandVideo, command == commandMotion
 	if prompt == "" {

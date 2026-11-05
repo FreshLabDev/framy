@@ -445,6 +445,7 @@ const (
 	codeFrameTooLarge     = "frame_too_large"
 	codeBadCut            = "bad_cut"
 	codeNotShareable      = "not_shareable"
+	codeKeyInPrompt       = "key_in_prompt"
 	codeTelegramDown      = "telegram_unavailable"
 )
 

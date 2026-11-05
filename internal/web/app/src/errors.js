@@ -130,6 +130,8 @@ export function refusal(err, ctx = {}) {
       if (mx && ctx.clipSecs > mx) return R(t("ref.part_long_l"), t("ref.part_long", { len: t("unit.s", { n: fmtNum(ctx.clipSecs, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }), max: fmtSecs(mx) }), ctx.cut ? ["cut"] : []);
       return R(t("ref.files_l"), t("ref.wrong_inputs"));
     }
+    // A key pasted into the prompt: nothing ran, and the settings take it.
+    case "key_in_prompt": return R(t("ref.key_prompt_l"), t("ref.key_prompt"), PNAME[b.provider] ? ["key"] : [], { provider: b.provider });
     case "unknown_offer": return R(t("ref.model_l"), t("err.unknown_offer"));
     case "unknown_setting": return R(t("fail.invalid_l"), t("fail.invalid"));
     case "cannot_continue": return R(t("ref.cont_l"), t("ref.cannot_continue"), ctx.lastFrame ? ["lastframe"] : []);
