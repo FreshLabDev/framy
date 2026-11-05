@@ -57,7 +57,8 @@ tiers: [mini, lite, turbo, klein, fast, flash, flare, medium, std, flex, large, 
 recommend:
   image: [microsoft/mai-image-2.6-flash, google/gemini-nano-banana-2.1, openai/gpt-image-2.5-flare]
   many_photos: [black-forest-labs/flux-3-image-klein, google/gemini-nano-banana-2.1, openai/gpt-image-2.5-flare]
-  # Seedance 2.0 Mini replaced Veo 3.1 Fast, which Google is closing (owner, 28 October).
+  # Seedance 2.0 Mini replaced Veo 3.1 Fast (owner, 28 October), when Google
+  # seemed to be closing it. It is not: Vertex keeps it to May 2027 at least.
   video: [heygen/heygen-video-1, bytedance/seedance-2.0-mini, kwaivgi/kling-v3.0-pro]
   video_edit: [black-forest-labs/flux-video-edit, runway/aleph-2, bytedance/seedance-2.5]
 
@@ -353,12 +354,13 @@ models:
   # of input for the model and the maker publishes the number. The rest
   # waits for a paid run.
 
-  # Google closed the Veo 3.1 ids of the Gemini API on 22 October 2026 and
-  # names Omni instead; the Vertex ids OpenRouter runs retire "17 November
-  # 2026 or later".
+  # Not deprecated: Google closed the Veo 3.1 ids of the Gemini API on 22
+  # October 2026, but OpenRouter runs Veo on Vertex, where 3.1 and 3.1 Fast
+  # are GA and retire "May 4, 2027 or later", a date Google says it never
+  # moves earlier, and Lite is a Preview with no date (Vertex model pages,
+  # 5 November 2026).
 
   google/veo-3.1:
-    deprecated: {successor: google/gemini-omni-1.1-flash}
     family: {id: veo, gen: "3.1", tier: std, label: "3.1"}
     featured: true
     references: {image: 3}
@@ -367,7 +369,6 @@ models:
       negativePrompt: {type: text}
 
   google/veo-3.1-fast:
-    deprecated: {successor: google/gemini-omni-1.1-flash}
     family: {id: veo, gen: "3.1", tier: fast, label: 3.1 Fast}
     featured: true
     references: {image: 3}
@@ -377,7 +378,6 @@ models:
 
   # Lite takes no reference images.
   google/veo-3.1-lite:
-    deprecated: {successor: google/gemini-omni-1.1-flash}
     family: {id: veo, gen: "3.1", tier: lite, label: 3.1 Lite}
     featured: true
     faces: adults

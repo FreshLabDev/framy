@@ -182,6 +182,13 @@ func TestBuildAppliesExclusionsAndPassthrough(t *testing.T) {
 	if modelByID(t, snap, "google/veo-3.1").Traits.References.Image != 3 {
 		t.Fatal("veo 3.1 lost its three reference images")
 	}
+	// OpenRouter runs Veo on Vertex, which keeps 3.1 to May 2027 at least:
+	// only the Gemini API's ids closed.
+	for _, id := range []string{"google/veo-3.1", "google/veo-3.1-fast", "google/veo-3.1-lite"} {
+		if d := modelByID(t, snap, id).Traits.Deprecated; d != nil {
+			t.Errorf("%s is marked deprecated: %+v", id, d)
+		}
+	}
 
 	// The fixtures do not change under Build.
 	up := fixtureUpstream(t)

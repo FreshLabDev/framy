@@ -84,7 +84,7 @@ Two paid runs on 31 October settled how OpenRouter bills a Seedance reference cl
 | Omni reference video | 3 clips of up to 3 s, sound in them ignored (confirmed) | not on OpenRouter | likeness of a person or object; not offered yet, since the catalog has one video role per model and Omni's is the source |
 | search query billing | 5,000 queries a month, then $14 per 1,000 on Gemini 3 | no | not in framy's estimate or cost: framy cannot see the person's allowance |
 
-Dates: Veo 3.1 preview ids closed on the Gemini API on 22 October 2026, with Omni named in their place; the Vertex ids OpenRouter runs retire "17 November 2026 or later". Gemini 3.1 Flash Image was deprecated on 6 October 2026 with no shutdown day; Gemini 2.5 Flash Image shuts on 15 March 2027. Veo with references runs 8 s only; the Gemini API docs say the same of 1080p and 4K. Omni spells 4K as `4k`.
+Dates: Veo 3.1 preview ids closed on the Gemini API on 22 October 2026, with Omni named in their place. OpenRouter runs Veo on Vertex (provider `google-vertex`, no `expiration_date`), where `veo-3.1-generate-001` and `veo-3.1-fast-generate-001` are GA and retire "May 4, 2027 or later", and `veo-3.1-lite-generate-001` is a Preview with no date (Vertex model page, updated 5 November 2026). Google says such dates may move later but never earlier, so framy does not mark them deprecated. Gemini 3.1 Flash Image was deprecated on 6 October 2026 with no shutdown day; Gemini 2.5 Flash Image shuts on 15 March 2027. Veo with references runs 8 s only; the Gemini API docs say the same of 1080p and 4K. Omni spells 4K as `4k`.
 
 ## HeyGen
 
