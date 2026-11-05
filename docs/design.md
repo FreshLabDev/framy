@@ -233,7 +233,7 @@ The mode follows from what is attached **(owner: clear start, end and reference 
 | nothing | text to video | all but the editors |
 | an image in "Start" | first frame | all video models but the editors |
 | images in "Start" and "End" | first and last frame | Veo, Kling, Seedance, Wan 3.0, Hailuo 3, FLUX 3 Video, Omni |
-| images in "References" | reference to video | Seedance 2.0, Fast and Mini (9), Seedance 2.5 (30), Wan 3.0 (10), Wan 2.6 and 2.7 (5), HappyHorse (9), Hailuo 3 (9), HeyGen (9), Grok Imagine Video 1.0 (7), Veo 3.1 and Fast (3), Omni (6) |
+| images in "References" | reference to video | Seedance 2.0, Fast and Mini (9), Seedance 2.5 (30), Wan 3.0 (10), Wan 2.7 (5), HappyHorse (9), Hailuo 3 (9), HeyGen (9), Grok Imagine Video 1.0 (7), Veo 3.1 and Fast (3), Omni (6) |
 | a video: uploaded, or a finished one through "Edit" | edit the video | `flux-video-edit` (0.7 to 15 s and 50 MiB, scaled to 720p, keeps the length and the sound), `aleph-2` (2 to 30 s), `flux-video-upscale` (up to 20 s and 50 MiB), Seedance 2.x and Hailuo 3 by a reference video and the prompt, Omni (up to 10 s and 48 MiB, sent inline); FLUX 3 Video continues it |
 | video or audio in "References" | reference video or sound | Seedance 2.0, Fast and Mini (3 videos of 2 to 15 s, 15 s in all, and 3 sounds), Seedance 2.5 (10 and 10, 30 s in all), Wan 3.0 (5 and 5, 15 s in all), Hailuo 3 (3 and 3, 12 files in all), HeyGen (3 videos sharing 15 s, and 3 sounds; they guide motion and style, HeyGen does not edit them) |
 

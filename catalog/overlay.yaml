@@ -499,9 +499,11 @@ models:
     passthrough:
       negative_prompt: {type: text}
 
+  # No reference images: OpenRouter runs 2.6 as text to video and image to
+  # video only (those are its SKUs, and the start frame its only picture),
+  # and Alibaba's reference mode of 2.6 takes videos.
   alibaba/wan-2.6:
     family: {id: wan, gen: "2.6", tier: std, label: "2.6"}
-    references: {image: 5}
     passthrough:
       negative_prompt: {type: text}
 

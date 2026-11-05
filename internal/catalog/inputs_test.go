@@ -34,6 +34,9 @@ func TestInputsOfTheCatalog(t *testing.T) {
 		}},
 		// A video model with frames only.
 		{"x-ai/grok-imagine-video-1.5", Inputs{Images: &ImageInputs{Max: 1, Frames: 1}}},
+		// OpenRouter runs Wan 2.6 from text or a start frame, never from
+		// reference images.
+		{"alibaba/wan-2.6", Inputs{Images: &ImageInputs{Max: 1, Frames: 1}}},
 		// One that makes a video only from its start frame.
 		{"tbc/mischief-1", Inputs{Images: &ImageInputs{Min: 1, Max: 1, Frames: 1}}},
 		// The maker takes fewer references than OpenRouter lists.
