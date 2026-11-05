@@ -223,7 +223,7 @@ func (f *Flow) generate(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRu
 	switch {
 	case errors.Is(err, jobs.ErrNotDraft):
 		// Ten minutes passed, or the job was cancelled: the preview goes.
-		_ = f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, t(run.Lang, "run.expired"))
+		_ = f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, expiredText(run))
 		f.close(ctx, run, db.StagePreview)
 		return nil
 	case errors.As(err, &limit):
@@ -242,6 +242,25 @@ func (f *Flow) generate(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRu
 	}
 	f.showLoop(ctx, run)
 	return nil
+}
+
+// expiredText tells the requester how to start again once the draft is
+// gone, in the words of the way the run began: a direct chat takes a plain
+// message, a chat framy is not in a mention, and a group the command, /edit
+// for a clip and /img for the rest.
+func expiredText(run db.ChatRun) string {
+	switch {
+	case guest(run):
+		return t(run.Lang, "run.expired_guest")
+	case run.ChatID == run.UserID:
+		// A direct chat's id is the person's.
+		return t(run.Lang, "run.expired_dm")
+	}
+	command := CommandImage
+	if run.ClipFileID != "" {
+		command = CommandVideo
+	}
+	return t(run.Lang, "run.expired", "command", "/"+command)
 }
 
 // showLoop turns the preview into the generating loop. The chat sees the

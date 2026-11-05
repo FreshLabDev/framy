@@ -640,7 +640,7 @@ func (f *Flow) revise(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun,
 	}
 	switch {
 	case errors.Is(err, jobs.ErrNotDraft):
-		_ = f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, t(run.Lang, "run.expired"))
+		_ = f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, expiredText(run))
 		f.close(ctx, run, db.StagePreview)
 		return nil
 	case err != nil:

@@ -525,8 +525,34 @@ func TestGenerateOnAnExpiredDraftDeletesThePreview(t *testing.T) {
 	if err := h.press(id, 7, actGenerate); err != nil {
 		t.Fatal(err)
 	}
-	if h.tg.answers[0] != "alert:"+i18n.T("en", "run.expired") || h.store.stage(id) != db.StageGone || len(h.tg.methods("deleteMessage")) != 1 {
+	if h.tg.answers[0] != "alert:"+i18n.T("en", "run.expired", "command", "/img") || h.store.stage(id) != db.StageGone || len(h.tg.methods("deleteMessage")) != 1 {
 		t.Fatalf("answers %v, stage %s, calls %+v", h.tg.answers, h.store.stage(id), h.tg.calls)
+	}
+}
+
+// A run begins with a command only in a group: a direct chat's began with a
+// plain message, a guest run's with a mention, and an expired preview says
+// to send that again.
+func TestAnExpiredPreviewSaysHowTheRunBegan(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		run  db.ChatRun
+		want string
+	}{
+		{"/img in a group", db.ChatRun{ChatID: -100, UserID: 7, Lang: "en"}, "This preview has expired. Send /img again."},
+		{"/edit in a group", db.ChatRun{ChatID: -100, UserID: 7, Lang: "en", ClipFileID: "clip"}, "This preview has expired. Send /edit again."},
+		{"a direct chat", db.ChatRun{ChatID: 7, UserID: 7, Lang: "en"}, "This preview has expired. Send your message again."},
+		{"a clip in a direct chat", db.ChatRun{ChatID: 7, UserID: 7, Lang: "en", ClipFileID: "clip"}, "This preview has expired. Send your message again."},
+		{"guest mode", db.ChatRun{ChatID: -200, UserID: 7, Lang: "en", InlineMessageID: "inline"}, "This preview has expired. Mention framy again."},
+	} {
+		if got := expiredText(c.run); got != c.want {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		}
+	}
+	for _, code := range i18n.Codes() {
+		if got := expiredText(db.ChatRun{ChatID: -100, UserID: 7, Lang: code}); !strings.Contains(got, "/img") {
+			t.Errorf("%s: %q names no command", code, got)
+		}
 	}
 }
 
