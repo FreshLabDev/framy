@@ -136,7 +136,11 @@ func run(log *slog.Logger) error {
 	log.Info("telegram preflight passed", "username", me.Username, "bot_api", tg.BotAPI)
 
 	userAgent := "framy/" + version + " (+https://github.com/FreshLabDev/framy)"
-	files, work, err := openStorage(ctx, cfg, store, client, log)
+	operator := operatorNotify(cfg, func(ctx context.Context, chat int64, text string) error {
+		_, err := client.SendPlainText(ctx, chat, text)
+		return err
+	}, log)
+	files, work, err := openStorage(ctx, cfg, store, operator, log)
 	if err != nil {
 		return err
 	}
@@ -180,7 +184,7 @@ func run(log *slog.Logger) error {
 		jobsCfg.Sink, jobsCfg.Inputs = files, files
 	}
 	// Every free job asks the allowance before it is created or queued.
-	allowance, keyWatch, err := openAllowance(cfg, store, client, userAgent, log)
+	allowance, keyWatch, err := openAllowance(cfg, store, operator, userAgent, log)
 	if err != nil {
 		return err
 	}
@@ -303,15 +307,6 @@ func run(log *slog.Logger) error {
 		sharing = flow
 		site.HandleFunc("GET "+chat.SharePath+"{token}", flow.ServeShare, web.Deadlines(10*time.Second, time.Minute))
 	}
-	// The operator chat hears once a day when photos or clips had to wait
-	// for room everyone shares.
-	var operator func(context.Context, string) error
-	if cfg.OperatorChatID != 0 && cfg.Primary() {
-		operator = func(ctx context.Context, text string) error {
-			_, err := client.SendPlainText(ctx, cfg.OperatorChatID, text)
-			return err
-		}
-	}
 	jobAPI, err := api.New(api.Config{
 		Pool: store.Pool(), Queue: queue, Store: store, Uploads: uploads, Links: links, Files: kept, Videos: clips, Keys: people,
 		Allowance: allowance, Person: signIn.Identify, Sharing: sharing, Log: log.With("component", "api"),
@@ -321,7 +316,9 @@ func run(log *slog.Logger) error {
 		},
 		SessionsEnded: signIn.ForgetAll,
 		Renew:         signIn.Renew,
-		Notify:        operator,
+		// The operator chat hears once a day when photos or clips had to
+		// wait for room everyone shares.
+		Notify: operator,
 	})
 	if err != nil {
 		return err
@@ -497,7 +494,7 @@ func parseLevel(s string) slog.Level {
 
 // openStorage connects the bucket and checks ffmpeg. Without an R2 token it
 // returns no store, and the service runs without one.
-func openStorage(ctx context.Context, cfg config.Config, store *db.Store, client *tg.Client, log *slog.Logger) (*storage.Store, media.Work, error) {
+func openStorage(ctx context.Context, cfg config.Config, store *db.Store, notify func(context.Context, string) error, log *slog.Logger) (*storage.Store, media.Work, error) {
 	work := media.Work{Root: cfg.WorkDir}
 	if !cfg.R2.Enabled() {
 		log.Warn("no R2 token: results cannot be kept, so every job ends as storage before anything is paid")
@@ -529,13 +526,6 @@ func openStorage(ctx context.Context, cfg config.Config, store *db.Store, client
 	}
 	if err := conv.CheckVideo(ctx); err != nil {
 		return nil, work, fmt.Errorf("ffmpeg cannot encode clips: %w", err)
-	}
-	var notify func(context.Context, string) error
-	if cfg.OperatorChatID != 0 && cfg.Primary() {
-		notify = func(ctx context.Context, text string) error {
-			_, err := client.SendPlainText(ctx, cfg.OperatorChatID, text)
-			return err
-		}
 	}
 	files, err := storage.New(storage.Config{
 		Pool:     store.Pool(),
@@ -736,9 +726,9 @@ func openRouterKey(own string, people func(context.Context, jobs.Job) (string, e
 
 // openAllowance builds the free allowance. With framy's own OpenRouter key it
 // also builds the watch that reads the key's limit, which the caller runs.
-func openAllowance(cfg config.Config, store *db.Store, client *tg.Client, userAgent string, log *slog.Logger) (*free.Allowance, *free.KeyWatch, error) {
+func openAllowance(cfg config.Config, store *db.Store, notify func(context.Context, string) error, userAgent string, log *slog.Logger) (*free.Allowance, *free.KeyWatch, error) {
 	log = log.With("component", "free")
-	fc := free.Config{Pool: store.Pool(), DailyBudgetUSD: cfg.FreeDailyBudgetUSD, Log: log}
+	fc := free.Config{Pool: store.Pool(), DailyBudgetUSD: cfg.FreeDailyBudgetUSD, Notify: notify, Log: log}
 	var watch *free.KeyWatch
 	if cfg.OpenRouterKey != "" {
 		reader := openrouter.New(openrouter.Config{Base: cfg.OpenRouterAPIBase, UserAgent: userAgent})
@@ -752,17 +742,31 @@ func openAllowance(cfg config.Config, store *db.Store, client *tg.Client, userAg
 		}, free.DefaultKeyEvery, log)
 		fc.Key = watch
 	}
-	if cfg.OperatorChatID != 0 && cfg.Primary() {
-		fc.Notify = func(ctx context.Context, text string) error {
-			_, err := client.SendPlainText(ctx, cfg.OperatorChatID, text)
-			return err
-		}
-	}
 	allowance, err := free.New(fc)
 	if err != nil {
 		return nil, nil, err
 	}
 	return allowance, watch, nil
+}
+
+// operatorNotify is how framy tells its operator what needs a person: the
+// free tier closed by a fuse, the bucket past another 10 GB, room everyone
+// shares full for the day. Only production tells, since those steps are shared and kept in the database
+// (docs/design.md, Stacks); another stack gets nil and leaves them alone.
+// Production without OPERATOR_CHAT_ID still takes each step, so it is
+// logged once, at Warn, by the part that took it, and the start says where
+// the notices went.
+func operatorNotify(cfg config.Config, send func(ctx context.Context, chat int64, text string) error, log *slog.Logger) func(context.Context, string) error {
+	if !cfg.Primary() {
+		return nil
+	}
+	if cfg.OperatorChatID == 0 {
+		log.Warn("no OPERATOR_CHAT_ID: the notices for the operator (the free tier closing, the bucket's size, shared room full) are only in this log")
+		return func(context.Context, string) error { return nil }
+	}
+	return func(ctx context.Context, text string) error {
+		return send(ctx, cfg.OperatorChatID, text)
+	}
 }
 
 // openKeys loads the KEK file and, on production, rotates what is wrapped

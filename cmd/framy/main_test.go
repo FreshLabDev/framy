@@ -5,10 +5,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
 
+	"github.com/FreshLabDev/framy/internal/config"
 	"github.com/FreshLabDev/framy/internal/jobs"
 	"github.com/FreshLabDev/framy/internal/keys"
 )
@@ -100,5 +102,44 @@ func TestOnlyProductionRotatesTheKEK(t *testing.T) {
 		if !strings.Contains(logs.String(), c.want) {
 			t.Errorf("%+v: logged %q, want %q", c.state, logs.String(), c.want)
 		}
+	}
+}
+
+// The operator's notices come from production alone, and production without
+// an operator chat still takes them, so each is logged once and the start
+// says the chat is missing.
+func TestOperatorNotify(t *testing.T) {
+	ctx := context.Background()
+	var logs bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&logs, nil))
+	var sent []string
+	send := func(_ context.Context, chat int64, text string) error {
+		sent = append(sent, fmt.Sprint(chat, " ", text))
+		return nil
+	}
+
+	if n := operatorNotify(config.Config{Stack: "test", OperatorChatID: 42}, send, log); n != nil {
+		t.Error("the test stack tells the operator: the steps it would take are production's")
+	}
+
+	logs.Reset()
+	n := operatorNotify(config.Config{}, send, log)
+	if n == nil {
+		t.Fatal("production without an operator chat leaves the steps alone, so nothing is ever logged")
+	}
+	if err := n(ctx, "framy: the bucket"); err != nil || len(sent) != 0 {
+		t.Errorf("without a chat: %v, sent %q", err, sent)
+	}
+	if !strings.Contains(logs.String(), "level=WARN") || !strings.Contains(logs.String(), "OPERATOR_CHAT_ID") {
+		t.Errorf("the start did not say the chat is missing: %q", logs.String())
+	}
+
+	logs.Reset()
+	n = operatorNotify(config.Config{OperatorChatID: 42}, send, log)
+	if err := n(ctx, "framy: the bucket"); err != nil || len(sent) != 1 || sent[0] != "42 framy: the bucket" {
+		t.Errorf("with a chat: %v, sent %q", err, sent)
+	}
+	if logs.Len() != 0 {
+		t.Errorf("a configured chat logged %q", logs.String())
 	}
 }
