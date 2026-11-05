@@ -46,6 +46,23 @@ const fakeFacesWords = "The request failed because the input image 'content[0]' 
 // fakeWrapped is any other refusal stored the same way.
 const fakeWrapped = `refused: openrouter 400: HTTP 400: {"error":{"code":"InvalidParameter","message":"The duration is too long. Request id: 0217abd"}}`
 
+// fakeSuggestion is a Search Suggestion as Google writes it: its own <style>
+// and a chip that links to Google's results. fakeOdd has what Google's do
+// not: a style attribute, an event handler, a script, a form that would post
+// to framy and a link that is a script.
+const fakeSuggestion = `<style>
+.container { align-items: center; border-radius: 8px; display: flex; font-family: Google Sans, Roboto, sans-serif; font-size: 14px; line-height: 20px; padding: 8px 12px; }
+.chip { display: inline-block; border: solid 1px; border-radius: 16px; min-width: 14px; padding: 5px 16px; text-align: center; user-select: none; margin: 0 8px; }
+.carousel { overflow: auto; scrollbar-width: none; white-space: nowrap; margin-right: -12px; }
+@media (prefers-color-scheme: dark) { .container { background-color: #1f1f1f; } .chip { background-color: #2c2c2c; border-color: #3c4043; color: #fff; text-decoration: none; } }
+@media (prefers-color-scheme: light) { .container { background-color: #fafafa; } .chip { background-color: #fff; border-color: #d2d2d2; color: #5e5e5e; text-decoration: none; } }
+</style>
+<div class="container"><div class="headline"><svg width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="8" fill="#4285f4"/></svg></div>
+<div class="carousel"><a class="chip" href="https://www.google.com/search?q=eiffel+tower+at+night&amp;client=app-vertex-grounding">eiffel tower at night</a></div></div>`
+
+const fakeOdd = `<div class="headline" style="display: flex; margin-right: 4px">odd</div><img src="data:," onerror="parent.__ran = true">` +
+	`<script>parent.__ran = true</script><form method="post" action="/auth/logout"><button>out</button></form><a class="bad" href="javascript:parent.__ran = true">bad</a>`
+
 // fakeRuns is the API of a signed-in person with a working OpenRouter key and
 // no free pictures left, whose jobs follow the prompt: "fail:<class>" fails
 // with that class, "retry" waits for a retry, "running" runs and never ends,
@@ -106,6 +123,20 @@ func (f *fakeRuns) mount(srv *Server) {
 		writeTestJSON(w, http.StatusOK, withID(cur, id))
 	})
 	srv.HandleFunc("GET /api/jobs/{id}/events", f.events, Stream())
+	// The library: every job as it stands now, the newest first.
+	srv.HandleFunc("GET /api/jobs", func(w http.ResponseWriter, _ *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		out := []map[string]any{}
+		for id := f.next; id > 0; id-- {
+			if j := f.jobs[id]; j != nil {
+				m := withID(j.steps[len(j.steps)-1], id)
+				m["created_at"] = time.Now().UTC()
+				out = append(out, m)
+			}
+		}
+		writeTestJSON(w, http.StatusOK, map[string]any{"jobs": out})
+	})
 	srv.HandleFunc("POST /api/jobs/{id}/cancel", f.cancel)
 	srv.HandleFunc("POST /auth/miniapp", func(w http.ResponseWriter, _ *http.Request) {
 		f.mu.Lock()
@@ -237,6 +268,13 @@ func (f *fakeRuns) create(w http.ResponseWriter, r *http.Request) {
 			"results": []map[string]any{{"id": 9, "content_type": "video/mp4", "url": url, "download": url + "?download=1", "width": 832, "height": 480, "seconds": 5}},
 			"joined": map[string]any{"id": 10, "content_type": "video/mp4", "url": joined, "download": joined + "?download=1", "width": 832, "height": 480, "seconds": 9.96,
 				"segments": []float64{0, 5}}}))
+	case p == "done:grounded":
+		// A run grounded in Google Search: Google's suggestion and the pages it cites.
+		url := "http://" + r.Host + "/test/result.png"
+		steps = append(steps, at("running", nil), at("done", map[string]any{"cost": map[string]any{"usd": 0.04, "amount": 0.04, "currency": "USD", "label": "$0.040"},
+			"results": []map[string]any{{"id": 7, "content_type": "image/png", "url": url, "download": url + "?download=1", "width": 1024, "height": 1024}},
+			"grounding": map[string]any{"suggestions": []string{fakeSuggestion, fakeOdd}, "queries": []string{"eiffel tower at night"},
+				"sources": []map[string]any{{"url": "https://en.wikipedia.org/wiki/Eiffel_Tower", "title": "wikipedia.org"}, {"url": "https://www.toureiffel.paris/en"}, {"url": "javascript:alert(1)", "title": "bad"}}}}))
 	case p == "slow":
 		for range 14 {
 			steps = append(steps, at("running", nil))
@@ -262,7 +300,8 @@ func (f *fakeRuns) create(w http.ResponseWriter, r *http.Request) {
 // batch answers a press of several frames as the server does: the frames
 // with the same offer, payer and settings go as one job, whose results stand
 // on those frames in order. "frames:<a>,<b>,…" gives the jobs, in order, the
-// outcomes done, fail:<class> or running; any other prompt makes them all
+// outcomes done, grounded (done, with Google's suggestion and a source),
+// fail:<class> or running; any other prompt makes them all
 // done, and "refuse:<code>" refuses the press for its second frame.
 func (f *fakeRuns) batch(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
@@ -333,12 +372,20 @@ func (f *fakeRuns) batch(w http.ResponseWriter, r *http.Request) {
 			steps = append(steps, at("failed", map[string]any{"error": map[string]any{"class": strings.TrimPrefix(outcome, "fail:"), "message": fakeMessage}}))
 		case outcome == "running":
 		default:
+			var grounding map[string]any
+			if outcome == "grounded" {
+				grounding = map[string]any{"suggestions": []string{fakeSuggestion}, "sources": []map[string]any{{"url": "https://en.wikipedia.org/wiki/Eiffel_Tower", "title": "wikipedia.org"}}}
+			}
 			var results []map[string]any
 			for k := range frames {
 				results = append(results, map[string]any{"id": 100 + 10*g + k, "content_type": "image/png", "url": url, "download": url + "?download=1", "width": 1024, "height": 1024})
 			}
-			steps = append(steps, at("running", nil), at("done", map[string]any{"results": results,
-				"cost": map[string]any{"usd": usd, "amount": usd, "currency": "USD", "label": fmt.Sprintf("$%.3f", usd)}}))
+			done := at("done", map[string]any{"results": results,
+				"cost": map[string]any{"usd": usd, "amount": usd, "currency": "USD", "label": fmt.Sprintf("$%.3f", usd)}})
+			if grounding != nil {
+				done["grounding"] = grounding
+			}
+			steps = append(steps, at("running", nil), done)
 		}
 		f.mu.Lock()
 		f.next++
@@ -657,6 +704,103 @@ func TestBrowserStreamFails(t *testing.T) {
 	if !strings.HasPrefix(back, "/auth/login?return_to=%2Fr%2F") {
 		t.Errorf("signing in from the run goes to %q", back)
 	}
+}
+
+// TestBrowserGrounding shows a run grounded in Google Search: Google's
+// suggestion in its frame, drawn with Google's own styles (the dark ones)
+// although the page's CSP takes no inline style, no script of it running and
+// no form or script link left in it, its chip opening Google's results
+// outside the frame; the cited pages as links under the result and its
+// buttons, a link that is not the web left out; the same in the library's
+// viewer; and on the smallest phone the buttons still above the dock.
+func TestBrowserGrounding(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	look := `
+	const look = async (root) => {
+		const [f, odd] = root.querySelectorAll(".ground iframe.gsug");
+		for (let i = 0; i < 30 && !f?.contentDocument?.querySelector(".chip"); i++) await wait(100);
+		const d = f?.contentDocument, chip = d?.querySelector(".chip"), cs = chip && d.defaultView.getComputedStyle(chip);
+		const hl = odd?.contentDocument?.querySelector(".headline"), stage = document.querySelector("#stage .jbox")?.getBoundingClientRect();
+		const opened = [];
+		window.open = (u) => { opened.push(u); return null; };
+		chip?.click();
+		odd?.contentDocument?.querySelector("a.bad")?.click();
+		const od = odd?.contentDocument;
+		return { radius: cs?.borderRadius || "", flex: hl ? odd.contentWindow.getComputedStyle(hl).display : "", height: Math.round(f?.getBoundingClientRect().height || 0),
+			inner: d?.documentElement.scrollHeight || 0, ran: !!window.__ran, dropped: !!od && !od.querySelector("script, form, [onerror]") && !od.querySelector("a.bad").hasAttribute("href"),
+			dark: cs?.backgroundColor || "", opened, url: location.href,
+			sources: [...root.querySelectorAll(".ground .gsrc a")].map((a) => a.textContent + " " + a.href), fits: !stage || stage.bottom <= innerHeight };
+	};`
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+look+`
+	await press("done:grounded", (s) => s.done);
+	await wait(300);
+	return await look(document.querySelector("#stage"));`)
+	want := func(where string, s map[string]any) {
+		t.Helper()
+		// Google's dark styles: the frame's prefers-color-scheme follows its color-scheme.
+		if s["radius"] != "16px" || s["flex"] != "flex" || s["ran"] != false || s["dropped"] != true || s["dark"] != "rgb(44, 44, 44)" ||
+			fmt.Sprint(s["opened"]) != "[https://www.google.com/search?q=eiffel+tower+at+night&client=app-vertex-grounding]" || strings.Contains(fmt.Sprint(s["url"]), "google") ||
+			fmt.Sprint(s["sources"]) != "[wikipedia.org https://en.wikipedia.org/wiki/Eiffel_Tower toureiffel.paris https://www.toureiffel.paris/en]" ||
+			s["height"] != s["inner"] || s["height"].(float64) < 30 {
+			t.Errorf("%s: %v", where, s)
+		}
+	}
+	want("stage", s)
+	if s["fits"] != true {
+		t.Errorf("the result and its grounding do not fit the stage: %v", s)
+	}
+	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+look+`
+	document.querySelector('#top .tabs a[data-v="library"]').click();
+	for (let i = 0; i < 40 && !document.querySelector("#library .li"); i++) await wait(100);
+	document.querySelector("#library .li")?.click();
+	for (let i = 0; i < 40 && !document.querySelector("#viewBody .ground"); i++) await wait(100);
+	return await look(document.querySelector("#viewBody"));`)
+	want("viewer", s)
+	// What the page's CSP refused is what Google's HTML may not do in it: a style attribute
+	// (which the page gives the frame through the CSSOM) and a handler, which never runs.
+	refused := func(ctx context.Context) {
+		t.Helper()
+		for _, e := range js[[]string](t, ctx, `return window.__errs;`) {
+			if e != "csp: style-src-attr inline" && e != "csp: script-src-attr inline" {
+				t.Errorf("the page reported: %s", e)
+			}
+		}
+	}
+	refused(ctx)
+
+	// In the Mini App a chip and a source open in Telegram's browser, and the Mini App stays.
+	mini := miniBrowser(t, ts.URL)
+	m := js[map[string]any](t, mini, pageHelpers+runHelpers+`
+	for (let i = 0; i < 50 && !window.__tg?.main; i++) await wait(100);
+	const p = document.querySelector("#prompt");
+	p.value = "done:grounded"; p.dispatchEvent(new Event("input"));
+	await wait(80);
+	window.__tg.main();
+	for (let i = 0; i < 140 && !stage().done; i++) await wait(100);
+	const f = document.querySelector("#stage .ground iframe.gsug");
+	for (let i = 0; i < 30 && !f?.contentDocument?.querySelector(".chip"); i++) await wait(100);
+	f?.contentDocument?.querySelector(".chip")?.click();
+	document.querySelector("#stage .gsrc a")?.click();
+	await wait(100);
+	return { links: window.__tg.links, url: location.pathname };`)
+	if fmt.Sprint(m["links"]) != "[https://www.google.com/search?q=eiffel+tower+at+night&client=app-vertex-grounding https://en.wikipedia.org/wiki/Eiffel_Tower]" || m["url"] != "/" {
+		t.Errorf("Mini App: %v", m)
+	}
+	refused(mini)
+
+	// On the smallest phone the result's buttons stay above the dock, and Google's block follows them.
+	small := browser(t, ts.URL, 320, 568, true)
+	p := js[map[string]any](t, small, pageHelpers+runHelpers+`
+	await press("done:grounded", (s) => s.done);
+	await wait(300);
+	const acts = document.querySelector("#stage .jacts").getBoundingClientRect(), g = document.querySelector("#stage .ground")?.getBoundingClientRect();
+	return { acts: Math.round(acts.bottom), dock: Math.round(document.querySelector("#composer").getBoundingClientRect().top), after: !!g && g.top >= acts.bottom };`)
+	if p["acts"].(float64) > p["dock"].(float64) || p["after"] != true {
+		t.Errorf("a grounded result at 320x568: %v", p)
+	}
+	refused(small)
 }
 
 // TestBrowserRunsPhone checks a failure on a phone: the reason and its

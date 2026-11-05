@@ -12,6 +12,7 @@ import { priceText, sumOf } from "./price.js";
 import { setScope, addFrame, removeFrame, openTune, framesNote, miniShape } from "./composer.js";
 import { openFull } from "./library.js";
 import { halftone } from "./halftone.js";
+import { grounding, groundRoom } from "./ground.js";
 import { player, fmtClock } from "./player.js";
 import { openPrefs } from "./prefs.js";
 import { again, quiet, editPrompt, otherModel, cancel, byKey, keyFor, takePrice, drop, pickPart, copyPrompt, continueFrom, fromLastFrame, canShare, share, jobsOf, frameRun } from "./run.js";
@@ -394,7 +395,13 @@ function renderPress(st, run) {
   const models = [...new Set(run.frames.map((fm) => fm.model))], mixed = models.length > 1, items = doneItems(cells);
   // Nothing came: the first frame's reason stands for the press, and Again runs all of it.
   if (!live.length) return renderRun(st, failed[0].sub);
-  const under = failed.length ? 110 : 70, rs = live.map((c) => c.r), L = live.length > 1 ? board(rs, under) : null;
+  // Google's suggestions and the sources of each grounded job go under the results and their
+  // buttons, once a job (frames alike go as one), with the numbers of its frames when the press
+  // has others.
+  const gj = new Map();
+  for (const c of live) { const j = c.sub.job; if (j?.grounding) { if (!gj.has(j.id)) gj.set(j.id, { j, ns: [] }); gj.get(j.id).ns.push(fmtNum(c.i + 1)); } }
+  const gr = [...gj.values()].map(({ j, ns }) => grounding(j, ns.length < live.length ? ns.join(", ") : ""));
+  const under = (failed.length ? 110 : 70) + groundRoom([...gj.values()].map((x) => x.j)), rs = live.map((c) => c.r), L = live.length > 1 ? board(rs, under) : null;
   const box = h("div", { class: "board run", "data-k": "pv" }, live.map((c) => runCell(run, c, mixed, items)));
   if (L) { box._fit = () => lay(box, board(rs, under)); lay(box, L); }
   else { const b = fit(rs[0], under); box._fit = () => { const x = fit(rs[0], under); lay(box, { w: x.w, h: x.h, pos: [{ x: 0, y: 0, w: x.w, h: x.h }] }); }; lay(box, { w: b.w, h: b.h, pos: [{ x: 0, y: 0, w: b.w, h: b.h }] }); }
@@ -414,7 +421,7 @@ function renderPress(st, run) {
       h("button", { type: "button", class: "sq", "aria-label": t("stage.next"), title: t("stage.next"), onclick: () => drop() }, ic("plus"), h("span", { class: "t" }, t("stage.next")))];
   const prompt = run.prompt ? h("p", { class: "jprompt", "data-k": "j-prompt", hidden: samePrompt(run) }, h("span", { class: "tx" }, run.prompt),
     h("button", { type: "button", class: "cp", "aria-label": t("act.copy"), title: t("act.copy"), onclick: () => copyPrompt(run.prompt) }, ic("copy"))) : null;
-  st.replaceChildren(h("div", { class: "preview", "data-k": "pvbox" }, box), h("div", { class: "jfoot", "data-k": "j-foot" }, line, why, h("div", { class: "jacts acts", "data-k": "j-acts" }, acts.filter(Boolean)), prompt));
+  st.replaceChildren(h("div", { class: "preview", "data-k": "pvbox" }, box), h("div", { class: "jfoot", "data-k": "j-foot" }, line, why, h("div", { class: "jacts acts", "data-k": "j-acts" }, acts.filter(Boolean)), gr, prompt));
 }
 // Every result of the press saved, one after another: a browser asks once to allow them, Telegram asks for each.
 function allDown(items) {
@@ -429,7 +436,7 @@ function allDown(items) {
 }
 
 function renderRun(st, run) {
-  const v = view(run), r = runRatio(run), b = fit(r, v.fail ? 150 : 70), j = run.job, m = C.byId[run.model];
+  const j = run.job, v = view(run), r = runRatio(run), under = (v.fail ? 150 : 70) + groundRoom([j]), b = fit(r, under), m = C.byId[run.model];
   let media = null;
   if (v.done) {
     const res = v.res;
@@ -445,7 +452,7 @@ function renderRun(st, run) {
   }
   const box = h("div", { class: "jbox" + (v.done ? " done" : "") + (v.fail ? " failed" : ""), "data-k": "pv", style: { width: b.w + "px", height: b.h + "px" } },
     v.done ? media : [h("i"), h("i"), h("i"), h("i")], v.status || null);
-  box._r = r; box._under = v.fail ? 150 : 70;
+  box._r = r; box._under = under;
   // The dots: a figure for the state, or the result showing through them as it arrives.
   if (v.ht) halftone(box, v.ht.fig, { ...v.ht, n: run.n, lost: going && !!NETLINE[run.net] });
   else if (v.done) halftone(box, "reveal", { n: run.n });
@@ -461,7 +468,7 @@ function renderRun(st, run) {
     h("button", { type: "button", class: "cp", "aria-label": t("act.copy"), title: t("act.copy"), onclick: () => copyPrompt(run.prompt) }, ic("copy"))) : null;
   const acts = h("div", { class: "jacts acts", "data-k": "j-acts" }, v.acts.filter(Boolean),
     runOver(run) ? h("button", { type: "button", class: "sq", "aria-label": t("stage.next"), title: t("stage.next"), onclick: () => drop() }, ic("plus"), h("span", { class: "t" }, t("stage.next"))) : null);
-  st.replaceChildren(h("div", { class: "preview", "data-k": "pvbox" }, box), h("div", { class: "jfoot", "data-k": "j-foot" }, line, why, acts, prompt));
+  st.replaceChildren(h("div", { class: "preview", "data-k": "pvbox" }, box), h("div", { class: "jfoot", "data-k": "j-foot" }, line, why, acts, grounding(j), prompt));
 }
 
 // The composer holds the run's prompt still: the stage does not say it twice.

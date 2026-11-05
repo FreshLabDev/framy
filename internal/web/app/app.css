@@ -475,6 +475,15 @@ input.search::placeholder {color: var(--muted);}
 .jwhy .note {color: var(--soft);}
 .jprompt[hidden] {display: none;}
 .jacts {display: flex; flex-wrap: wrap; gap: var(--gap);}
+/* Search grounding: Google's suggestions as Google drew them, then the pages the result cites, in one row. */
+.ground {display: grid; gap: 6px; min-width: 0;}
+.ground .gnum {font-size: 12px; font-weight: 700; color: var(--muted);}
+.gsug {display: block; width: 100%; height: 50px; border: 0; background: transparent; color-scheme: dark;}
+.gsrc {display: flex; align-items: center; gap: 4px 12px; min-width: 0; height: 24px; overflow-x: auto; scrollbar-width: none; white-space: nowrap; font-size: 13px; color: var(--soft);}
+.gsrc::-webkit-scrollbar {display: none;}
+.gsrc .ic {flex: none; width: 14px; height: 14px; color: var(--muted);}
+.gsrc a {flex: none; max-width: 240px; overflow: hidden; text-overflow: ellipsis; color: var(--soft); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px;}
+.gsrc a:hover {color: var(--ink);}
 .jacts > button, .jacts > a {height: 42px; padding: 0 14px; display: inline-flex; align-items: center; gap: 8px; background: var(--deep); color: var(--ink); text-decoration: none; font-weight: 600; font-size: 15px;}
 .jacts > .primary {background: var(--ink); color: var(--field);}
 .jacts > .wait {opacity: .5; pointer-events: none;}

@@ -14,6 +14,7 @@ import { failure } from "./errors.js";
 import { known, priceEl, priceText, onPrices, sumOf, knownTotal, needTotal } from "./price.js";
 import { thumbMedia } from "./clips.js";
 import { player } from "./player.js";
+import { grounding } from "./ground.js";
 import { openSheet, closeSheets, toast, ask } from "./ui.js";
 import { view, B, ticking, renderStage, refit } from "./stage.js";
 import { runOfJob, runOfBatch, frameRun, again, removeJob, signIn, closeMini, shownOf, onLeave, copyPrompt, refreshMe } from "./run.js";
@@ -692,7 +693,7 @@ function fill() {
     h("button", { type: "button", class: "cp", "aria-label": t("act.copy"), title: t("act.copy"), onclick: () => copyPrompt(j.prompt) }, ic("copy"))) : null;
   $("#viewBody").replaceChildren(h("div", { class: "vrun", "data-run": j.id },
     h("div", { class: "vmain" }, mediaOf(j, v), picks(j)),
-    h("div", { class: "vside" }, line, why, acts, prompt, facts(j), inputs(j))));
+    h("div", { class: "vside" }, line, why, acts, grounding(j), prompt, facts(j), inputs(j))));
   size();
   ticking();
 }

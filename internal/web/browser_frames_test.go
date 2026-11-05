@@ -27,6 +27,31 @@ async function pickModel(name) {
 }
 `
 
+// TestBrowserFramesGrounded shows a press whose frames 1 and 3, one job,
+// were grounded in Google Search: its suggestion and sources stand once
+// under the results, with the numbers of those frames.
+func TestBrowserFramesGrounded(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+framesHelpers+`
+	document.querySelector("#stage .addf").click(); await wait(500);
+	document.querySelector("#stage .addf").click(); await wait(500);
+	cells()[1].click(); await wait(500);
+	await pickModel("Nano Banana 2.1");
+	document.querySelector("#stage .scopetip button").click(); await wait(500);
+	for (let i = 0; i < 30 && /…/.test(document.querySelector("#bar").textContent); i++) await wait(100);
+	const s = await press("frames:grounded,done", () => document.querySelectorAll("#stage .jbox.cell.done img").length === 3);
+	await wait(300);
+	const g = [...document.querySelectorAll("#stage .ground")];
+	return { ...s, blocks: g.length, num: g[0]?.querySelector(".gnum")?.textContent || "", frames: g[0]?.querySelectorAll("iframe.gsug").length || 0,
+	  sources: g[0]?.querySelectorAll(".gsrc a").length || 0, fits: document.querySelector("#stage .jacts").getBoundingClientRect().bottom <= innerHeight };`)
+	if s["timeout"] == true || s["blocks"] != float64(1) || s["num"] != "1, 3" || s["frames"] != float64(1) || s["sources"] != float64(1) || s["fits"] != true {
+		t.Errorf("grounded press: %v", s)
+	}
+	noErrors(t, ctx)
+}
+
 // TestBrowserFrames checks a press of several frames on a computer: frames
 // on a board, one set up on its own, one POST /api/batches for all of them,
 // and the results in place of the frames, a failed one gone.
