@@ -11249,6 +11249,24 @@
     "ja": "背景",
     "ar": "الخلفية"
   },
+  "web.set.complexity": {
+    "en": "Planning",
+    "ru": "Планирование",
+    "uk": "Глибина планування",
+    "es": "Planificación",
+    "fr": "Planification",
+    "de": "Planungstiefe",
+    "it": "Pianificazione",
+    "pl": "Głębia planowania",
+    "cs": "Hloubka plánování",
+    "tr": "Planlama",
+    "sv": "Planeringsnivå",
+    "be": "Глыбіня планавання",
+    "ca": "Planificació",
+    "zh": "规划程度",
+    "ja": "構図の計画",
+    "ar": "درجة التخطيط"
+  },
   "web.set.creativity": {
     "en": "Creativity",
     "ru": "Свобода",

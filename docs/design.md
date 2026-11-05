@@ -107,7 +107,7 @@ The sync never deletes. An offer that leaves its source gets `disabled_at`, and 
 Prices of the same model at different providers are usually equal: OpenRouter charges the provider's price per request and takes its fee of about 5.5% when credits are bought. What differs is where the money comes from and which settings exist:
 
 - only direct Gemini has `thinking_level`, Google Search and Image Search grounding, `media_resolution`, JPEG output and a video as an input to Nano Banana;
-- only direct OpenAI has the mask and any `size` up to 3840 px.
+- only direct OpenAI has the mask, any `size` up to 3840 px and GPT Image 2.6's `complexity`.
 
 The picker shows each connected offer as its own row: price, provider, and what the offer adds.
 
@@ -132,7 +132,7 @@ No catalog gives defaults, so one rule in Go (`catalog.Defaults`) picks the valu
 - Size, where a model has it instead of an aspect ratio: the same shape at about 1024×1024. A video's `size` gets none, since OpenRouter refuses it next to a resolution or an aspect ratio.
 - Resolution: the smallest that reaches 1K for an image or 720p for a video, else the largest.
 - Duration: the shortest of at least 5 seconds, else the longest.
-- Quality: `medium`, else `standard`; background: `auto`; any other choice: `auto`, else the first, which for an effort is the least.
+- Quality: `medium`, else `standard`; background: `auto`; complexity: `high`, OpenAI's own default; any other choice: `auto`, else the first, which for an effort is the least.
 - One result; sound on, as OpenRouter has it; Google Search off; any other range in its middle.
 
 Only the settings the composer draws get a default; the rest stay the provider's. Nor does a setting one of OpenRouter's upstreams would not take with that value: sending it would narrow the upstreams OpenRouter may try, while the estimate counts the cheapest.
@@ -148,7 +148,7 @@ The owner asked for effort settings. Four families of model have them at their m
 | Riverflow 2.5 | `reasoning` | `low`, `medium`, `high`; Pro also `xhigh` | dynamic price |
 | Krea K3 Edit | `thinking_mode` | `fast` (the default) and `high` through OpenRouter; `ultra` at Krea only | +$0.02 on `high` |
 
-`quality=auto` and `size=auto` of OpenAI are not offered: their price cannot be known before the run. Neither is `aspect_ratio=auto` of OpenAI's models on OpenRouter, for the same reason: an `exclude` rule of the overlay takes both from every `openai/gpt-image-*`, so a version OpenRouter adds comes without them before anyone writes it in. GPT Image 2.6's GIF output, its SVG output and its `complexity` are not offered yet: what a GIF's frames or an SVG's authoring model cost is not published.
+`quality=auto` and `size=auto` of OpenAI are not offered: their price cannot be known before the run. Neither is `aspect_ratio=auto` of OpenAI's models on OpenRouter, for the same reason: an `exclude` rule of the overlay takes both from every `openai/gpt-image-*`, so a version OpenRouter adds comes without them before anyone writes it in. GPT Image 2.6's GIF and SVG output are not offered yet: what a GIF's frames or an SVG's authoring model cost is not published, SVG needs access OpenAI grants apart, and framy would have to keep, preview and send both. Its `complexity`, how much the model plans before it renders, is a setting of its own on the direct offers, "Planning" under More settings: `low` for a focused edit such as a new background or a sign, `high` (OpenAI's default, and framy's) for dense text and layouts. It has no fee, so it shows no prices.
 
 In the catalog only GPT Image 2.5 and 2.6 and the direct Gemini models have effort (5 November 2026): Riverflow's `reasoning` is on OpenRouter's Images API neither as a parameter nor as a pass-through, and K3 Edit's `thinking_mode` is a pass-through the overlay does not declare yet, so the form has no control for it; its `high` is priced already (`high_thinking_surcharge`).
 

@@ -95,11 +95,11 @@ export function photoLimit(m, pay) {
 }
 
 /* Settings. Only the ones a person decides go on the form; the rest keep the offer's default. */
-export const SHOWN = ["aspect_ratio", "size", "resolution", "quality", "duration", "generate_audio", "thinking_level", "background", "google_search", "image_search", "creativity", "upscale_factor"];
-export const SECONDARY = new Set(["background", "thinking_level", "google_search", "image_search", "creativity"]);
+export const SHOWN = ["aspect_ratio", "size", "resolution", "quality", "duration", "generate_audio", "thinking_level", "complexity", "background", "google_search", "image_search", "creativity", "upscale_factor"];
+export const SECONDARY = new Set(["background", "thinking_level", "complexity", "google_search", "image_search", "creativity"]);
 export const SEARCH = ["google_search", "image_search"];
 export const SICON = { aspect_ratio: "ratio", size: "ratio", resolution: "res", quality: "bars", thinking_level: "bars", background: "checker", duration: "clock",
-  generate_audio: "audio", fast: "bolt", google_search: "search", image_search: "image", upscale_factor: "res", creativity: "spark" };
+  generate_audio: "audio", fast: "bolt", google_search: "search", image_search: "image", upscale_factor: "res", creativity: "spark", complexity: "layers" };
 // The fields of an offer in the form's order. "size" is a choice only where
 // it is the one way to set the shape and the resolution, as on GPT Image: a
 // video model lists it beside its own aspect_ratio and resolution, and a
@@ -195,7 +195,7 @@ export function facts(list, max = 4) {
     if (ms.every(needsImage)) f.push(["photos", t("fact.from_photo")]);
     else if (refs) f.push(["photos", refs > 1 ? t("fact.photos", { n: refs }) : t("fact.photo_one")]);
     const r = resRangeOf(offers); if (r) f.push(["res", r[0] === r[1] ? r[1] : t("fact.up_to", { v: r[1] })]);
-    if (ms.some((m) => /vector/i.test(m.name))) f.push(["vector", "SVG"]);
+    if (ms.some((m) => m.family?.format === "vector")) f.push(["vector", "SVG"]);
     if (unionOf(offers, "background").includes("transparent")) f.push(["checker", t("fact.transparent")]);
     const n = Math.max(0, ...offers.map((o) => o.params.n?.max || 0)); if (n > 1) f.push(["stack", t("fact.at_once", { n })]);
   } else {
