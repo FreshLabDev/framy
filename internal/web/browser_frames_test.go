@@ -305,3 +305,26 @@ func TestBrowserLibraryPress(t *testing.T) {
 	}
 	noErrors(t, ctx)
 }
+
+// TestBrowserLibraryPressWaiting checks a press with no picture yet: its cover
+// says where it stands, and the line under it names the models only. Jobs 70
+// and 69 make one press still going, 68 and 67 one that gave nothing.
+func TestBrowserLibraryPressWaiting(t *testing.T) {
+	f := newFakeLibrary()
+	j70, j69, j68, j67 := f.jobs[0], f.jobs[1], f.jobs[2], f.jobs[3]
+	j70["batch"], j70["frames"], j69["batch"], j69["frames"] = "b0", []int{0}, "b0", []int{1}
+	j68["kind"], j68["offer"], j68["model"], j68["settings"] = "image", j67["offer"], j67["model"], j67["settings"]
+	j68["batch"], j68["frames"], j67["batch"], j67["frames"] = "b9", []int{0}, "b9", []int{1}
+	ts := fakeSite(t, f.mount)
+	ctx := browser(t, ts.URL+"/library", 1440, 900, false)
+	got := js[map[string]any](t, ctx, libHelpers+`
+	await settled();
+	const card = (id) => tiles().find((e) => e.getAttribute("href") === "/r/" + id);
+	const read = (e) => ({ cover: e.querySelector(".cover.none b")?.textContent, line: e.querySelector(".m").textContent });
+	return { going: read(card(70)), failed: read(card(68)), has69: ids().includes(69), has67: ids().includes(67) };`)
+	if fmt.Sprint(got["going"]) != "map[cover:Making it line:FLUX 3]" || fmt.Sprint(got["failed"]) != "map[cover:No money on the key line:FLUX 3]" ||
+		got["has69"] != false || got["has67"] != false {
+		t.Errorf("waiting presses: %v", got)
+	}
+	noErrors(t, ctx)
+}

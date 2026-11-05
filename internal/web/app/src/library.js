@@ -258,7 +258,7 @@ const dayEl = (g) => h("section", { class: "lday" }, h("h2", { "data-k": "ld-" +
 const nameOf = (id) => String(id || "").split("/").pop();
 const coverOf = (j) => { const r = outsOf(j)[0]; return r ? r.thumb?.url || (j.kind === "video" ? "" : r.url || "") : ""; };
 const sigOf = (j) => [j.status, outsOf(j).length, coverOf(j), outsOf(j)[0]?.url ? 1 : 0, j.cost?.label || "", j.error?.class || "", j.retry_at || "", j.prompt].join("|");
-// What the line under a tile says after the model: the price, or where the run stands.
+// Where a run stands, or its price once it is done.
 function said(j) {
   switch (j.status) {
     case "done": return j.cost?.label || (j.free ? t("bar.free") : j.estimate && j.estimate.kind !== "unknown" ? priceText(j.estimate) : "");
@@ -268,17 +268,22 @@ function said(j) {
     default: return failure(j).label;
   }
 }
+// What the line under a tile says after the model. A run still going, or one
+// that gave nothing, says where it stands on its cover, so the line does not
+// say it again and the model keeps its room; it says only what the provider
+// billed for such a run, if anything.
+const lineOf = (cv, j) => (cv.classList.contains("none") ? (j.cost?.usd > 0 ? j.cost.label : "") : said(j));
 // A tile keeps its element while the run is the same, so its picture never
 // loads twice; one that left the list (morph takes its key) is made anew.
 function tile(j) {
   const sig = sigOf(j), old = TILES.get(j.id);
   if (old && old._sig === sig && old.dataset.k && !old.inert) return old;
-  const m = C.byId[j.model], f = m && C.famOf[m.id];
+  const m = C.byId[j.model], f = m && C.famOf[m.id], cv = cover(j);
   const a = h("a", { class: "li", href: "/r/" + j.id, "data-k": "li-" + j.id,
     onclick: (e) => { if (!S.mini && (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) return; e.preventDefault(); openView(L.jobs.find((x) => x.id === j.id) || j, true); } },
-  cover(j), h("p", { class: "p" }, j.prompt || t("kind." + j.kind)),
+  cv, h("p", { class: "p" }, j.prompt || t("kind." + j.kind)),
   h("span", { class: "m" }, f ? lg(famLogo(f), f.maker, "s") : null,
-    h("span", {}, [m ? vname(m) : nameOf(j.model), said(j), j.surface === "guest" ? t("lib.guest") : ""].filter(Boolean).join(" · "))));
+    h("span", {}, [m ? vname(m) : nameOf(j.model), lineOf(cv, j), j.surface === "guest" ? t("lib.guest") : ""].filter(Boolean).join(" · "))));
   a._sig = sig;
   TILES.set(j.id, a);
   return a;
@@ -308,12 +313,15 @@ function pressTile(js) {
   const first = js[0], key = "b:" + first.batch, sig = js.map(sigOf).join("#"), old = TILES.get(key);
   if (old && old._sig === sig && old.dataset.k && !old.inert) return old;
   const ids = [...new Set(js.map((j) => j.model))], m = C.byId[ids[0]], f = m && C.famOf[m.id];
-  const name = (m ? vname(m) : nameOf(ids[0])) + (ids.length > 1 ? " +" + fmtNum(ids.length - 1) : "");
+  const name = (m ? vname(m) : nameOf(ids[0])) + (ids.length > 1 ? " +" + fmtNum(ids.length - 1) : ""), cv = pressCover(js);
+  // With no picture yet, the cover says where the press stands, and the line only what was billed.
+  const billed = js.map((j) => j.cost).filter((c) => c?.usd > 0), line = !cv.classList.contains("none") ? pressSaid(js)
+    : billed.length ? sumOf(billed.map((c) => ({ ...c, kind: "exact" }))).label : "";
   const a = h("a", { class: "li", href: "/r/" + first.id, "data-k": "li-" + first.id,
     onclick: (e) => { if (!S.mini && (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) return; e.preventDefault(); openView(L.jobs.find((x) => x.id === first.id) || first, true); } },
-  pressCover(js), h("p", { class: "p" }, first.prompt || t("kind." + first.kind)),
+  cv, h("p", { class: "p" }, first.prompt || t("kind." + first.kind)),
   h("span", { class: "m" }, f ? lg(famLogo(f), f.maker, "s") : null,
-    h("span", {}, [name, pressSaid(js), first.surface === "guest" ? t("lib.guest") : ""].filter(Boolean).join(" · "))));
+    h("span", {}, [name, line, first.surface === "guest" ? t("lib.guest") : ""].filter(Boolean).join(" · "))));
   a._sig = sig;
   TILES.set(key, a);
   return a;

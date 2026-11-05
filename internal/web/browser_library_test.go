@@ -259,15 +259,20 @@ func TestBrowserLibrary(t *testing.T) {
 	  create: vis(document.querySelector("#create")), tab: tab && tab.dataset.v, n: tiles().length,
 	  days: [...document.querySelectorAll("#library .lday > h2")].slice(0, 3).map((e) => e.textContent),
 	  covers: tiles().slice(4).every((e) => !!e.querySelector(".cover img")),
-	  run: run.querySelector(".cover.none b")?.textContent, fail: fail.querySelector(".m")?.textContent,
+	  run: run.querySelector(".cover.none b")?.textContent, runLine: run.querySelector(".m").textContent, queued: tiles()[1].querySelector(".m").textContent,
+	  fail: fail.querySelector(".m")?.textContent, why: fail.querySelector(".cover.none b")?.textContent, stopped: tiles()[3].querySelector(".m").textContent,
 	  video: tiles()[5].querySelector(".badge")?.textContent, price: tiles()[4].querySelector(".m").textContent,
 	  guest: tiles()[9].querySelector(".m").textContent, two: tiles()[10].querySelector(".badge.n")?.textContent,
 	  cv: getComputedStyle(tiles()[0]).contentVisibility,
 	  overflow: document.documentElement.scrollWidth - innerWidth,
 	};`)
 	if got["create"] != false || got["tab"] != "library" || got["n"].(float64) != 30 || got["covers"] != true || got["run"] != "Making it" ||
-		got["fail"] != "Veo 3.1 Fast · No money on the key" || got["video"] != "6 s" || !strings.HasSuffix(got["price"].(string), "$0.040") || got["overflow"].(float64) > 0 {
+		got["fail"] != "Veo 3.1 Fast" || got["why"] != "No money on the key" || got["video"] != "6 s" || !strings.HasSuffix(got["price"].(string), "$0.040") || got["overflow"].(float64) > 0 {
 		t.Errorf("library: %v", got)
+	}
+	// Where a run stands is on its cover only: the line under it keeps its room for the model.
+	if got["runLine"] != "FLUX 3" || got["queued"] != "FLUX 3" || got["stopped"] != "FLUX 3" {
+		t.Errorf("lines: %v", got)
 	}
 	if got["guest"] != "FLUX 3 · $0.040 · guest mode" || got["two"] != "×2" || got["cv"] != "auto" {
 		t.Errorf("tiles: %v", got)
