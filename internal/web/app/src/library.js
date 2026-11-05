@@ -15,16 +15,22 @@ import { known, priceEl, priceText, onPrices, sumOf, knownTotal, needTotal } fro
 import { thumbMedia } from "./clips.js";
 import { player } from "./player.js";
 import { grounding } from "./ground.js";
-import { openSheet, closeSheets, toast, ask } from "./ui.js";
+import { openSheet, closeSheets, toast, ask, layer, goBack, inHistory, takeEntry } from "./ui.js";
 import { view, B, ticking, renderStage, refit } from "./stage.js";
 import { runOfJob, runOfBatch, frameRun, again, removeJob, signIn, closeMini, shownOf, onLeave, copyPrompt, refreshMe } from "./run.js";
 
 /* Views and addresses. */
 
 const RUN = /^\/r\/([1-9]\d{0,17})$/;
+// A change waits for a back of the page's own that is on its way (ui.js), and
+// a new address pushed while a sheet or the whole screen has the entry takes
+// that entry's place.
 function setPath(path, how, state = null) {
-  if (S.mini || how === "none" || (how === "push" && location.pathname === path)) return;
-  history[how === "push" ? "pushState" : "replaceState"](state, "", path);
+  if (S.mini || how === "none") return;
+  inHistory(() => {
+    if (how === "push" && location.pathname === path) return;
+    history[how === "push" && !takeEntry() ? "pushState" : "replaceState"](state, "", path);
+  });
 }
 
 // go shows one view: "create" or "library". how is what it does to the
@@ -487,7 +493,7 @@ function closed() {
   polling();
   if (quiet) return;
   // Closed by its own button: the address goes back to the library.
-  if (V.pushed) { V.pushed = false; history.back(); } else setPath("/library", "replace");
+  if (V.pushed) { V.pushed = false; inHistory(goBack); } else setPath("/library", "replace");
 }
 
 // The run with id, at its own address: from the list read already, else read now.
@@ -513,7 +519,8 @@ function openView(j, push, pushed = push) {
   setRun(j); V.pushed = !S.mini && pushed;
   if (push) setPath("/r/" + V.id, "push", { lib: 1 });
   fill();
-  openSheet("#viewer");
+  // On the site its address is its entry in the history; the Mini App has none.
+  openSheet("#viewer", { own: !S.mini });
   size();
   fresh();
   polling();
@@ -775,6 +782,7 @@ export function openFull(at = 0, items = null) {
   box.replaceChildren(h("div", { class: "fbar" }, cnt, h("button", { type: "button", class: "x", onclick: () => closeFull() }, ic("close"), t("view.close"))),
     h("div", { class: "fmid" }, strip, nav), h("div", { class: "fbot" }, dots, acts));
   box.hidden = false;
+  layer("full", () => closeFull());
   document.documentElement.classList.add("full-on");
   box.tabIndex = -1;
   box.focus({ preventScroll: true });
@@ -788,6 +796,7 @@ export function closeFull(quick = false) {
   if (!FULL || !box) return;
   const back = FULL.back;
   FULL = null;
+  layer("full", null);
   box.querySelectorAll("video").forEach((v) => v.pause());
   const done = () => { if (FULL) return; box.hidden = true; box.replaceChildren(); document.documentElement.classList.remove("full-on"); if (!quick) back?.focus?.({ preventScroll: true }); };
   const a = quick ? null : anim(box, [{ opacity: 1 }, { opacity: 0 }], { duration: 160, fill: "forwards" });

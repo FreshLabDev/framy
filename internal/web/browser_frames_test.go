@@ -279,3 +279,103 @@ func TestBrowserLibraryPress(t *testing.T) {
 	}
 	noErrors(t, ctx)
 }
+
+// backHelpers make a press of two frames whose results stand on the stage.
+const backHelpers = `
+const until = async (fn, n = 60) => { for (let i = 0; i < n; i++) { const v = fn(); if (v) return v; await wait(100); } return fn(); };
+async function twoResults() {
+  document.querySelector("#stage .addf").click(); await wait(600);
+  for (let i = 0; i < 30 && /…/.test(document.querySelector("#bar").textContent); i++) await wait(100);
+  return press("frames:done", () => document.querySelectorAll("#stage .jbox.cell.done img").length === 2);
+}
+const fullShown = () => !document.querySelector("#full").hidden;
+`
+
+// TestBrowserBack checks the back of the browser on the site: it closes the
+// whole screen of a result on the stage and a sheet, one at a time and the
+// top one first, and leaves the page where it was. Closed by its own button,
+// a sheet takes its entry in the history with it.
+func TestBrowserBack(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+framesHelpers+backHelpers+`
+	const s = await twoResults(), r = { press: !s.timeout };
+	const back = async (until_) => { history.back(); await until(until_); await wait(300); };
+	cells()[0].click(); await until(fullShown);
+	r.full = fullShown(); r.marked = !!history.state?.over;
+	await back(() => !fullShown());
+	r.fullClosed = !fullShown(); r.path = location.pathname; r.create = vis(document.querySelector("#create"));
+	// Closed by its button, the entry goes too: the next back leaves nothing open behind.
+	cells()[1].click(); await until(fullShown);
+	document.querySelector("#full .fbar .x").click();
+	await until(() => !fullShown() && !history.state?.over); await wait(300);
+	r.unmarked = !history.state?.over;
+	// The model picker, and the settings with the picker of a default model over them: one back each.
+	document.querySelector("#how .mhead").click(); await until(() => !document.querySelector("#picker").hidden);
+	await back(() => document.querySelector("#picker").hidden);
+	r.picker = document.querySelector("#picker").hidden; r.path2 = location.pathname;
+	document.querySelector("#meBtn").click(); await until(() => document.querySelector('#prefsBody [data-k="p-def-image"] button'));
+	await wait(400);
+	document.querySelector('#prefsBody [data-k="p-def-image"] button').click();
+	await until(() => !document.querySelector("#picker").hidden); await wait(400);
+	r.over = document.querySelector("#prefs").hidden;
+	await back(() => !document.querySelector("#prefs").hidden);
+	r.prefs = !document.querySelector("#prefs").hidden && document.querySelector("#picker").hidden;
+	await back(() => document.querySelector("#prefs").hidden);
+	r.prefsClosed = document.querySelector("#prefs").hidden; r.view = document.querySelector("#app").dataset.view; r.unmarked2 = !history.state?.over;
+	// Forward onto that entry opens nothing and does not stay there to spend the next back.
+	history.forward(); await wait(600);
+	r.forward = !history.state?.over && document.querySelector("#prefs").hidden && location.pathname === "/";
+	return r;`)
+	if s["press"] != true || s["full"] != true || s["marked"] != true || s["fullClosed"] != true || s["path"] != "/" || s["create"] != true ||
+		s["unmarked"] != true || s["picker"] != true || s["path2"] != "/" || s["over"] != true || s["prefs"] != true || s["prefsClosed"] != true ||
+		s["view"] != "create" || s["unmarked2"] != true || s["forward"] != true {
+		t.Errorf("back on the site: %v", s)
+	}
+
+	// In the library, the viewer keeps its address: back closes the whole screen first, then the viewer.
+	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+framesHelpers+backHelpers+`
+	document.querySelector("#top .tab[data-v=library]").click();
+	await until(() => document.querySelector("#library .li")); await wait(400);
+	document.querySelector("#library .li").click();
+	await until(() => !document.querySelector("#viewer").hidden); await wait(500);
+	const r = { path: location.pathname };
+	document.querySelector("#viewer .vexp").click(); await until(fullShown);
+	history.back(); await until(() => !fullShown()); await wait(400);
+	r.fullClosed = !fullShown(); r.viewer = !document.querySelector("#viewer").hidden; r.path2 = location.pathname;
+	// The question whether to delete it: back answers no, and the viewer stays.
+	[...document.querySelectorAll("#viewer .jacts button")].find((b) => b.textContent.trim() === "Delete").click();
+	await until(() => !document.querySelector("#ask").hidden);
+	history.back(); await until(() => document.querySelector("#ask").hidden); await wait(400);
+	r.asked = document.querySelector("#ask").hidden && !document.querySelector("#viewer").hidden && location.pathname === r.path;
+	history.back(); await until(() => document.querySelector("#viewer").hidden); await wait(400);
+	r.viewerClosed = document.querySelector("#viewer").hidden; r.path3 = location.pathname;
+	return r;`)
+	if !strings.HasPrefix(fmt.Sprint(s["path"]), "/r/") || s["fullClosed"] != true || s["viewer"] != true || s["path2"] != s["path"] || s["asked"] != true ||
+		s["viewerClosed"] != true || s["path3"] != "/library" {
+		t.Errorf("back in the library: %v", s)
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserBackMini checks Telegram's back button in the Mini App: the
+// whole screen of a result on the stage shows it, and it closes that, not
+// the Mini App.
+func TestBrowserBackMini(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := miniBrowser(t, ts.URL)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+framesHelpers+backHelpers+`
+	const s = await twoResults(), r = { press: !s.timeout, back0: __tg.back };
+	cells()[0].click(); await until(fullShown);
+	r.full = fullShown(); r.back1 = __tg.back;
+	__tg.backClick(); await until(() => !fullShown()); await wait(300);
+	r.closed = !fullShown(); r.back2 = __tg.back; r.create = vis(document.querySelector("#create")); r.left = !!__tg.closed;
+	return r;`)
+	if s["press"] != true || s["back0"] != false || s["full"] != true || s["back1"] != true || s["closed"] != true || s["back2"] != false ||
+		s["create"] != true || s["left"] != false {
+		t.Errorf("back in the Mini App: %v", s)
+	}
+	noErrors(t, ctx)
+}

@@ -10,11 +10,11 @@ import { S, initModels, useDefaults, reopenText } from "./state.js";
 import { mountComposer, wireComposer, wireTuneSwipe, render, renderBar, tuneClosed } from "./composer.js";
 import { mountPicker, prefetchPicker } from "./picker.js";
 import { renderStage } from "./stage.js";
-import { closeSheets, onSheets, toast, sheetOpen } from "./ui.js";
+import { closeSheets, onSheets, toast, overOpen, closeTop, useHistory } from "./ui.js";
 import { signIn, refreshMe, generate, netState, closeMini, keepPrompt } from "./run.js";
 import { mountCutter, openCut } from "./clips.js";
 import { mountPrefs, openPrefs, renderPrefs, prefsOpen, oauthResult, oauthBack } from "./prefs.js";
-import { mountLibrary, mountViewer, mountFull, fullOpen, closeFull, tabs, go, route, libMe } from "./library.js";
+import { mountLibrary, mountViewer, mountFull, tabs, go, route, libMe } from "./library.js";
 import { MARK } from "assets:lists";
 
 const B = window.framy;
@@ -102,11 +102,12 @@ function telegram(tg) {
     const sb = () => (S.signed ? tg.SettingsButton.show() : tg.SettingsButton.hide());
     sb(); addEventListener("framy:me", sb);
   }
-  const back = () => (sheetOpen() || S.view === "library" ? tg.BackButton.show() : tg.BackButton.hide());
+  // Shown while anything is open over the page, the whole screen of a result included, and in the library.
+  const back = () => (overOpen() || S.view === "library" ? tg.BackButton.show() : tg.BackButton.hide());
   onSheets(back);
   addEventListener("framy:view", back);
   back();
-  tg.BackButton.onClick(() => (fullOpen() ? closeFull() : sheetOpen() ? closeSheets() : go("create")));
+  tg.BackButton.onClick(() => closeTop() || go("create"));
   // Telegram could not send a prepared message; closing the picker is no failure.
   tg.onEvent?.("shareMessageFailed", (e) => { if (e?.error !== "USER_DECLINED") toast(t("share.failed")); });
 }
@@ -140,6 +141,7 @@ async function main() {
   reveal();
   // The address names the view: /library, a run of it at /r/<id>, or the composer.
   addEventListener("framy:view", renderTop);
+  useHistory(!S.mini);
   route();
 
   const sp = new URLSearchParams(location.search), si = sp.get("sign_in");

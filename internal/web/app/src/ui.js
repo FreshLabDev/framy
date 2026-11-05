@@ -3,13 +3,69 @@ import { $, h, isWide } from "./dom.js";
 import { anim, EASE, OUT } from "./motion.js";
 import { t } from "./i18n.js";
 
+/* Back. What is open over the page (a sheet, a result on the whole screen,
+   a question) is closed by the back of the browser or of the phone, the top
+   one first, rather than the page going back under it. On the site it has an
+   entry in the history at the page's own address, one for all of them, put
+   back while one is still open; the Mini App keeps no history and shows
+   Telegram's back button instead (main.js). The viewer has an address of
+   its own on the site (/r/<id>), so there it is no layer. */
 let backHook = () => {};
 export const onSheets = (fn) => { backHook = fn; };
+const tops = new Map(); // key -> what closes it, the top last
+let hist = false;       // the site, once main.js says so; never the Mini App
+let armed = false;      // the history's current entry is the layers' own
+let backing = false;    // a back of the page's own is on its way
+const later = [];       // changes of the history that wait for it
+// On for the site. A reload on the layers' entry finds nothing open over the
+// page, so the entry goes, and a back later is not spent on it.
+export function useHistory(on) { hist = on; armed = on && !!history.state?.over; settle(); }
+// layer says what is open over the page: close closes it, null that it closed.
+export function layer(key, close) {
+  if (close) { tops.delete(key); tops.set(key, close); } else if (!tops.delete(key)) return;
+  settle();
+  backHook();
+}
+export const overOpen = () => tops.size > 0 || open.length > 0;
+// Closes the top layer, then a sheet that is no layer: false when nothing was open.
+export function closeTop() {
+  const close = [...tops.values()].pop();
+  if (close) { close(); return true; }
+  if (open.length) { closeSheets(); return true; }
+  return false;
+}
+function settle() {
+  if (!hist || backing) return;
+  if (tops.size && !armed) { history.pushState({ ...history.state, over: 1 }, ""); armed = true; }
+  else if (!tops.size && armed) { armed = false; goBack(); }
+}
+// A back of the page's own: what changes the history meanwhile waits for it to land.
+export function goBack() { backing = true; history.back(); }
+export function inHistory(fn) { if (backing) later.push(fn); else fn(); }
+// A new address pushed while the layers have the entry: it takes the entry's place.
+export function takeEntry() { if (!armed) return false; armed = false; return true; }
+// Registered before the library's handler of the address, so it runs first.
+addEventListener("popstate", () => {
+  if (!hist) return;
+  if (backing) {
+    backing = false;
+    while (!backing && later.length) later.shift()();
+    settle();
+    return;
+  }
+  // Back from the layers' entry: the top one closes; settle puts the entry back for the others.
+  if (armed && !history.state?.over) { armed = false; [...tops.values()].pop()?.(); settle(); }
+  // Forward onto the entry of layers closed since: nothing is open over the
+  // page, so it goes back again rather than wait to spend the next back.
+  else if (!armed && !tops.size && history.state?.over) goBack();
+});
+
 const open = [];
 export const sheetOpen = () => open.length > 0;
 
 // o.back: a sheet opened from another one goes back to it when it closes;
-// back is what opens that one again.
+// back is what opens that one again. o.own: the sheet has an address of its
+// own, so it is no layer.
 export function openSheet(sel, o = {}) {
   const el = $(sel), scrim = $("#scrim");
   if (!el.hidden) return;
@@ -27,7 +83,8 @@ export function openSheet(sel, o = {}) {
   // of this task.
   const first = el.querySelector("[autofocus], input, button");
   requestAnimationFrame(() => setTimeout(() => { if (open.includes(el)) first?.focus({ preventScroll: true }); }));
-  backHook(true);
+  if (o.own) layer("sheet", null); else layer("sheet", () => closeSheets());
+  backHook();
 }
 
 export function closeSheets(quick) {
@@ -48,7 +105,8 @@ export function closeSheets(quick) {
   const b = quick ? null : anim(scrim, [{ opacity: 1 }, { opacity: 0 }], { duration: 220, fill: "forwards" });
   const sd = () => { scrim.hidden = true; b?.cancel(); };
   if (b) b.finished.then(sd, sd); else sd();
-  backHook(false);
+  layer("sheet", null);
+  backHook();
 }
 
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && open.length) { e.preventDefault(); closeSheets(); } });
@@ -70,12 +128,13 @@ export function toast(text, o = {}) {
 export function ask({ title, text, yes, no = t("cancel"), one = false }) {
   const box = $("#ask");
   return new Promise((done) => {
-    const end = (v) => { box.hidden = true; box.replaceChildren(); done(v); };
+    const end = (v) => { if (box.hidden) return; box.hidden = true; box.replaceChildren(); layer("ask", null); done(v); };
     box.replaceChildren(h("div", { class: "box" },
       h("h2", { id: "askT" }, title), text ? h("p", { id: "askD" }, text) : null,
       h("div", { class: "acts" + (one ? " one" : "") }, one ? null : h("button", { type: "button", class: "x", onclick: () => end(false) }, no),
         h("button", { type: "button", class: "x yes", onclick: () => end(true) }, yes))));
     box.hidden = false;
+    layer("ask", () => end(false));
     anim(box.firstChild, [{ opacity: 0, transform: "translateY(16px)" }, { opacity: 1, transform: "none" }], { duration: 320 });
     box.querySelector(".yes").focus();
     // Escape answers the question only, not the sheet under it.
