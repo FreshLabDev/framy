@@ -218,7 +218,8 @@ func (p *Provider) download(ctx context.Context, key, link string) (jobs.Result,
 	resp, err := client.Do(req)
 	if err != nil {
 		// A redirect may have led to a signed link, and the error would name it.
-		return jobs.Result{}, transportError(withoutURL(err))
+		// A GET: whether it went out whole changes nothing, the poll asks again.
+		return jobs.Result{}, transportError(withoutURL(err), true)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {

@@ -28,8 +28,10 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/FreshLabDev/framy/internal/catalog"
@@ -199,7 +201,9 @@ type file struct {
 // fetchAll downloads the inputs from their presigned links. Gemini would take
 // the link itself only if it were a Files API one; the bytes go inline.
 // Nothing is paid yet, so a failure here is safe to try again, except for a
-// link that is gone.
+// link that is gone. That holds for a download the call's deadline or a stop
+// cuts short too: nothing has gone to Google, so it is unavailable, never a
+// timeout that may have been paid.
 func (p *Provider) fetchAll(ctx context.Context, inputs []jobs.Input) ([]file, error) {
 	var files []file
 	var total int64
@@ -235,13 +239,9 @@ func (p *Provider) fetch(ctx context.Context, in jobs.Input, i int) ([]byte, err
 	}
 	resp, err := p.cfg.Fetch.Do(req)
 	if err != nil {
-		if ctx.Err() != nil {
-			// A deadline or a stop: the queue reads the context.
-			return nil, fmt.Errorf("fetch input %d: %w", i+1, withoutURL(err))
-		}
 		// The error would carry the presigned link, which opens the person's
 		// file to whoever reads the log.
-		return nil, &jobs.Error{Class: jobs.Unavailable, Err: fmt.Errorf("fetch input %d: %w", i+1, withoutURL(err))}
+		return nil, &jobs.Error{Class: jobs.Unavailable, Err: fmt.Errorf("fetch input %d before anything was sent: %w", i+1, withoutURL(err))}
 	}
 	defer resp.Body.Close()
 	switch {
@@ -252,10 +252,8 @@ func (p *Provider) fetch(ctx context.Context, in jobs.Input, i int) ([]byte, err
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, p.cfg.MaxInput+1))
 	switch {
-	case err != nil && ctx.Err() != nil:
-		return nil, fmt.Errorf("fetch input %d: %w", i+1, withoutURL(err))
 	case err != nil:
-		return nil, &jobs.Error{Class: jobs.Unavailable, Err: fmt.Errorf("fetch input %d: %w", i+1, withoutURL(err))}
+		return nil, &jobs.Error{Class: jobs.Unavailable, Err: fmt.Errorf("fetch input %d before anything was sent: %w", i+1, withoutURL(err))}
 	case int64(len(data)) > p.cfg.MaxInput:
 		return nil, refused("input %d is larger than %d MiB", i+1, p.cfg.MaxInput>>20)
 	case len(data) == 0:
@@ -292,6 +290,13 @@ func (p *Provider) do(ctx context.Context, key, method, path string, body []byte
 	if body != nil {
 		rd = bytes.NewReader(body)
 	}
+	// whole: the request went out to its last byte. A request with a video
+	// inline is tens of MiB, and one the deadline or a broken line cuts off
+	// while it is being written gave Google nothing to start a run from.
+	var whole atomic.Bool
+	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		WroteRequest: func(info httptrace.WroteRequestInfo) { whole.Store(info.Err == nil) },
+	})
 	req, err := http.NewRequestWithContext(ctx, method, p.cfg.Base+path, rd)
 	if err != nil {
 		return nil, &jobs.Error{Class: jobs.Internal, Err: err}
@@ -303,7 +308,7 @@ func (p *Provider) do(ctx context.Context, key, method, path string, body []byte
 	}
 	resp, err := p.cfg.HTTP.Do(req)
 	if err != nil {
-		return nil, transportError(err)
+		return nil, transportError(err, whole.Load())
 	}
 	defer resp.Body.Close()
 
@@ -337,17 +342,18 @@ func (p *Provider) authorize(req *http.Request, key string) {
 	}
 }
 
-// transportError reads a failed call. A connection that was never made sent
-// nothing, so it is safe to try again; anything later may have been paid.
-func transportError(err error) error {
+// transportError reads a failed call. A connection that was never made, or a
+// request that never went out whole (whole false), sent Google nothing it
+// could start a run from, so it is safe to try again. Anything later may
+// have been paid: a deadline or a stop is left to the queue.
+func transportError(err error, whole bool) error {
 	var op *net.OpError
-	if errors.As(err, &op) && op.Op == "dial" {
-		return &jobs.Error{Class: jobs.Unavailable, Err: fmt.Errorf("reach gemini: %w", withoutURL(err))}
-	}
 	var dns *net.DNSError
-	if errors.As(err, &dns) {
+	switch {
+	case errors.As(err, &op) && op.Op == "dial", errors.As(err, &dns):
 		return &jobs.Error{Class: jobs.Unavailable, Err: fmt.Errorf("reach gemini: %w", withoutURL(err))}
+	case !whole:
+		return &jobs.Error{Class: jobs.Unavailable, Err: fmt.Errorf("send to gemini: the request broke off before its end: %w", withoutURL(err))}
 	}
-	// A deadline or a stop: the queue reads the context.
 	return fmt.Errorf("call gemini: %w", withoutURL(err))
 }

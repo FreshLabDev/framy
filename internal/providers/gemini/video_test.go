@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/jobs"
@@ -661,3 +662,72 @@ func TestCostByModality(t *testing.T) {
 }
 
 func ptr(f float64) *float64 { return &f }
+
+// A clip to edit goes inline, tens of MiB of it. A request a deadline or a
+// stop cuts off while it is still being written gave Google nothing to start
+// a run from: it is unavailable and may go again. One that went out whole
+// and got no answer may have started a paid run, and is left to the queue to
+// call a timeout. Google answers over HTTP/2, whose transport reports the
+// request written on a path of its own, so both protocols are asked. The cut
+// comes once the server has read what it reads, not at a set time, so a slow
+// machine cannot turn a whole request into a cut one.
+func TestARequestCutOffBeforeItsEndSentNothing(t *testing.T) {
+	clip := append(append([]byte{}, mp4...), make([]byte, 16<<20)...)
+	in := jobs.Input{ContentType: "video/mp4", URL: "data:video/mp4;base64," + base64.StdEncoding.EncodeToString(clip)}
+	for name, c := range map[string]struct {
+		read      func(io.Reader)
+		h2        bool
+		classed   bool
+		wantClass jobs.Class
+	}{
+		"cut off while being written":         {read: func(r io.Reader) { _, _ = io.CopyN(io.Discard, r, 64<<10) }, classed: true, wantClass: jobs.Unavailable},
+		"written whole, no answer":            {read: func(r io.Reader) { _, _ = io.Copy(io.Discard, r) }},
+		"cut off while being written, HTTP/2": {read: func(r io.Reader) { _, _ = io.CopyN(io.Discard, r, 64<<10) }, h2: true, classed: true, wantClass: jobs.Unavailable},
+		"written whole, no answer, HTTP/2":    {read: func(r io.Reader) { _, _ = io.Copy(io.Discard, r) }, h2: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			read, release := make(chan struct{}), make(chan struct{})
+			srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if c.h2 != (r.ProtoMajor == 2) {
+					t.Errorf("the request came over %s", r.Proto)
+				}
+				c.read(r.Body)
+				close(read)
+				select {
+				case <-release:
+				case <-r.Context().Done():
+				}
+			}))
+			if c.h2 {
+				srv.EnableHTTP2 = true
+				srv.StartTLS()
+			} else {
+				srv.Start()
+			}
+			t.Cleanup(srv.Close)
+			t.Cleanup(func() { close(release) })
+			p := New(Config{Base: srv.URL + "/v1beta", HTTP: srv.Client(), Key: func(context.Context, jobs.Job) (string, error) { return testKey, nil }})
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+			go func() {
+				select {
+				case <-read:
+					// The rest of a cut request is stuck in the buffers by now.
+					time.Sleep(300 * time.Millisecond)
+					cancel()
+				case <-ctx.Done():
+				}
+			}()
+			_, err := p.Submit(ctx, omniJob(t, nil, in))
+			var pe *jobs.Error
+			switch {
+			case err == nil:
+				t.Fatal("no error")
+			case c.classed && (!errors.As(err, &pe) || pe.Class != c.wantClass):
+				t.Errorf("%v, want class %s", err, c.wantClass)
+			case !c.classed && errors.As(err, &pe):
+				t.Errorf("classified as %s (%v); the queue reads the deadline or the stop", pe.Class, err)
+			}
+		})
+	}
+}

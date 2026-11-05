@@ -965,21 +965,33 @@ func TestReferencesThatCannotBeFetched(t *testing.T) {
 			t.Errorf("class %s, calls %d: %v", pe.Class, u.calls, err)
 		}
 	})
-	t.Run("a stop during the download is left to the queue", func(t *testing.T) {
-		release := make(chan struct{})
-		storage := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }))
-		defer storage.Close()
-		defer close(release)
-		p, _ := serve(t, reply(200, answerOK()))
-		p.cfg.Fetch = storage.Client()
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		defer cancel()
-		_, err := p.Submit(ctx, job(t, nil, jobs.Input{ContentType: "image/jpeg", URL: storage.URL + "/x.jpg"}))
-		var pe *jobs.Error
-		if errors.As(err, &pe) || err == nil || ctx.Err() == nil {
-			t.Errorf("%v: the queue reads the deadline itself", err)
-		}
-	})
+	// The download comes before anything goes to Google: one the deadline or
+	// a stop cuts short sent nothing, so it may go again, never a timeout
+	// that may have been paid.
+	for name, answer := range map[string]func(http.ResponseWriter, <-chan struct{}){
+		"before storage answers": func(_ http.ResponseWriter, release <-chan struct{}) { <-release },
+		"while the file is read": func(w http.ResponseWriter, release <-chan struct{}) {
+			w.Header().Set("Content-Length", "1048576")
+			_, _ = w.Write(make([]byte, 1024))
+			w.(http.Flusher).Flush()
+			<-release
+		},
+	} {
+		t.Run("a download the deadline cuts short "+name, func(t *testing.T) {
+			release := make(chan struct{})
+			storage := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { answer(w, release) }))
+			defer storage.Close()
+			defer close(release)
+			p, u := serve(t, reply(200, answerOK()))
+			p.cfg.Fetch = storage.Client()
+			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel()
+			_, err := p.Submit(ctx, job(t, nil, jobs.Input{ContentType: "image/jpeg", URL: storage.URL + "/x.jpg?X-Amz-Signature=sig"}))
+			if pe := classOf(t, err); pe.Class != jobs.Unavailable || u.calls != 0 || strings.Contains(err.Error(), "X-Amz-Signature") {
+				t.Errorf("class %s, calls %d: %v", pe.Class, u.calls, err)
+			}
+		})
+	}
 }
 
 func TestAConnectionNeverMadeIsSafeToRetry(t *testing.T) {
