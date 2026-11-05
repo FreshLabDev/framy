@@ -229,6 +229,31 @@ func TestAPressDearerThanShownStartsNothing(t *testing.T) {
 	}
 }
 
+// A frame nobody can price leaves the others' price checked: the press is
+// shown from the sum of the rest, and a rise in it starts nothing.
+func TestAPressWithAFrameOfUnknownPriceStillChecksTheRest(t *testing.T) {
+	r := batchRig(t)
+	r.store.lang[alice] = "en"
+	const unpriced = "openrouter:test/unpriced"
+	m := image(unpriced, catalog.OpenRouter)
+	// Billed in tokens that nobody counts before the run.
+	m.Offers[0].Routes = []catalog.Route{{Prices: []catalog.Price{{Billable: "output_image", Unit: "token", CostUSD: 0.00003}}}}
+	r.store.offers[unpriced] = m
+	frames := []string{frame(testOffer, "key"), frame(unpriced, "key")}
+	before := len(r.queue.batches)
+	resp := r.post(alice, "/api/batches", nextKey(), pressWith(`"shown_usd":0.03`, frames...))
+	got := jsonOf(t, resp)
+	if resp.StatusCode != http.StatusConflict || got["error"] != codePriceChanged || len(r.queue.batches) != before {
+		t.Fatalf("%d %v", resp.StatusCode, got)
+	}
+	if e := got["estimate"].(map[string]any); e["kind"] != "from" || e["usd"] != 0.04 || e["label"] != "$0.04" {
+		t.Errorf("the new price = %v", e)
+	}
+	if resp := r.post(alice, "/api/batches", nextKey(), pressWith(`"shown_usd":0.04`, frames...)); resp.StatusCode != http.StatusAccepted {
+		t.Errorf("the price shown: %d", resp.StatusCode)
+	}
+}
+
 func TestARefusalOfTheQueueStartsNoFrame(t *testing.T) {
 	r := batchRig(t)
 	r.queue.err = &free.LimitError{Kind: catalog.Image, Limit: 5}
