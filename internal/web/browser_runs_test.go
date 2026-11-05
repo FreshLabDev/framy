@@ -946,8 +946,8 @@ func TestBrowserVideoSettings(t *testing.T) {
 	await press("done", () => sent.length > 2);
 	return { seedance, wan, sent, dets, hints };`)
 	// Seedance refuses real people in files, and its card says so before the run.
-	if dets, _ := s["dets"].(map[string]any); !strings.Contains(fmt.Sprint(dets["Seedance"]), "People in filesNot taken") ||
-		strings.Contains(fmt.Sprint(dets["Wan"]), "People in files") {
+	if dets, _ := s["dets"].(map[string]any); !strings.Contains(fmt.Sprint(dets["Seedance"]), "Real people in filesNot accepted") ||
+		strings.Contains(fmt.Sprint(dets["Wan"]), "people in files") {
 		t.Errorf("people in files: %v", dets)
 	}
 	if hints := fmt.Sprint(s["hints"]); hints != "[Does not take real people in photos or clips.]" {
