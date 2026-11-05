@@ -22,7 +22,14 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: deps
+    # A dependency joins the first group it matches. River comes alone: an
+    # upgrade can bring migrations of its own, which the test bot would apply
+    # to production's schema first (docs/design.md, Stacks), and
+    # TestRiverBringsNoMigrationProductionLacks stops such a pull request
+    # without holding back the rest.
     groups:
+      river:
+        patterns: ["github.com/riverqueue/*"]
       gomod:
         patterns: ["*"]
   - package-ecosystem: docker

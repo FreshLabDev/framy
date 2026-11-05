@@ -215,7 +215,10 @@ screen, a command or a table, check how the siblings do it.
   reaches production before its code does (docs/design.md, Stacks). Keep it
   additive: new tables, columns that are NULL or have a default, indexes. No
   rename, drop, changed type or key, or NOT NULL without a default while the
-  released binary still uses the old form.
+  released binary still uses the old form. `TestMigrationsAreAdditive`
+  refuses one unless it says why in a line `-- not additive: …`, and
+  `TestRiverBringsNoMigrationProductionLacks` stops an upgrade of River that
+  brings a migration of its own.
 - The runner applies each file in one transaction under `lock_timeout` 5 s
   and `statement_timeout` 1 min, tries a file again a few times when it
   waited too long for a lock, and keeps each file's SHA-256 in
