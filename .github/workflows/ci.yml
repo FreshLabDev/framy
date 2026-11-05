@@ -8,10 +8,12 @@ on:
   push:
     branches: [dev, main]
   pull_request:
-  # Weekly, so a new advisory against a dependency or the standard library is
-  # noticed while nothing is being pushed.
+  # Weekly, so a new advisory against a dependency, the standard library or a
+  # package of the image is noticed while nothing is being pushed.
   schedule:
     - cron: "23 5 * * 1"
+  # By hand, to scan the published image now (job published).
+  workflow_dispatch:
   # release.yml runs this before it publishes anything.
   workflow_call:
 
@@ -178,6 +180,7 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Build image
+        id: build
         run: docker build -t framy:ci .
       - name: Media tests in the image
         # Photos are normalized, and the loops encoded, by the ffmpeg framy
@@ -209,3 +212,55 @@ jobs:
           docker compose -f deploy/ws04-test/compose.yaml config >/dev/null
           printf 'FRAMY_IMAGE=framy:ci\nFRAMY_CORE_PASSWORD=x\nR2_ACCOUNT_ID=x\nTRUSTED_PROXIES=172.20.0.0/16\nBOT_API_TOKEN=1:x\n' > deploy/ws04/.env
           docker compose -f deploy/ws04/compose.yaml config >/dev/null
+      # The packages of the image's Alpine, ffmpeg and the libraries that
+      # decode people's files among them, against the advisories of the day.
+      # Only a vulnerability with a fix fails, high or critical: that is what
+      # a change can act on. Last and whenever the image was built, so a
+      # finding hides no other step's result. docs/releases.md, When the
+      # image scan fails.
+      - name: Scan the image's packages
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: docker:framy:ci
+          config: .grype.yaml
+          only-fixed: true
+          severity-cutoff: high
+          output-format: table
+
+  # The image of the newest release on main, which production runs. It is
+  # never built again under its tag, so a fix Alpine ships after a release
+  # reaches production only with the next one; this says when one is due.
+  # Weekly and by hand, never in a release's own CI, where it would hold back
+  # the very release that brings the fix.
+  published:
+    name: Published image
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      # Production runs main (docs/versioning.md), so its release is the
+      # newest tag reachable from main, not a pre-release that has reached
+      # only dev and the test bot.
+      - name: Find the release production runs
+        id: release
+        run: |
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          tag="$(git describe --tags --abbrev=0 --match 'v*' origin/main 2>/dev/null || true)"
+          if [ -z "${tag}" ]; then
+            echo "main has no release tag yet"
+            exit 1
+          fi
+          echo "Scanning ${tag}, the newest release on main"
+          echo "image=ghcr.io/${GITHUB_REPOSITORY,,}:${tag}" >>"$GITHUB_OUTPUT"
+      - name: Scan the published image
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: registry:${{ steps.release.outputs.image }}
+          config: .grype.yaml
+          only-fixed: true
+          severity-cutoff: high
+          output-format: table

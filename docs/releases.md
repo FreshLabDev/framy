@@ -107,6 +107,29 @@ the whole rollback — and then publish a new patch that fixes what went wrong.
 A version that was published is a fact about what existed. Rewriting it makes
 every other record of it wrong.
 
+## When the image scan fails
+
+CI scans the image with Grype for packages of its Alpine, ffmpeg and the
+libraries that decode what people upload among them, that have a known
+vulnerability of high or critical severity with a fix. framy's Go modules are
+left to `govulncheck` (`.grype.yaml`). The log of the step lists what it
+found and the version that fixes it.
+
+- **The image built in this run.** The build adds ffmpeg and the rest at
+  their newest versions, but the packages the base image `alpine:3.24`
+  already holds stay as they are in it. So a fix the build lacks is in
+  Alpine's repository and not in the base image yet: upgrade that package in
+  the Dockerfile, or take a base image that has it once Alpine publishes one.
+- **The published image** (job `Published image`, weekly and by hand): the
+  newest release on `main`, which production runs, has one. Its tag is never built
+  again, so the fix reaches production with the next cut: publish it as
+  usual and deploy it. The scan of the fresh build in the same run says
+  whether a new build carries the fix.
+
+GitHub mails a failed weekly run to whoever last changed the workflow's
+schedule. The weekly run is the workflow on `main`, so a change to it starts
+working there once it is merged.
+
 ## Deploying
 
 The host is WS04. Every stack lives in `/opt/stacks/<stack>` and is driven by the
@@ -261,7 +284,8 @@ FRAMY_TEST_DATABASE_URL=postgres://framy:framy@localhost:5432/framy_test?sslmode
   go test -tags=integration -p 1 ./...
 ```
 
-CI additionally runs `go mod verify`, `govulncheck` and the Docker build.
+CI additionally runs `go mod verify`, `govulncheck`, the Docker build and a
+scan of the image's packages (below).
 
 For `beta`, `rc`, and stable, on the test bot: a free image on the site, in the
 Mini App and by `/img` on an album in a group; a run on a pasted key and one on
