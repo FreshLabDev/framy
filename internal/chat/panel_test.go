@@ -101,6 +101,24 @@ func labels(kb *tg.InlineKeyboardMarkup) [][]string {
 // pick is the data of a model's button.
 func pick(model string) string { return actPickModel + modelHash(model) }
 
+// The panel's set.* lines are the names of the settings it shows; a value
+// on a button is in the site's words (web.val.*), so a set.* line for
+// anything else is read by nobody and translated for nothing.
+func TestTheBotsSettingLinesAreTheSettingsItShows(t *testing.T) {
+	shown := map[string]bool{}
+	for _, name := range shownSettings {
+		shown[name] = true
+		if !i18n.Has("set." + name) {
+			t.Errorf("set.%s is missing", name)
+		}
+	}
+	for _, key := range i18n.Keys() {
+		if name, ok := strings.CutPrefix(key, "set."); ok && !shown[name] {
+			t.Errorf("%s names no setting the panel shows", key)
+		}
+	}
+}
+
 // A free run has its settings fixed, so its preview has the model and no
 // settings; a run on the key has both. The keyboard keeps Generate, No and
 // Make a video.
