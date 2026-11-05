@@ -298,6 +298,40 @@ func TestEnglishSaysCreditsNotMoney(t *testing.T) {
 	}
 }
 
+// A line of two sentences is a message, so it ends as a sentence does: "No
+// results. Open framy" read as one sentence with a stop and one without.
+// A label of one sentence (a button, a tag, a row's caption) has no stop
+// (docs/design.md, Site, Punctuation).
+func TestTwoSentencesEndWithAStop(t *testing.T) {
+	inner := regexp.MustCompile(`[.?!] [A-Z{<“]`)
+	for _, key := range Keys() {
+		s := strings.TrimSpace(translations[key]["en"])
+		if inner.MatchString(s) && !strings.ContainsAny(s[len(s)-1:], ".?!…:”)>") {
+			t.Errorf("%s has two sentences and no stop at the end: %q", key, s)
+		}
+	}
+}
+
+// A line carries its own full stop: Chinese and Japanese end a sentence with
+// 。, so a "." the site's code adds to a translation is wrong in two of the
+// sixteen languages.
+func TestTheSiteAddsNoFullStop(t *testing.T) {
+	files, err := filepath.Glob("../../internal/web/app/src/*.js")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no site sources: %v", err)
+	}
+	stop := regexp.MustCompile(`\+\s*"\.\s?"|"\.\s?"\s*\+`)
+	for _, path := range files {
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range stop.FindAllIndex(src, -1) {
+			t.Errorf("%s:%d adds a full stop to a line", path, 1+strings.Count(string(src[:m[0]]), "\n"))
+		}
+	}
+}
+
 // panelMark is a symbol a string in Go code may carry although isEmoji
 // counts it: the marks of a chosen option (core/docs/panels.md, R7) and the
 // flags of the language picker's labels.

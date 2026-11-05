@@ -895,6 +895,46 @@ func TestBrowserRunSmooth(t *testing.T) {
 	}
 }
 
+// TestBrowserDeprecation reads the line of a model its maker is closing, in
+// the picker and in the composer: a sentence with the stop of its language,
+// which the code once added as "." in Chinese and Japanese too.
+func TestBrowserDeprecation(t *testing.T) {
+	ts := fakeAPI(t)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	read := `
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(700);
+	document.querySelector("#how .mhead").click();
+	await wait(700);
+	const q = document.querySelector("#pksearch");
+	q.value = "Veo";
+	q.dispatchEvent(new Event("input", { bubbles: true }));
+	await wait(800);
+	const picker = document.querySelector("#pkd .dwarn")?.textContent;
+	document.querySelector("#pkrows .frow .fhit").click();
+	await wait(300);
+	const choose = [...document.querySelectorAll("#picker .det .choose")].find(vis);
+	if (choose && !choose.disabled) choose.click();
+	await wait(900);
+	return { picker, composer: document.querySelector("#how .mvars .mnote")?.textContent };`
+	s := js[map[string]any](t, ctx, pageHelpers+read)
+	if s["picker"] != "Google is closing this model. Gemini Omni 1.1 Flash replaces it." ||
+		s["composer"] != "Google is closing this model. Switch to Gemini Omni 1.1 Flash" {
+		t.Errorf("English: %v", s)
+	}
+	js[map[string]any](t, ctx, `localStorage.setItem("framy.lang", "zh"); setTimeout(() => location.reload(), 50); return {};`)
+	time.Sleep(800 * time.Millisecond)
+	ready(t, ctx)
+	s = js[map[string]any](t, ctx, pageHelpers+read)
+	stop := regexp.MustCompile(`\.(\s|$)`)
+	for _, k := range []string{"picker", "composer"} {
+		if v, _ := s[k].(string); !strings.Contains(v, "。") || stop.MatchString(v) {
+			t.Errorf("Chinese %s: %q", k, v)
+		}
+	}
+	noErrors(t, ctx)
+}
+
 // TestBrowserVideoSettings checks the form of a video model that lists a size
 // beside its own aspect_ratio and resolution: one row of each, and no size in
 // the run. And the Fast switch, which the server never sees: on, the run goes

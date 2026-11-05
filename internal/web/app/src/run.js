@@ -167,7 +167,7 @@ async function start(base, key = newKey()) {
       if (run.multi) {
         // What turns one run to a key or to a last frame does not fit a press: its frames come back to the composer instead.
         run.why.acts = run.why.acts.filter((a) => a !== "bykey" && a !== "lastframe");
-        if (fi != null) run.why.text = t("fr.n", { n: fi + 1 }) + ". " + run.why.text;
+        if (fi != null) run.why.text = t("fr.why", { n: fi + 1, text: run.why.text });
       }
       // The same press again keeps its key when the server may have made the job.
       if (resend) run.retryKey = run.key;

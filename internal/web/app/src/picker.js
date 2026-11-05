@@ -217,7 +217,7 @@ function detail(f) {
   return h("div", { class: "det" },
     h("div", { class: "dhead" }, lg(famLogo(f), f.maker, "l"), h("div", {}, h("h4", {}, f.title), h("div", { class: "mk" }, sub))),
     vs.length > 1 ? vlist(f, sel, pickIt) : null,
-    dep ? h("p", { class: "dwarn" }, ic("clock"), h("span", {}, dep.text + "."))
+    dep ? h("p", { class: "dwarn" }, ic("clock"), h("span", {}, dep.text))
       : sel.by ? h("p", { class: "dwarn" }, ic("clock"), h("span", {}, t("var.outdated", { v: sel.by.label }) + " ", h("button", { type: "button", class: "link-t", onclick: () => pickIt(sel.by) }, t("pick.see", { v: sel.by.label })))) : null,
     m.description ? h("p", { class: "ddesc" }, m.description) : null,
     h("div", { class: "dl" }, rows.map(([i, k, v]) => h("div", {}, h("span", {}, ic(i), k), h("span", {}, v)))),
