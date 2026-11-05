@@ -77,8 +77,11 @@ type Bot struct {
 	// inlineTouched is when each person's inline query last recorded them
 	// in core.
 	inlineTouched *touches
-	allowance     Allowance
-	connections   Connections
+	// migrations are the groups that just became supergroups, which are
+	// not greeted again (onMembership).
+	migrations  *migrations
+	allowance   Allowance
+	connections Connections
 	// appURL is where the Mini App opens, from the home panel's button and
 	// from the menu button. Empty: framy has none to offer.
 	appURL string
@@ -165,7 +168,7 @@ func WithAlbumSweep() Option { return func(b *Bot) { b.sweepsAlbums = true } }
 func New(store Store, client Telegram, log *slog.Logger, username string, selfID int64, version string, opts ...Option) *Bot {
 	b := &Bot{
 		store: store, tg: client, log: log, username: username, selfID: selfID, version: version,
-		arrivals: newArrivals(), inlineTouched: &touches{}, readTimeout: homeReadTimeout, grace: UpdateGrace, now: time.Now, sleep: wait,
+		arrivals: newArrivals(), inlineTouched: &touches{}, migrations: &migrations{}, readTimeout: homeReadTimeout, grace: UpdateGrace, now: time.Now, sleep: wait,
 	}
 	for _, opt := range opts {
 		opt(b)
@@ -317,6 +320,7 @@ func (b *Bot) handle(ctx context.Context, u tg.Update) {
 	switch {
 	case u.Message != nil:
 		b.noteAlbumItem(ctx, u.Message)
+		b.migrations.note(u.Message, b.now())
 	case u.EditedMessage != nil:
 		// An edit can swap the file of an item, or paste a key into a direct
 		// message already sent, which is then deleted as a new one would be.
@@ -376,6 +380,8 @@ func (b *Bot) handle(ctx context.Context, u tg.Update) {
 		}
 	case u.GuestMessage != nil:
 		b.onGuest(ctx, u.GuestMessage)
+	case u.MyChatMember != nil:
+		err = b.onMembership(ctx, u.MyChatMember)
 	}
 	if err != nil {
 		metrics.UpdatesFailed.Inc()

@@ -95,8 +95,9 @@ type view struct {
 	sc      scope
 	account account
 	// direct is the link a group's panel opens framy by (Bot.directURL);
-	// empty: none.
-	direct string
+	// empty: none. addTo is the link the direct chat's panel adds framy to
+	// a group by (Bot.addToGroupURL); empty: none.
+	direct, addTo string
 }
 
 type row = []tg.InlineKeyboardButton
@@ -185,7 +186,7 @@ func (v view) closeButton() tg.InlineKeyboardButton {
 // there: /img in a group, a plain message in a direct chat.
 func (v view) home(admin bool, groupLang string) (string, *tg.InlineKeyboardMarkup) {
 	if v.sc == scopeGroup {
-		text := panel(productName, "", v.t("home.hint"), quote(v.t("home.group")))
+		text := v.groupText()
 		var rows []row
 		if v.direct != "" {
 			rows = append(rows, row{v.directButton()})
@@ -205,11 +206,30 @@ func (v view) home(admin bool, groupLang string) (string, *tg.InlineKeyboardMark
 	if v.account.appURL != "" {
 		rows = append(rows, row{v.openButton(v.account.appURL, v.account.openText)})
 	}
-	rows = append(rows,
-		row{v.button("btn.language", actLang), v.button("btn.help", actHelp)},
-		row{v.button("btn.about", actAbout)},
-	)
+	last := row{v.button("btn.about", actAbout)}
+	if v.addTo != "" {
+		last = append(row{{Text: v.t("btn.add_group"), URL: v.addTo}}, last...)
+	}
+	rows = append(rows, row{v.button("btn.language", actLang), v.button("btn.help", actHelp)}, last)
 	return text, markup(rows...)
+}
+
+// groupText is what a group's panel says, the same for anyone there: how to
+// start in a group.
+func (v view) groupText() string {
+	return panel(productName, "", v.t("home.hint"), quote(v.t("home.group")))
+}
+
+// welcome is what a group reads once framy is added to it: what anyone's
+// panel there says, how to start with /img, and Open framy. It is nobody's
+// panel, so it has no button that acts: not the group's language, which an
+// admin's own panel offers, and not Close, which only a panel one person
+// sees can take.
+func (v view) welcome() (string, *tg.InlineKeyboardMarkup) {
+	if v.direct == "" {
+		return v.groupText(), nil
+	}
+	return v.groupText(), markup(row{v.directButton()})
 }
 
 func (v view) languageLabel(code string) string {

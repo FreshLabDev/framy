@@ -143,6 +143,24 @@
     "ja": "情報",
     "ar": "حول"
   },
+  "btn.add_group": {
+    "en": "Add to a group",
+    "ru": "Добавить в группу",
+    "uk": "Додати в групу",
+    "es": "Añadir a un grupo",
+    "fr": "Ajouter à un groupe",
+    "de": "In Gruppe einladen",
+    "it": "Aggiungi a un gruppo",
+    "pl": "Dodaj do grupy",
+    "cs": "Přidat do skupiny",
+    "tr": "Bir gruba ekle",
+    "sv": "Lägg till i en grupp",
+    "be": "Дадаць у групу",
+    "ca": "Afegeix a un grup",
+    "zh": "添加到群组",
+    "ja": "グループに追加",
+    "ar": "أضف إلى مجموعة"
+  },
   "btn.back": {
     "en": "Back",
     "ru": "Назад",

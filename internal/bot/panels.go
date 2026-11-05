@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -249,7 +251,7 @@ func (b *Bot) sendScreen(ctx context.Context, m *tg.Message, action, payload str
 	case actLang:
 		text, keyboard = v.language()
 	default:
-		v.account = b.readAccount(ctx, m.From.ID, v.lang)
+		v.account, v.addTo = b.readAccount(ctx, m.From.ID, v.lang), b.addToGroupURL()
 		if provider, ok := strings.CutPrefix(payload, startSettings); ok {
 			v.account.atKey(provider, v.lang)
 		}
@@ -392,7 +394,7 @@ func (b *Bot) runAction(ctx context.Context, cq *tg.CallbackQuery, action, raw s
 	switch action {
 	case actHome:
 		if v.sc == scopePrivate {
-			v.account = b.readAccount(ctx, cq.From.ID, v.lang)
+			v.account, v.addTo = b.readAccount(ctx, cq.From.ID, v.lang), b.addToGroupURL()
 		} else {
 			v.direct = b.directURL()
 		}
@@ -458,4 +460,84 @@ func (b *Bot) runAction(ctx context.Context, cq *tg.CallbackQuery, action, raw s
 		return edit(v.groupLanguage(code))
 	}
 	return "", nil
+}
+
+// onMembership greets a group framy was just added to, with what anyone's
+// panel there says (view.welcome): before, a group heard nothing, and only
+// those who knew /img found framy there. It speaks the group's language,
+// or that of whoever added framy while the group has none. Being made an
+// admin, or anything else in a group framy is in already, says nothing,
+// and neither does a group that became a supergroup (migrations).
+func (b *Bot) onMembership(ctx context.Context, u *tg.ChatMemberUpdated) error {
+	if u.Chat.Type != "group" && u.Chat.Type != "supergroup" {
+		return nil
+	}
+	switch u.OldChatMember.Status {
+	case "member", "administrator", "creator", "restricted":
+		return nil
+	}
+	if s := u.NewChatMember.Status; s != "member" && s != "administrator" {
+		return nil
+	}
+	if b.migrations.seen(u.Chat.ID, b.now()) {
+		return nil
+	}
+	raw, err := b.personLang(ctx, u.From)
+	if err != nil {
+		return err
+	}
+	_, lang, err := b.groupLang(ctx, u.Chat.ID, raw)
+	if err != nil {
+		return err
+	}
+	text, keyboard := view{lang: lang, sc: scopeGroup, direct: b.directURL()}.welcome()
+	if _, err := b.tg.SendMessage(ctx, u.Chat.ID, text, keyboard); err != nil {
+		// Removed again at once, or not allowed to write there: nothing to
+		// greet, and no failure of the update.
+		b.log.Info("group not greeted", "chat", u.Chat.ID, "error", err)
+	}
+	return nil
+}
+
+// migrationKeep is how long framy remembers a group that became a
+// supergroup: Telegram tells it within seconds of the change.
+const migrationKeep = 10 * time.Minute
+
+// migrations are the supergroups that were groups a moment ago. A group
+// becomes one when, say, framy is made an admin of it, and the supergroup is
+// a new chat framy may be told it joined; it is the same group, which was
+// greeted already.
+type migrations struct {
+	mu sync.Mutex
+	at map[int64]time.Time
+}
+
+// note remembers the supergroup a service message says a group became.
+func (g *migrations) note(m *tg.Message, now time.Time) {
+	to := m.MigrateToChatID
+	if m.MigrateFromChatID != 0 {
+		to = m.Chat.ID
+	}
+	if to == 0 {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.at == nil {
+		g.at = map[int64]time.Time{}
+	}
+	for chat, at := range g.at {
+		if now.Sub(at) > migrationKeep {
+			delete(g.at, chat)
+		}
+	}
+	g.at[to] = now
+}
+
+// seen tells a supergroup that was a group within migrationKeep.
+func (g *migrations) seen(chat int64, now time.Time) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	at, ok := g.at[chat]
+	return ok && now.Sub(at) <= migrationKeep
 }

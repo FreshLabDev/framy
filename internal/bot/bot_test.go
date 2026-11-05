@@ -214,8 +214,8 @@ type fakeTelegram struct {
 	// menuButtons are the setChatMenuButton calls; menuErr fails them.
 	menuButtons []menuButton
 	menuErr     error
-	// ephemeralErr fails sendEphemeralMessage.
-	ephemeralErr error
+	// ephemeralErr fails sendEphemeralMessage, and sendErr sendMessage.
+	ephemeralErr, sendErr error
 }
 
 // menuButton is one setChatMenuButton call.
@@ -264,6 +264,9 @@ func (f *fakeTelegram) GetUpdates(ctx context.Context, offset int64, _ int) ([]t
 }
 
 func (f *fakeTelegram) SendMessage(_ context.Context, chatID int64, text string, m *tg.InlineKeyboardMarkup) (tg.Message, error) {
+	if f.sendErr != nil {
+		return tg.Message{}, f.sendErr
+	}
 	f.record(sent{method: "sendMessage", chatID: chatID, text: text, markup: m})
 	return tg.Message{MessageID: 1}, nil
 }

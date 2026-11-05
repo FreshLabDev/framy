@@ -199,6 +199,18 @@ func (b *Bot) directURL() string {
 	return "https://t.me/" + b.username + "?start=" + startGroup
 }
 
+// addToGroupURL is the link the direct chat's panel adds framy to a group
+// by: Telegram lets the person pick the group, and framy greets it once it
+// is in (onMembership). The parameter is only what the link must carry; the
+// /start it may bring to the group stays unanswered there, as any ordinary
+// /start in a group does. Empty when framy has no name.
+func (b *Bot) addToGroupURL() string {
+	if b.username == "" {
+		return ""
+	}
+	return "https://t.me/" + b.username + "?startgroup=add"
+}
+
 // atKey points the panel's button at provider's key in the settings: the
 // person came from a refusal or an error card in a group or a guest's chat
 // (internal/chat, settings.go) that a key of theirs would fix. The button

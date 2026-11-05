@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -34,6 +36,8 @@ func everyPanel(v view) []drawn {
 	add := func(name, text string, m *tg.InlineKeyboardMarkup) { out = append(out, drawn{name, text, m}) }
 	if v.sc == scopeGroup {
 		v.direct = "https://t.me/framytest_bot?start=group"
+	} else {
+		v.addTo = "https://t.me/framytest_bot?startgroup=add"
 	}
 	text, m := v.home(true, "uk")
 	add("home", text, m)
@@ -359,6 +363,116 @@ func TestAGroupPanelOpensFramyInItsDirectChat(t *testing.T) {
 		if button.URL != "" {
 			t.Fatalf("a link with no Mini App to open: %+v", button)
 		}
+	}
+}
+
+// added is the update that says framy's status in chat went from old to
+// new, changed by person 2.
+func added(chat tg.Chat, old, new string) tg.Update {
+	return tg.Update{UpdateID: 1, MyChatMember: &tg.ChatMemberUpdated{Chat: chat, From: tg.User{ID: 2, LanguageCode: "uk"},
+		OldChatMember: tg.ChatMember{Status: old}, NewChatMember: tg.ChatMember{Status: new}}}
+}
+
+// A group framy is added to is greeted once with what anyone's panel there
+// says, how to start with /img, and Open framy; before, it heard nothing,
+// and only those who knew /img found framy there. The greeting speaks the
+// group's language, or that of whoever added framy while the group has
+// none, and has no button that acts, which no public message may carry.
+func TestAGroupFramyJoinsIsGreeted(t *testing.T) {
+	store, client := newStore(), newTelegram()
+	b := New(store, client, quiet(), "framytest_bot", selfID, "v0.1.0", WithSiteURL("https://framy.example"))
+	ctx := context.Background()
+	group := tg.Chat{ID: -300, Type: "group"}
+	for _, old := range []string{"left", "kicked"} {
+		for _, now := range []string{"member", "administrator"} {
+			client.calls = nil
+			b.handle(ctx, added(group, old, now))
+			got := client.last()
+			if len(client.calls) != 1 || got.method != "sendMessage" || got.chatID != -300 || got.text != (view{lang: "uk"}).groupText() {
+				t.Fatalf("%s to %s: sent %+v", old, now, client.calls)
+			}
+			want := []tg.InlineKeyboardButton{{Text: i18n.T("uk", "btn.open"), URL: "https://t.me/framytest_bot?start=group", Style: tg.StylePrimary}}
+			if !reflect.DeepEqual(buttons(got.markup), want) {
+				t.Fatalf("%s to %s: buttons %+v", old, now, buttons(got.markup))
+			}
+		}
+	}
+	store.chatLang[-300] = "de"
+	b.handle(ctx, added(group, "left", "member"))
+	if got := client.last(); !strings.Contains(got.text, i18n.T("de", "home.group")) {
+		t.Fatalf("in the group's language: %q", got.text)
+	}
+
+	// Made an admin, or anything in a group framy is in, or out of one, or
+	// anywhere but a group, says nothing.
+	client.calls = nil
+	for _, u := range []tg.Update{
+		added(group, "member", "administrator"),
+		added(group, "administrator", "member"),
+		added(group, "restricted", "member"),
+		added(group, "member", "left"),
+		added(group, "left", "restricted"),
+		added(dmChat, "kicked", "member"),
+		added(tg.Chat{ID: -500, Type: "channel"}, "left", "administrator"),
+	} {
+		b.handle(ctx, u)
+	}
+	if len(client.calls) != 0 {
+		t.Fatalf("greeted: %+v", client.calls)
+	}
+
+	// A greeting Telegram refuses fails nothing.
+	client.sendErr = &tg.APIError{Method: "sendMessage", StatusCode: 403, ErrorCode: 403, Description: "Forbidden: bot was kicked from the group chat"}
+	if err := b.onMembership(ctx, added(group, "left", "member").MyChatMember); err != nil {
+		t.Fatalf("a refused greeting failed the update: %v", err)
+	}
+}
+
+// A group that became a supergroup, as one does when framy is made an
+// admin of it, is the same group: framy is not greeted there again,
+// whichever of the two service messages says so.
+func TestASupergroupThatWasAGroupIsNotGreetedAgain(t *testing.T) {
+	b, _, client := newBot()
+	ctx := context.Background()
+	b.handle(ctx, tg.Update{UpdateID: 1, Message: &tg.Message{MessageID: 5, Chat: tg.Chat{ID: -300, Type: "group"}, From: &tg.User{ID: 2},
+		MigrateToChatID: -1001}})
+	b.handle(ctx, tg.Update{UpdateID: 2, Message: &tg.Message{MessageID: 1, Chat: tg.Chat{ID: -1002, Type: "supergroup"}, From: &tg.User{ID: 2},
+		MigrateFromChatID: -301}})
+	for _, chat := range []int64{-1001, -1002} {
+		b.handle(ctx, added(tg.Chat{ID: chat, Type: "supergroup"}, "left", "administrator"))
+	}
+	if len(client.calls) != 0 {
+		t.Fatalf("greeted again: %+v", client.calls)
+	}
+	b.handle(ctx, added(tg.Chat{ID: -1003, Type: "supergroup"}, "left", "member"))
+	if len(client.calls) != 1 {
+		t.Fatalf("a new supergroup was not greeted: %+v", client.calls)
+	}
+	// Ten minutes on, the supergroup is any group.
+	b.now = func() time.Time { return time.Now().Add(migrationKeep + time.Minute) }
+	b.handle(ctx, added(tg.Chat{ID: -1001, Type: "supergroup"}, "left", "member"))
+	if len(client.calls) != 2 {
+		t.Fatalf("a group framy is added to again was not greeted: %+v", client.calls)
+	}
+}
+
+// The direct chat's panel adds framy to a group: Telegram lets the person
+// pick one, and the group is greeted once framy is in.
+func TestTheDirectPanelAddsFramyToAGroup(t *testing.T) {
+	b, _, client := newBot()
+	ctx := context.Background()
+	if err := b.onMessage(ctx, message(dmChat, 7, "/start")); err != nil {
+		t.Fatal(err)
+	}
+	want := tg.InlineKeyboardButton{Text: i18n.T("en", "btn.add_group"), URL: "https://t.me/framytest_bot?startgroup=add"}
+	if !slices.Contains(buttons(client.last().markup), want) {
+		t.Fatalf("buttons %+v", buttons(client.last().markup))
+	}
+	if err := b.onCallback(ctx, callback(dmChat, 7, 7, actHome, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(buttons(client.last().markup), want) {
+		t.Fatalf("Back: buttons %+v", buttons(client.last().markup))
 	}
 }
 
