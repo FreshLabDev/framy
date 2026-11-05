@@ -205,7 +205,9 @@ screen, a command or a table, check how the siblings do it.
 
 ## Migrations
 
-- Add new SQL migrations under `migrations/` with the next numeric prefix.
+- Add new SQL migrations under `migrations/` with the next numeric prefix,
+  and name each in `## Unreleased` (`030_batch.sql` or "migration 030"): CI
+  fails on one the changelog does not name.
 - Migrations must be safe to run once and tracked by `schema_migrations`.
 - Do not edit a migration after it may have been applied.
 - The test bot shares production's schema and runs `dev`, so a migration

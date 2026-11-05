@@ -24,7 +24,9 @@ Which means the changelog has to be written for somebody else to read:
   anything.
 - Call out anything an operator must act on — a new or renamed environment
   variable, a migration, a changed deployment assumption — explicitly, in its
-  own entry.
+  own entry. framy's CI fails when a migration added since the last release
+  is not named above that release's section, by its file name or as
+  "migration 030" (`.github/scripts/changelog-migrations.sh`).
 - Exactly one `## Unreleased` section, always at the top. Two of them means the
   next release renames the wrong one.
 

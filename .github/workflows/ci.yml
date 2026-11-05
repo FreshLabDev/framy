@@ -68,6 +68,18 @@ jobs:
       - name: Test
         run: go test -race ./...
 
+  # v0.1.0-alpha.2 added migration 030 and its notes did not say so.
+  changelog:
+    name: Changelog names every migration
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Migrations since the last release are in the changelog
+        run: .github/scripts/changelog-migrations.sh
+
   web:
     name: Site assets and browser tests
     runs-on: ubuntu-latest
