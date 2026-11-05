@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -65,15 +66,61 @@ func placeholders(text string) string {
 }
 
 // HTML that one language closes and another does not breaks the whole message:
-// Telegram refuses it.
-func TestTagsMatchAcrossLanguages(t *testing.T) {
+// Telegram refuses it. Every tag, entity and bare "<", ">" or "&" of a
+// language is English's, and its tags close in order.
+func TestMarkupMatchesAcrossLanguages(t *testing.T) {
 	for _, key := range Keys() {
-		want := strings.Count(translations[key][DefaultLang], "<code>")
+		want := markupOf(translations[key][DefaultLang])
 		for _, code := range Codes() {
 			s := translations[key][code]
-			if strings.Count(s, "<code>") != want || strings.Count(s, "</code>") != want {
-				t.Errorf("%s [%s] has unbalanced or missing <code> tags", key, code)
+			if got := markupOf(s); got != want {
+				t.Errorf("%s [%s] has markup %q, English has %q", key, code, got, want)
 			}
+			if !balanced(s) {
+				t.Errorf("%s [%s] does not close its tags in order: %q", key, code, s)
+			}
+		}
+	}
+}
+
+var markup = regexp.MustCompile(`<[^<>]*>|&[#a-zA-Z0-9]+;|[<>&]`)
+
+func markupOf(s string) string {
+	found := markup.FindAllString(s, -1)
+	sort.Strings(found)
+	return strings.Join(found, " ")
+}
+
+// balanced tells whether every tag of s closes, innermost first.
+func balanced(s string) bool {
+	var open []string
+	for _, tag := range markup.FindAllString(s, -1) {
+		if !strings.HasPrefix(tag, "<") || len(tag) < 3 || strings.HasSuffix(tag, "/>") {
+			continue
+		}
+		name, _, _ := strings.Cut(strings.Trim(tag, "</>"), " ")
+		if tag[1] != '/' {
+			open = append(open, name)
+			continue
+		}
+		if len(open) == 0 || open[len(open)-1] != name {
+			return false
+		}
+		open = open[:len(open)-1]
+	}
+	return len(open) == 0
+}
+
+func TestBalancedReadsTagsInOrder(t *testing.T) {
+	for s, want := range map[string]bool{
+		"<code>/img</code> and <b><i>x</i></b>": true,
+		`<a href="https://t.me">a</a>`:          true,
+		"<code>/img":                            false,
+		"</code>/img<code>":                     false,
+		"<b><i>x</b></i>":                       false,
+	} {
+		if got := balanced(s); got != want {
+			t.Errorf("balanced(%q) = %v", s, got)
 		}
 	}
 }
@@ -302,6 +349,97 @@ func TestEveryKeyTheCodeNamesExists(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatal(err)
+		}
+	}
+}
+
+// The site's t() shows the key itself for a line that is not there, so a
+// typo in a key of internal/web/app reaches the person as "fail.somthing".
+// A literal that looks like a key of the site (a head the web.* lines use, a
+// dot, lowercase words) or that t() is handed must be one; a literal that
+// starts a key, as "set.as_" + of or `fail.${cls}`, must start at least one.
+func TestEveryKeyTheSiteNamesExists(t *testing.T) {
+	heads := map[string]bool{}
+	for _, key := range Keys() {
+		if rest, ok := strings.CutPrefix(key, "web."); ok {
+			heads[strings.SplitN(rest, ".", 2)[0]] = true
+		}
+	}
+	starts := func(prefix string) bool {
+		for _, key := range Keys() {
+			if strings.HasPrefix(key, prefix) {
+				return true
+			}
+		}
+		return false
+	}
+	files, err := filepath.Glob("../../internal/web/app/src/*.js")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no site sources: %v", err)
+	}
+	files = append(files, "../../internal/web/app/boot.js")
+	checked := 0
+	for _, path := range files {
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range siteKey.FindAllSubmatchIndex(src, -1) {
+			key, end := string(src[m[4]:m[5]]), string(src[m[6]:m[7]])
+			// What t() is handed is a key whatever its head, so a typo in
+			// the head ("fial.x") is caught there too.
+			if !heads[strings.SplitN(key, ".", 2)[0]] && !calledWith(src[:m[0]]) {
+				continue
+			}
+			line := 1 + strings.Count(string(src[:m[0]]), "\n")
+			checked++
+			after := strings.TrimLeft(string(src[m[1]:]), " \t\n")
+			if end == "${" || strings.HasSuffix(key, ".") || strings.HasPrefix(after, "+") {
+				if !starts("web." + key) {
+					t.Errorf("%s:%d: no line of translations.json starts with web.%s", path, line, key)
+				}
+				continue
+			}
+			if _, ok := translations["web."+key]; !ok {
+				t.Errorf("%s:%d: web.%s is no key of translations.json", path, line, key)
+			}
+		}
+	}
+	if checked < 100 {
+		t.Fatalf("only %d keys found in the site's sources: the scan no longer reads them", checked)
+	}
+}
+
+// siteKey is a JavaScript string that may be a key: a quote, a key, and a
+// closing quote, or a template literal's "${".
+var siteKey = regexp.MustCompile("([\"'`])([a-z][a-z0-9_]*\\.[a-z0-9_.]*)(\"|'|`|\\$\\{)")
+
+// calledWith tells whether the source before a string ends in a call of the
+// site's t(), so the string is its key.
+func calledWith(before []byte) bool {
+	s := strings.TrimRight(string(before), " \t\n")
+	rest, ok := strings.CutSuffix(s, "t(")
+	if !ok {
+		return false
+	}
+	if rest == "" {
+		return true
+	}
+	c := rest[len(rest)-1]
+	return !(c == '_' || c == '$' || c == '.' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z')
+}
+
+func TestCalledWithReadsOnlyTheSitesT(t *testing.T) {
+	for before, want := range map[string]bool{
+		`toast(t(`:      true,
+		`= t(  `:        true,
+		"t(":            true,
+		`fmt(`:          false,
+		`list.at(`:      false,
+		`ask({ title: `: false,
+	} {
+		if got := calledWith([]byte(before)); got != want {
+			t.Errorf("calledWith(%q) = %v", before, got)
 		}
 	}
 }
