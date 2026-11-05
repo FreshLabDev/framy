@@ -326,3 +326,47 @@ func TestBrowserCutterRTL(t *testing.T) {
 	}
 	noErrors(t, ctx)
 }
+
+// TestBrowserClipReadLate checks a clip the browser reads slowly: it comes
+// into the composer after the wait with no length, and when its length is
+// read later the composer shows it and prices the run with it.
+func TestBrowserClipReadLate(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+`
+	async function until(f, n = 60) { for (let i = 0; i < n; i++) { const v = f(); if (v) return v; await wait(100); } return null; }
+	window.__quotes = [];
+	const fetch0 = window.fetch;
+	window.fetch = (u, o) => { if (String(u).endsWith("/api/quote")) __quotes.push(JSON.parse(o.body)); return fetch0(u, o); };
+	const secsQuoted = () => { for (let i = __quotes.length - 1; i >= 0; i--) for (const it of __quotes[i].items) { const c = (it.files || []).find((f) => f.content_type?.startsWith("video/")); if (c && it.pay) return c.seconds; } return null; };
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(700);
+	// The wait for the clip is short here, and the browser gets to the clip a second late.
+	const st0 = window.setTimeout, mk = document.createElement.bind(document), src = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "src");
+	window.setTimeout = (fn, ms, ...a) => st0(fn, ms === 8000 ? 150 : ms, ...a);
+	let slow = true;
+	document.createElement = (tag, o) => {
+	  const el = mk(tag, o);
+	  if (tag === "video" && slow) { slow = false; Object.defineProperty(el, "src", { configurable: true, get() { return src.get.call(el); }, set(x) { st0(() => src.set.call(el, x), 1200); } }); }
+	  return el;
+	};
+	const b = Uint8Array.from(atob(`+jsString(loopWebM)+`), (c) => c.charCodeAt(0));
+	const dt = new DataTransfer();
+	dt.items.add(new File([b], "loop.webm", { type: "video/webm" }));
+	document.body.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
+	const tag = () => document.querySelector("#files .thumb.clip .tag")?.textContent ?? null;
+	await until(() => tag() !== null);
+	window.setTimeout = st0; document.createElement = mk;
+	(await until(() => document.querySelector('#how [data-seg="pay"] [data-v="openrouter"]')))?.click();
+	await wait(300);
+	const before = { tag: tag(), secs: secsQuoted() };
+	await until(() => /2/.test(tag() || "") && secsQuoted() === 2, 60);
+	return { before, after: { tag: tag(), secs: secsQuoted() }, poster: !!document.querySelector("#files .thumb.clip img") };`)
+	before, _ := s["before"].(map[string]any)
+	after, _ := s["after"].(map[string]any)
+	if before["tag"] != "" || after["tag"] != "2 s" || after["secs"] != float64(2) || s["poster"] != true {
+		t.Errorf("a clip read late: %v", s)
+	}
+	noErrors(t, ctx)
+}

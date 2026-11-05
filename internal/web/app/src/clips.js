@@ -45,6 +45,10 @@ export function readSound(file) {
 // What the browser can read of a clip: its length, its size and a frame for
 // the thumbnail. A clip it cannot play (some MKV and HEVC) still goes, with
 // what is known; framy reads it on Create.
+// The clip comes into the composer once that is read, or after 8 s with what
+// is known by then. A browser still reading it may get its length later, up
+// to half a minute on: the composer then shows the length and asks its
+// price again. After that, or once it is read, the browser stops reading it.
 export function readClip(file) {
   const url = URL.createObjectURL(file);
   const f = { kind: "video", file, name: file.name, url, poster: "", w: 0, h: 0, secs: 0, bytes: file.size, upload: 0, token: "", cuts: {} };
@@ -54,8 +58,20 @@ export function readClip(file) {
   };
   return new Promise((ok) => {
     const v = document.createElement("video");
-    let end = setTimeout(() => ok(done()), 8000);
-    const stop = () => { clearTimeout(end); end = 0; v.removeAttribute("src"); v.load(); ok(done()); };
+    let given = false, late = 0, stopped = false;
+    const end = setTimeout(() => { given = true; ok(done()); late = setTimeout(stop, 30000); }, 8000);
+    const stop = () => {
+      if (stopped) return;
+      stopped = true;
+      clearTimeout(end); clearTimeout(late);
+      v.onloadedmetadata = v.onseeked = v.onerror = null;
+      v.removeAttribute("src"); v.load();
+      if (!given) { given = true; ok(done()); return; }
+      // Read after the clip came in: what the composer shows of it, and its price, follow.
+      const was = f.meta;
+      done();
+      if (S.files.includes(f) && (was.seconds !== f.secs || was.width !== f.w || f.poster)) render();
+    };
     v.muted = true; v.playsInline = true; v.preload = "auto";
     v.onloadedmetadata = () => {
       f.secs = isFinite(v.duration) ? Math.round(v.duration * 1000) / 1000 : 0;
