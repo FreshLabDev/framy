@@ -1043,6 +1043,24 @@
     "ja": "通貨",
     "ar": "العملة"
   },
+  "home.direct": {
+    "en": "Send a description for a new image or video. To change a photo or a video, send it with a caption. Nothing runs until you press Generate.",
+    "ru": "Отправь описание, чтобы получить новую картинку или видео. Чтобы изменить фото или видео, отправь его с подписью. Ничего не запустится, пока не нажмёшь «Сгенерировать».",
+    "uk": "Надішли опис, щоб отримати нове зображення чи відео. Щоб змінити фото чи відео, надішли його з підписом. Нічого не запуститься, доки не натиснеш «Згенерувати».",
+    "es": "Envía una descripción para una imagen o un vídeo nuevos. Para cambiar una foto o un vídeo, envíalo con un texto. No se ejecuta nada hasta que pulses Generar.",
+    "fr": "Envoie une description pour une nouvelle image ou vidéo. Pour modifier une photo ou une vidéo, envoie-la avec une légende. Rien ne se lance tant que tu n’appuies pas sur Générer.",
+    "de": "Sende eine Beschreibung für ein neues Bild oder Video. Um ein Foto oder Video zu ändern, sende es mit Bildunterschrift. Nichts läuft, bevor du auf Generieren tippst.",
+    "it": "Invia una descrizione per una nuova immagine o un nuovo video. Per modificare una foto o un video, invialo con una didascalia. Non parte nulla finché non premi Genera.",
+    "pl": "Wyślij opis, aby dostać nowy obraz lub wideo. Aby zmienić zdjęcie lub wideo, wyślij je z podpisem. Nic się nie uruchomi, dopóki nie naciśniesz Generuj.",
+    "cs": "Pošli popis pro nový obrázek nebo video. Chceš-li změnit fotku nebo video, pošli je s popiskem. Nic se nespustí, dokud nestiskneš Generovat.",
+    "tr": "Yeni bir görsel ya da video için bir açıklama gönder. Bir fotoğrafı ya da videoyu değiştirmek için onu açıklamayla gönder. Oluştur’a basana kadar hiçbir şey çalışmaz.",
+    "sv": "Skicka en beskrivning för en ny bild eller video. För att ändra ett foto eller en video skickar du det med en bildtext. Inget körs förrän du trycker på Generera.",
+    "be": "Дашлі апісанне, каб атрымаць новую выяву ці відэа. Каб змяніць фота ці відэа, дашлі яго з подпісам. Нічога не запусціцца, пакуль не націснеш «Згенераваць».",
+    "ca": "Envia una descripció per a una imatge o un vídeo nous. Per canviar una foto o un vídeo, envia’l amb un text. No s’executa res fins que no premis Genera.",
+    "zh": "发送描述即可生成新的图片或视频。要修改照片或视频，请附上说明把它发过来。在你按下“生成”之前，什么都不会运行。",
+    "ja": "説明を送ると、新しい画像や動画を作ります。写真や動画を変えるには、キャプションを付けて送ってください。「生成」を押すまで何も実行されません。",
+    "ar": "أرسل وصفًا لصورة أو فيديو جديد. لتغيير صورة أو فيديو، أرسله مع تعليق. لا يبدأ شيء حتى تضغط «توليد»."
+  },
   "home.free_images": {
     "en": "Free images",
     "ru": "Бесплатные картинки",
@@ -1186,24 +1204,6 @@
     "zh": "暂无",
     "ja": "まだありません",
     "ar": "لا يوجد بعد"
-  },
-  "home.soon": {
-    "en": "Not open yet: making images comes with the first test release.",
-    "ru": "Пока не открыт: картинки появятся с первым тестовым выпуском.",
-    "uk": "Поки не відкритий: зображення з’являться з першим тестовим випуском.",
-    "es": "Aún no está abierto: las imágenes llegan con la primera versión de prueba.",
-    "fr": "Pas encore ouvert : les images arrivent avec la première version de test.",
-    "de": "Noch nicht offen: Bilder kommen mit der ersten Testversion.",
-    "it": "Non ancora aperto: le immagini arrivano con la prima versione di prova.",
-    "pl": "Jeszcze nie otwarty: obrazy pojawią się w pierwszym wydaniu testowym.",
-    "cs": "Zatím není otevřený: obrázky přijdou s první testovací verzí.",
-    "tr": "Henüz açık değil: görseller ilk test sürümüyle gelecek.",
-    "sv": "Inte öppen än: bilderna kommer med den första testversionen.",
-    "be": "Пакуль не адкрыты: выявы з’явяцца з першым тэставым выпускам.",
-    "ca": "Encara no és obert: les imatges arriben amb la primera versió de prova.",
-    "zh": "尚未开放：图片生成将随第一个测试版推出。",
-    "ja": "まだ公開前です。画像の生成は最初のテスト版から使えます。",
-    "ar": "لم يُفتح بعد: يأتي إنشاء الصور مع أول إصدار تجريبي."
   },
   "home.status_billing": {
     "en": "needs billing",

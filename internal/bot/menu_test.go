@@ -273,7 +273,7 @@ func TestStartInADMIsAPanelInThePersonsLanguage(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := client.last()
-	if got.method != "sendMessage" || got.chatID != 7 || !strings.Contains(got.text, i18n.T("uk", "home.soon")) ||
+	if got.method != "sendMessage" || got.chatID != 7 || !strings.Contains(got.text, i18n.T("uk", "home.direct")) ||
 		!strings.Contains(got.text, i18n.NameOf("uk")) {
 		t.Fatalf("sent %+v", got)
 	}
