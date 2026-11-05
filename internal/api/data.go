@@ -434,7 +434,13 @@ func (d pgData) Remove(ctx context.Context, userID, id int64) error {
 			}
 			return ErrNotFound
 		}
-		for _, stmt := range []string{`DELETE FROM job_input WHERE job_id = $1`, `DELETE FROM chat_run WHERE job_id = $1`} {
+		// A result sent to the DM stays there; framy forgets which message
+		// it was.
+		for _, stmt := range []string{
+			`DELETE FROM job_input WHERE job_id = $1`,
+			`DELETE FROM chat_run WHERE job_id = $1`,
+			`UPDATE site_delivery SET message_id = NULL WHERE job_id = $1`,
+		} {
 			if _, err := tx.Exec(ctx, stmt, id); err != nil {
 				return fmt.Errorf("delete job %d: %w", id, err)
 			}
@@ -455,11 +461,15 @@ func (d pgData) Active(ctx context.Context, userID int64) (bool, error) {
 // Forget is the account's rows, in one transaction under the lock a job
 // takes to start, so a run the queue is about to claim is either seen here
 // and refused or starts after: drafts are cancelled, every job that ended is
-// cleared as Remove clears one, and the keys, the pending connections to
+// cleared as Remove clears one, the ids of the DM messages framy sent the
+// site's results in are dropped, and the keys, the pending connections to
 // OpenRouter, the profile (currency, name and photo) and the photos of
-// albums framy saw the person send in a chat are deleted. The sessions go
-// through Config.Revoke, which also drops what internal/auth remembers of
-// them. The person stays in core: that row is the family's, not framy's.
+// albums framy saw the person send in a chat are deleted. The jobs are
+// cleared first: their rows are what a result being sent to the DM holds
+// (db.SentSiteResult), so its chat run is either written before and
+// deleted here, or not written at all. The sessions go through
+// Config.Revoke, which also drops what internal/auth remembers of them.
+// The person stays in core: that row is the family's, not framy's.
 func (d pgData) Forget(ctx context.Context, userID int64) error {
 	return pgx.BeginFunc(ctx, d.pool, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('framy.job.person:' || $1::bigint::text, 0))`, userID); err != nil {
@@ -474,9 +484,10 @@ func (d pgData) Forget(ctx context.Context, userID int64) error {
 		}
 		for _, stmt := range []string{
 			`UPDATE job SET status = 'cancelled', finished_at = now(), updated_at = now() WHERE user_id = $1 AND status = 'draft'`,
+			`UPDATE job SET ` + cleared + ` WHERE user_id = $1 AND deleted_at IS NULL AND finished_at IS NOT NULL`,
 			`DELETE FROM chat_run WHERE job_id IN (SELECT id FROM job WHERE user_id = $1)`,
 			`DELETE FROM job_input WHERE job_id IN (SELECT id FROM job WHERE user_id = $1)`,
-			`UPDATE job SET ` + cleared + ` WHERE user_id = $1 AND deleted_at IS NULL AND finished_at IS NOT NULL`,
+			`UPDATE site_delivery SET message_id = NULL WHERE job_id IN (SELECT id FROM job WHERE user_id = $1) AND message_id IS NOT NULL`,
 			`DELETE FROM connection WHERE user_id = $1`,
 			`DELETE FROM oauth_state WHERE user_id = $1`,
 			`DELETE FROM profile WHERE user_id = $1`,

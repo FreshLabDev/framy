@@ -145,6 +145,55 @@ func TestASiteResultThatWillNotGoEnds(t *testing.T) {
 	}
 }
 
+// A job the person deletes while its result goes to the DM is recorded as
+// sent, so it does not go again, but framy keeps neither the message nor a
+// chat run of it: the delete waits for nothing and the send waits for it.
+func TestASiteResultDeletedOnTheWayKeepsNoMessage(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+	job := siteJobOf(t, store, 4403, "site", time.Minute, false)
+	if ok, err := store.ClaimSiteResult(ctx, job); err != nil || !ok {
+		t.Fatalf("claim: %v %v", ok, err)
+	}
+	// The delete has the job and has not committed when the send ends.
+	tx, err := store.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `UPDATE job SET deleted_at = now(), prompt = '' WHERE id = $1`, job); err != nil {
+		t.Fatal(err)
+	}
+	sent := make(chan error, 1)
+	go func() {
+		sent <- store.SentSiteResult(ctx, ChatRun{JobID: job, ChatID: 4403, Lang: "en"},
+			ChatResult{MessageID: 78, FileID: "f", FileUniqueID: "u", FileType: FilePhoto})
+	}()
+	select {
+	case err := <-sent:
+		t.Fatalf("the send did not wait for the delete: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-sent; err != nil {
+		t.Fatal(err)
+	}
+	var state string
+	var message *int64
+	if err := store.pool.QueryRow(ctx, `SELECT state, message_id FROM site_delivery WHERE job_id = $1`, job).Scan(&state, &message); err != nil ||
+		state != DeliverySent || message != nil {
+		t.Fatalf("delivery %q %v %v", state, message, err)
+	}
+	if _, err := store.ChatRun(ctx, job); err != ErrNoRun {
+		t.Fatalf("a run of a deleted job: %v", err)
+	}
+	if _, found, err := store.ResultRun(ctx, 4403, 78); err != nil || found {
+		t.Fatalf("the message leads to the deleted job: %v %v", found, err)
+	}
+}
+
 // pressJobOf makes a site job of person user part of press batch at frames,
 // in status, ended ago unless it is running.
 func pressJobOf(t *testing.T, store *Store, user int64, batch string, frames []int32, status string, ago time.Duration) int64 {

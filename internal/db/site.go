@@ -128,8 +128,22 @@ func (s *Store) EndSiteResult(ctx context.Context, jobID int64, state string) er
 // res, and gives the job a chat run that is done there, so Animate and a
 // reply to the result work as on any result in a chat. Of run only JobID,
 // ChatID and Lang are read.
+//
+// A job the person deleted while its result went out is recorded as sent,
+// so it is not sent again, and keeps neither the message nor a chat run.
+// The job's row is held meanwhile: a delete either came first and is seen
+// here, or waits and then clears what is written here.
 func (s *Store) SentSiteResult(ctx context.Context, run ChatRun, res ChatResult) error {
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		var deleted bool
+		if err := tx.QueryRow(ctx, `SELECT deleted_at IS NOT NULL FROM job WHERE id = $1 FOR SHARE`, run.JobID).Scan(&deleted); err != nil {
+			return err
+		}
+		if deleted {
+			_, err := tx.Exec(ctx, `
+				UPDATE site_delivery SET state = 'sent', updated_at = now() WHERE job_id = $1 AND state = 'sending'`, run.JobID)
+			return err
+		}
 		if _, err := tx.Exec(ctx, `
 			UPDATE site_delivery SET state = 'sent', message_id = $2, updated_at = now()
 			WHERE job_id = $1 AND state = 'sending'`, run.JobID, res.MessageID); err != nil {

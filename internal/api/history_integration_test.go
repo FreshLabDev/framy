@@ -162,6 +162,7 @@ func TestARemovedJobIsClearedButStillCountsAsFree(t *testing.T) {
 	ran := aJob(t, pool, alice, "done", "image", "a free fox", true)
 	anAsset(t, pool, alice, ran, "u/1001/in/c.jpg", true)
 	exec(t, pool, `INSERT INTO chat_run (job_id, chat_id, command_message_id, lang) VALUES ($1, 42, 7, 'en')`, ran)
+	exec(t, pool, `INSERT INTO site_delivery (job_id, state, message_id) VALUES ($1, 'sent', 77)`, ran)
 	refused := aJob(t, pool, alice, "failed", "image", "a refused fox", true)
 	running := aJob(t, pool, alice, "running", "image", "a running fox", true)
 	before, err := allow.Usage(ctx, alice)
@@ -191,6 +192,14 @@ func TestARemovedJobIsClearedButStillCountsAsFree(t *testing.T) {
 	pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM job_input WHERE job_id = $1), (SELECT count(*) FROM chat_run WHERE job_id = $1)`, ran).Scan(&inputs, &runs)
 	if inputs != 0 || runs != 0 {
 		t.Errorf("job_input %d, chat_run %d", inputs, runs)
+	}
+	// It stays sent, so it does not go to the DM again, but without the
+	// message it went in.
+	var state string
+	var message *int64
+	if err := pool.QueryRow(ctx, `SELECT state, message_id FROM site_delivery WHERE job_id = $1`, ran).Scan(&state, &message); err != nil ||
+		state != "sent" || message != nil {
+		t.Errorf("site delivery %q %v: %v", state, message, err)
 	}
 
 	after, err := allow.Usage(ctx, alice)
@@ -236,6 +245,9 @@ func TestForgettingAnAccount(t *testing.T) {
 	draft := aJob(t, pool, alice, "draft", "image", "a draft fox", false)
 	running := aJob(t, pool, alice, "running", "image", "a running fox", false)
 	bobs := aJob(t, pool, bob, "done", "image", "bob's fox", false)
+	for _, job := range []int64{done, bobs} {
+		exec(t, pool, `INSERT INTO site_delivery (job_id, state, message_id) VALUES ($1, 'sent', 77)`, job)
+	}
 
 	count := func(sql string, args ...any) int {
 		t.Helper()
@@ -279,6 +291,12 @@ func TestForgettingAnAccount(t *testing.T) {
 	}
 	if n := count(`SELECT count(*) FROM job WHERE id = $1 AND deleted_at IS NULL AND prompt <> ''`, bobs); n != 1 {
 		t.Error("bob's job was touched")
+	}
+	if n := count(`SELECT count(*) FROM site_delivery WHERE job_id = $1 AND state = 'sent' AND message_id IS NULL`, done); n != 1 {
+		t.Error("the DM message of alice's result is still known")
+	}
+	if n := count(`SELECT count(*) FROM site_delivery WHERE job_id = $1 AND message_id = 77`, bobs); n != 1 {
+		t.Error("bob's DM message was forgotten")
 	}
 	if n := count(`SELECT count(*) FROM core.person WHERE telegram_user_id = 1001`); n != 1 {
 		t.Error("the person went from core")
