@@ -3,7 +3,7 @@
 // A price element names its run (data-q) and is filled in place when the
 // answer comes, so a new price never rebuilds the form around it.
 import { h } from "./dom.js";
-import { t } from "./i18n.js";
+import { t, fmtNum } from "./i18n.js";
 import { api } from "./api.js";
 
 const cache = new Map(); // key -> {estimate, refusal, settings}
@@ -64,6 +64,13 @@ function num(a) {
   return s;
 }
 export const usd = (u) => "$" + num(u);
+// A label's number, with the marks and spaces a language writes in one ("1 234,50").
+const NUM = /\d(?:[\d.,\u00a0\u202f]*\d)?/;
+// An amount in the page's language as fx.Format writes it: never rounded down, the thousands grouped.
+function local(a) {
+  const s = num(a), d = (s.split(".")[1] || "").length;
+  return fmtNum(+s, { minimumFractionDigits: d, maximumFractionDigits: d, numberingSystem: "latn" });
+}
 // The price of several runs at once: the sum of each, read the loosest way any
 // of them reads (from, then up to, then about). One price that is not known
 // makes the sum unknown. The label is the first one's, with the sum in it.
@@ -78,7 +85,7 @@ export function sumOf(es) {
   if (cur) { out.amount = add((e) => e.amount); out.max_amount = add((e) => (e.kind === "up_to" ? e.max_amount ?? e.amount : e.amount)); }
   if (kind === "up_to") out.usd = out.max_usd;
   const shown = kind === "up_to" ? out.max_amount : out.amount, lab = es.find((e) => e.label)?.label;
-  out.label = cur && lab && /\d/.test(lab) ? lab.replace(/\d+(?:[.,]\d+)?/, (x) => (x.includes(",") ? num(shown).replace(".", ",") : num(shown))) : usd(out.usd);
+  out.label = cur && lab && /\d/.test(lab) ? lab.replace(NUM, () => local(shown)) : usd(out.usd);
   if (!cur) out.currency = "USD";
   return out;
 }

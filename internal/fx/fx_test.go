@@ -264,6 +264,54 @@ func TestFormat(t *testing.T) {
 	}
 }
 
+// Every language writes an amount as the browser's Intl writes it on the
+// same page (CLDR): the decimal mark, the thousands and where the sign goes.
+// zł and Br stay after the number everywhere.
+func TestFormatFollowsEachLanguage(t *testing.T) {
+	const nb, nnb = "\u00a0", "\u202f"
+	for _, tc := range []struct {
+		lang       string
+		small, big string // 0.0234 and 12345.5 in euro
+		thousand   string // 1234.5 in euro
+	}{
+		{"en", "€0.024", "€12,345.50", "€1,234.50"},
+		{"zh", "€0.024", "€12,345.50", "€1,234.50"},
+		{"ru", "0,024" + nb + "€", "12" + nb + "345,50" + nb + "€", "1" + nb + "234,50" + nb + "€"},
+		{"uk", "0,024" + nb + "€", "12" + nb + "345,50" + nb + "€", "1" + nb + "234,50" + nb + "€"},
+		{"fr", "0,024" + nb + "€", "12" + nnb + "345,50" + nb + "€", "1" + nnb + "234,50" + nb + "€"},
+		{"pl", "0,024" + nb + "€", "12" + nb + "345,50" + nb + "€", "1234,50" + nb + "€"},
+		{"be", "0,024" + nb + "€", "12" + nb + "345,50" + nb + "€", "1234,50" + nb + "€"},
+		{"es", "0,024" + nb + "€", "12.345,50" + nb + "€", "1234,50" + nb + "€"},
+		{"it", "0,024" + nb + "€", "12.345,50" + nb + "€", "1234,50" + nb + "€"},
+		{"de", "0,024" + nb + "€", "12.345,50" + nb + "€", "1.234,50" + nb + "€"},
+		{"ca", "0,024" + nb + "€", "12.345,50" + nb + "€", "1.234,50" + nb + "€"},
+		{"tr", "€0,024", "€12.345,50", "€1.234,50"},
+		{"sv", "0,024" + nb + "€", "12" + nb + "345,50" + nb + "€", "1" + nb + "234,50" + nb + "€"},
+	} {
+		for _, c := range []struct {
+			amount float64
+			want   string
+		}{{0.0234, tc.small}, {12345.5, tc.big}, {1234.5, tc.thousand}} {
+			if got := Format(c.amount, EUR, tc.lang); got != c.want {
+				t.Errorf("Format(%v, EUR, %s) = %q, want %q", c.amount, tc.lang, got, c.want)
+			}
+		}
+	}
+	for _, tc := range []struct {
+		amount           float64
+		code, lang, want string
+	}{
+		{0.077, PLN, "tr", "0,077" + nb + "zł"},
+		{1234.5, BYN, "en", "1,234.50" + nb + "Br"},
+		{1234.5, UAH, "tr", "₴1.234,50"},
+		{1234567.891, UAH, "uk", "1" + nb + "234" + nb + "567,90" + nb + "₴"},
+	} {
+		if got := Format(tc.amount, tc.code, tc.lang); got != tc.want {
+			t.Errorf("Format(%v, %s, %s) = %q, want %q", tc.amount, tc.code, tc.lang, got, tc.want)
+		}
+	}
+}
+
 func TestFormatCodePutsTheCodeAfterTheNumber(t *testing.T) {
 	for _, tc := range []struct {
 		amount     float64
@@ -273,6 +321,8 @@ func TestFormatCodePutsTheCodeAfterTheNumber(t *testing.T) {
 		{18.004, UAH, "uk", "18,01 UAH"},
 		{0.5, UAH, "en", "0.50 UAH"},
 		{2.049, "RUB", "ru", "2,05 RUB"},
+		{1234.5, UAH, "uk", "1 234,50 UAH"},
+		{1234.5, EUR, "tr", "1.234,50 EUR"},
 	} {
 		if got := FormatCode(tc.amount, tc.code, tc.lang); got != tc.want {
 			t.Errorf("FormatCode(%v, %s, %s) = %q, want %q", tc.amount, tc.code, tc.lang, got, tc.want)
