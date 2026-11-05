@@ -113,6 +113,9 @@ type Estimate struct {
 	Lines []Line `json:"lines,omitempty"`
 }
 
+// Most is the most the run can cost: MaxUSD, or USD where nothing is open.
+func (e Estimate) Most() float64 { return math.Max(e.USD, e.MaxUSD) }
+
 // Of estimates a run of the offer of model m.
 func Of(m catalog.Model, of catalog.Offer, req Request) Estimate {
 	if len(of.Routes) == 0 {

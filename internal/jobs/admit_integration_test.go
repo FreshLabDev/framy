@@ -85,6 +85,21 @@ func TestAFreeJobIsAskedAboutInItsOwnTransaction(t *testing.T) {
 		t.Fatalf("the queued draft was asked as %+v", queued)
 	}
 
+	// An "up to" price is asked about at its top, when made and when its
+	// draft is queued: the budget keeps room for all it may cost.
+	n.DedupeKey = TelegramUpdate(9)
+	n.Estimate = &price.Estimate{USD: 0.09, MaxUSD: 0.19, Kind: price.UpTo}
+	upTo, _, err := q.Draft(ctx, n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Generate(ctx, upTo); err != nil {
+		t.Fatal(err)
+	}
+	if len(spy.asked) != 5 || spy.asked[3].EstimateUSD != 0.19 || spy.asked[4].EstimateUSD != 0.19 {
+		t.Fatalf("an up-to draft was asked as %+v", spy.asked[3:])
+	}
+
 	// A run on the person's own key is not asked about, and a second press
 	// on a draft that was queued is refused as ever, not asked about.
 	own := job(bob, imageOffer)
@@ -94,8 +109,8 @@ func TestAFreeJobIsAskedAboutInItsOwnTransaction(t *testing.T) {
 	if err := q.Generate(ctx, draft); !errors.Is(err, ErrNotDraft) {
 		t.Fatalf("second press = %v", err)
 	}
-	if len(spy.asked) != 3 {
-		t.Fatalf("asked %d times after a run on the person's key and a second press, want still 3", len(spy.asked))
+	if len(spy.asked) != 5 {
+		t.Fatalf("asked %d times after a run on the person's key and a second press, want still 5", len(spy.asked))
 	}
 }
 

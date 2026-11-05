@@ -411,7 +411,7 @@ func (q *Queue) Revise(ctx context.Context, id int64, n New) error {
 		}
 		if n.Free && q.cfg.Admit != nil {
 			if n.Estimate != nil {
-				a.EstimateUSD = n.Estimate.USD
+				a.EstimateUSD = n.Estimate.Most()
 			}
 			if a.Videos, err = draftVideos(ctx, tx, id); err != nil {
 				return err
@@ -460,7 +460,7 @@ func (q *Queue) admitNew(ctx context.Context, tx pgx.Tx, n New) error {
 		Settings: n.Settings, Inputs: len(n.Inputs),
 	}
 	if n.Estimate != nil {
-		a.EstimateUSD = n.Estimate.USD
+		a.EstimateUSD = n.Estimate.Most()
 	}
 	if len(n.Inputs) > 0 {
 		rows, err := tx.Query(ctx, `
@@ -504,7 +504,8 @@ func (q *Queue) admitDraft(ctx context.Context, tx pgx.Tx, id int64) error {
 	var free bool
 	var estimate *float64
 	err := tx.QueryRow(ctx, `
-		SELECT user_id, offer_id, kind, settings, free, estimate_usd::float8,
+		SELECT user_id, offer_id, kind, settings, free,
+		       GREATEST(estimate_usd, (estimate->>'max_usd')::numeric)::float8,
 		       (SELECT count(*) FROM job_input WHERE job_id = job.id)
 		FROM job
 		WHERE id=$1 AND status='draft' AND created_at > now() - make_interval(secs => $2)`, id, draftTTL.Seconds()).Scan(

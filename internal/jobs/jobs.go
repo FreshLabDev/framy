@@ -170,7 +170,9 @@ type Admission struct {
 	// Videos is the length of each clip among the files, 0 where it is not
 	// known: the free edit takes a clip up to 5 s.
 	Videos []float64
-	// EstimateUSD is the price shown before the run; zero when there is none.
+	// EstimateUSD is the most the run can cost by its estimate, the top of
+	// an "up to" price; zero when there is none. The budget keeps room for
+	// all of it until the run ends.
 	EstimateUSD float64
 }
 

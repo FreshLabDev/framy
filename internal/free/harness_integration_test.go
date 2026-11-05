@@ -228,8 +228,10 @@ type row struct {
 	// finishedAgo is how long before the clock it ended; a minute after it
 	// was queued by default.
 	finishedAgo time.Duration
-	// estimate is 0.0195 unless said; actual is NULL unless set.
+	// estimate is 0.0195 unless said; upTo is the top of an "up to"
+	// estimate, none unless set; actual is NULL unless set.
 	estimate float64
+	upTo     float64
 	actual   *float64
 	// own marks a run on the person's own key.
 	own bool
@@ -254,6 +256,12 @@ func (h *harness) insert(r row) (id int64, queuedAt time.Time) {
 	if !r.at.IsZero() {
 		queuedAt = r.at
 	}
+	// The estimate as the queue keeps it, for an "up to" price.
+	var estimate *string
+	if r.upTo > 0 {
+		e := fmt.Sprintf(`{"usd": %g, "max_usd": %g, "kind": "up_to"}`, r.estimate, r.upTo)
+		estimate = &e
+	}
 	var queued, finished any
 	if r.status != "draft" {
 		queued = queuedAt
@@ -268,11 +276,11 @@ func (h *harness) insert(r row) (id int64, queuedAt time.Time) {
 	}
 	err := h.pool.QueryRow(context.Background(), `
 		INSERT INTO framy.job (user_id, surface, offer_id, model_id, provider, kind, free, status, queued_at, finished_at,
-		                       estimate_usd, actual_usd, error_class, submitted_at)
-		VALUES ($1, $2, $3, $4, 'openrouter', $5, $6, $7, $8, $9, $10, $11, NULLIF($12, ''), CASE WHEN $13 THEN $8::timestamptz END)
+		                       estimate_usd, estimate, actual_usd, error_class, submitted_at)
+		VALUES ($1, $2, $3, $4, 'openrouter', $5, $6, $7, $8, $9, $10, $14::jsonb, $11, NULLIF($12, ''), CASE WHEN $13 THEN $8::timestamptz END)
 		RETURNING id`,
 		r.user, r.surface, r.plan.Offer, r.plan.Model, r.plan.Kind, !r.own, r.status, queued, finished,
-		r.estimate, r.actual, r.class, r.sent).Scan(&id)
+		r.estimate, r.actual, r.class, r.sent, estimate).Scan(&id)
 	if err != nil {
 		h.t.Fatalf("insert %+v: %v", r, err)
 	}

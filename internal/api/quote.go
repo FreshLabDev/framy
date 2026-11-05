@@ -271,7 +271,7 @@ func (a *API) quoteRoute(w http.ResponseWriter, r *http.Request) {
 		case a.cfg.Allowance != nil:
 			err := a.cfg.Allowance.Check(ctx, jobs.Admission{
 				UserID: user, Offer: offer.ID, Kind: offer.Kind, Settings: settings, Inputs: files,
-				Videos: count.VideoSecs, EstimateUSD: est.USD,
+				Videos: count.VideoSecs, EstimateUSD: est.Most(),
 			})
 			if err != nil {
 				e := a.refusal(err)

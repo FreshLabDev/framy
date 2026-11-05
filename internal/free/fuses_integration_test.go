@@ -25,7 +25,7 @@ type budgetCase struct {
 
 // The budget counts the estimate while a run is queued or running, the
 // actual cost once it ended, and the estimate for a run that may have been
-// paid and has no cost on the books. The test finds the sum by the edge: a
+// paid and has no cost on the books; of an "up to" estimate, its top. The test finds the sum by the edge: a
 // run that costs what is left is allowed, and one micro-dollar more is not.
 func TestTheBudgetCountsEstimatesThenActualCosts(t *testing.T) {
 	const budget = 1.0
@@ -52,6 +52,10 @@ func TestTheBudgetCountsEstimatesThenActualCosts(t *testing.T) {
 		}, 0.33},
 		{"a refused run costs what the provider charged for it", []row{{status: "failed", class: "moderation", estimate: 0.30, actual: ptr(0.05)}, {status: "failed", class: "moderation", estimate: 0.30}}, 0.05},
 		{"a video the provider never finished may have been paid", []row{{status: "expired", estimate: 0.30}, {status: "expired", estimate: 0.30, actual: ptr(0.20)}}, 0.50},
+		// A video of a length the model picks may cost up to its top.
+		{"an up-to run in flight costs its top", []row{{status: "running", estimate: 0.09, upTo: 0.19}}, 0.19},
+		{"an up-to run with no cost reported costs its top", []row{{estimate: 0.09, upTo: 0.19}, {status: "failed", class: "timeout", estimate: 0.09, upTo: 0.19}}, 0.38},
+		{"an up-to run costs what the provider charged once it ended", []row{{estimate: 0.09, upTo: 0.19, actual: ptr(0.12)}}, 0.12},
 		{"a cancelled run and a draft cost nothing", []row{{status: "cancelled", estimate: 0.30}, {status: "draft", estimate: 0.30}}, 0},
 		{"a run on the person's own key is not the tier's", []row{{own: true, estimate: 0.30}}, 0},
 		{"yesterday is not today", []row{{estimate: 0.30, at: yesterday}}, 0},
