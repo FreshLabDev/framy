@@ -11,15 +11,20 @@
 #
 # .env holds FRAMY_IMAGE, FRAMY_CORE_PASSWORD (the same as in core's .env),
 # R2_ACCOUNT_ID, TRUSTED_PROXIES, BOT_API_TOKEN (see the Bot API mount below)
-# and, if wanted, OPERATOR_CHAT_ID. The files in secrets/ belong to uid 101,
-# mode 0400: bot-token, kek (a line "1:" and 32 random bytes in base64),
-# r2-access-key-id, r2-secret-access-key, openrouter-key, hook-path-secret
-# (head -c 32 /dev/urandom | base64), openrouter-webhook-secret (the signing
-# secret of the OpenRouter workspace openrouter-key belongs to) and, for
-# sign-in on the site, telegram-login-client-id and
-# telegram-login-client-secret: the OpenID Connect client of @framyin_bot in
-# BotFather with the redirect URI https://framy.ws04.cc/auth/callback. Without
-# those two the site has no sign-in and the Mini App still works.
+# and, if wanted, OPERATOR_CHAT_ID and R2_INCOMING_BUCKET, the bucket the
+# site's clips go into (docs/design.md, Storage and retention). The files in
+# secrets/ belong to uid 101, mode 0400: bot-token, kek (a line "1:" and 32
+# random bytes in base64), r2-access-key-id, r2-secret-access-key,
+# openrouter-key, hook-path-secret (head -c 32 /dev/urandom | base64),
+# openrouter-webhook-secret (the signing secret of the OpenRouter workspace
+# openrouter-key belongs to) and, for sign-in on the site,
+# telegram-login-client-id and telegram-login-client-secret: the OpenID
+# Connect client of @framyin_bot in BotFather with the redirect URI
+# https://framy.ws04.cc/auth/callback. Without those two the site has no
+# sign-in and the Mini App still works. With R2_INCOMING_BUCKET come
+# r2-incoming-access-key-id and r2-incoming-secret-access-key, the halves of
+# a token that has Object Read & Write on that bucket and nothing else; they
+# are read only when it is set.
 #
 # Telegram goes through the family's telegram-bot-api in --local mode, which
 # answers getFile with a path on its own disk and serves no files over HTTP.
@@ -71,6 +76,10 @@ services:
       R2_BUCKET: framy
       R2_ACCESS_KEY_ID_FILE: /run/secrets/r2-access-key-id
       R2_SECRET_ACCESS_KEY_FILE: /run/secrets/r2-secret-access-key
+      # The clips' own bucket when .env names one; its token is read only then.
+      R2_INCOMING_BUCKET: ${R2_INCOMING_BUCKET:-}
+      R2_INCOMING_ACCESS_KEY_ID_FILE: /run/secrets/r2-incoming-access-key-id
+      R2_INCOMING_SECRET_ACCESS_KEY_FILE: /run/secrets/r2-incoming-secret-access-key
       OPENROUTER_API_KEY_FILE: /run/secrets/openrouter-key
       SITE_URL: https://framy.ws04.cc
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:?TRUSTED_PROXIES must be the management network range}

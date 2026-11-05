@@ -17,6 +17,7 @@ import (
 
 	"github.com/FreshLabDev/framy/internal/jobs"
 	"github.com/FreshLabDev/framy/internal/media"
+	"github.com/FreshLabDev/framy/internal/r2/r2test"
 	"github.com/FreshLabDev/framy/internal/storage"
 )
 
@@ -337,6 +338,36 @@ func TestASoundPutByLinkIsKeptForTheReferences(t *testing.T) {
 	}
 	if _, err := h.store.LastFrame(ctx, alice, a.ID); !errors.Is(err, storage.ErrNotVideo) {
 		t.Errorf("the last frame of a sound: %v", err)
+	}
+	h.workIsEmpty(t)
+}
+
+// With a bucket of their own, clips are put there and taken from there, and
+// kept in the bucket with everything else.
+func TestAClipGoesThroughItsOwnBucket(t *testing.T) {
+	clips := r2test.New(t)
+	h := newHarness(t, storage.Config{Media: videoConverter(t), Incoming: clips.Client(t)})
+	ctx := context.Background()
+	up, err := h.store.VideoUpload(alice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(up.URL, clips.URL+"/") {
+		t.Fatal("the link is not to the clips' bucket")
+	}
+	put(t, up.URL, clip(t, "1"))
+	if keys := clips.Keys(); len(keys) != 1 || keys[0] != "incoming/3001/"+up.Token || len(h.incoming(t)) != 0 {
+		t.Fatalf("clips %v, incoming of the main bucket %v", keys, h.incoming(t))
+	}
+	a, err := h.store.TakeVideo(ctx, alice, up.Token, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := h.bucket.Get(a.Key); !ok || !strings.HasPrefix(a.Key, "u/3001/in/") {
+		t.Fatalf("kept %s: %v", a.Key, ok)
+	}
+	if keys := clips.Keys(); len(keys) != 0 {
+		t.Errorf("left in the clips' bucket: %v", keys)
 	}
 	h.workIsEmpty(t)
 }

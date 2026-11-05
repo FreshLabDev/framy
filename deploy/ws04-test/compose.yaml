@@ -23,10 +23,12 @@
 # in on production.
 #
 # .env holds FRAMY_IMAGE, FRAMY_CORE_PASSWORD (the same as production's and
-# core's), R2_ACCOUNT_ID and TRUSTED_PROXIES. The files in secrets/ belong to
-# uid 10001, the image's user, mode 0400: bot-token, kek (a copy of
-# production's: the keys people connect are stored once for both),
-# r2-access-key-id, r2-secret-access-key, openrouter-key, hook-path-secret
+# core's), R2_ACCOUNT_ID and TRUSTED_PROXIES, and R2_INCOMING_BUCKET when
+# production's .env names one: the same bucket, with copies of production's
+# r2-incoming-access-key-id and r2-incoming-secret-access-key. The files in
+# secrets/ belong to uid 10001, the image's user, mode 0400: bot-token, kek
+# (a copy of production's: the keys people connect are stored once for
+# both), r2-access-key-id, r2-secret-access-key, openrouter-key, hook-path-secret
 # (head -c 32 /dev/urandom | base64), and telegram-login-client-id and
 # telegram-login-client-secret: the OpenID Connect client of @framytest_bot
 # in BotFather (Login Widget, with the redirect URI
@@ -71,6 +73,10 @@ services:
       R2_PREFIX: ""
       R2_ACCESS_KEY_ID_FILE: /run/secrets/r2-access-key-id
       R2_SECRET_ACCESS_KEY_FILE: /run/secrets/r2-secret-access-key
+      # The clips' own bucket when .env names one; its token is read only then.
+      R2_INCOMING_BUCKET: ${R2_INCOMING_BUCKET:-}
+      R2_INCOMING_ACCESS_KEY_ID_FILE: /run/secrets/r2-incoming-access-key-id
+      R2_INCOMING_SECRET_ACCESS_KEY_FILE: /run/secrets/r2-incoming-secret-access-key
       OPENROUTER_API_KEY_FILE: /run/secrets/openrouter-key
       SITE_URL: https://framy-test.ws04.cc
       HOOK_PATH_SECRET_FILE: /run/secrets/hook-path-secret

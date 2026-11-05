@@ -482,6 +482,19 @@ func openStorage(ctx context.Context, cfg config.Config, store *db.Store, client
 	if err != nil {
 		return nil, work, err
 	}
+	// The site's clips go into a bucket of their own when one is set, with
+	// a token that reaches nothing else (docs/design.md, Storage).
+	var incoming storage.Bucket
+	clips := cfg.R2.Bucket
+	if in := cfg.R2.Incoming; in.Bucket != "" {
+		if incoming, err = r2.New(r2.Config{
+			Endpoint: cfg.R2.Endpoint, Bucket: in.Bucket,
+			AccessKeyID: in.AccessKeyID, SecretAccessKey: in.SecretAccessKey,
+		}); err != nil {
+			return nil, work, err
+		}
+		clips = in.Bucket
+	}
 	conv := &media.Converter{FFmpeg: cfg.FFmpeg, FFprobe: cfg.FFprobe}
 	if err := conv.Check(ctx); err != nil {
 		return nil, work, fmt.Errorf("ffmpeg cannot normalize photos: %w", err)
@@ -497,19 +510,20 @@ func openStorage(ctx context.Context, cfg config.Config, store *db.Store, client
 		}
 	}
 	files, err := storage.New(storage.Config{
-		Pool:   store.Pool(),
-		Bucket: bucket,
-		Prefix: cfg.R2.Prefix,
-		Media:  conv,
-		Work:   work,
-		Fetch:  safehttp.Client(storage.DefaultFetchTimeout),
-		Notify: notify,
-		Log:    log.With("component", "storage"),
+		Pool:     store.Pool(),
+		Bucket:   bucket,
+		Incoming: incoming,
+		Prefix:   cfg.R2.Prefix,
+		Media:    conv,
+		Work:     work,
+		Fetch:    safehttp.Client(storage.DefaultFetchTimeout),
+		Notify:   notify,
+		Log:      log.With("component", "storage"),
 	})
 	if err != nil {
 		return nil, work, err
 	}
-	log.Info("storage ready", "bucket", cfg.R2.Bucket, "prefix", cfg.R2.Prefix, "work_dir", cfg.WorkDir)
+	log.Info("storage ready", "bucket", cfg.R2.Bucket, "clips", clips, "prefix", cfg.R2.Prefix, "work_dir", cfg.WorkDir)
 	return files, work, nil
 }
 

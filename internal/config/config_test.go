@@ -13,6 +13,7 @@ func setBase(t *testing.T) {
 	t.Helper()
 	for _, k := range []string{"TELEGRAM_BOT_TOKEN", "TELEGRAM_BOT_TOKEN_FILE", "DATABASE_URL", "DATABASE_URL_FILE", "TELEGRAM_API_BASE", "AUTO_MIGRATE", "HTTP_ADDR", "METRICS_ADDR", "LOG_LEVEL", "OPENROUTER_API_BASE", "CATALOG_SYNC_INTERVAL", "FX_SYNC", "JOBS_STOP_GRACE", "OPENROUTER_API_KEY", "OPENROUTER_API_KEY_FILE",
 		"R2_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID_FILE", "R2_SECRET_ACCESS_KEY", "R2_SECRET_ACCESS_KEY_FILE", "R2_ENDPOINT", "R2_ACCOUNT_ID", "R2_BUCKET", "R2_PREFIX",
+		"R2_INCOMING_BUCKET", "R2_INCOMING_ACCESS_KEY_ID", "R2_INCOMING_ACCESS_KEY_ID_FILE", "R2_INCOMING_SECRET_ACCESS_KEY", "R2_INCOMING_SECRET_ACCESS_KEY_FILE",
 		"WORK_DIR", "FFMPEG", "FFPROBE", "OPERATOR_CHAT_ID", "BOT_API_FILES_DIR", "FRAMY_STACK"} {
 		t.Setenv(k, "")
 	}
@@ -81,6 +82,52 @@ func TestLoadR2(t *testing.T) {
 	t.Setenv("R2_ACCOUNT_ID", "")
 	if _, err := Load(); err == nil {
 		t.Error("a token without an endpoint was accepted")
+	}
+}
+
+// The clips' bucket comes with a token of its own, read only with it.
+func TestLoadR2Incoming(t *testing.T) {
+	setBase(t)
+	dir := t.TempDir()
+	write := func(name, v string) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(v+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	t.Setenv("R2_ACCESS_KEY_ID", "key-id")
+	t.Setenv("R2_SECRET_ACCESS_KEY", "the-secret")
+	t.Setenv("R2_ACCOUNT_ID", "abc123")
+	// Files a manifest names before they exist are not read without the bucket.
+	t.Setenv("R2_INCOMING_ACCESS_KEY_ID_FILE", filepath.Join(dir, "none"))
+	t.Setenv("R2_INCOMING_SECRET_ACCESS_KEY_FILE", filepath.Join(dir, "none"))
+	if cfg, err := Load(); err != nil || cfg.R2.Incoming != (Incoming{}) {
+		t.Fatalf("without the bucket: %+v, %v", cfg.R2.Incoming, err)
+	}
+	t.Setenv("R2_INCOMING_BUCKET", "framy-incoming")
+	if _, err := Load(); err == nil || strings.Contains(err.Error(), "the-secret") {
+		t.Fatalf("a bucket whose token files are missing: %v", err)
+	}
+	t.Setenv("R2_INCOMING_ACCESS_KEY_ID_FILE", write("in-id", "in-key-id"))
+	t.Setenv("R2_INCOMING_SECRET_ACCESS_KEY_FILE", write("in-secret", "in-secret"))
+	cfg, err := Load()
+	if want := (Incoming{Bucket: "framy-incoming", AccessKeyID: "in-key-id", SecretAccessKey: "in-secret"}); err != nil || cfg.R2.Incoming != want {
+		t.Fatalf("incoming = %+v, %v", cfg.R2.Incoming, err)
+	}
+	for name, env := range map[string][2]string{
+		"the main bucket": {"R2_INCOMING_BUCKET", "framy"},
+		"half a token":    {"R2_INCOMING_SECRET_ACCESS_KEY_FILE", ""},
+		"both forms":      {"R2_INCOMING_ACCESS_KEY_ID", "in-key-id"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(env[0], env[1])
+			if _, err := Load(); err == nil {
+				t.Fatal("accepted")
+			} else if strings.Contains(err.Error(), "in-secret") {
+				t.Error("the error names the secret")
+			}
+		})
 	}
 }
 

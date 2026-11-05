@@ -102,6 +102,17 @@ type R2 struct {
 	Prefix          string
 	AccessKeyID     string
 	SecretAccessKey string
+	// Incoming is where the site's browser puts a clip, with a presigned
+	// PUT: a bucket of its own and a token limited to it, on the same
+	// account. Empty puts clips into Bucket.
+	Incoming Incoming
+}
+
+// Incoming is the bucket clips are put into and its own token.
+type Incoming struct {
+	Bucket          string
+	AccessKeyID     string
+	SecretAccessKey string
 }
 
 // Enabled: the token is set.
@@ -245,7 +256,39 @@ func loadR2() (R2, error) {
 	case !strings.HasPrefix(r.Endpoint, "https://") && !strings.HasPrefix(r.Endpoint, "http://"):
 		return R2{}, fmt.Errorf("R2_ENDPOINT must be an http or https URL")
 	}
+	if r.Incoming, err = loadIncoming(r.Bucket); err != nil {
+		return R2{}, err
+	}
 	return r, nil
+}
+
+// loadIncoming reads the bucket the site's clips are put into,
+// R2_INCOMING_BUCKET, and its token, R2_INCOMING_ACCESS_KEY_ID and
+// R2_INCOMING_SECRET_ACCESS_KEY, each also as _FILE. The token is read only
+// with the bucket, so a manifest may name its files before they exist.
+//
+// A presigned PUT signs the host alone. A token that reaches only this
+// bucket cannot be made to copy anyone's file into it with a header the
+// signature does not cover (docs/design.md, Storage and retention).
+func loadIncoming(main string) (Incoming, error) {
+	in := Incoming{Bucket: valueOrDefault("R2_INCOMING_BUCKET", "")}
+	if in.Bucket == "" {
+		return Incoming{}, nil
+	}
+	if in.Bucket == main || strings.Contains(in.Bucket, "/") {
+		return Incoming{}, fmt.Errorf("R2_INCOMING_BUCKET must be a bucket other than R2_BUCKET")
+	}
+	var err error
+	if in.AccessKeyID, err = secret("R2_INCOMING_ACCESS_KEY_ID"); err != nil {
+		return Incoming{}, err
+	}
+	if in.SecretAccessKey, err = secret("R2_INCOMING_SECRET_ACCESS_KEY"); err != nil {
+		return Incoming{}, err
+	}
+	if in.AccessKeyID == "" || in.SecretAccessKey == "" {
+		return Incoming{}, fmt.Errorf("R2_INCOMING_BUCKET needs its own token: R2_INCOMING_ACCESS_KEY_ID and R2_INCOMING_SECRET_ACCESS_KEY")
+	}
+	return in, nil
 }
 
 // validPrefix: empty, or one path segment of a-z, 0-9 and dashes with its

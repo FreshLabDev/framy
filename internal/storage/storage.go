@@ -91,8 +91,12 @@ type Bucket interface {
 type Config struct {
 	Pool   *pgxpool.Pool
 	Bucket Bucket
-	Media  *media.Converter
-	Work   media.Work
+	// Incoming is where the site's browser puts a clip with a presigned
+	// PUT: a bucket of its own whose token reaches nothing else. Nil puts
+	// clips into Bucket, under incoming/.
+	Incoming Bucket
+	Media    *media.Converter
+	Work     media.Work
 	// Fetch downloads results from providers' links: safehttp.Client, so a
 	// link cannot point framy at its own network.
 	Fetch *http.Client
@@ -124,14 +128,15 @@ type Config struct {
 
 // Store keeps the files.
 type Store struct {
-	pool   *pgxpool.Pool
-	bucket Bucket
-	media  *media.Converter
-	work   media.Work
-	fetch  *http.Client
-	notify func(ctx context.Context, text string) error
-	log    *slog.Logger
-	cfg    Config
+	pool     *pgxpool.Pool
+	bucket   Bucket
+	incoming Bucket
+	media    *media.Converter
+	work     media.Work
+	fetch    *http.Client
+	notify   func(ctx context.Context, text string) error
+	log      *slog.Logger
+	cfg      Config
 
 	// thumbErr says why results get no thumbnails: an ffmpeg without WebP.
 	thumbOnce sync.Once
@@ -159,8 +164,11 @@ func New(cfg Config) (*Store, error) {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
+	if cfg.Incoming == nil {
+		cfg.Incoming = cfg.Bucket
+	}
 	s := &Store{
-		pool: cfg.Pool, bucket: cfg.Bucket, media: cfg.Media, work: cfg.Work, fetch: cfg.Fetch,
+		pool: cfg.Pool, bucket: cfg.Bucket, incoming: cfg.Incoming, media: cfg.Media, work: cfg.Work, fetch: cfg.Fetch,
 		notify: cfg.Notify, log: cfg.Log, cfg: cfg,
 	}
 	s.thumb = s.makeThumb
