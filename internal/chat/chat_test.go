@@ -10,6 +10,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/FreshLabDev/tg"
 
@@ -236,6 +237,25 @@ func TestPastTheFreeTierWithoutAKeyTheReasonIsTheAnswer(t *testing.T) {
 	tag := fmt.Sprintf(`<tg-time unix="%d" format="dt">%s</tg-time>`, at.Unix(), at.UTC().Format("2006-01-02 15:04 UTC"))
 	if len(got) != 1 || got[0].text != i18n.T("en", "run.limit_at", "limit", "5", "at", tag) || got[0].messageID != 10 {
 		t.Fatalf("answer = %+v", got)
+	}
+}
+
+// An alert holds at most 200 characters, and Telegram refuses a longer one,
+// so the button would answer nothing. The free limit, said in an alert when
+// a button runs past it, fits in every language with every wait it can show.
+func TestTheFreeLimitFitsAnAlert(t *testing.T) {
+	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+	f := &Flow{now: func() time.Time { return now }}
+	waits := []time.Duration{59 * time.Minute, 23*time.Hour + 59*time.Minute, 6*24*time.Hour + 22*time.Hour + time.Minute, free.VideoWindow}
+	for _, lang := range i18n.Codes() {
+		for _, kind := range []catalog.Kind{catalog.Image, catalog.Video} {
+			for _, wait := range waits {
+				text := f.limitText(lang, &free.LimitError{Kind: kind, Limit: 10, FreesAt: now.Add(wait)})
+				if n := utf8.RuneCountInString(text); n > 200 {
+					t.Errorf("%s, %s, %s: %d characters: %s", lang, kind, wait, n, text)
+				}
+			}
+		}
 	}
 }
 
