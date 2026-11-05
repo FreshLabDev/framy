@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/FreshLabDev/tg"
 )
@@ -114,6 +115,37 @@ func TestAnInlineQueryGoesToTheFlow(t *testing.T) {
 	b.handle(context.Background(), tg.Update{UpdateID: 2, InlineQuery: &tg.InlineQuery{ID: "q", From: tg.User{ID: 7}}})
 	if len(client.calls) != 0 || len(client.answers) != 0 {
 		t.Fatalf("the bot answered %+v %+v", client.calls, client.answers)
+	}
+}
+
+// Telegram sends an inline query for every letter typed: core hears of the
+// person once a minute, not once a letter. Before, typing "a fox in the
+// snow" wrote to core 16 times.
+func TestTypingAnInlineQueryTouchesOnceAMinute(t *testing.T) {
+	flow := &fakeFlow{}
+	b, store, _ := newBotWith(WithFlow(flow))
+	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+	b.now = func() time.Time { return now }
+	typed := ""
+	for i, r := range "a fox" {
+		typed += string(r)
+		b.handle(context.Background(), tg.Update{UpdateID: int64(i + 1), InlineQuery: &tg.InlineQuery{ID: "q", From: tg.User{ID: 7}, Query: typed}})
+		now = now.Add(time.Second)
+	}
+	// Someone else typing at the same time is their own.
+	b.handle(context.Background(), tg.Update{UpdateID: 10, InlineQuery: &tg.InlineQuery{ID: "q", From: tg.User{ID: 8}, Query: "a"}})
+	if len(flow.inline) != 6 || len(store.touches) != 2 {
+		t.Fatalf("flow got %v, touches %+v", flow.inline, store.touches)
+	}
+	// A message is no inline query: its sender is touched as always.
+	b.handle(context.Background(), tg.Update{UpdateID: 11, Message: &tg.Message{MessageID: 1, From: &tg.User{ID: 7}, Chat: dmChat, Text: "hi"}})
+	if len(store.touches) != 3 {
+		t.Fatalf("touches %+v", store.touches)
+	}
+	now = now.Add(time.Minute)
+	b.handle(context.Background(), tg.Update{UpdateID: 12, InlineQuery: &tg.InlineQuery{ID: "q", From: tg.User{ID: 7}, Query: "a fox!"}})
+	if want := (touch{7, 0}); len(store.touches) != 4 || store.touches[3] != want {
+		t.Fatalf("a minute later: touches %+v", store.touches)
 	}
 }
 

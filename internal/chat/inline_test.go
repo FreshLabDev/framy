@@ -131,3 +131,52 @@ func TestAnInlineResultsTitle(t *testing.T) {
 		t.Errorf("id = %q", id)
 	}
 }
+
+// Telegram sends a query for every letter and shows the answer to the last
+// one: "a fox" typed at speed is one read of the history and one answer,
+// not five. Another person's query is theirs, and a next page does not
+// wait.
+func TestTypingAnInlineQueryReadsTheHistoryOnce(t *testing.T) {
+	h := newHarness(t)
+	// The letters come within the wait, however slow the machine.
+	quiet := make(chan struct{})
+	h.flow.inlineWait = func(ctx context.Context) error {
+		select {
+		case <-quiet:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	for i, text := range []string{"a", "a ", "a f", "a fo", "a fox"} {
+		q := tg.InlineQuery{ID: "q" + strconv.Itoa(i), From: tg.User{ID: 7, LanguageCode: "en"}, Query: text}
+		h.flow.Inline(context.Background(), &q)
+	}
+	other := tg.InlineQuery{ID: "o", From: tg.User{ID: 8, LanguageCode: "en"}, Query: "a cat"}
+	h.flow.Inline(context.Background(), &other)
+	close(quiet)
+	h.flow.Wait()
+	answered := h.tg.methods("answerInlineQuery")
+	if h.store.inlineReads != 2 || len(answered) != 2 {
+		t.Fatalf("read %d times, answered %+v", h.store.inlineReads, answered)
+	}
+	for _, a := range answered {
+		if a.text != "q4" && a.text != "o" {
+			t.Fatalf("answered %+v", answered)
+		}
+	}
+
+	h.flow.inlineWait = func(ctx context.Context) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	page := tg.InlineQuery{ID: "p", From: tg.User{ID: 7, LanguageCode: "en"}, Query: "a fox", Offset: "40"}
+	h.flow.Inline(context.Background(), &page)
+	h.flow.Wait()
+	if h.store.inlineReads != 3 {
+		t.Fatalf("a next page waited: %d reads", h.store.inlineReads)
+	}
+	if n := len(h.flow.typing.m); n != 0 {
+		t.Fatalf("%d queries kept", n)
+	}
+}

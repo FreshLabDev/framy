@@ -547,6 +547,8 @@ type fakeStore struct {
 	previewErr error
 	// settings are each person's settings of the site, by user id.
 	settings map[int64]db.Settings
+	// inlineReads counts the reads of inline results.
+	inlineReads int
 	// finishErr fails the next FinishChatRun, as a database hiccup would;
 	// inlineErrs fail as many SetChatRunInline.
 	finishErr  error
@@ -585,6 +587,7 @@ func (s *fakeStore) InlineResults(_ context.Context, user int64, search string, 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.inlineAsked = inlineAsk{user: user, before: before, search: search, limit: limit}
+	s.inlineReads++
 	var out []db.InlineResult
 	for _, r := range s.inline {
 		if (before == 0 || r.JobID < before) && len(out) < limit {

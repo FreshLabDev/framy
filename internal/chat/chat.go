@@ -254,6 +254,12 @@ type Flow struct {
 	// swept is when takeDown last looked at every run of a deleted job, not
 	// only the open ones. Only the loop of Run reads and writes it.
 	swept time.Time
+	// typing are the inline queries being answered, one a person;
+	// inlineSlots bound them, and a first page waits inlineQuiet in
+	// inlineWait (inline.go).
+	typing      typing
+	inlineSlots chan struct{}
+	inlineWait  func(context.Context) error
 	// byPath is set once a result went by its path, and uploadsOnly once
 	// the server took one uploaded it had refused by its path (sendFiles).
 	byPath, uploadsOnly atomic.Bool
@@ -297,7 +303,9 @@ func New(cfg Config) (*Flow, error) {
 	p := newPace()
 	cfg.Telegram = guarded{Telegram: cfg.Telegram, pace: p}
 	f := &Flow{cfg: cfg, log: cfg.Log, now: time.Now, pace: p, slot: make(chan struct{}, cfg.Commands), stopping: make(chan struct{}),
-		shareKey: newShareKey(), shareSlots: make(chan struct{}, shareSlots)}
+		shareKey: newShareKey(), shareSlots: make(chan struct{}, shareSlots),
+		inlineSlots: make(chan struct{}, inlineAtOnce),
+		inlineWait:  func(ctx context.Context) error { return sleepCtx(ctx, inlineQuiet) }}
 	if name := strings.TrimPrefix(cfg.Username, "@"); name != "" {
 		f.mention = regexp.MustCompile(`(?i)[ \t]*@` + regexp.QuoteMeta(name) + `\b[ \t]*`)
 	}

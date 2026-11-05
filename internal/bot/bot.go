@@ -67,15 +67,18 @@ type Telegram interface {
 }
 
 type Bot struct {
-	store       Store
-	tg          Telegram
-	log         *slog.Logger
-	username    string
-	selfID      int64
-	version     string
-	arrivals    *arrivals
-	allowance   Allowance
-	connections Connections
+	store    Store
+	tg       Telegram
+	log      *slog.Logger
+	username string
+	selfID   int64
+	version  string
+	arrivals *arrivals
+	// inlineTouched is when each person's inline query last recorded them
+	// in core.
+	inlineTouched *touches
+	allowance     Allowance
+	connections   Connections
 	// appURL is where the Mini App opens, from the home panel's button and
 	// from the menu button. Empty: framy has none to offer.
 	appURL string
@@ -84,7 +87,9 @@ type Bot struct {
 	// flow runs /img and /edit; nil leaves them unanswered.
 	flow Flow
 	// grace is how long the updates already taken are worked after a stop.
-	grace       time.Duration
+	grace time.Duration
+	// now is the clock.
+	now         func() time.Time
 	lastPoll    atomic.Int64
 	initialized atomic.Bool
 
@@ -159,7 +164,7 @@ func WithAlbumSweep() Option { return func(b *Bot) { b.sweepsAlbums = true } }
 func New(store Store, client Telegram, log *slog.Logger, username string, selfID int64, version string, opts ...Option) *Bot {
 	b := &Bot{
 		store: store, tg: client, log: log, username: username, selfID: selfID, version: version,
-		arrivals: newArrivals(), readTimeout: homeReadTimeout, grace: UpdateGrace,
+		arrivals: newArrivals(), inlineTouched: &touches{}, readTimeout: homeReadTimeout, grace: UpdateGrace, now: time.Now,
 	}
 	for _, opt := range opts {
 		opt(b)
@@ -350,9 +355,13 @@ func (b *Bot) handle(ctx context.Context, u tg.Update) {
 	if user == nil || user.ID == 0 {
 		return
 	}
-	if err := b.store.Touch(ctx, *user, chat); err != nil {
-		metrics.TouchFailures.Inc()
-		b.log.Error("core touch failed", "update_id", u.UpdateID, "error", err)
+	// Telegram sends an inline query for every letter typed; the person is
+	// the same between them, and core hears of them once a minute.
+	if u.InlineQuery == nil || b.inlineTouched.due(user.ID, b.now()) {
+		if err := b.store.Touch(ctx, *user, chat); err != nil {
+			metrics.TouchFailures.Inc()
+			b.log.Error("core touch failed", "update_id", u.UpdateID, "error", err)
+		}
 	}
 	var err error
 	switch {
@@ -373,6 +382,40 @@ func (b *Bot) handle(ctx context.Context, u tg.Update) {
 		return
 	}
 	metrics.UpdatesHandled.Inc()
+}
+
+// inlineTouchEvery is how often a person's inline queries record them in
+// core.
+const inlineTouchEvery = time.Minute
+
+// touches are when each person was last recorded in core, for a minute.
+type touches struct {
+	mu    sync.Mutex
+	at    map[int64]time.Time
+	swept time.Time
+}
+
+// due tells whether the person is to be recorded now, and notes it when
+// they are. What is older than a minute is forgotten as new ones come.
+func (t *touches) due(user int64, now time.Time) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.at == nil {
+		t.at = map[int64]time.Time{}
+	}
+	if at, ok := t.at[user]; ok && now.Sub(at) < inlineTouchEvery {
+		return false
+	}
+	t.at[user] = now
+	if now.Sub(t.swept) >= inlineTouchEvery {
+		for u, at := range t.at {
+			if now.Sub(at) >= inlineTouchEvery {
+				delete(t.at, u)
+			}
+		}
+		t.swept = now
+	}
+	return true
 }
 
 func retryDelay(attempt int) time.Duration {
