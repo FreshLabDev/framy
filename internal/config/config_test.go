@@ -14,7 +14,7 @@ func setBase(t *testing.T) {
 	for _, k := range []string{"TELEGRAM_BOT_TOKEN", "TELEGRAM_BOT_TOKEN_FILE", "DATABASE_URL", "DATABASE_URL_FILE", "TELEGRAM_API_BASE", "AUTO_MIGRATE", "HTTP_ADDR", "METRICS_ADDR", "LOG_LEVEL", "OPENROUTER_API_BASE", "CATALOG_SYNC_INTERVAL", "FX_SYNC", "JOBS_STOP_GRACE", "OPENROUTER_API_KEY", "OPENROUTER_API_KEY_FILE",
 		"R2_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID_FILE", "R2_SECRET_ACCESS_KEY", "R2_SECRET_ACCESS_KEY_FILE", "R2_ENDPOINT", "R2_ACCOUNT_ID", "R2_BUCKET", "R2_PREFIX",
 		"R2_INCOMING_BUCKET", "R2_INCOMING_ACCESS_KEY_ID", "R2_INCOMING_ACCESS_KEY_ID_FILE", "R2_INCOMING_SECRET_ACCESS_KEY", "R2_INCOMING_SECRET_ACCESS_KEY_FILE",
-		"WORK_DIR", "FFMPEG", "FFPROBE", "OPERATOR_CHAT_ID", "BOT_API_FILES_DIR", "FRAMY_STACK"} {
+		"WORK_DIR", "FFMPEG", "FFPROBE", "OPERATOR_CHAT_ID", "BOT_API_FILES_DIR", "BOT_API_BOT_DIR", "FRAMY_STACK"} {
 		t.Setenv(k, "")
 	}
 	t.Setenv("TELEGRAM_BOT_TOKEN", "123:abc")
@@ -296,8 +296,38 @@ func TestASelfHostedServerNeedsItsFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.BotAPIFilesDir != "/var/lib/telegram-bot-api-files" {
-		t.Fatalf("BotAPIFilesDir = %q", cfg.BotAPIFilesDir)
+	if cfg.BotAPIFilesDir != "/var/lib/telegram-bot-api-files" || cfg.BotAPIBotDir != "" {
+		t.Fatalf("BotAPIFilesDir = %q, BotAPIBotDir = %q", cfg.BotAPIFilesDir, cfg.BotAPIBotDir)
+	}
+}
+
+// The bot's own directory under a name that is not its token: absolute, and
+// outside the directory where the link to it is made.
+func TestTheBotsDirectoryUnderAnotherName(t *testing.T) {
+	setBase(t)
+	t.Setenv("BOT_API_BOT_DIR", "/var/lib/framy/bot-api")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "BOT_API_FILES_DIR") {
+		t.Fatalf("without BOT_API_FILES_DIR: err = %v", err)
+	}
+	t.Setenv("TELEGRAM_API_BASE", "http://telegram-bot-api-next:8081")
+	t.Setenv("BOT_API_FILES_DIR", "/var/lib/telegram-bot-api-files")
+	for value, want := range map[string]string{
+		"bot-api":                             "absolute",
+		"/var/lib/telegram-bot-api-files":     "outside",
+		"/var/lib/telegram-bot-api-files/bot": "outside",
+	} {
+		t.Setenv("BOT_API_BOT_DIR", value)
+		if _, err := Load(); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: err = %v, want %q", value, err, want)
+		}
+	}
+	t.Setenv("BOT_API_BOT_DIR", "/var/lib/framy/bot-api/")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.BotAPIBotDir != "/var/lib/framy/bot-api" {
+		t.Fatalf("BotAPIBotDir = %q", cfg.BotAPIBotDir)
 	}
 }
 

@@ -184,6 +184,13 @@ Migrations stay applied. The release notes say when one keeps the previous
 release from working: v0.1.0-alpha.2 changed the album cache's key, and
 v0.1.0-alpha.1 on top of it cannot write that cache.
 
+The manifest is part of a rollback when a release changed it. An image of
+v0.1.0-alpha.4 or older does not link the bot's Bot API directory
+(`BOT_API_BOT_DIR`), so with a newer manifest it finds no files directory and
+stops at start. Rolling back to one of them takes its own manifest too:
+`git show v0.1.0-alpha.4:deploy/ws04/compose.yaml`, copied to the host before
+the deploy.
+
 ### What this stack needs to exist
 
 | | |
@@ -192,7 +199,7 @@ v0.1.0-alpha.1 on top of it cannot write that cache.
 | Manifest | `deploy/ws04/compose.yaml` in this repository, copied to the host; its header lists the `.env` variables and the files in `secrets/` |
 | Env file | `.env` on the host, never in git; file secrets beside it, owned by uid 101 |
 | Networks | `core_net` (core-postgres), `management` (the Cloudflare Tunnel for `framy.ws04.cc`), `telegram_bot_api_net` (the self-hosted `telegram-bot-api`) |
-| Storage | R2 buckets `framy` (inputs and results), and the clips' own bucket when `R2_INCOMING_BUCKET` names one (docs/design.md, Storage); `work/` and `anim/` beside the manifest; the bot's own media directory of `telegram-bot-api`, mounted at the server's path |
+| Storage | R2 buckets `framy` (inputs and results), and the clips' own bucket when `R2_INCOMING_BUCKET` names one (docs/design.md, Storage); `work/` and `anim/` beside the manifest; the bot's own media directory of `telegram-bot-api`, as the volume `framy_bot-api` |
 | Database | core migration `019_framy.sql` applied, `FRAMY_CORE_PASSWORD` in core's `.env` and framy's |
 | Test bot | `framy-test` (`deploy/ws04-test/compose.yaml`) on the same schema with `FRAMY_STACK=test`, the same KEK and the same R2 bucket; it applies the migrations of `dev` before production does, so they are additive (docs/design.md, Stacks) |
 | Ports | `8080` for the tunnel, never published to the host; `9090` for `/metrics`, reachable on the Docker networks only and never routed by the tunnel |
@@ -204,14 +211,17 @@ Bot API downloads files only up to 20 MB and uploads up to 50 MB; photos sent
 as files and finished videos go past that.
 
 Such a server answers `getFile` with a path on its own disk, so framy needs
-`BOT_API_FILES_DIR` and the bot's media directory mounted there, and checks at
-start that it can write in it. A token is logged in on one server at a time,
-so the bot moves onto the server once, before its first start there:
+`BOT_API_FILES_DIR`, the server's path, and the bot's media directory, and
+checks at start that it can write in it. That directory is named after the
+token, so the manifest mounts it as a volume under a neutral name
+(`BOT_API_BOT_DIR`) and framy links the server's path to it: no mount of the
+container shows the token. A token is logged in on one server at a time, so
+the bot moves onto the server once, before its first start there:
 
 ```sh
 # the cloud server lets the token go; it takes it back only after 10 minutes
 curl -s "https://api.telegram.org/bot$(cat secrets/bot-token)/logOut"
-# the media directory, before Docker makes it as root
+# the media directory, which the volume needs before the first start
 install -d -o 101 -g 101 "/opt/stacks/telegram-bot-api-next/files/$(cat secrets/bot-token)"
 ```
 
@@ -224,11 +234,14 @@ Backups); the bucket `framy` is itself the copy off the home server.
 ```sh
 ws04 container list                    # health of everything
 ws04 logs framy-bot --since 1h
-ws04 container inspect framy-bot       # includes the image digest
+ws04 docker inspect -f '{{.Config.Image}} {{index .Config.Labels "org.opencontainers.image.version"}} {{index .Config.Labels "org.opencontainers.image.revision"}}' framy-bot
 ```
 
-The service reports its own version on `/healthz`. That and `docker inspect`
-should agree; if they do not, something was deployed by hand.
+The last line prints the digest the container runs, its version and its
+commit, and nothing else: a whole `inspect` prints the environment and the
+mounts too, which is more than a terminal or a transcript should hold. The
+service reports its own version on `/healthz`. The two should agree; if they
+do not, something was deployed by hand.
 
 ## Verification
 

@@ -34,13 +34,19 @@
 #
 # Telegram goes through the family's telegram-bot-api in --local mode, which
 # answers getFile with a path on its own disk and serves no files over HTTP.
-# The bot's own media directory, named after its token, is mounted at the
-# server's path, and nothing else of the server: its parent holds every other
-# bot's directory, each named after that bot's token. Compose cannot read the
-# token from secrets/, so BOT_API_TOKEN in .env repeats it for the two paths
-# only; it is not passed into the container. framy checks at start that the
-# directory is there and writable, so a token changed in one place and not the
-# other stops it at once.
+# Only the bot's own media directory is mounted, nothing else of the server:
+# its parent holds every other bot's directory, each named after that bot's
+# token. The directory is named after framy's token too, and a mount named so
+# would show the token to anyone who reads docker inspect. So it comes in as
+# the volume bot-api, whose path stays in the volume's own record, under
+# /var/lib/framy/bot-api; the server's directory is an empty tmpfs, and at
+# start framy links <it>/<token> to the volume (BOT_API_BOT_DIR). Compose
+# cannot read the token from secrets/, so BOT_API_TOKEN in .env repeats it for
+# the volume's path only; it is not passed into the container. framy checks at
+# start that the directory is there and writable, so a token changed in one
+# place and not the other stops it at once. After a new token, remove the
+# volume with the stack down (docker volume rm framy_bot-api): Compose keeps
+# a volume's path as it was made.
 #
 # The server writes as uid 101 and framy deletes what it has read, so framy
 # runs as 101 too. That is why work/ and anim/ are directories here owned by
@@ -77,6 +83,7 @@ services:
       TELEGRAM_BOT_TOKEN_FILE: /run/secrets/bot-token
       TELEGRAM_API_BASE: ${TELEGRAM_API_BASE:-http://telegram-bot-api-next:8081}
       BOT_API_FILES_DIR: /var/lib/telegram-bot-api-files
+      BOT_API_BOT_DIR: /var/lib/framy/bot-api
       FRAMY_KEK_FILE: /run/secrets/kek
       R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:?R2_ACCOUNT_ID must be set}
       R2_BUCKET: framy
@@ -100,14 +107,10 @@ services:
       - ./secrets:/run/secrets:ro
       - ./work:/var/lib/framy/work
       - ./anim:/var/lib/framy/anim
-      # Long syntax: the token has a colon, which the short form splits on.
-      # The source must exist and belong to 101 before the first start, or
-      # Docker makes it as root and neither side can write in it.
-      - type: bind
-        source: /opt/stacks/telegram-bot-api-next/files/${BOT_API_TOKEN:?BOT_API_TOKEN must be set for the Bot API mount}
-        target: /var/lib/telegram-bot-api-files/${BOT_API_TOKEN}
-        bind:
-          propagation: rprivate
+      - bot-api:/var/lib/framy/bot-api
+    # Holds nothing but framy's link to the bot's directory.
+    tmpfs:
+      - /var/lib/telegram-bot-api-files:uid=101,gid=101,mode=0700,size=64k,noexec,nosuid
     expose:
       - "8080"
       - "9090"
@@ -123,6 +126,16 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  # The bot's own media directory of the server, by its real path. It must
+  # exist and belong to 101 before the first start (docs/releases.md).
+  bot-api:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/stacks/telegram-bot-api-next/files/${BOT_API_TOKEN:?BOT_API_TOKEN must be set for the Bot API volume}
 
 networks:
   core_net:

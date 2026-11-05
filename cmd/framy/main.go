@@ -118,6 +118,11 @@ func run(log *slog.Logger) error {
 		tgOpts = append(tgOpts, tg.WithLocalFiles(cfg.BotAPIFilesDir))
 	}
 	client := tg.New(cfg.TelegramBotToken, tgOpts...)
+	if cfg.BotAPIBotDir != "" {
+		if err := linkBotDir(cfg.BotAPIFilesDir, cfg.BotAPIBotDir, cfg.TelegramBotToken); err != nil {
+			return err
+		}
+	}
 	if cfg.BotAPIFilesDir != "" {
 		// Found now rather than on the first photo: the bot's directory is
 		// mounted, and writable, since a file read is removed after.

@@ -37,9 +37,14 @@ type Config struct {
 	// token, is mounted here at the server's path. Required with any server
 	// but Telegram's own.
 	BotAPIFilesDir string
-	DatabaseURL    string
-	AutoMigrate    bool
-	HTTPAddr       string
+	// BotAPIBotDir is where the bot's own media directory is mounted under
+	// a name that is not its token (BOT_API_BOT_DIR). With it framy links
+	// BotAPIFilesDir/<token> there at start, so no mount of the container
+	// is named after the token and docker inspect does not show it.
+	BotAPIBotDir string
+	DatabaseURL  string
+	AutoMigrate  bool
+	HTTPAddr     string
 	// MetricsAddr serves /metrics apart from HTTPAddr, which the tunnel makes
 	// public with the site. Empty turns it off.
 	MetricsAddr string
@@ -164,6 +169,17 @@ func Load() (Config, error) {
 	}
 	if cfg.BotAPIFilesDir != "" && !filepath.IsAbs(cfg.BotAPIFilesDir) {
 		return Config{}, fmt.Errorf("BOT_API_FILES_DIR must be an absolute path: the server's own, as it names files")
+	}
+	cfg.BotAPIBotDir = filepath.Clean(valueOrDefault("BOT_API_BOT_DIR", "."))
+	switch {
+	case cfg.BotAPIBotDir == ".":
+		cfg.BotAPIBotDir = ""
+	case cfg.BotAPIFilesDir == "":
+		return Config{}, fmt.Errorf("BOT_API_BOT_DIR needs BOT_API_FILES_DIR: it is where the server's paths are linked to")
+	case !filepath.IsAbs(cfg.BotAPIBotDir):
+		return Config{}, fmt.Errorf("BOT_API_BOT_DIR must be an absolute path")
+	case cfg.BotAPIBotDir == cfg.BotAPIFilesDir || strings.HasPrefix(cfg.BotAPIBotDir, cfg.BotAPIFilesDir+"/"):
+		return Config{}, fmt.Errorf("BOT_API_BOT_DIR must be outside BOT_API_FILES_DIR, where the link to it is made")
 	}
 	if !strings.HasPrefix(cfg.OpenRouterAPIBase, "https://") && !strings.HasPrefix(cfg.OpenRouterAPIBase, "http://") {
 		return Config{}, fmt.Errorf("OPENROUTER_API_BASE must be an http or https URL")
