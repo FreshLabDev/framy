@@ -95,7 +95,7 @@ func TestDirectHomeSaysWhatIsLeftWhatIsConnectedAndWhatPricesAreIn(t *testing.T)
 		"<i>Images and videos at the provider’s price.</i>\n\n" +
 		"<blockquote>Free images · 4 of 5 left in any 24 hours\n" +
 		"Free videos · 1 of 1 left in any 7 days\n" +
-		"Your keys · OpenRouter, OpenAI (no credits), Gemini\n" +
+		"Your keys · OpenRouter, OpenAI (out of credits), Gemini\n" +
 		"Language · English\n" +
 		"Currency · USD\n" +
 		"Send a description for a new image or video. To change a photo or a video, send it with a caption. Nothing runs until you press Generate.</blockquote>"
@@ -300,7 +300,7 @@ func TestOnlyAConnectionThatIsNotValidHasAStatusWord(t *testing.T) {
 		keys.Invalid:           "OpenAI (invalid key)",
 		keys.NeedsBilling:      "OpenAI (needs billing)",
 		keys.NeedsVerification: "OpenAI (needs verification)",
-		keys.NoCredits:         "OpenAI (no credits)",
+		keys.NoCredits:         "OpenAI (out of credits)",
 		"something new":        "OpenAI",
 	} {
 		if got := v.connectionList([]keys.Connection{connection(catalog.OpenAI, status)}); got != want {

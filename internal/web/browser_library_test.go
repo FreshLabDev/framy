@@ -266,7 +266,7 @@ func TestBrowserLibrary(t *testing.T) {
 	  overflow: document.documentElement.scrollWidth - innerWidth,
 	};`)
 	if got["create"] != false || got["tab"] != "library" || got["n"].(float64) != 30 || got["covers"] != true || got["run"] != "Making it" ||
-		got["fail"] != "Veo 3.1 Fast · No money on the key" || got["video"] != "6 s" || !strings.HasSuffix(got["price"].(string), "$0.040") || got["overflow"].(float64) > 0 {
+		got["fail"] != "Veo 3.1 Fast · The key is out of credits" || got["video"] != "6 s" || !strings.HasSuffix(got["price"].(string), "$0.040") || got["overflow"].(float64) > 0 {
 		t.Errorf("library: %v", got)
 	}
 	if got["guest"] != "FLUX 3 · $0.040 · guest mode" || got["two"] != "×2" || got["cv"] != "auto" {

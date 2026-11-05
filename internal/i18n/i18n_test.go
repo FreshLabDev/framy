@@ -286,6 +286,18 @@ func TestEnglishSaysImageNotPicture(t *testing.T) {
 	}
 }
 
+// A key with nothing left to pay with is out of credits, as OpenRouter sells
+// them and OpenAI and Google bill them, in the bot's card, its key list and
+// every line of the site. The site once said "out of money" for the same
+// state the bot called "out of credits".
+func TestEnglishSaysCreditsNotMoney(t *testing.T) {
+	for _, key := range Keys() {
+		if s := translations[key]["en"]; strings.Contains(strings.ToLower(s), "money") {
+			t.Errorf("%s says money: %q", key, s)
+		}
+	}
+}
+
 // panelMark is a symbol a string in Go code may carry although isEmoji
 // counts it: the marks of a chosen option (core/docs/panels.md, R7) and the
 // flags of the language picker's labels.

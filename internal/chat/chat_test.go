@@ -909,7 +909,7 @@ func TestAFailedRunShowsTheCard(t *testing.T) {
 		// The model's own sound: the same run without it may pass. This
 		// run had no sound to turn off.
 		{jobs.Failed, jobs.Sound, false, "err.sound", retry, false},
-		// The person's key out of money: a link to top it up, then another
+		// The person's key out of credits: a link to top it up, then another
 		// try, each on its own row since "Top up OpenRouter" is too long to
 		// share one.
 		{jobs.Failed, jobs.Money, false, "err.money", []string{topUp, actRetry}, true},

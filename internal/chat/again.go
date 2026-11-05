@@ -209,7 +209,7 @@ func runProvider(run db.ChatRun) string {
 
 // failureKeyboard is what helps after the run failed, as the site's card of
 // a failed run has it (internal/web/app/src/errors.js): another try, another
-// model, or the same run without its sound. A key out of money gets a link
+// model, or the same run without its sound. A key out of credits gets a link
 // to its provider's billing and another try for after it; a refused key
 // needs the site, which the card's line says. Past framy's own key a free
 // run goes again on the person's, which the new preview shows. An edit of a

@@ -505,7 +505,7 @@ func TestBrowserRuns(t *testing.T) {
 	}
 	for cls, w := range map[string]want{
 		"moderation":      {"Refused by the rules", "", "Edit the prompt", true, true},
-		"money":           {"No money on the key", "", "Top up OpenRouter", false, true},
+		"money":           {"The key is out of credits", "", "Top up OpenRouter", false, true},
 		"key":             {"The key does not work", "no longer accepts the key", "Replace the OpenRouter key", false, true},
 		"refused":         {"Not accepted", "did not accept the request", "Edit the prompt", true, true},
 		"rate_limited":    {"No answer", "Try again in a few minutes", "Try again", false, true},
