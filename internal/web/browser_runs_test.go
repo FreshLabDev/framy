@@ -1044,6 +1044,49 @@ func TestBrowserPriceBeforeCreate(t *testing.T) {
 	noErrors(t, ctx)
 }
 
+// TestBrowserByKey checks the way out of a free run the allowance refused:
+// the run comes back to the composer on the person's key with its price on
+// the bar and waits for Create, which sends that price.
+func TestBrowserByKey(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const until = async (fn, ms = 4000) => { const end = Date.now() + ms; while (Date.now() < end) { if (fn()) return true; await wait(50); } return !!fn(); };
+	const sent = [], fetch0 = window.fetch;
+	window.fetch = (u, o) => { if (String(u).endsWith("/api/jobs") && o?.method === "POST") sent.push(JSON.parse(o.body)); return fetch0(u, o); };
+	const go = () => document.querySelector("#go");
+	// A video goes free while the week's one is left, as it is here.
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(700);
+	const pay = () => document.querySelector('#how [data-seg="pay"] [aria-checked="true"]')?.dataset.v;
+	const was = pay();
+	const s = await press("refuse:free_closed", (s) => s.failed);
+	[...document.querySelectorAll("#stage .jacts > button")].find((b) => b.textContent.trim() === "On my OpenRouter key").click();
+	await wait(600);
+	const out = { was, first: s.acts[0], sent: sent.map((b) => b.pay).join(","), back: !document.querySelector("#stage .jwhy"),
+	  key: pay(), focus: document.activeElement === go(),
+	  prompt: document.querySelector("#prompt").value };
+	await until(() => !go().disabled && !/…/.test(document.querySelector("#pnum").textContent));
+	const bar = document.querySelector("#pnum").textContent;
+	const p = document.querySelector("#prompt");
+	p.value = "done"; p.dispatchEvent(new Event("input"));
+	go().click();
+	await until(() => sent.length === 2);
+	out.then = [sent[1]?.pay, Math.abs(+bar.replace(/[^\d.]/g, "") - sent[1]?.shown_usd) < 0.0011];
+	return out;`)
+	want := map[string]string{
+		"was": "free", "first": "On my OpenRouter key", "sent": "free", "back": "true", "key": "openrouter", "focus": "true",
+		"prompt": "refuse:free_closed", "then": "[key true]",
+	}
+	for k, w := range want {
+		if got := fmt.Sprint(s[k]); got != w {
+			t.Errorf("%s = %s, want %s", k, got, w)
+		}
+	}
+	noErrors(t, ctx)
+}
+
 // TestBrowserResultStays checks a result on the stage is drawn once: the end
 // of the run reads the account again, and a new state of the account (the
 // settings opened, the page back from another tab) leaves the picture, the

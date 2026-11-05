@@ -266,6 +266,7 @@ Nobody reports progress in percent. The wait shows elapsed time and the model's 
 ### Actions on a result
 
 - Again: the same settings, a new seed.
+- **On my key:** a free run the allowance refused (`free_limit`, `free_closed`) comes back to the composer on the person's key, with its price on the bar, and starts when they press Create; it does not start by itself, since the run on a key costs money and takes the composer's settings, not the allowance's. A press comes back with its free frames on the person's keys.
 - Edit: the result becomes a reference; a video becomes the attached video, with the editors first. It goes by its file id in `inputs`, with no upload.
 - **Animate:** an image becomes the start frame of a video, and the video tab opens.
 - Continue: on a model whose overlay confirms `previous_job_id` or Omni's `previous_interaction_id`, the run names the job it goes on from with `continues` (`POST /api/jobs`, `POST /api/quote`), and framy fills the provider's setting from that job's `provider_job_id`. A client that sends the setting itself gets 400, so nobody can point a run at another person's video at the provider. The job must be the person's own and done, made by the same model through the same provider and not on the free allowance, since framy's key made it and the person's run cannot reach it; the run goes on the person's key, and its price counts the earlier video's length, as for Omni above. On any other model Continue takes the clip's last frame (`POST /api/files/{id}/last-frame`) as the start frame of a new run.

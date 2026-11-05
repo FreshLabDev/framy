@@ -354,18 +354,19 @@ export function takePrice(run = S.run) {
   const e = run.why?.estimate;
   start(copyOf(run, { shown: shownOf(e), shownLabel: priceText(e), priceLabel: e?.label || "" }));
 }
-// A free run that could not go free: the same run on the person's own key.
+// A free run that could not go free: the same run back in the composer on the
+// person's own key, a press with its free frames on their keys. It is not
+// started: the run on a key costs money and may take other settings than the
+// free one, so its price shows on the bar first, and Create starts it.
 export const keyFor = (run) => { const m = C.byId[run.model]; return m?.offers.map((o) => o.provider).find(keyOk) || ""; };
 export function byKey(run = S.run) {
   run = pressOfRun(run);
-  const p = keyFor(run), m = C.byId[run.model];
-  if (!p || !m) return;
+  const p = keyFor(run);
+  if (!p || !C.byId[run.model]) return;
   leave(run);
-  // A press comes back with its free frames on the person's keys, and goes on the next press.
-  if (run.multi) { act(() => { restore({ ...run, frames: run.frames.map((fm) => (fm.pay === "free" ? { ...fm, pay: keyFor(fm) || fm.pay } : fm)) }); S.showJob = false; render(); }); return; }
-  act(() => { restore(run, p); render(); });
-  const r = fastOf(m, p, settings(m, p)), e = priced(runItem(r.m, p, r.set))?.estimate;
-  start(copyOf(run, { model: r.m.id, pay: p, offer: offerOf(r.m, p).id, settings: r.set, shown: shownOf(e), shownLabel: e ? priceText(e) : "", priceLabel: e?.label || "" }));
+  if (run.multi) act(() => { restore({ ...run, frames: run.frames.map((fm) => (fm.pay === "free" ? { ...fm, pay: keyFor(fm) || fm.pay } : fm)) }); S.showJob = false; render(); });
+  else act(() => { restore(run, p); S.showJob = false; render(); });
+  $("#go").focus({ preventScroll: true });
 }
 export function drop() { S.showJob = false; renderStage(); renderBar(); }
 // The clip was longer than framy takes whole: its part is picked in the editor.
