@@ -72,6 +72,15 @@ func browserAs(t *testing.T, url string, w, h int64, o opened) context.Context {
 	return ctx
 }
 
+// inLang stops the test unless the page speaks lang: the person's language
+// from /api/me wins over the one picked on the site.
+func inLang(t *testing.T, ctx context.Context, lang string) {
+	t.Helper()
+	if got := js[string](t, ctx, `return document.documentElement.lang;`); got != lang {
+		t.Fatalf("the page is in %q, not %q", got, lang)
+	}
+}
+
 // TestBrowserStepsRTL checks the slider of named steps in Arabic, where the
 // range runs from the right: the step in bold stands over the thumb, and the
 // track is filled from the side of the least.
@@ -168,6 +177,7 @@ func TestBrowserAddTile(t *testing.T) {
 	ts := fakeAPI(t)
 	for _, lang := range []string{"de", "ru", "en"} {
 		ctx := browserAs(t, ts.URL, 360, 780, opened{lang: lang, phone: true})
+		inLang(t, ctx, lang)
 		got := js[map[string]any](t, ctx, pageHelpers+`
 		const tile = () => {
 		  const b = document.querySelector("#files .addfile:not(.slotadd)"), r = b.getBoundingClientRect(), rg = document.createRange();
@@ -605,13 +615,14 @@ async function dropPhotos(n, on = "#composer") {
 // cut by the edge of the screen or by the row's scroll, beside the tiles
 // while it fits and under them otherwise, and the tiles alone scroll.
 func TestBrowserFilesHint(t *testing.T) {
-	runs := &fakeRuns{}
-	ts := fakeSite(t, runs.mount)
 	for _, c := range []struct {
 		lang string
 		w    int64
 	}{{"en", 390}, {"de", 360}, {"ru", 360}, {"zh", 360}} {
+		runs := &fakeRuns{lang: c.lang}
+		ts := fakeSite(t, runs.mount)
 		ctx := browserAs(t, ts.URL, c.w, 800, opened{lang: c.lang, phone: true})
+		inLang(t, ctx, c.lang)
 		got := js[[]string](t, ctx, pageHelpers+dropHelpers+`
 		const bad = [], files = document.querySelector("#files"), right = document.querySelector("#prompt").getBoundingClientRect().right;
 		for (const n of [1, 2, 3, 4, 3]) {
@@ -739,13 +750,14 @@ func TestBrowserTouchTargets(t *testing.T) {
 			t.Errorf("%s: a press goes to the neighbour: %v", name, s)
 		}
 	}
-	runs := &fakeRuns{}
-	ts := fakeSite(t, runs.mount)
 	for _, c := range []struct {
 		lang string
 		w    int64
 	}{{"en", 390}, {"de", 360}} {
+		runs := &fakeRuns{lang: c.lang}
+		ts := fakeSite(t, runs.mount)
 		ctx := browserAs(t, ts.URL, c.w, 844, opened{lang: c.lang, phone: true})
+		inLang(t, ctx, c.lang)
 		at := func(name, body string) {
 			t.Helper()
 			report(fmt.Sprintf("%s at %d, %s", c.lang, c.w, name), js[map[string]any](t, ctx, pageHelpers+runHelpers+dropHelpers+touchHelpers+body+`

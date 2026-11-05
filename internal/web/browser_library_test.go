@@ -6,6 +6,7 @@ package web
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -37,6 +38,7 @@ type fakeLibrary struct {
 	lists   []string         // the query of every GET /api/jobs
 	created []map[string]any // the bodies of POST /api/jobs
 	deleted []int64
+	lang    string // the person's language, English when empty
 }
 
 const libTotal = 70
@@ -122,7 +124,7 @@ func (f *fakeLibrary) find(id int64) (int, map[string]any) {
 func (f *fakeLibrary) mount(srv *Server) {
 	srv.HandleFunc("GET /api/me", func(w http.ResponseWriter, _ *http.Request) {
 		writeTestJSON(w, http.StatusOK, map[string]any{
-			"user_id": 1, "name": "Ada", "language": "en", "currency": "USD",
+			"user_id": 1, "name": "Ada", "language": cmp.Or(f.lang, "en"), "currency": "USD",
 			"connections": []map[string]any{{"id": "c1", "provider": "openrouter", "last4": "abcd", "status": "ok"}},
 			"free": map[string]any{
 				"images": map[string]any{"used": 2, "limit": 5, "left": 3, "window_seconds": 86400},
