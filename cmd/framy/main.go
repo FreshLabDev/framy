@@ -52,10 +52,17 @@ var (
 	date    = "unknown"
 )
 
-// shutdownTimeout bounds a stop. Docker sends SIGKILL ten seconds after
-// SIGTERM by default; the stack sets stop_grace_period above this. It is
-// longer than bot.UpdateGrace, which the commands already taken get.
+// shutdownTimeout bounds the stop of the servers and the poller. Docker
+// sends SIGKILL ten seconds after SIGTERM by default; the stack sets
+// stop_grace_period above everything a stop takes. It is longer than
+// bot.UpdateGrace, which the commands already taken get.
 const shutdownTimeout = 20 * time.Second
+
+// queueHardStop is what the runs in progress get, after JOBS_STOP_GRACE,
+// to return once they are cut short. The queue stops beside the servers,
+// so a stop takes JOBS_STOP_GRACE and this at most: 3m40s by default,
+// under the stacks' stop_grace_period of 4m.
+const queueHardStop = 10 * time.Second
 
 func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: parseLevel(os.Getenv("LOG_LEVEL"))}))
@@ -200,9 +207,6 @@ func run(log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	if err := queue.Start(ctx); err != nil {
-		return fmt.Errorf("start the job queue: %w", err)
-	}
 	// /img and /edit in chats (#24) make jobs on the queue and keep their
 	// photos in the bucket.
 	outbox := outboxOf(cfg, client)
@@ -337,6 +341,22 @@ func run(log *slog.Logger) error {
 	// OpenRouter's video webhooks (#32).
 	mountOpenRouterHook(site, cfg.Hooks, store.Pool(), queue, log)
 
+	// The queue starts once nothing of the start can fail. A run it takes is
+	// paid, and River's listener holds a connection of the pool from its
+	// start: a start that failed after it would wait in store.Close for
+	// ever, with nothing in the log and SIGTERM still caught. From here the
+	// queue stops the moment the process does, whichever way run ends, and
+	// beside the servers rather than after them, so a slow request does not
+	// eat into the time runs in progress have before Docker's SIGKILL.
+	if err := queue.Start(ctx); err != nil {
+		return fmt.Errorf("start the job queue: %w", err)
+	}
+	stopQueue := stopWhenDone(ctx, queue.Stop, cfg.JobsStopGrace+queueHardStop)
+	defer func() {
+		stop()
+		stopQueue()
+	}()
+
 	servers := []*http.Server{site.HTTPServer(cfg.HTTPAddr)}
 	if cfg.MetricsAddr != "" {
 		metricsMux := http.NewServeMux()
@@ -433,7 +453,9 @@ func run(log *slog.Logger) error {
 	}
 	// The poller stops taking updates on the canceled context and works the
 	// ones it took for up to bot.UpdateGrace; the server stops accepting and
-	// lets requests in flight finish. Both get the same deadline.
+	// lets requests in flight finish. Both get the same deadline. The queue
+	// began its stop when the context ended: it takes no more jobs, and the
+	// runs in progress have JOBS_STOP_GRACE.
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	for _, s := range servers {
@@ -441,14 +463,6 @@ func run(log *slog.Logger) error {
 			runErr = err
 		}
 	}
-	// Runs in progress get longer than the rest: cutting one short can cost
-	// the person a paid run.
-	queueStopped := make(chan error, 1)
-	go func() {
-		stopCtx, cancel := context.WithTimeout(context.Background(), cfg.JobsStopGrace+10*time.Second)
-		defer cancel()
-		queueStopped <- queue.Stop(stopCtx)
-	}()
 	done := make(chan struct{})
 	go func() { workers.Wait(); close(done) }()
 	select {
@@ -458,10 +472,27 @@ func run(log *slog.Logger) error {
 			runErr = errors.New("shutdown timed out")
 		}
 	}
-	if err := <-queueStopped; err != nil && runErr == nil {
+	if err := stopQueue(); err != nil && runErr == nil {
 		runErr = fmt.Errorf("stop the job queue: %w", err)
 	}
 	return runErr
+}
+
+// stopWhenDone calls stop as soon as ctx ends, with limit to finish, and
+// returns the wait for it. stop runs once: the wait starts it when ctx has
+// not ended yet, and every call of the wait waits for it and returns its
+// error.
+func stopWhenDone(ctx context.Context, stop func(context.Context) error, limit time.Duration) (wait func() error) {
+	wait = sync.OnceValue(func() error {
+		stopCtx, cancel := context.WithTimeout(context.Background(), limit)
+		defer cancel()
+		return stop(stopCtx)
+	})
+	go func() {
+		<-ctx.Done()
+		wait()
+	}()
+	return wait
 }
 
 // connect retries the first PostgreSQL connection. Container DNS inside the

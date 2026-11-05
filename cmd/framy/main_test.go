@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/FreshLabDev/framy/internal/config"
 	"github.com/FreshLabDev/framy/internal/jobs"
@@ -141,5 +142,48 @@ func TestOperatorNotify(t *testing.T) {
 	}
 	if logs.Len() != 0 {
 		t.Errorf("a configured chat logged %q", logs.String())
+	}
+}
+
+// The queue begins its stop the moment the process does, not after the
+// servers have finished theirs, and an early return stops it too: River's
+// listener holds a connection that store.Close would wait for.
+func TestTheQueueStopsWhenTheProcessDoes(t *testing.T) {
+	stopped := make(chan time.Duration, 2)
+	failed := errors.New("a run did not return")
+	stop := func(ctx context.Context) error {
+		deadline, _ := ctx.Deadline()
+		stopped <- time.Until(deadline)
+		return failed
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	wait := stopWhenDone(ctx, stop, time.Minute)
+	select {
+	case <-stopped:
+		t.Fatal("the queue stopped before the process did")
+	case <-time.After(20 * time.Millisecond):
+	}
+	cancel()
+	select {
+	case left := <-stopped:
+		if left < 50*time.Second {
+			t.Errorf("the stop has %v of its minute", left)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the queue did not begin its stop when the process did, nobody waiting on it")
+	}
+	if err := wait(); !errors.Is(err, failed) {
+		t.Errorf("the wait: %v", err)
+	}
+	if err := wait(); !errors.Is(err, failed) || len(stopped) != 0 {
+		t.Errorf("a second wait: %v, stopped %d more times", err, len(stopped))
+	}
+
+	// A start that fails after the queue started returns with the
+	// context still alive; its deferred wait stops the queue.
+	early := stopWhenDone(context.Background(), stop, time.Minute)
+	if err := early(); !errors.Is(err, failed) || len(stopped) != 1 {
+		t.Errorf("an early return: %v, stopped %d times", err, len(stopped))
 	}
 }

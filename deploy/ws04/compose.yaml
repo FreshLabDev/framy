@@ -70,7 +70,9 @@ services:
     container_name: framy-bot
     restart: unless-stopped
     user: "101:101"
-    # Longer than JOBS_STOP_GRACE (3m30s): a stop waits for runs in progress.
+    # Longer than a stop takes: runs in progress get JOBS_STOP_GRACE (3m30s)
+    # and 10 s to return once cut short, beside the servers' 20 s, so 4m
+    # leaves 20 s before Docker's SIGKILL.
     stop_grace_period: 4m
     cap_drop: [ALL]
     security_opt:
