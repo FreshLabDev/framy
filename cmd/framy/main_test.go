@@ -223,3 +223,22 @@ func TestTelegramErrorsAreWhatWentWrong(t *testing.T) {
 		t.Errorf("rate limited %v, want %v", limited, want)
 	}
 }
+
+// The shared tables have one keeper, production: a test bot that synced
+// the catalog would write dev's overlay over production's every hour.
+func TestOnlyProductionKeepsTheSharedTables(t *testing.T) {
+	all := config.Config{CatalogEvery: time.Hour, FXSync: true}
+	if got, want := upkeepOf(all, true), (upkeep{catalog: true, rates: true, unused: true, sessions: true, forget: true, thumbs: true}); got != want {
+		t.Errorf("production: %+v, want %+v", got, want)
+	}
+	test := all
+	test.Stack = "test"
+	if got := upkeepOf(test, true); got != (upkeep{}) {
+		t.Errorf("the test bot keeps %+v", got)
+	}
+	// What production is told to leave alone, it leaves alone; the sweeps,
+	// which need neither a sync nor a bucket, go on.
+	if got, want := upkeepOf(config.Config{}, false), (upkeep{unused: true, sessions: true, forget: true}); got != want {
+		t.Errorf("production with no sync and no bucket: %+v, want %+v", got, want)
+	}
+}

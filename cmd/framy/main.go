@@ -370,11 +370,9 @@ func run(log *slog.Logger) error {
 			}
 		})
 	}
-	// The catalog, the rates, the uploads no job took, the thumbnails, the
-	// expired sessions and the jobs of deleted accounts are shared by every
-	// stack on the schema: production keeps them, so two releases never
-	// write their own versions over each other.
-	if cfg.CatalogEvery > 0 && cfg.Primary() {
+	// The tables both stacks share have one keeper, production.
+	keep := upkeepOf(cfg, files != nil)
+	if keep.catalog {
 		syncer := &catalog.Syncer{
 			Source: &catalog.OpenRouterSource{
 				Base:      cfg.OpenRouterAPIBase,
@@ -391,7 +389,7 @@ func run(log *slog.Logger) error {
 		}
 		workers.Go(func() { syncer.Run(ctx) })
 	}
-	if cfg.FXSync && cfg.Primary() {
+	if keep.rates {
 		rates := &fx.Syncer{
 			Source: &fx.Client{HTTP: &http.Client{Timeout: 20 * time.Second}, UserAgent: userAgent},
 			Store:  store,
@@ -403,9 +401,13 @@ func run(log *slog.Logger) error {
 	if outbox != nil {
 		workers.Go(func() { sweepWork(ctx, *outbox, cfg.TelegramBotToken, log) })
 	}
-	if cfg.Primary() {
+	if keep.unused {
 		workers.Go(func() { sweepUnused(ctx, queue, files, log) })
+	}
+	if keep.sessions {
 		workers.Go(func() { sweepSessions(ctx, signIn, log) })
+	}
+	if keep.forget {
 		workers.Go(func() { forgetJobs(ctx, store, log) })
 	}
 	// What /healthz does not show: the disk filling up, and jobs that could
@@ -413,7 +415,7 @@ func run(log *slog.Logger) error {
 	// production has an operator chat to tell.
 	watcher := watch.New(watch.Config{Queue: queue, Dir: cfg.WorkDir, Notify: operator, Log: log.With("component", "watch")})
 	workers.Go(func() { watcher.Run(ctx) })
-	if files != nil && cfg.Primary() {
+	if keep.thumbs {
 		workers.Go(func() { fillThumbs(ctx, files, log) })
 		workers.Go(func() { catchUpBucket(ctx, files) })
 	}
@@ -500,6 +502,22 @@ func observeTelegram(failed, limited interface{ Inc(string) }) tg.Observer {
 			failed.Inc(e.Method)
 		}
 	}
+}
+
+// upkeep is what this process keeps of the tables every stack on the schema
+// shares: the catalog, the currency rates, the drafts that never ran and the
+// uploads no job took, the sessions and tokens that expired, whose a deleted
+// account's jobs were, and the thumbnails results lack.
+type upkeep struct{ catalog, rates, unused, sessions, forget, thumbs bool }
+
+// upkeepOf: production keeps them, so two releases never write their own
+// versions over each other (a catalog of dev's overlay over production's
+// every hour); the test bot keeps none. bucket says the process has one.
+func upkeepOf(cfg config.Config, bucket bool) upkeep {
+	if !cfg.Primary() {
+		return upkeep{}
+	}
+	return upkeep{catalog: cfg.CatalogEvery > 0, rates: cfg.FXSync, unused: true, sessions: true, forget: true, thumbs: bucket}
 }
 
 // connect retries the first PostgreSQL connection. Container DNS inside the
