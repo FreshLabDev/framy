@@ -320,8 +320,9 @@ var keyWords = regexp.MustCompile(`(?i)api key (not valid|expired|invalid)|api_k
 
 // classify turns the error into what the queue does with it. Only a refusal
 // before the run started is tried again: a 429 that is a wait, a service
-// that is down or overloaded. A 500 is not: nobody can tell whether the run
-// was paid.
+// that is down or overloaded (503). A 500 is not, nor a 502, which Google
+// does not list and a proxy in between gives after the request reached
+// it: nobody can tell whether the run was paid.
 func (e *APIError) classify() *jobs.Error {
 	reason := strings.ToUpper(e.Code)
 	switch s := e.Status; {
@@ -343,7 +344,7 @@ func (e *APIError) classify() *jobs.Error {
 	case s == http.StatusForbidden:
 		// A restricted key, or an API that is off in the project.
 		return e.keyError(jobs.Key, "")
-	case s == http.StatusBadGateway || s == http.StatusServiceUnavailable || s == 529 || e.Code == "service_unavailable":
+	case s == http.StatusServiceUnavailable || s == 529 || e.Code == "service_unavailable":
 		return &jobs.Error{Class: jobs.Unavailable, RetryAfter: e.RetryDelay, Err: e}
 	case s == http.StatusRequestTimeout || s == http.StatusGatewayTimeout || s == 524 || e.Code == "deadline_exceeded":
 		// The run may go on, and be paid, after the answer gave up.

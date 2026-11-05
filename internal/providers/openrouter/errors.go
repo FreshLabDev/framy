@@ -129,9 +129,11 @@ var budgetLimits = map[string]bool{
 }
 
 // class is what the queue does with the error. Only a refusal before the
-// run started is tried again: a 429, a provider that is down or overloaded,
-// a 402 for money other runs are holding. A 500 is not: nobody can tell
-// whether the run was paid.
+// run started is tried again: a 429, no provider free or one overloaded
+// (503, 529), a 402 for money other runs are holding. A 500 is not, nor a
+// 502: OpenRouter sends that (provider_unavailable) when the provider gave
+// an empty or broken answer, so the run went out and nobody can tell
+// whether it was paid.
 func (e *APIError) class() jobs.Class {
 	switch s := e.Status; {
 	case facesCode.MatchString(e.Code):
@@ -151,7 +153,7 @@ func (e *APIError) class() jobs.Class {
 		return jobs.Key
 	case s == http.StatusTooManyRequests:
 		return jobs.RateLimited
-	case s == http.StatusBadGateway || s == http.StatusServiceUnavailable || s == 529:
+	case s == http.StatusServiceUnavailable || s == 529:
 		return jobs.Unavailable
 	case s == http.StatusRequestTimeout || s == http.StatusGatewayTimeout || s == 524:
 		// The run may go on, and be paid, after the answer gave up.

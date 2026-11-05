@@ -518,7 +518,7 @@ func TestErrorsAreToldApart(t *testing.T) {
 		{"a body too large", 413, `<html>Request Entity Too Large</html>`, nil, jobs.Refused, "", 0},
 		{"overloaded, wait until a date", 503, `{"error":{"code":"service_unavailable","message":"The model is overloaded."}}`, []string{"Retry-After", soon}, jobs.Unavailable, "", 90 * time.Second},
 		{"overloaded, in the RPC form", 503, `{"error":{"code":503,"status":"UNAVAILABLE","message":"The model is overloaded. Please try again later."}}`, nil, jobs.Unavailable, "", 0},
-		{"a proxy's page", 502, `<html>Bad Gateway</html>`, nil, jobs.Unavailable, "", 0},
+		{"a proxy's page, after the request reached it", 502, `<html>Bad Gateway</html>`, nil, jobs.ProviderFailed, "", 0},
 		{"an internal error", 500, `{"error":{"code":"api_error","message":"An unexpected error occurred."}}`, nil, jobs.ProviderFailed, "", 0},
 		{"a deadline", 504, `{"error":{"code":"deadline_exceeded","message":"The request didn't finish."}}`, nil, jobs.Timeout, "", 0},
 		{"the client's cancellation", 499, `{"error":{"code":"cancelled","message":"The client cancelled the request."}}`, nil, jobs.ProviderFailed, "", 0},
