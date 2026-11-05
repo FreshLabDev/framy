@@ -61,6 +61,8 @@ type fakeTelegram struct {
 	fail    map[string]error // by method
 	answers []string         // "text" or "alert:text"
 	files   map[string]string
+	// answeredAt is how many calls were made when each answer came.
+	answeredAt []int
 	// inlineAnswers are the inline answers, in order.
 	inlineAnswers []tg.InlineAnswer
 	// prepared are the results saved for shareMessage, in order.
@@ -78,9 +80,10 @@ func newTelegram() *fakeTelegram {
 	return &fakeTelegram{next: 100, fail: map[string]error{}, files: map[string]string{}}
 }
 
-// record keeps a call. An ephemeral send fails with fail["ephemeral"], and
-// comes back with an ephemeral id instead of a message id; a send with a
-// cover fails with fail["cover"].
+// record keeps a call. An ephemeral send fails with fail["ephemeral"], one
+// a press lets framy make with fail["press"] too, and comes back with an
+// ephemeral id instead of a message id; a send with a cover fails with
+// fail["cover"].
 func (f *fakeTelegram) record(c call) (tg.Message, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -91,6 +94,9 @@ func (f *fakeTelegram) record(c call) (tg.Message, error) {
 		return tg.Message{}, err
 	}
 	if err := f.fail["ephemeral"]; err != nil && c.ephemeral != nil {
+		return tg.Message{}, err
+	}
+	if err := f.fail["press"]; err != nil && c.ephemeral != nil && c.ephemeral.CallbackQueryID != "" {
 		return tg.Message{}, err
 	}
 	if err := f.fail["cover"]; err != nil && c.cover != "" {
@@ -226,12 +232,6 @@ func (f *fakeTelegram) EditMessageRich(_ context.Context, chatID, messageID int6
 	return err
 }
 
-func (f *fakeTelegram) EditEphemeralMessageRich(_ context.Context, chatID, receiver, id int64, html string, media []tg.RichMedia, markup *tg.InlineKeyboardMarkup, _ ...tg.RichOption) error {
-	_, err := f.record(call{method: "editEphemeralMessageRich", chatID: chatID, messageID: id, text: html, markup: markup,
-		file: richFiles(media), action: strconv.FormatInt(receiver, 10)})
-	return err
-}
-
 func richFiles(media []tg.RichMedia) string {
 	var out []string
 	for _, m := range media {
@@ -341,7 +341,7 @@ func (f *fakeTelegram) DownloadToFile(_ context.Context, filePath, dst string, _
 func (f *fakeTelegram) AnswerCallbackQuery(_ context.Context, _ string, text string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.answers = append(f.answers, text)
+	f.answers, f.answeredAt = append(f.answers, text), append(f.answeredAt, len(f.calls))
 	return nil
 }
 
@@ -422,7 +422,7 @@ func (f *fakeTelegram) AnswerInlineQuery(_ context.Context, id string, answer tg
 func (f *fakeTelegram) AnswerCallbackQueryAlert(_ context.Context, _ string, text string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.answers = append(f.answers, "alert:"+text)
+	f.answers, f.answeredAt = append(f.answers, "alert:"+text), append(f.answeredAt, len(f.calls))
 	return nil
 }
 
@@ -434,7 +434,7 @@ func (f *fakeTelegram) cards() []call {
 	var out []call
 	for _, c := range f.calls {
 		switch c.method {
-		case "sendRichMessage", "editMessageRich", "editEphemeralMessageRich", "sendPhoto", "editMessageMedia":
+		case "sendRichMessage", "editMessageRich", "sendPhoto", "editMessageMedia":
 			out = append(out, c)
 		}
 	}
@@ -457,7 +457,7 @@ func (f *fakeTelegram) methods(method string) []call {
 func (f *fakeTelegram) reset() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.calls, f.answers = nil, nil
+	f.calls, f.answers, f.answeredAt = nil, nil, nil
 }
 
 // fakeJob is a job as the fake queue keeps it.
@@ -499,6 +499,8 @@ type fakeStore struct {
 	shares map[int64]db.ShareSource
 	// shareOwner is whose each of shares is.
 	shareOwner map[int64]int64
+	// previewErr fails SetChatRunPreview.
+	previewErr error
 }
 
 // ShareSource finds the person's result in s.shares.
@@ -757,6 +759,9 @@ func (s *fakeStore) read(jobID int64) (db.ChatRun, error) {
 func (s *fakeStore) SetChatRunPreview(_ context.Context, jobID, messageID int64, ephemeral bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.previewErr != nil {
+		return s.previewErr
+	}
 	if r, ok := s.runs[jobID]; ok {
 		r.PreviewMessageID, r.PreviewEphemeral, r.PanelMessageID = messageID, ephemeral, 0
 	}

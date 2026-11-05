@@ -419,14 +419,40 @@ func TestAnAdminSendsThePreviewToTheRequesterAlone(t *testing.T) {
 	if !r.PreviewEphemeral || r.PreviewMessageID == 0 || r.CommandEphemeral {
 		t.Fatalf("run = %+v", r)
 	}
-	// A model changes the preview itself: it is the requester's already.
+	// A model gives the requester a new preview with the new card, a reply
+	// to the command as the first was, and deletes the one they had: the
+	// Bot API server aborts on an ephemeral rich edit that uploads a card.
 	h.tg.reset()
 	if err := h.press(1, 7, pick("black-forest-labs/flux-3-image-klein")); err != nil {
 		t.Fatal(err)
 	}
-	eph := h.tg.methods("editEphemeralMessageRich")
-	if len(eph) != 1 || eph[0].messageID != r.PreviewMessageID || eph[0].action != "7" || eph[0].file != "card photo upload:framy.png" ||
-		len(h.tg.methods("editMessageRich")) != 0 {
+	old := r.PreviewMessageID
+	sent := h.tg.methods("sendRichMessage")
+	if len(sent) != 1 || sent[0].messageID != 10 || sent[0].file != "card photo upload:framy.png" || sent[0].ephemeral == nil ||
+		*sent[0].ephemeral != (tg.Ephemeral{ReceiverUserID: 7, CallbackQueryID: "cq"}) || len(h.tg.methods("editMessageRich")) != 0 {
+		t.Fatalf("calls = %+v", h.tg.calls)
+	}
+	if !strings.Contains(sent[0].text, "Model: <b>FLUX 3 Image Klein</b>") {
+		t.Fatalf("preview = %s", sent[0].text)
+	}
+	if del := h.tg.methods("deleteEphemeralMessage"); len(del) != 1 || del[0].messageID != old || del[0].action != "7" ||
+		h.tg.calls[len(h.tg.calls)-1].method != "deleteEphemeralMessage" {
+		t.Fatalf("calls = %+v", h.tg.calls)
+	}
+	// The press lets framy send it while it is unanswered.
+	if len(h.tg.answers) != 1 || h.tg.answers[0] != "" || h.tg.answeredAt[0] != len(h.tg.calls) {
+		t.Fatalf("answers = %q at %v of %+v", h.tg.answers, h.tg.answeredAt, h.tg.calls)
+	}
+	r = run(t, h)
+	if !r.PreviewEphemeral || r.PreviewMessageID == old || r.PreviewMessageID == 0 {
+		t.Fatalf("run = %+v", r)
+	}
+	// The old preview takes no press now.
+	h.tg.reset()
+	if err := h.pressOn(1, 7, actGenerate, tg.Message{EphemeralMessageID: old, Chat: group, Date: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.tg.calls) != 0 || h.store.stage(1) != db.StagePreview {
 		t.Fatalf("calls = %+v", h.tg.calls)
 	}
 	// Generate: the chat sees the loop, as a reply to the command.
@@ -444,6 +470,76 @@ func TestAnAdminSendsThePreviewToTheRequesterAlone(t *testing.T) {
 	got := run(t, h)
 	if got.PreviewEphemeral || got.PreviewMessageID == 0 || got.PreviewMessageID == r.PreviewMessageID || got.Stage != db.StageGenerating {
 		t.Fatalf("run = %+v", got)
+	}
+}
+
+// adminPreview is a run of /img whose preview an admin framy sent the
+// requester alone, the calls forgotten.
+func adminPreview(t *testing.T) (*harness, db.ChatRun) {
+	t.Helper()
+	h := newHarness(t)
+	h.store.models = panelCatalog()
+	h.flow.SetAlbums(fakeAlbums{admin: true})
+	if err := h.command(photoReply("/img make it night"), CommandImage, "make it night"); err != nil {
+		t.Fatal(err)
+	}
+	r := run(t, h)
+	if !r.PreviewEphemeral {
+		t.Fatalf("run = %+v", r)
+	}
+	h.tg.reset()
+	return h, r
+}
+
+// Telegram may refuse the press for the new preview, or the reply to a
+// command that is gone; an admin framy sends it plainly then.
+func TestARefusedPressSendsTheNewPreviewPlainly(t *testing.T) {
+	h, r := adminPreview(t)
+	h.tg.fail["press"] = &tg.APIError{Method: "sendRichMessage", StatusCode: 400, ErrorCode: 400, Description: "Bad Request: query is too old"}
+	if err := h.press(1, 7, pick("black-forest-labs/flux-3-image-klein")); err != nil {
+		t.Fatal(err)
+	}
+	sent := h.tg.methods("sendRichMessage")
+	if len(sent) != 1 || sent[0].messageID != 0 || *sent[0].ephemeral != (tg.Ephemeral{ReceiverUserID: 7}) {
+		t.Fatalf("calls = %+v", h.tg.calls)
+	}
+	if got := run(t, h); got.PreviewMessageID == r.PreviewMessageID || !got.PreviewEphemeral {
+		t.Fatalf("run = %+v", got)
+	}
+	if del := h.tg.methods("deleteEphemeralMessage"); len(del) != 1 || del[0].messageID != r.PreviewMessageID {
+		t.Fatalf("calls = %+v", h.tg.calls)
+	}
+}
+
+// A send that may have reached Telegram is not tried plainly, and the old
+// preview stays the run's.
+func TestAPreviewNotSentAgainKeepsTheOldOne(t *testing.T) {
+	h, r := adminPreview(t)
+	h.tg.fail["ephemeral"] = errBoom
+	err := h.press(1, 7, pick("black-forest-labs/flux-3-image-klein"))
+	if err == nil || !strings.Contains(err.Error(), "preview not redrawn") {
+		t.Fatalf("err = %v", err)
+	}
+	if len(h.tg.methods("deleteEphemeralMessage")) != 0 {
+		t.Fatalf("calls = %+v", h.tg.calls)
+	}
+	if got := run(t, h); got.PreviewMessageID != r.PreviewMessageID {
+		t.Fatalf("run = %+v", got)
+	}
+}
+
+// A new preview the run could not record would take no press: it goes, and
+// the old one stays.
+func TestAnUnrecordedPreviewIsDeletedAgain(t *testing.T) {
+	h, r := adminPreview(t)
+	h.store.previewErr = errBoom
+	if err := h.press(1, 7, pick("black-forest-labs/flux-3-image-klein")); err == nil {
+		t.Fatal("no error")
+	}
+	sent := h.tg.methods("sendRichMessage")
+	del := h.tg.methods("deleteEphemeralMessage")
+	if len(sent) != 1 || len(del) != 1 || del[0].messageID == r.PreviewMessageID {
+		t.Fatalf("calls = %+v", h.tg.calls)
 	}
 }
 

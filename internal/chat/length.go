@@ -179,5 +179,7 @@ func (f *Flow) otherLength(ctx context.Context, cq *tg.CallbackQuery, run db.Cha
 	if err != nil {
 		return err
 	}
-	return f.drawCard(ctx, fresh, on, viewMain, s, dir, []string{poster})
+	// The press was answered with the word above; Telegram may still take
+	// it for the requester's own preview.
+	return f.drawCard(ctx, fresh, cq.ID, on, viewMain, s, dir, []string{poster})
 }

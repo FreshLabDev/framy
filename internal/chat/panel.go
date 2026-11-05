@@ -450,8 +450,9 @@ func (f *Flow) pickModel(ctx context.Context, cq *tg.CallbackQuery, run db.ChatR
 	}
 	switch {
 	case p.model.ID == s.model.ID:
+		err := f.redrawAfter(ctx, run, cq.ID, on, viewMain)
 		_ = answer("")
-		return f.redrawAfter(ctx, run, on, viewMain)
+		return err
 	case p.locked:
 		return f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, t(run.Lang, "panel.key_needed"))
 	case p.why != "":
@@ -558,22 +559,26 @@ func (f *Flow) revise(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun,
 		_ = f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, "")
 		return err
 	}
+	// The press is answered once the card is drawn: until then it lets
+	// framy send the requester a preview of their own (resendRich).
+	err = f.redrawAfter(ctx, run, cq.ID, on, v)
 	_ = f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, "")
-	return f.redrawAfter(ctx, run, on, v)
+	return err
 }
 
-// redrawAfter reads the run again after a change and draws its card.
-func (f *Flow) redrawAfter(ctx context.Context, run db.ChatRun, on place, v view) error {
+// redrawAfter reads the run again after a change and draws its card, for
+// the press given.
+func (f *Flow) redrawAfter(ctx context.Context, run db.ChatRun, press string, on place, v view) error {
 	fresh, err := f.cfg.Store.ChatRun(ctx, run.JobID)
 	if err != nil {
 		return err
 	}
-	return f.redraw(ctx, fresh, on, v)
+	return f.redraw(ctx, fresh, press, on, v)
 }
 
 // redraw draws the run's card again from its files and puts it on the
 // preview and on the panel.
-func (f *Flow) redraw(ctx context.Context, run db.ChatRun, on place, v view) error {
+func (f *Flow) redraw(ctx context.Context, run db.ChatRun, press string, on place, v view) error {
 	s, err := f.stateOf(ctx, run)
 	if err != nil {
 		return err
@@ -599,7 +604,7 @@ func (f *Flow) redraw(ctx context.Context, run db.ChatRun, on place, v view) err
 	if err != nil {
 		return err
 	}
-	return f.drawCard(ctx, run, on, v, s, dir, paths)
+	return f.drawCard(ctx, run, press, on, v, s, dir, paths)
 }
 
 // cardPictures reads what the card holds into dir: the run's photos, or
@@ -628,9 +633,9 @@ func (f *Flow) cardPictures(ctx context.Context, dir string, s state) ([]string,
 // the preview: a rich one (drawRich), or one sent as a photo and its panel.
 // The chat's photo preview keeps its main keyboard while the requester has
 // a panel; the message pressed gets the view's.
-func (f *Flow) drawCard(ctx context.Context, run db.ChatRun, on place, v view, s state, dir string, paths []string) error {
+func (f *Flow) drawCard(ctx context.Context, run db.ChatRun, press string, on place, v view, s state, dir string, paths []string) error {
 	if on != onPhoto && on != onPanel {
-		return f.drawRich(ctx, run, v, s, dir, paths)
+		return f.drawRich(ctx, run, press, v, s, dir, paths)
 	}
 	kb, err := f.keyboardOf(ctx, run, s, v)
 	if err != nil {

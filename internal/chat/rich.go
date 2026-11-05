@@ -4,8 +4,10 @@ package chat
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"html"
+	"net/http"
 	"os"
 	"slices"
 	"strconv"
@@ -634,8 +636,10 @@ func (f *Flow) richState(ctx context.Context, user int64, lang, prompt string, j
 }
 
 // drawRich draws the card of s again and puts the rich preview in place of
-// the one the run has, in the chat or the requester's own.
-func (f *Flow) drawRich(ctx context.Context, run db.ChatRun, v view, s state, dir string, paths []string) error {
+// the one the run has: edited in place when the chat sees it, sent anew
+// when only the requester does (resendRich). press is the press that asked
+// for it, not yet answered, or empty.
+func (f *Flow) drawRich(ctx context.Context, run db.ChatRun, press string, v view, s state, dir string, paths []string) error {
 	open := foldAll
 	if v == viewSettings {
 		open = openSettings
@@ -644,14 +648,66 @@ func (f *Flow) drawRich(ctx context.Context, run db.ChatRun, v view, s state, di
 	if err != nil {
 		return err
 	}
+	if run.PreviewEphemeral {
+		return f.resendRich(ctx, run, press, body, pic, kb)
+	}
 	err = withCard(pic, func(media []tg.RichMedia) error {
-		if run.PreviewEphemeral {
-			return f.cfg.Telegram.EditEphemeralMessageRich(ctx, run.ChatID, run.UserID, run.PreviewMessageID, body, media, kb)
-		}
 		return f.cfg.Telegram.EditMessageRich(ctx, run.ChatID, run.PreviewMessageID, body, media, kb)
 	})
 	if err != nil {
 		return fmt.Errorf("preview not redrawn: %w", err)
 	}
 	return nil
+}
+
+// resendRich sends the requester's preview again with the new card and
+// deletes the one they had. framy does not edit an ephemeral rich message
+// with a picture it uploads: the Bot API server built from TDLib bc9c263
+// (telegram-bot-api e3e9dd8) aborts on that edit, at
+// MessageQueryManager.cpp:2415, and takes every bot on it down with it.
+// TDLib fixed it in b7e2d530; once the server has that, an edit in place
+// can come back. A send uploads the card by another path, the one the first
+// preview takes.
+//
+// The new preview answers what the old one did. The press lets framy send
+// it, admin or not, while it is unanswered; when Telegram refuses that, an
+// admin framy may still send it plainly. Only the preview the run records
+// takes presses, so the new one is recorded before the old one goes, and a
+// preview that could not be recorded is deleted again.
+func (f *Flow) resendRich(ctx context.Context, run db.ChatRun, press, body string, pic anim.Media, kb *tg.InlineKeyboardMarkup) error {
+	opts := tg.RichOptions{ThreadID: run.ThreadID, Markup: kb, Ephemeral: &tg.Ephemeral{ReceiverUserID: run.UserID, CallbackQueryID: press}}
+	if !run.CommandEphemeral {
+		opts.ReplyTo = run.CommandMessageID
+	}
+	sent, err := f.sendRich(ctx, run.ChatID, body, pic, opts)
+	if refused(err) {
+		// The press may be too old for Telegram, or the message the
+		// preview answered gone.
+		f.log.Info("preview not sent as it was; sent plainly", "job", run.JobID, "error", err)
+		opts.ReplyTo, opts.Ephemeral = 0, &tg.Ephemeral{ReceiverUserID: run.UserID}
+		sent, err = f.sendRich(ctx, run.ChatID, body, pic, opts)
+	}
+	if err == nil && sent.EphemeralMessageID == 0 {
+		err = errors.New("no ephemeral message came back")
+	}
+	if err != nil {
+		return fmt.Errorf("preview not redrawn: %w", err)
+	}
+	if err := f.cfg.Store.SetChatRunPreview(ctx, run.JobID, sent.EphemeralMessageID, true); err != nil {
+		f.deleteEphemeral(ctx, run.ChatID, run.UserID, sent.EphemeralMessageID)
+		return fmt.Errorf("preview not recorded: %w", err)
+	}
+	f.deleteEphemeral(ctx, run.ChatID, run.UserID, run.PreviewMessageID)
+	return nil
+}
+
+// refused tells a request Telegram refused, which sent nothing, from one
+// that may have reached it.
+func refused(err error) bool {
+	var api *tg.APIError
+	if !errors.As(err, &api) {
+		return false
+	}
+	code := cmp.Or(api.ErrorCode, api.StatusCode)
+	return code == http.StatusBadRequest || code == http.StatusForbidden
 }
