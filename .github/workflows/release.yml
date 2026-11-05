@@ -112,8 +112,38 @@ jobs:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
+      # docs/versioning.md: a published version is never moved. A run started
+      # again after it had pushed the image (the release step failed, say)
+      # would build anew, with another build date and Alpine's packages of
+      # that day, and move the tag to a digest nobody tested, while
+      # production pins the first. So an image already under the tag is kept
+      # and the run only finishes the release with it. Anything but "not
+      # found" stops the run before it pushes.
+      - name: Keep an image already published under the tag
+        id: published
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+        run: |
+          err="$(mktemp)"
+          if manifest="$(docker buildx imagetools inspect "${IMAGE}:${TAG}" --format '{{json .Manifest}}' 2>"${err}")"; then
+            digest="$(jq -r .digest <<<"${manifest}")"
+            case "${digest}" in
+              sha256:*) ;;
+              *) echo "${IMAGE}:${TAG} is published, but its digest could not be read"; exit 1 ;;
+            esac
+            echo "::notice::${IMAGE}:${TAG} is already published as ${digest}; this run keeps it and builds nothing"
+            echo "digest=${digest}" >>"$GITHUB_OUTPUT"
+          elif grep -qi 'not found' "${err}"; then
+            echo "${IMAGE}:${TAG} is not published yet"
+          else
+            cat "${err}"
+            echo "could not tell whether ${IMAGE}:${TAG} is published, so nothing is pushed"
+            exit 1
+          fi
+
       - name: Build and push image
         id: build
+        if: steps.published.outputs.digest == ''
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
@@ -133,7 +163,7 @@ jobs:
         # where it is read from.
         env:
           IMAGE: ${{ steps.meta.outputs.image }}
-          DIGEST: ${{ steps.build.outputs.digest }}
+          DIGEST: ${{ steps.published.outputs.digest || steps.build.outputs.digest }}
           NOTES_FILE: ${{ steps.changelog.outputs.file }}
         run: |
           printf '\n### Container image\n\n`%s@%s`\n' "$IMAGE" "$DIGEST" >>"$NOTES_FILE"

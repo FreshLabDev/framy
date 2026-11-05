@@ -98,6 +98,15 @@ gh workflow run release.yml -f tag=v1.2.3 -f reason="why CI is skipped"
 That run skips CI and puts the reason at the top of the GitHub Release, so the
 release itself says it was not checked.
 
+## Running a release again
+
+A release run that failed can be started again. When the image of its tag is
+already in GHCR, the run builds nothing: it keeps that image and its digest and
+only writes the notes and the GitHub Release. A new build would carry another
+date and that day's packages, and move the tag away from the digest production
+may already pin. An image that turned out wrong is followed by the next cut,
+never rebuilt under its tag.
+
 ## Rolling back
 
 Do not retag and do not delete a published release. Roll back by deploying the
