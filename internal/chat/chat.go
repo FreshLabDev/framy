@@ -692,9 +692,12 @@ func waitText(lang string, d time.Duration) string {
 	return t(lang, "run.wait_dh", "d", strconv.Itoa(h/24), "h", strconv.Itoa(h%24))
 }
 
-// reply answers the command with text: an ephemeral command only its
-// sender sees, while Telegram takes the reply. A reply that got no answer
-// may have reached the sender, so the chat is not told it too.
+// reply answers the command with text. In a group only its sender sees it
+// where the preview would go to them alone: the command was ephemeral, or
+// framy is an admin, which may write to one member at any time. What went
+// wrong with someone's command is theirs, and the chat would only read the
+// noise. The chat sees it when Telegram refuses that; a reply that got no
+// answer may have reached the sender, so the chat is not told it too.
 func (f *Flow) reply(ctx context.Context, m *tg.Message, text string) error {
 	return f.replyWith(ctx, m, text, nil)
 }
@@ -706,8 +709,22 @@ func (f *Flow) replyWith(ctx context.Context, m *tg.Message, text string, kb *tg
 		f.log.Info("an answer to a reply left unsaid", "chat", m.Chat.ID)
 		return nil
 	}
-	if ephemeralCommand(m) {
+	switch {
+	case ephemeralCommand(m):
 		_, err := f.cfg.Telegram.SendEphemeralMessage(ctx, m.Chat.ID, m.From.ID, m.EphemeralMessageID, text, kb)
+		if err == nil {
+			return nil
+		}
+		if !refused(err) {
+			return fmt.Errorf("reply in %d: %w", m.Chat.ID, err)
+		}
+		f.log.Warn("ephemeral reply refused; the chat sees it", "chat", m.Chat.ID, "error", err)
+	case m.Chat.Type != "private" && m.From != nil && !m.From.IsBot && f.isAdmin(ctx, m.Chat.ID):
+		// An ephemeral message as an answer to an ordinary one is a rich
+		// one; a rich message reads its HTML as a page does.
+		_, err := f.cfg.Telegram.SendRich(ctx, m.Chat.ID, "<p>"+strings.ReplaceAll(text, "\n", "<br>")+"</p>", tg.RichOptions{
+			ThreadID: threadOf(m), ReplyTo: m.MessageID, Ephemeral: &tg.Ephemeral{ReceiverUserID: m.From.ID}, Markup: kb,
+		})
 		if err == nil {
 			return nil
 		}

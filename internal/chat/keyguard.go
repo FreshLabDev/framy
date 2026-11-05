@@ -50,5 +50,12 @@ func (f *Flow) keyInCommand(ctx context.Context, m *tg.Message, prompt string) (
 	if guestMsg {
 		return true, f.guestAnswer(ctx, m, t(lang, answer), kb)
 	}
+	if answer == "msg.key_deleted" {
+		// What it answers is gone: Telegram sends an ephemeral reply only to
+		// a message that is there, and a reply to none goes on its own.
+		gone := *m
+		gone.MessageID = 0
+		m = &gone
+	}
 	return true, f.replyWith(ctx, m, t(lang, answer), kb)
 }

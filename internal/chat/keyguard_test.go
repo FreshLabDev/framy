@@ -83,3 +83,40 @@ func TestAKeyInAGuestMessageRunsNothing(t *testing.T) {
 		t.Fatalf("answer = %+v", h.tg.guestAnswers[0])
 	}
 }
+
+// Where framy is an admin, what went wrong with a command goes to its
+// sender alone, as the preview does, and the chat reads none of it: a
+// command with nothing to make, and the answer to a key, even once the
+// command is gone. When Telegram refuses that, the chat sees it.
+func TestARefusalInAGroupWhereFramyIsAdminIsTheSendersAlone(t *testing.T) {
+	h := newHarness(t)
+	h.flow.SetAlbums(fakeAlbums{admin: true})
+	if err := h.command(command("/img"), CommandImage, ""); err != nil {
+		t.Fatal(err)
+	}
+	sent := h.tg.methods("sendRichMessage")
+	if len(sent) != 1 || sent[0].ephemeral == nil || sent[0].ephemeral.ReceiverUserID != 7 || sent[0].messageID != 10 ||
+		sent[0].text != "<p>"+strings.ReplaceAll(i18n.T("en", "run.empty"), "\n", "<br>")+"</p>" || len(h.tg.methods("sendMessage")) != 0 {
+		t.Fatalf("calls %+v", h.tg.calls)
+	}
+
+	h = newHarness(t)
+	h.flow.SetAlbums(fakeAlbums{admin: true})
+	if err := h.command(command("/img "+openRouterKey), CommandImage, openRouterKey); err != nil {
+		t.Fatal(err)
+	}
+	sent = h.tg.methods("sendRichMessage")
+	if len(sent) != 1 || sent[0].ephemeral == nil || sent[0].messageID != 0 || !strings.Contains(sent[0].text, i18n.T("en", "msg.key_deleted")) {
+		t.Fatalf("calls %+v", h.tg.calls)
+	}
+
+	h = newHarness(t)
+	h.flow.SetAlbums(fakeAlbums{admin: true})
+	h.tg.fail["sendRichMessage"] = &tg.APIError{Method: "sendRichMessage", StatusCode: 400, ErrorCode: 400, Description: "Bad Request: not enough rights"}
+	if err := h.command(command("/img"), CommandImage, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.tg.methods("sendMessage"); len(got) != 1 || got[0].text != i18n.T("en", "run.empty") || got[0].messageID != 10 {
+		t.Fatalf("the chat was told %+v", got)
+	}
+}
