@@ -110,6 +110,7 @@ func TestBuildHides(t *testing.T) {
 	snap := Build(fixtureUpstream(t), embeddedFiles(t), fixtureDay)
 	for id, why := range map[string]string{
 		"google/gemini-3.1-flash-image-preview": "preview",
+		"google/gemini-3-pro-image-preview":     "preview",
 		"openai/gpt-5-image":                    "chat model",
 		"openai/gpt-image-1":                    "shut gpt-image-1 down",
 		"openai/gpt-image-1-mini":               "closes gpt-image-1-mini",
@@ -135,6 +136,19 @@ func TestBuildHides(t *testing.T) {
 	// duplicates.
 	if m := modelByID(t, snap, "tencent/hy-image-v3.5-preview"); m.Hidden != "" || !m.Featured {
 		t.Errorf("hy image = %+v", m)
+	}
+	// And only the two whose released models are listed: Google's next
+	// preview is a new model, and shown.
+	up := fixtureUpstream(t)
+	for _, of := range up.Offers {
+		if of.ProviderModelID == "google/gemini-3.1-flash-image-preview" {
+			of.ID, of.ModelID, of.ProviderModelID = "openrouter:google/gemini-4-flash-image-preview", "", "google/gemini-4-flash-image-preview"
+			up.Offers = append(up.Offers, of)
+			break
+		}
+	}
+	if m := modelByID(t, Build(up, embeddedFiles(t), fixtureDay), "google/gemini-4-flash-image-preview"); m.Hidden != "" {
+		t.Errorf("a new Google preview is hidden: %q", m.Hidden)
 	}
 	if of := modelByID(t, snap, "meta/muse-image").Offers[0]; of.Hidden == "" {
 		t.Error("an offer with no route is shown")

@@ -156,7 +156,7 @@ In the catalog of 27 October only GPT Image 2.5 and the direct Gemini models hav
 
 - Models with an OpenRouter `expiration_date` less than 14 days away.
 - Models on the OpenAI and Google deprecation pages. Proposal: the service reads both pages weekly and posts changes to the operator chat.
-- Duplicates and wrappers: `*-preview` Gemini ids, `openai/gpt-5*-image*`, `openai/gpt-image-1*`, `meta/muse-image` (an eval slug), `openrouter/auto*`.
+- Duplicates and wrappers: the Gemini preview ids Google shut down on 25 June 2026 (`google/gemini-3-pro-image-preview`, `google/gemini-3.1-flash-image-preview`), named one by one so Google's next preview is shown, `openai/gpt-5*-image*`, `openai/gpt-image-1*` (every GPT Image 1, 1.5 included, closes by 1 December 2026), `meta/muse-image` (an eval slug), `openrouter/auto*`.
 - An offer with no route, such as `meta/muse-image`, whose endpoint list on the Images API is empty.
 - `heygen/avatar-iv`, a talking head from a photo and a voice, until the composer takes a voice.
 

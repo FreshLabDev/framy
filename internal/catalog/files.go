@@ -59,7 +59,8 @@ type FamilyInfo struct {
 
 type HideRule struct {
 	// Match is a path.Match pattern over model ids, so "*" stays within one
-	// segment: google/*-preview matches Google's previews only.
+	// segment: openai/gpt-5*-image* matches OpenAI's models only. A pattern
+	// is for a reason true of every id it can match.
 	Match string `yaml:"match"`
 	Why   string `yaml:"why"`
 }
