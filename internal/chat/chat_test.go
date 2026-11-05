@@ -528,6 +528,39 @@ func TestStopAQueuedJob(t *testing.T) {
 	}
 }
 
+// Stop a moment after the job ended: the result, paid for already, still
+// comes in the loop's place, and so does the card of a run that failed.
+func TestStopAJobThatJustEnded(t *testing.T) {
+	for _, c := range []struct {
+		status jobs.Status
+		stage  string
+	}{
+		{jobs.Done, db.StageDone},
+		{jobs.Failed, db.StageFailed},
+		{jobs.Expired, db.StageFailed},
+	} {
+		t.Run(string(c.status), func(t *testing.T) {
+			h := newHarness(t)
+			id := h.generating(t)
+			h.store.setStatus(id, c.status, "")
+			h.files.results[id] = []storage.Asset{{ID: 50, ContentType: "image/png", Bytes: 100, Width: 10, Height: 10}}
+			if err := h.press(id, 7, actStop); err != nil {
+				t.Fatal(err)
+			}
+			if h.store.stage(id) != db.StageGenerating || len(h.tg.methods("deleteMessage")) != 0 {
+				t.Fatalf("Stop took the loop away: stage %s, calls %+v", h.store.stage(id), h.tg.calls)
+			}
+			if len(h.tg.answers) != 1 || h.tg.answers[0] != "" {
+				t.Fatalf("answers = %v", h.tg.answers)
+			}
+			h.flow.step(context.Background(), id)
+			if h.store.stage(id) != c.stage || len(h.tg.methods("editMessageMedia")) != 1 {
+				t.Fatalf("stage %s, calls %+v", h.store.stage(id), h.tg.calls)
+			}
+		})
+	}
+}
+
 // generating makes a run whose job is queued, Generate pressed at h.now.
 func (h *harness) generating(t *testing.T) int64 {
 	t.Helper()

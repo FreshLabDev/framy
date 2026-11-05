@@ -306,7 +306,10 @@ func stoppedText(run db.ChatRun) string {
 
 // halt cancels a queued job, or lets a running one end in the person's
 // history without the chat, since a request already sent is paid for. The
-// loop goes either way. It tells whether the job was running.
+// loop goes either way, but for a job that ended as Stop was pressed: its
+// result, paid for already, or its error card takes the loop's place at the
+// next round, as if Stop had come a moment later. It tells whether the job
+// was running.
 func (f *Flow) halt(ctx context.Context, run db.ChatRun) (running bool, err error) {
 	err = f.cfg.Queue.Cancel(ctx, run.JobID)
 	switch {
@@ -319,6 +322,15 @@ func (f *Flow) halt(ctx context.Context, run db.ChatRun) (running bool, err erro
 		return true, nil
 	case err != nil:
 		return false, err
+	}
+	// Cancel changes nothing of a job that has ended.
+	fresh, err := f.cfg.Store.ChatRun(ctx, run.JobID)
+	if err != nil {
+		return false, err
+	}
+	switch jobs.Status(fresh.Status) {
+	case jobs.Done, jobs.Failed, jobs.Expired:
+		return false, nil
 	}
 	f.close(ctx, run, db.StageGenerating)
 	return false, nil
