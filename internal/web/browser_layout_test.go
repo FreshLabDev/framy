@@ -811,3 +811,61 @@ func TestBrowserTouchTargets(t *testing.T) {
 	return touch();`))
 	noErrors(t, ctx)
 }
+
+// TestBrowserPhoneNames checks the names a phone shows in its narrowest
+// rows. The chip of the dock names the model whole, every model of the
+// catalog, also beside the count of the other frames' models, while the
+// settings beside it stay a square with the count of frames in its corner
+// and in its name. The viewer's title is the kind's word while it fits whole
+// beside the arrows and Close, and its icon when not, never a cut word.
+func TestBrowserPhoneNames(t *testing.T) {
+	for _, lang := range []string{"en", "de"} {
+		runs := &fakeRuns{lang: lang}
+		ts := fakeSite(t, runs.mount)
+		ctx := browserAs(t, ts.URL, 360, 780, opened{lang: lang, phone: true})
+		inLang(t, ctx, lang)
+		got := js[map[string]any](t, ctx, pageHelpers+`
+		for (let i = 0; i < 3; i++) { document.querySelector("#stage .addf").click(); await wait(600); }
+		const set = document.querySelector("#dtools .chipbtn.set"), cnt = set.querySelector(".cnt");
+		// Every model's name as the chip writes it: the family's and the variant's where the family has several.
+		const cat = await (await fetch("/api/catalog")).json(), fams = {}, names = [];
+		for (const m of cat.models) { if (m.fast_of) continue; const f = m.family || {}; (fams[f.id || m.id] ||= { name: f.name || m.name, n: 0 }).n++; }
+		for (const m of cat.models) { if (m.fast_of) continue; const f = m.family || {}, fam = fams[f.id || m.id]; names.push(fam.n > 1 ? fam.name + " " + (f.label || m.name) : m.name); }
+		const chip = document.querySelector("#dtools .chipbtn:not(.set)"), sp = chip.querySelector(".nm > span"), cut = [];
+		const check = () => { for (const n of names) { sp.textContent = n; if (sp.scrollWidth > sp.clientWidth + 0.5 || sp.scrollHeight > sp.clientHeight + 0.5) cut.push(n); } };
+		check();
+		const more = document.createElement("small"); more.className = "more"; more.textContent = "+3"; chip.querySelector(".nm").after(more);
+		check();
+		const b = set.getBoundingClientRect(), c = cnt.getBoundingClientRect();
+		return { n: names.length, cut, set: Math.round(b.width), label: set.getAttribute("aria-label"),
+		  corner: c.top >= b.top && c.right <= b.right + 0.5 && c.bottom <= b.top + 22 && c.left >= b.right - 30 };`)
+		if got["n"].(float64) < 20 || len(got["cut"].([]any)) > 0 || got["set"] != float64(46) || got["corner"] != true ||
+			!strings.HasSuffix(got["label"].(string), ": 4") {
+			t.Errorf("%s: the dock's chip: %v", lang, got)
+		}
+		noErrors(t, ctx)
+	}
+
+	for _, c := range []struct {
+		lang string
+		w    int64
+		word bool
+	}{{"en", 360, true}, {"ru", 360, false}, {"ru", 390, true}, {"uk", 390, false}, {"ar", 360, true}} {
+		lib := newFakeLibrary()
+		lib.lang = c.lang
+		ls := fakeSite(t, lib.mount)
+		ctx := browserAs(t, ls.URL+"/r/60", c.w, 780, opened{lang: c.lang, phone: true})
+		inLang(t, ctx, c.lang)
+		got := js[map[string]any](t, ctx, pageHelpers+`
+		for (let i = 0; i < 40 && !document.querySelector("#viewer:not([hidden]) .vrun"); i++) await wait(100);
+		await wait(800);
+		const h = document.querySelector("#viewTitle"), w = h.querySelector(".t"), ic = h.querySelector(".ic");
+		const hr = h.getBoundingClientRect(), wr = w.getBoundingClientRect(), at = (r) => document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+		const word = wr.top < hr.bottom, whole = wr.left >= hr.left - 0.5 && wr.right <= hr.right + 0.5;
+		return { word, whole, icon: at(ic.getBoundingClientRect())?.closest("svg") === ic, name: document.querySelector("#viewer").getAttribute("aria-labelledby") === h.id && h.textContent.trim() !== "" };`)
+		if got["word"] != c.word || (c.word && got["whole"] != true) || got["icon"] == c.word || got["name"] != true {
+			t.Errorf("%s at %d: the viewer's title: %v", c.lang, c.w, got)
+		}
+		noErrors(t, ctx)
+	}
+}

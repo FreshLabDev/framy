@@ -678,7 +678,7 @@ function fill() {
   const j = V.j, run = V.run;
   if (!j) return;
   const m = C.byId[j.model];
-  $("#viewTitle").textContent = t("kind." + j.kind);
+  $("#viewTitle").replaceChildren(ic(j.kind), h("span", { class: "t" }, t("kind." + j.kind)));
   nav();
   const v = view(run, { res: V.i, again: againBtn });
   const cost = j.cost?.label ? j.cost.label : v.zero ? zeroOf(j.estimate?.label) : j.free ? t("bar.free") : j.estimate && !v.fail ? priceText(j.estimate) : "";

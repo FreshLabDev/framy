@@ -155,14 +155,15 @@ function setKind(k) {
 
 /* Phone: the model and the settings sit in one row over the prompt; the settings open in a sheet.
    Files are added in the row under the prompt, in both kinds, as on the computer in video.
-   The chip names the common model, and how many others the frames have. */
+   The chip names the common model, and how many others the frames have; the settings, how many frames
+   they are for. */
 function renderTools() {
   const P = plan(), m = common(), f = C.famOf[m.id], more = new Set(P.map((it) => it.m.id).filter((id) => id !== m.id)).size;
   $("#dtools").replaceChildren(
     h("button", { type: "button", class: "chipbtn", "aria-haspopup": "dialog", onclick: () => { if (S.scope[S.kind] != null) { S.scope[S.kind] = null; render(); } openPicker(); } },
       lg(famLogo(f), f.maker, "o"), h("span", { class: "nm" }, h("span", {}, vname(m))), more ? h("small", { class: "more" }, "+" + fmtNum(more)) : null, ic("chevd")),
-    h("button", { type: "button", class: "chipbtn set", onclick: () => openTune(null), "aria-label": t("tune.title") }, ic("sliders"), h("span", {}, t("tune.short")),
-      P.length > 1 ? h("b", { class: "cnt" }, "×" + fmtNum(P.length)) : null));
+    h("button", { type: "button", class: "chipbtn set", onclick: () => openTune(null), "aria-label": P.length > 1 ? `${t("tune.title")}, ${t("fr.label")}: ${fmtNum(P.length)}` : t("tune.title") },
+      ic("sliders"), h("span", {}, t("tune.short")), P.length > 1 ? h("b", { class: "cnt" }, "×" + fmtNum(P.length)) : null));
 }
 // On a phone the settings live in a sheet: they are built when it opens, not
 // on every change behind it. A frame pressed on the stage opens it on that frame.

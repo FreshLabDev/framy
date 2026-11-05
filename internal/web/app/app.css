@@ -398,9 +398,10 @@ input.search::placeholder {color: var(--muted);}
    the settings and photos sit in one row over the prompt, the settings open in a sheet. */
 .dtools {display: none;}
 .chipbtn {flex: 1; min-width: 0; height: 46px; padding: 0 12px; display: flex; align-items: center; gap: 8px; background: var(--deep); font-weight: 600; text-align: left;}
-.chipbtn .nm {position: relative; flex: 1; min-width: 0; overflow: hidden; white-space: nowrap;}
-.chipbtn .nm > span {display: block; overflow: hidden; text-overflow: ellipsis;}
-.chipbtn .nm > .out {position: absolute; left: 0; top: 0;}
+/* The model's name in the chip is whole: a long one goes on two even lines rather than losing its end. */
+.chipbtn .nm {position: relative; flex: 1; min-width: 0; overflow: hidden; line-height: 1.15;}
+.chipbtn .nm > span {display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; text-wrap: balance;}
+.chipbtn .nm > .out {position: absolute; inset-inline-start: 0; top: 0; width: 100%;}
 .chipbtn.set {flex: none;}
 .chipbtn > .lg.o {width: 28px; height: 28px; font-size: 13px;}
 @media (max-width: 959px) {
@@ -455,10 +456,14 @@ input.search::placeholder {color: var(--muted);}
   html.flow .composer {position: relative; z-index: auto; padding: 0; background: none; border-top: 0;}
   html.flow .toast {bottom: calc(24px + env(safe-area-inset-bottom, 0px));}
 }
+/* On a phone the settings are a square beside the model's name, and how many frames they are for
+   is a tag in its corner, so the name keeps the width. */
 @media (max-width: 959px) {
   .chipbtn.set > span {display: none;}
-  .chipbtn.set {width: 46px; padding: 0; justify-content: center;}
-  .chipbtn.set:has(.cnt) {width: auto; padding: 0 12px; gap: 6px;}
+  .chipbtn.set {position: relative; width: 46px; padding: 0; justify-content: center;}
+  .chipbtn.set > .cnt {position: absolute; top: 3px; inset-inline-end: 3px; min-width: 18px; height: 16px; padding: 0 3px; display: grid; place-items: center;
+    background: var(--ink); color: var(--deep); font-size: 11px; line-height: 1; font-variant-numeric: tabular-nums; outline: 2px solid var(--deep);}
+  .chipbtn.set:hover > .cnt {outline-color: var(--line);}
 }
 @media (max-width: 420px) {
   .chipbtn > .lg {display: none;}
@@ -746,7 +751,12 @@ main.library {display: grid; gap: 18px; padding: 6px 0 calc(48px + env(safe-area
 .vnav:empty {display: none;}
 .vnav .ib {width: 38px; min-height: 38px; height: 38px;}
 .vnav .ib:disabled {opacity: .35; cursor: default;}
-#viewer h3 {min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
+/* The viewer's title is the kind's word while it fits whole beside the arrows and Close, and the
+   kind's icon when it does not: the word then wraps to a second line out of sight, where it stays the
+   dialog's name for a screen reader. The icon takes no room and lies under the word, which covers it. */
+#viewer h3 {min-width: 20px; height: 24px; display: flex; flex-wrap: wrap; align-content: flex-start; row-gap: 24px; overflow: hidden;}
+#viewer h3 > .ic {flex: none; width: 20px; height: 20px; margin-block: 2px; margin-inline-end: -20px;}
+#viewer h3 > .t {position: relative; white-space: nowrap; line-height: 24px; background: var(--field);}
 .vrun {display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; min-width: 0;}
 @media (min-width: 900px) {
   .vrun {grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; align-items: start;}
