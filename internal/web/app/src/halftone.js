@@ -234,7 +234,8 @@ function reveal(ST, x, box, W, H, now) {
   const sc = ST.scene, from = ST.from || { fig: "loop", phase: sc.phase, t0: sc.t0, still: false };
   // The figure stays where it stood; a frame of another shape lays it out again.
   const L = ST.lay?.W === W && ST.lay?.H === H ? ST.lay : layout(ST, W, H, H - 22);
-  const media = box.querySelector("img, video"), ready = media && (media.tagName === "IMG" ? media.complete && media.naturalWidth > 0 : media.readyState >= 2);
+  // A video that waits for Play (reduced motion) shows its first frame or its cover as it can: nothing to wait for.
+  const media = box.querySelector("img, video"), ready = media && (media.tagName === "IMG" ? media.complete && media.naturalWidth > 0 : media.readyState >= 2 || !media.autoplay);
   x.fillStyle = `rgb(${BG.join(",")})`;
   x.fillRect(0, 0, W, H);
   if (!sc.revealAt) {

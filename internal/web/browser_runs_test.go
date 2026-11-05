@@ -7,6 +7,7 @@ package web
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -24,6 +25,7 @@ import (
 	"time"
 
 	"github.com/chromedp/cdproto/cdp"
+	"github.com/chromedp/cdproto/emulation"
 	"github.com/chromedp/cdproto/fetch"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
@@ -45,6 +47,10 @@ const fakeFacesWords = "The request failed because the input image 'content[0]' 
 
 // fakeWrapped is any other refusal stored the same way.
 const fakeWrapped = `refused: openrouter 400: HTTP 400: {"error":{"code":"InvalidParameter","message":"The duration is too long. Request id: 0217abd"}}`
+
+// loopWebM is a clip Chrome plays: two seconds of the field's colour, 32×18,
+// VP8 (ffmpeg -f lavfi -i color=c=0x00606E:s=32x18:r=8:d=2 -c:v libvpx).
+const loopWebM = "GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAANoEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHWTbuMU6uEElTDZ1OsggEyTbuMU6uEHFO7a1OsggNS7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsCrXsYMPQkBNgIxMYXZmNjMuMS4xMDFXQYxMYXZmNjMuMS4xMDFEiYhAn0AAAAAAABZUrmvXrgEAAAAAAABO14EBc8WILdqadVgB8fKcgQAitZyDdW5kiIEAhoVWX1ZQOIOBASPjg4QHc1lA4JCwgSC6gRKagQJVsIRVuYEBVe6BAOwBAAAAAAAAAgAAElTDZ/pzc59jwIBnyJlFo4dFTkNPREVSRIeMTGF2ZjYzLjEuMTAxc3PVY8CLY8WILdqadVgB8fJnyKBFo4dFTkNPREVSRIeTTGF2YzYzLjEuMTAxIGxpYnZweGfIoUWjiERVUkFUSU9ORIeTMDA6MDA6MDIuMDAwMDAwMDAwAB9DtnVBm+eBAKO9gQAAgNACAJ0BKiAAEgAARwiFhYiFhIgCAgJ1qgP4AgghCD0A/v4ND//SbPE2eJs+SR/+djfnY352N/5zIKOVgQB9ALEBAAEQEAAYABhYL/QACHAAo5WBAPoAsQEAARAQABgAGFgv9AAIcACjlYEBdwCxAQABEBAAGAAYWC/0AAhwAKOVgQH0ALEBAAEQEAAYABhYL/QACHAAo5WBAnEAsQEAARAQABgAGFgv9AAIcACjlYEC7gCxAQABEBAAGAAYWC/0AAhwAKOVgQNrALEBAAEQEBRgAGFgv9AAIcAAo5WBA+gAsQEAARAQABgAGFgv9AAIcACjlYEEZQCxAQABEBAAGAAYWC/0AAhwAKOVgQTiALEBAAEQEAAYABhYL/QACHAAo5WBBV8AsQEAARAQABgAGFgv9AAIcACjlYEF3ACxAQABEBAAGAAYWC/0AAhwAKOVgQZZALEBAAEQEAAYABhYL/QACHAAo5WBBtYAsQEAARAQABgAGFgv9AAIcACjlYEHUwCxAQABEBAAGAAYWC/0AAhwABxTu2uRu4+zgQC3iveBAfGCAbHwgQM="
 
 // fakeRuns is the API of a signed-in person with a working OpenRouter key and
 // no free pictures left, whose jobs follow the prompt: "fail:<class>" fails
@@ -116,6 +122,11 @@ func (f *fakeRuns) mount(srv *Server) {
 	})
 	srv.HandleFunc("GET /test/clip.mp4", func(w http.ResponseWriter, _ *http.Request) { w.Header().Set("Content-Type", "video/mp4") })
 	srv.HandleFunc("GET /test/joined.mp4", func(w http.ResponseWriter, _ *http.Request) { w.Header().Set("Content-Type", "video/mp4") })
+	srv.HandleFunc("GET /test/loop.webm", func(w http.ResponseWriter, r *http.Request) {
+		b, _ := base64.StdEncoding.DecodeString(loopWebM)
+		w.Header().Set("Content-Type", "video/webm")
+		http.ServeContent(w, r, "loop.webm", time.Time{}, bytes.NewReader(b))
+	})
 	srv.HandleFunc("GET /test/result.png", func(w http.ResponseWriter, _ *http.Request) {
 		img := image.NewRGBA(image.Rect(0, 0, 64, 64))
 		for i := range img.Pix {
@@ -211,6 +222,12 @@ func (f *fakeRuns) create(w http.ResponseWriter, r *http.Request) {
 		steps = append(steps, at("running", map[string]any{"kind": "video"}), at("done", map[string]any{"kind": "video",
 			"cost":    map[string]any{"usd": 0.04, "amount": 0.04, "currency": "USD", "label": "$0.040"},
 			"results": []map[string]any{{"id": 9, "content_type": "video/mp4", "url": url, "download": url + "?download=1", "width": 832, "height": 480, "seconds": 5}}}))
+	case p == "done:loop":
+		// A clip the browser plays.
+		url := "http://" + r.Host + "/test/loop.webm"
+		steps = append(steps, at("running", map[string]any{"kind": "video"}), at("done", map[string]any{"kind": "video",
+			"cost":    map[string]any{"usd": 0.04, "amount": 0.04, "currency": "USD", "label": "$0.040"},
+			"results": []map[string]any{{"id": 11, "content_type": "video/webm", "url": url, "download": url + "?download=1", "width": 32, "height": 18, "seconds": 2}}}))
 	case p == "done:joined":
 		// A run that went on from a clip's last frame, joined to that clip.
 		url, joined := "http://"+r.Host+"/test/clip.mp4", "http://"+r.Host+"/test/joined.mp4"
@@ -314,6 +331,15 @@ func (f *fakeRuns) batch(w http.ResponseWriter, r *http.Request) {
 		case strings.HasPrefix(outcome, "fail:"):
 			steps = append(steps, at("failed", map[string]any{"error": map[string]any{"class": strings.TrimPrefix(outcome, "fail:"), "message": fakeMessage}}))
 		case outcome == "running":
+		case outcome == "video":
+			// Clips the browser plays.
+			clip := "http://" + r.Host + "/test/loop.webm"
+			var results []map[string]any
+			for k := range frames {
+				results = append(results, map[string]any{"id": 100 + 10*g + k, "content_type": "video/webm", "url": clip, "download": clip + "?download=1", "width": 32, "height": 18, "seconds": 2})
+			}
+			steps = append(steps, at("running", map[string]any{"kind": "video"}), at("done", map[string]any{"kind": "video", "results": results,
+				"cost": map[string]any{"usd": usd, "amount": usd, "currency": "USD", "label": fmt.Sprintf("$%.3f", usd)}}))
 		default:
 			var results []map[string]any
 			for k := range frames {
@@ -980,6 +1006,95 @@ func TestBrowserResultStays(t *testing.T) {
 		t.Errorf("the result drawn again: %v", s)
 	}
 	noErrors(t, ctx)
+}
+
+// TestBrowserVideoMotion checks the videos of a run with and without reduced
+// motion. They start by themselves, without sound, only for a person who has
+// not asked for less motion; the stage's player then waits on its first
+// frame for Play, and so does the whole screen. Each frame of a press has a
+// button that stops and starts its clip, and a clip stopped there stays
+// stopped while the page goes to the library and back and while the whole
+// screen is open over it; the others stop while they are out of sight.
+func TestBrowserVideoMotion(t *testing.T) {
+	for _, reduce := range []bool{false, true} {
+		runs := &fakeRuns{}
+		ts := fakeSite(t, runs.mount)
+		ctx := browser(t, ts.URL, 1440, 900, false)
+		if reduce {
+			err := chromedp.Do(ctx, chromedp.Func(func(ctx context.Context, tg *chromedp.Target) error {
+				_, err := cdp.Call(ctx, tg, emulation.SetEmulatedMedia, emulation.SetEmulatedMediaParams{Features: []*emulation.MediaFeature{{Name: "prefers-reduced-motion", Value: "reduce"}}})
+				return err
+			}), chromedp.Reload())
+			if err != nil {
+				t.Fatal(err)
+			}
+			ready(t, ctx)
+		}
+		s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const out = { reduce: matchMedia("(prefers-reduced-motion: reduce)").matches };
+	const until = async (fn, ms = 4000) => { const end = Date.now() + ms; while (Date.now() < end) { if (fn()) return true; await wait(50); } return !!fn(); };
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(700);
+	// On the key: the free video of the week is one, and a press here has two.
+	[...document.querySelectorAll("#how [data-seg=pay] > button")].find((b) => /OpenRouter/.test(b.textContent))?.click();
+	await until(() => !document.querySelector("#composer .q.wait") && !document.querySelector("#go").disabled);
+	await press("done:loop", () => document.querySelector("#stage .player video"));
+	const one = document.querySelector("#stage .player video");
+	// The dots give way to the clip: at once with reduced motion, else once it shows.
+	await until(() => !document.querySelector("#stage .jbox > canvas.ht"), 5000);
+	await wait(300);
+	out.one = [one.autoplay, one.muted, one.paused, !!document.querySelector("#stage .jbox > canvas.ht"), document.querySelector("#stage .player .pp")?.getAttribute("aria-label")];
+
+	document.querySelector("#stage .jacts button[aria-label='Make another']").click();
+	await wait(500);
+	document.querySelector("#stage .addf").click(); await wait(500);
+	await press("frames:video", () => document.querySelectorAll("#stage .jbox.cell.done video").length === 2);
+	const vs = () => [...document.querySelectorAll("#stage .jbox.cell.done video")], bs = () => [...document.querySelectorAll("#stage .jbox.cell .tpp")];
+	if (!out.reduce) await until(() => vs().every((v) => !v.paused));
+	else await wait(900);
+	out.cells = vs().map((v) => [v.autoplay, v.muted, v.paused].join(",")).join(" ");
+	out.btns = bs().map((b) => b.getAttribute("aria-label") + (b.classList.contains("still") ? "*" : "")).join(",");
+	bs()[0].click();
+	await until(() => vs()[0].paused !== out.reduce);
+	out.pressed = [vs()[0].paused, bs()[0].getAttribute("aria-label"), document.querySelector("#full").hidden];
+	if (out.reduce) { bs()[0].click(); await until(() => vs()[0].paused); }
+
+	document.querySelector("#top .tabs a[data-v=library]").click();
+	await until(() => vs().every((v) => v.paused));
+	out.away = vs().map((v) => v.paused).join(",");
+	document.querySelector("#top .tabs a[data-v=create]").click();
+	await wait(600);
+	out.back = vs().map((v) => v.paused).join(",");
+
+	document.querySelectorAll("#stage .jbox.cell.done")[1].click();
+	await until(() => !document.querySelector("#full").hidden && document.querySelectorAll("#full video").length === 2);
+	await wait(600);
+	out.full = [vs().map((v) => v.paused).join(","), document.querySelectorAll("#full video")[1].paused];
+	document.querySelector("#full .fbar .x").click();
+	await until(() => document.querySelector("#full").hidden);
+	await wait(400);
+	out.closed = vs().map((v) => v.paused).join(",");
+	return out;`)
+		want := map[string]string{
+			"one": "[true true false false Pause]", "cells": "true,true,false true,true,false", "btns": "Pause,Pause", "pressed": "[true Play true]",
+			"away": "true,true", "back": "true,false", "full": "[true,true false]", "closed": "true,false",
+		}
+		if reduce {
+			want = map[string]string{
+				"one": "[false true true false Play]", "cells": "false,true,true false,true,true", "btns": "Play*,Play*", "pressed": "[false Pause true]",
+				"away": "true,true", "back": "true,true", "full": "[true,true true]", "closed": "true,true",
+			}
+		}
+		if s["reduce"] != reduce {
+			t.Fatalf("reduced motion is %v, not %v", s["reduce"], reduce)
+		}
+		for k, w := range want {
+			if got := fmt.Sprint(s[k]); got != w {
+				t.Errorf("reduce %v: %s = %s, want %s", reduce, k, got, w)
+			}
+		}
+		noErrors(t, ctx)
+	}
 }
 
 // TestBrowserPlayer checks the site's own player on a joined clip, on a wide

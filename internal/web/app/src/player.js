@@ -4,7 +4,7 @@
 // seconds), and the part playing stands taller than the others.
 import { h, ic } from "./dom.js";
 import { t, fmtNum } from "./i18n.js";
-import { anim } from "./motion.js";
+import { anim, motion } from "./motion.js";
 
 export const fmtClock = (s) => {
   const n = Math.max(0, Math.floor(+s || 0));
@@ -27,8 +27,10 @@ document.addEventListener("webkitfullscreenchange", onFs);
 const STEP = 5; // seconds an arrow key moves
 const IDLE = 2500; // how long the bar stays after the last move while playing
 
+// It starts by itself, without sound, unless o.autoplay is false or the
+// person asked for less motion: then it waits on its first frame for Play.
 export function player(res, o = {}) {
-  const v = h("video", { src: res.url, poster: res.thumb?.url || null, playsinline: true, loop: true, muted: true, autoplay: o.autoplay !== false, preload: "metadata" });
+  const v = h("video", { src: res.url, poster: res.thumb?.url || null, playsinline: true, loop: true, muted: true, autoplay: o.autoplay !== false && motion(), preload: "metadata" });
   v.muted = true; // the attribute alone does not mute everywhere, and a sound would stop autoplay
   const B = (icon, label, fn, cls) => h("button", { type: "button", class: "ib" + (cls ? " " + cls : ""), "aria-label": label, title: label, onclick: (e) => { e.stopPropagation(); fn(); wake(); } }, ic(icon));
   const pp = B("play", t("player.play"), toggle, "pp");

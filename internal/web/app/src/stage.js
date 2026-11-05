@@ -106,7 +106,11 @@ const keepMedia = (key, make) => { const el = kept.get(key) || make(); keeping.s
 
 export function renderStage() {
   keeping = new Map();
-  try { drawStage(); } finally { kept = keeping; }
+  try { drawStage(); } finally {
+    // A video the stage no longer draws is no longer watched for the screen.
+    for (const [k, el] of kept) if (!keeping.has(k) && el.tagName === "VIDEO") onScreen?.unobserve(el);
+    kept = keeping;
+  }
 }
 function drawStage() {
   const st = $("#stage");
@@ -367,16 +371,43 @@ function cellsOf(run) {
     return { i, fm, sub, v, r: runRatio(sub, v.done ? v.res : null) };
   });
 }
+/* A video of a press plays in its frame without sound, over and over, while
+   the frame is on the screen; its button stops it and starts it again. With
+   reduced motion it waits for the button. One the person stopped stays
+   stopped, wherever the page goes. */
+const onScreen = typeof IntersectionObserver === "function" ? new IntersectionObserver((es) => {
+  for (const e of es) { const v = e.target; if (!e.isIntersecting) v.pause(); else if (!v._held) v.play().catch(() => {}); }
+}) : null;
+function cellVideo(res) {
+  const v = h("video", { src: res.url, poster: res.thumb?.url || null, loop: true, playsinline: true, autoplay: motion(), preload: "metadata" });
+  v.muted = true;
+  v._held = !motion();
+  onScreen?.observe(v);
+  return v;
+}
+function playBtn(v) {
+  const sync = () => {
+    const on = !v.paused, label = t(on ? "player.pause" : "player.play");
+    b.replaceChildren(ic(on ? "pause" : "play")); b.setAttribute("aria-label", label); b.title = label;
+    b.classList.toggle("still", !on);
+  };
+  const b = h("button", { type: "button", class: "tpp", onclick: (e) => {
+    e.stopPropagation();
+    v._held = !v.paused;
+    if (v._held) v.pause(); else v.play().catch(() => {});
+    sync();
+  } });
+  v.addEventListener("play", sync); v.addEventListener("pause", sync);
+  sync();
+  return b;
+}
 function runCell(run, c, mixed, items) {
   const { v, sub, i } = c, j = sub.job, going = sub.phase === "job" && !isFinal(j.status), id = `p${run.n}-${i}`;
-  let media = null;
+  let media = null, pp = null;
   if (v.done) {
-    const res = v.res, vid = res.content_type?.startsWith("video/");
-    media = keepMedia(`p${run.n}-${i}-${res.id}`, () => {
-      const el = vid ? h("video", { src: res.url, poster: res.thumb?.url || null, loop: true, playsinline: true, autoplay: true, preload: "auto" }) : h("img", { src: res.url, alt: run.prompt || "", decoding: "async" });
-      if (vid) el.muted = true;
-      return el;
-    });
+    const res = v.res, vid = res.content_type?.startsWith("video/"), key = `p${run.n}-${i}-${res.id}`;
+    media = keepMedia(key, () => (vid ? cellVideo(res) : h("img", { src: res.url, alt: run.prompt || "", decoding: "async" })));
+    if (vid) pp = keepMedia(key + "-pp", () => playBtn(media));
   }
   if (going && run.net === "lost" && v.status) {
     const lost = h("small", { class: "lost" }, t("net.lost_line")), sub2 = v.status.querySelector("small");
@@ -390,7 +421,7 @@ function runCell(run, c, mixed, items) {
     "aria-label": v.done ? t("view.result", { n: fmtNum(i + 1) }) : null, onclick: v.done ? open : null,
     onkeydown: v.done ? (e) => { if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) { e.preventDefault(); open(); } } : null },
     v.done ? media : [h("i"), h("i"), h("i"), h("i")], v.done ? null : v.status || null,
-    h("span", { class: "num" }, String(i + 1)), mixed && f && m ? h("span", { class: "chip tm" }, lg(famLogo(f), f.maker, "s"), h("span", {}, vname(m))) : null, dl);
+    h("span", { class: "num" }, String(i + 1)), mixed && f && m ? h("span", { class: "chip tm" }, lg(famLogo(f), f.maker, "s"), h("span", {}, vname(m))) : null, dl, pp);
   if (v.ht) halftone(cell, v.ht.fig, { ...v.ht, n: run.n, id, lost: going && run.net === "lost" });
   else if (v.done) halftone(cell, "reveal", { n: run.n, id });
   return cell;

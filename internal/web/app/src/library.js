@@ -757,7 +757,10 @@ export function openFull(at = 0, items = null) {
     h("button", { type: "button", class: "fnav e", "aria-label": t("view.next"), title: t("view.next"), onclick: () => fullGo(1) }, ic(rtl ? "chevl" : "chev"))] : [];
   const dots = n > 1 ? h("div", { class: "dots", "aria-hidden": "true" }, items.map(() => h("i"))) : null;
   const acts = h("div", { class: "jacts acts" });
-  FULL = { items, strip, at: -1, back: document.activeElement };
+  // The videos under the whole screen stop while it is open, and those that played go on after.
+  const under = [...document.querySelectorAll("#app video")].filter((v) => !v.paused && !box.contains(v));
+  under.forEach((v) => v.pause());
+  FULL = { items, strip, at: -1, back: document.activeElement, under };
   // What the strip shows now: the count, the dots, the arrows, the actions of that result, and only its video plays.
   const upd = () => {
     if (!FULL) return;
@@ -769,7 +772,8 @@ export function openFull(at = 0, items = null) {
     dots?.querySelectorAll("i").forEach((e, i) => e.classList.toggle("on", i === c));
     const it = items[c];
     acts.replaceChildren(...view(it.run, { res: outsOf(it.j).indexOf(it.res), again: it.again }).acts.filter(Boolean));
-    cells.forEach((cell, i) => { const v = cell.querySelector("video"); if (v && i === c) v.play().catch(() => {}); else v?.pause(); });
+    // With reduced motion the video shown waits for its Play.
+    cells.forEach((cell, i) => { const v = cell.querySelector("video"); if (v && i === c && motion()) v.play().catch(() => {}); else v?.pause(); });
   };
   let raf = 0;
   strip.addEventListener("scroll", () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; upd(); }); }, { passive: true });
@@ -789,9 +793,10 @@ export function openFull(at = 0, items = null) {
 export function closeFull(quick = false) {
   const box = $("#full");
   if (!FULL || !box) return;
-  const back = FULL.back;
+  const { back, under } = FULL;
   FULL = null;
   box.querySelectorAll("video").forEach((v) => v.pause());
+  under.forEach((v) => { if (v.isConnected && !v._held) v.play().catch(() => {}); });
   const done = () => { if (FULL) return; box.hidden = true; box.replaceChildren(); document.documentElement.classList.remove("full-on"); if (!quick) back?.focus?.({ preventScroll: true }); };
   const a = quick ? null : anim(box, [{ opacity: 1 }, { opacity: 0 }], { duration: 160, fill: "forwards" });
   if (a) a.finished.then(done, done); else done();
