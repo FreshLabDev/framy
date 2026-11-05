@@ -279,10 +279,10 @@ func TestBrowserLibrary(t *testing.T) {
 	// Scrolled to the end, the next pages come, until there are no more.
 	got = js[map[string]any](t, ctx, libHelpers+`
 	for (let i = 0; i < 6 && tiles().length < `+strconv.Itoa(libTotal)+`; i++) { scrollTo(0, document.body.scrollHeight); await wait(500); }
-	await until(() => /every run/.test(document.querySelector("#library .libmore")?.textContent || ""));
+	await until(() => /all your runs/.test(document.querySelector("#library .libmore")?.textContent || ""));
 	const ns = ids();
 	return { n: ns.length, sorted: ns.every((x, i) => i === 0 || x < ns[i - 1]), end: document.querySelector("#library .libmore")?.textContent };`)
-	if got["n"].(float64) != libTotal || got["sorted"] != true || got["end"] != "That is every run" {
+	if got["n"].(float64) != libTotal || got["sorted"] != true || got["end"] != "That is all your runs" {
 		t.Errorf("pages: %v", got)
 	}
 	lists, _, _ := f.state()

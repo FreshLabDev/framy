@@ -2502,7 +2502,7 @@
     "ar": "حرّكها"
   },
   "result.gone": {
-    "en": "A file of this run was deleted, so it cannot go again.",
+    "en": "A file of this run was deleted, so it cannot be run again.",
     "ru": "Файл этого запуска удалён, повторить его нельзя.",
     "uk": "Файл цього запуску видалено, повторити його не можна.",
     "es": "Se eliminó un archivo de esta ejecución, así que no se puede repetir.",
@@ -8154,7 +8154,7 @@
     "ar": "كل ما تنشئه سيظهر هنا"
   },
   "web.lib.end": {
-    "en": "That is every run",
+    "en": "That is all your runs",
     "ru": "Это все запуски",
     "uk": "Це всі запуски",
     "es": "Estas son todas las ejecuciones",
@@ -8694,7 +8694,7 @@
     "ar": "تم ربط OpenRouter."
   },
   "web.oauth.expired": {
-    "en": "The connect expired: more than 10 minutes passed, or it was started again. Press Connect once more.",
+    "en": "This attempt to connect expired: more than 10 minutes passed, or a newer one was started. Press Connect once more.",
     "ru": "Подключение устарело: прошло больше 10 минут или его начали заново. Нажми «Подключить» ещё раз.",
     "uk": "Підключення застаріло: минуло понад 10 хвилин або його почали заново. Натисни «Підключити» ще раз.",
     "es": "La conexión ha caducado: pasaron más de 10 minutos o se inició de nuevo. Pulsa «Conectar» otra vez.",
@@ -11016,7 +11016,7 @@
     "ar": "لم يعد النموذج موجودًا"
   },
   "web.ref.not_a_picture": {
-    "en": "“{name}” is not a picture inside, though it is named like one. Remove it and run again.",
+    "en": "“{name}” is not an image file, though its name says it is. Remove it and run again.",
     "ru": "Файл «{name}» оказался не картинкой, хотя так называется. Убери его и запусти снова.",
     "uk": "«{name}» насправді не зображення, хоч і названий як зображення. Прибери його й запусти знову.",
     "es": "«{name}» no es una imagen por dentro, aunque lo parece por el nombre. Quítalo y ejecuta de nuevo.",
@@ -11106,7 +11106,7 @@
     "ar": "لا يوجد اتصال"
   },
   "web.ref.part_long": {
-    "en": "The part came out {len}, and the model takes up to {max}. Pick one a little shorter.",
+    "en": "The part is {len} long, and the model takes up to {max}. Pick one a little shorter.",
     "ru": "Отрезок вышел {len}, а модель берёт до {max}. Выбери чуть короче.",
     "uk": "Відрізок вийшов {len}, а модель приймає до {max}. Обери трохи коротший.",
     "es": "El fragmento dura {len}, y el modelo admite hasta {max}. Elige uno un poco más corto.",
@@ -13158,7 +13158,7 @@
     "ar": "تم الإنشاء في مجموعة"
   },
   "web.view.where_guest": {
-    "en": "Made in a chat framy is not in, by guest mode",
+    "en": "Made in guest mode, in a chat framy is not in",
     "ru": "Сделано в чужом чате, через гостевой режим",
     "uk": "Створено в чаті, де немає framy, через гостьовий режим",
     "es": "Hecho en modo invitado en un chat donde framy no está",

@@ -464,7 +464,7 @@ func TestBrowserPrefs(t *testing.T) {
 	s = prefs(t, ctx, `
 	await until(() => !sheet().hidden && note("ps-openrouter"));
 	return { url: location.search, said: note("ps-openrouter") };`)
-	if s["url"] != "" || s["said"] != "The connect expired: more than 10 minutes passed, or it was started again. Press Connect once more." {
+	if s["url"] != "" || s["said"] != "This attempt to connect expired: more than 10 minutes passed, or a newer one was started. Press Connect once more." {
 		t.Errorf("expired: %v", s)
 	}
 
