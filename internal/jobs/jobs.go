@@ -143,6 +143,9 @@ type Job struct {
 type Input struct {
 	ContentType string
 	URL         string
+	// Bytes is the file's size, 0 when not known. A video's request gets
+	// time for its files (callLimit), since an adapter may carry them in it.
+	Bytes int64
 }
 
 // Inputs finds the files a job takes. An *Error fails the job before

@@ -348,7 +348,7 @@ func (s *Store) Inputs(ctx context.Context, j jobs.Job) ([]jobs.Input, error) {
 		ttl = s.cfg.VideoInputTTL
 	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT i.position, a.object_key, a.content_type
+		SELECT i.position, a.object_key, a.content_type, a.bytes
 		FROM job_input i LEFT JOIN asset a ON a.id = i.asset_id
 		WHERE i.job_id = $1
 		ORDER BY i.position`, j.ID)
@@ -358,10 +358,11 @@ func (s *Store) Inputs(ctx context.Context, j jobs.Job) ([]jobs.Input, error) {
 	type input struct {
 		pos              int
 		key, contentType *string
+		bytes            *int64
 	}
 	list, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (input, error) {
 		var in input
-		return in, r.Scan(&in.pos, &in.key, &in.contentType)
+		return in, r.Scan(&in.pos, &in.key, &in.contentType, &in.bytes)
 	})
 	if err != nil {
 		return nil, err
@@ -375,7 +376,7 @@ func (s *Store) Inputs(ctx context.Context, j jobs.Job) ([]jobs.Input, error) {
 		if err != nil {
 			return nil, &jobs.Error{Class: jobs.Storage, Err: err}
 		}
-		out = append(out, jobs.Input{ContentType: *in.contentType, URL: link})
+		out = append(out, jobs.Input{ContentType: *in.contentType, URL: link, Bytes: *in.bytes})
 	}
 	return out, nil
 }

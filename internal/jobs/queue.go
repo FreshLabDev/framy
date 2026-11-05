@@ -68,8 +68,10 @@ var DefaultWorkers = map[string]int{
 const (
 	imageCall = 180 * time.Second
 	// videoCall bounds sending a video request and asking about a run that
-	// is not done.
-	videoCall = 60 * time.Second
+	// is not done. A request that carries files gets sendPerMiB more for
+	// each MiB of them (callLimit), up to videoPoll.
+	videoCall  = 60 * time.Second
+	sendPerMiB = 3 * time.Second
 	// videoPoll bounds a poll of a video run: the one that finds the video
 	// done downloads it in the same call, up to 128 MiB.
 	videoPoll = 5 * time.Minute

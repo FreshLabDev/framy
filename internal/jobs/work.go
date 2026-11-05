@@ -206,11 +206,7 @@ func (q *Queue) submit(ctx context.Context, p Provider, j Job) error {
 	now := q.now()
 	j.SubmittedAt = &now
 
-	limit := imageCall
-	if j.Kind == catalog.Video {
-		limit = videoCall
-	}
-	call, cancel := context.WithTimeout(ctx, limit)
+	call, cancel := context.WithTimeout(ctx, callLimit(j))
 	sub, err := p.Submit(call, j)
 	var pe *Error
 	if err != nil {
@@ -243,6 +239,24 @@ func (q *Queue) submit(ctx context.Context, p Provider, j Job) error {
 		return q.end(ctx, j.ID, ending{status: Failed, class: ProviderFailed, msg: "the provider returned neither a result nor a job id"})
 	}
 	return river.JobSnooze(q.cfg.PollEvery)
+}
+
+// callLimit bounds the paid request of j. A video's is answered at once with
+// the run's id, but an adapter that carries the files in the request itself
+// (Gemini's inline base64) downloads them from R2 and sends them, a third
+// larger, within the call: 60 MiB over the host's line takes minutes, and a
+// call cut short by its own limit would read as a run that may be paid. So
+// the call gets sendPerMiB for each MiB of the files, the download and the
+// upload at the line the copy to R2 assumes (keepPerMiB), up to videoPoll.
+func callLimit(j Job) time.Duration {
+	if j.Kind != catalog.Video {
+		return imageCall
+	}
+	var size int64
+	for _, in := range j.Inputs {
+		size += in.Bytes
+	}
+	return min(videoCall+time.Duration(size>>20)*sendPerMiB, videoPoll)
 }
 
 // requeue puts back in line a job the provider refused before the run

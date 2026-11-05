@@ -588,6 +588,12 @@ func TestJobInputsAreTheDraftsFilesInOrder(t *testing.T) {
 	if none, err := h.store.JobInputs(ctx, id+1); err != nil || len(none) != 0 {
 		t.Fatalf("another job's = %+v, %v", none, err)
 	}
+	// The run's links carry each file's size, which a video's request gets
+	// time by.
+	links, err := h.store.Inputs(ctx, jobs.Job{ID: id})
+	if err != nil || len(links) != 2 || links[0].Bytes != got[0].Bytes || links[1].Bytes != got[1].Bytes || links[0].Bytes == 0 {
+		t.Fatalf("links = %+v, %v", links, err)
+	}
 }
 
 func TestAJobTakesOnlyThePersonsOwnFiles(t *testing.T) {

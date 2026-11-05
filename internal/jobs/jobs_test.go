@@ -51,6 +51,31 @@ func TestTheLimitsFitTogether(t *testing.T) {
 	}
 }
 
+// A video's request gets time for the files it may carry: a prompt alone is
+// answered within a minute, a clip of 48 MiB sent inline is not cut short as
+// a run that may be paid, and no request outlasts a poll.
+func TestAVideoRequestHasTimeForTheFilesItCarries(t *testing.T) {
+	clip := func(n int64) Input { return Input{ContentType: "video/mp4", Bytes: n << 20} }
+	for _, c := range []struct {
+		name string
+		j    Job
+		want time.Duration
+	}{
+		{"a picture", Job{Kind: catalog.Image, Inputs: []Input{clip(40)}}, imageCall},
+		{"a prompt alone", Job{Kind: catalog.Video}, videoCall},
+		{"a photo", Job{Kind: catalog.Video, Inputs: []Input{{ContentType: "image/jpeg", Bytes: 900 << 10}}}, videoCall},
+		{"a clip and a frame", Job{Kind: catalog.Video, Inputs: []Input{clip(48), clip(2)}}, videoCall + 50*sendPerMiB},
+		{"more than any adapter takes", Job{Kind: catalog.Video, Inputs: []Input{clip(200)}}, videoPoll},
+	} {
+		if got := callLimit(c.j); got != c.want {
+			t.Errorf("%s: %v, want %v", c.name, got, c.want)
+		}
+	}
+	if videoPoll+settleWrites >= videoAttempt {
+		t.Errorf("the longest request %v and its writes %v, attempt %v", videoPoll, settleWrites, videoAttempt)
+	}
+}
+
 // Pictures get time to be copied by their size: a small one fails soon when
 // the bucket does not answer, four 4K ones are not cut short.
 func TestTheCopyHasTimeForWhatItCopies(t *testing.T) {
