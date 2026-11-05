@@ -112,12 +112,11 @@ func (f *Flow) follow(ctx context.Context) {
 // step moves one run on. A press working on the run has it; the next round
 // looks again.
 func (f *Flow) step(ctx context.Context, jobID int64) {
-	v, _ := f.locks.LoadOrStore(jobID, &sync.Mutex{})
-	mu := v.(*sync.Mutex)
-	if !mu.TryLock() {
+	unlock, ok := f.tryLock(jobID)
+	if !ok {
 		return
 	}
-	defer mu.Unlock()
+	defer unlock()
 	run, err := f.cfg.Store.ChatRun(ctx, jobID)
 	if errors.Is(err, db.ErrNoRun) {
 		// Its job was deleted since the round began: takeDown has it next.
@@ -177,13 +176,12 @@ func (f *Flow) takeDown(ctx context.Context) {
 		f.swept = now
 	}
 	for _, run := range runs {
-		v, _ := f.locks.LoadOrStore(run.JobID, &sync.Mutex{})
-		mu := v.(*sync.Mutex)
-		if !mu.TryLock() {
+		unlock, ok := f.tryLock(run.JobID)
+		if !ok {
 			continue
 		}
 		dropped, err := f.cfg.Store.DropChatRun(ctx, run.JobID)
-		mu.Unlock()
+		unlock()
 		if err != nil {
 			f.log.Warn("run of a deleted job not dropped", "job", run.JobID, "error", err)
 			continue

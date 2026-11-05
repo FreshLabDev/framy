@@ -193,7 +193,8 @@ type Flow struct {
 	albums Albums
 
 	// locks keeps a press and the delivery from changing one run at once.
-	locks sync.Map // job id → *sync.Mutex
+	locksMu sync.Mutex
+	locks   map[int64]*runLock
 	// files are the file_ids of the pictures every run shares, by their
 	// anim key: Telegram keeps the upload, and the next run sends the id.
 	files sync.Map // anim key → file_id
@@ -395,17 +396,58 @@ func (f *Flow) Callback(ctx context.Context, cq *tg.CallbackQuery) {
 	})
 }
 
-// lock is the run's mutex.
-func (f *Flow) lock(jobID int64) func() {
-	v, _ := f.locks.LoadOrStore(jobID, &sync.Mutex{})
-	mu := v.(*sync.Mutex)
-	mu.Lock()
-	return mu.Unlock
+// runLock is a run's mutex and how many hold it or wait for it. The last
+// to let go removes it: a mutex dropped while held would let the next
+// press work the run beside the one holding it, and one kept after its
+// last use would stay for good, as a press on a result's button does.
+type runLock struct {
+	mu   sync.Mutex
+	refs int
 }
 
-// forget drops what the flow kept in memory of an ended run.
+// lock holds the run's mutex, and returns what lets it go.
+func (f *Flow) lock(jobID int64) func() {
+	l := f.takeLock(jobID)
+	l.mu.Lock()
+	return func() { l.mu.Unlock(); f.dropLock(jobID, l) }
+}
+
+// tryLock holds the run's mutex unless something holds it already.
+func (f *Flow) tryLock(jobID int64) (unlock func(), ok bool) {
+	l := f.takeLock(jobID)
+	if !l.mu.TryLock() {
+		f.dropLock(jobID, l)
+		return nil, false
+	}
+	return func() { l.mu.Unlock(); f.dropLock(jobID, l) }, true
+}
+
+func (f *Flow) takeLock(jobID int64) *runLock {
+	f.locksMu.Lock()
+	defer f.locksMu.Unlock()
+	if f.locks == nil {
+		f.locks = map[int64]*runLock{}
+	}
+	l := f.locks[jobID]
+	if l == nil {
+		l = &runLock{}
+		f.locks[jobID] = l
+	}
+	l.refs++
+	return l
+}
+
+func (f *Flow) dropLock(jobID int64, l *runLock) {
+	f.locksMu.Lock()
+	defer f.locksMu.Unlock()
+	if l.refs--; l.refs == 0 {
+		delete(f.locks, jobID)
+	}
+}
+
+// forget drops what the flow kept in memory of an ended run. Its lock goes
+// by itself once nothing holds it.
 func (f *Flow) forget(jobID int64) {
-	f.locks.Delete(jobID)
 	f.ticks.Delete(jobID)
 }
 

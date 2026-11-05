@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -757,6 +758,67 @@ func TestFollowWorksEveryOpenRun(t *testing.T) {
 	h.flow.follow(context.Background())
 	if h.store.stage(id) != db.StageDone {
 		t.Fatalf("stage %s", h.store.stage(id))
+	}
+}
+
+// A run delivered while a press waits on it: forget comes from the one
+// that holds the run, and the press must still wait for it to let go.
+func TestARunsLockHoldsUntilItIsLetGo(t *testing.T) {
+	h := newHarness(t)
+	unlock := h.flow.lock(1)
+	h.flow.forget(1)
+	if _, ok := h.flow.tryLock(1); ok {
+		t.Fatal("the run was held twice at once")
+	}
+	got := make(chan struct{})
+	go func() {
+		defer close(got)
+		h.flow.lock(1)()
+	}()
+	select {
+	case <-got:
+		t.Fatal("a press went past the run's holder")
+	case <-time.After(20 * time.Millisecond):
+	}
+	unlock()
+	<-got
+	h.flow.locksMu.Lock()
+	defer h.flow.locksMu.Unlock()
+	if len(h.flow.locks) != 0 {
+		t.Fatalf("%d locks stay after every press let go", len(h.flow.locks))
+	}
+}
+
+func TestPressesOnOneRunGoOneAtATime(t *testing.T) {
+	h := newHarness(t)
+	var (
+		in, most int
+		mu       sync.Mutex
+		wg       sync.WaitGroup
+	)
+	for i := range 50 {
+		wg.Go(func() {
+			unlock := h.flow.lock(7)
+			mu.Lock()
+			in++
+			most = max(most, in)
+			mu.Unlock()
+			if i%5 == 0 {
+				h.flow.forget(7)
+			}
+			time.Sleep(100 * time.Microsecond)
+			mu.Lock()
+			in--
+			mu.Unlock()
+			unlock()
+		})
+	}
+	wg.Wait()
+	if most != 1 {
+		t.Fatalf("%d presses worked the run at once", most)
+	}
+	if len(h.flow.locks) != 0 {
+		t.Fatalf("%d locks stay", len(h.flow.locks))
 	}
 }
 
