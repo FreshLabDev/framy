@@ -362,6 +362,21 @@ func TestEnglishSaysOurBotsNotTheFamily(t *testing.T) {
 	}
 }
 
+// English is spelled the American way, as the providers' own pages spell
+// what a line sends the person to (OpenAI's organization, the catalog):
+// "Sign-in cancelled" stood beside "verify the organization". These are
+// the British forms an interface line is likely to reach for.
+func TestEnglishSpellsTheAmericanWay(t *testing.T) {
+	british := regexp.MustCompile(`(?i)\b(\w*(cancell|travell|modell|labell|levell|signall)(ed|ing)` +
+		`|colour\w*|favourit\w*|behaviour\w*|centre[sd]?|catalogue[sd]?|licence[sd]?|grey\w*|analys(e|ed|ing)` +
+		`|\w*(organis|recognis|realis|customis|personalis|optimis|prioritis|authoris|apologis|summaris|finalis|minimis|maximis|visualis|synchronis|categoris|utilis|normalis|initialis|standardis)(e|es|ed|ing|ation|ations))\b`)
+	for _, key := range Keys() {
+		if w := british.FindString(translations[key]["en"]); w != "" {
+			t.Errorf("%s spells %q the British way: %q", key, w, translations[key]["en"])
+		}
+	}
+}
+
 // panelMark is a symbol a string in Go code may carry although isEmoji
 // counts it: the marks of a chosen option (core/docs/panels.md, R7) and the
 // flags of the language picker's labels.

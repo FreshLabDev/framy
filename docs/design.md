@@ -823,6 +823,7 @@ Temporary domain `framy.ws04.cc`. Mobile first; on a wide screen the composer an
 - **framy's mark (owner, 31 October):** two mountains and a sun, the flat version of the bot's avatar (`brand/framy/framy-favicon.svg`, copied to `internal/web/app/icon/`). It is the tab icon, with a 32 px PNG beside the SVG and a 180 px one for the home screen of an iPhone, and it stands before the name in the header, its mountains on the line of the letters, in the skeleton as in the page. On a screen under 360 px with the sign-in button the header shows the mark alone, so the button stays on one line; a sign-in line too long for the button ends in an ellipsis.
 - The interface comes in the family's 16 languages, with `i18n` taken from maply.
 - **Punctuation.** A line that names what it sits on has no full stop, even when it is a whole sentence: a button, a heading, the label on a frame, a tag, a tooltip, the caption under a settings row or under the price, the reason beside a file. A line the person reads as a message ends with one: a toast, a notice, an error or a refusal, a note under a section, a hint, and any line of two sentences. A translation carries its own stop, since Chinese and Japanese end a sentence with 。: the code joins lines but never adds a "." to one.
+- **Spelling.** The English lines, the bot's and the site's, are spelled the American way, as the providers' pages a line sends the person to are: canceled, organization, catalog, color. `TestEnglishSpellsTheAmericanWay` names the British forms that differ.
 
 ## Content and other people's photos
 

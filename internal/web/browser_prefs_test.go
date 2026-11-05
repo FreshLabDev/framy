@@ -555,7 +555,7 @@ func TestBrowserPrefs(t *testing.T) {
 	btn(sheet(), "Again").click();
 	await until(() => sheet().hidden && document.querySelector(".signin"));
 	return { q1, q2, failed, asked: !document.querySelector("#ask").hidden, toast: toastText(), top: document.querySelector("#top").textContent };`)
-	if s["q1"] != "Delete the account?" || s["q2"] != "Runs finish first: Some runs have not started yet and can be cancelled. Then the account can be deleted." ||
+	if s["q1"] != "Delete the account?" || s["q2"] != "Runs finish first: Some runs have not started yet and can be canceled. Then the account can be deleted." ||
 		s["failed"] != "Delete the accountNot every file was deleted, so the account is still here. Press again to finish deleting.Again" ||
 		s["asked"] != false || s["toast"] != "The account is deleted, and every session is closed." || s["top"] != "framySign in with Telegram" {
 		t.Errorf("delete: %v", s)

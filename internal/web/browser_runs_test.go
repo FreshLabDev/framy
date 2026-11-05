@@ -594,13 +594,13 @@ func TestBrowserRuns(t *testing.T) {
 	for (let i = 0; i < 30 && after === before; i++) { await wait(100); after = stage().sub; }
 	const cancel = [...document.querySelectorAll("#stage .jacts > button")].find((b) => b.textContent.trim() === "Cancel");
 	cancel?.click();
-	for (let i = 0; i < 40 && stage().label !== "Cancelled"; i++) await wait(100);
+	for (let i = 0; i < 40 && stage().label !== "Canceled"; i++) await wait(100);
 	return { ...s, before, after, can: !!cancel, end: stage() };`)
 	before, _ := s["before"].(string)
 	if !strings.HasPrefix(before, "OpenRouter asked to wait. Next try in 0:") || s["after"] == before || s["can"] != true || s["dots"] != true {
 		t.Errorf("retry: %v", s)
 	}
-	if end := s["end"].(map[string]any); end["label"] != "Cancelled" || end["why"] != "" || !strings.HasSuffix(end["line"].(string), " · $0") {
+	if end := s["end"].(map[string]any); end["label"] != "Canceled" || end["why"] != "" || !strings.HasSuffix(end["line"].(string), " · $0") {
 		t.Errorf("cancelled retry: %v", end)
 	}
 

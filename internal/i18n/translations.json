@@ -882,7 +882,7 @@
     "ar": "استغرق النموذج وقتًا طويلًا."
   },
   "guest.cancelled": {
-    "en": "Cancelled.",
+    "en": "Canceled.",
     "ru": "Отменено.",
     "uk": "Скасовано.",
     "es": "Cancelado.",
@@ -3708,7 +3708,7 @@
     "ar": "اشحن رصيد {provider}"
   },
   "web.auth.cancelled": {
-    "en": "Sign-in cancelled.",
+    "en": "Sign-in canceled.",
     "ru": "Вход отменён.",
     "uk": "Вхід скасовано.",
     "es": "Inicio de sesión cancelado.",
@@ -8640,7 +8640,7 @@
     "ar": "framy مفتوح في عدة علامات تبويب: هذه العلامة تتحقق من النتيجة كل {every}"
   },
   "web.oauth.cancelled": {
-    "en": "The OpenRouter sign-in was cancelled. No key is connected.",
+    "en": "The OpenRouter sign-in was canceled. No key is connected.",
     "ru": "Вход в OpenRouter отменён, ключ не подключён.",
     "uk": "Вхід у OpenRouter скасовано, ключ не підключено.",
     "es": "Se canceló el inicio de sesión en OpenRouter; no hay ninguna clave conectada.",
@@ -10440,7 +10440,7 @@
     "ar": "يجب أن تنتهي التشغيلات أولًا"
   },
   "web.prefs.wait_queued": {
-    "en": "Some runs have not started yet and can be cancelled.",
+    "en": "Some runs have not started yet and can be canceled.",
     "ru": "Часть запусков ещё не началась, их можно отменить.",
     "uk": "Частина запусків ще не почалася, їх можна скасувати.",
     "es": "Algunas ejecuciones aún no han empezado y se pueden cancelar.",
@@ -11916,7 +11916,7 @@
     "ar": "أضف صورة البداية"
   },
   "web.stage.cancelled": {
-    "en": "Cancelled",
+    "en": "Canceled",
     "ru": "Отменено",
     "uk": "Скасовано",
     "es": "Cancelado",
