@@ -376,6 +376,16 @@ func same(a, b any) bool {
 	return errA == nil && errB == nil && string(ja) == string(jb)
 }
 
+// videoDetail is the media_resolution a video part goes with: ultra_high
+// exists for pictures only (Google's media resolution page: 2,240 tokens for
+// an image, none for a video frame), so a video takes high, its finest.
+func videoDetail(level string) string {
+	if level == "ultra_high" {
+		return "high"
+	}
+	return level
+}
+
 // body builds the request once the files are fetched. An image's prompt goes
 // first and the pictures after it, as Google's editing example does; a
 // video's files go first and the words after them, as every Omni example
@@ -386,6 +396,7 @@ func (p plan) body(files []file) ([]byte, error) {
 		b := inputBlock{Type: "image", MimeType: f.contentType, Data: base64.StdEncoding.EncodeToString(f.data), Resolution: p.detail}
 		if name, isVideo := videoTypes[f.contentType]; isVideo {
 			b.Type, b.MimeType = "video", name
+			b.Resolution = videoDetail(p.detail)
 		}
 		media = append(media, b)
 	}

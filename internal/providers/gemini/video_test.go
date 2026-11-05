@@ -662,6 +662,22 @@ func TestOutputFormatAndInputDetail(t *testing.T) {
 	if _, ok := u.body["media_resolution"]; ok {
 		t.Errorf("media_resolution at the top")
 	}
+
+	// ultra_high is for pictures only: a clip beside the picture goes with
+	// high, its finest, and a lower level as it is.
+	clip := jobs.Input{ContentType: "video/mp4", URL: "data:video/mp4;base64," + base64.StdEncoding.EncodeToString(mp4)}
+	for level, want := range map[string]string{"ultra_high": "high", "medium": "medium"} {
+		if _, err := p.Submit(context.Background(), job(t, map[string]any{"media_resolution": level}, ref, clip)); err != nil {
+			t.Fatal(err)
+		}
+		input, _ := u.body["input"].([]any)
+		if b := input[1].(map[string]any); b["resolution"] != level {
+			t.Errorf("%s: the picture went with %v", level, b["resolution"])
+		}
+		if b := input[2].(map[string]any); b["type"] != "video" || b["resolution"] != want {
+			t.Errorf("%s: the clip went with %v, want %s", level, b["resolution"], want)
+		}
+	}
 }
 
 func TestAVideoBesideTheImagePrompt(t *testing.T) {

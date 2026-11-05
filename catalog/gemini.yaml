@@ -15,7 +15,8 @@
 #
 # Settings every image model shares: output_format is response_format's
 # mime_type, PNG when absent; media_resolution is how finely Gemini reads the
-# attached pictures and videos, sent on each of them. google_search grounds
+# attached pictures and videos, sent on each of them. ultra_high is for
+# pictures only, so a video goes with high then. google_search grounds
 # the picture in Google Search, image_search in Google Image Search, and a
 # run with either brings Google's search suggestions, which framy keeps with
 # the job and must show beside the result (docs/design.md, Search grounding).

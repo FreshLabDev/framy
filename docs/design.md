@@ -309,7 +309,7 @@ Gemini takes `media_resolution` for every input picture: `low`, `medium`, `high`
 - **How it shows.** A setting "Input detail" next to the references, with the saving beside it, only on the models where the check passed. The default is `high`, so a result is never worse than the provider's own.
 - **What it saves.** Most of an image model's price is the picture it makes. One reference on Nano Banana 3 Pro saves about 1–2%; 14 references about 20%.
 - **Elsewhere.** OpenAI's `gpt-image-2` has no such setting: its input is always read in full. The price estimate counts input tokens at the level chosen.
-- **Sent.** The Gemini adapter sends the chosen level as `resolution` on every image and video part of the request, the Interactions API's name for it. The catalog lists `media_resolution` on the four Nano Banana offers; the composer draws it only after the launch check above.
+- **Sent.** The Gemini adapter sends the chosen level as `resolution` on every image and video part of the request, the Interactions API's name for it. `ultra_high` exists for pictures only (Google gives a video frame 70 tokens at `low` and `medium` and 280 at `high`, and no `ultra_high`), so a video goes with `high` when it is chosen. The catalog lists `media_resolution` on the four Nano Banana offers; the composer draws it only after the launch check above.
 
 ### Search grounding
 
