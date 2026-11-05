@@ -5,6 +5,7 @@ package jobs
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -49,7 +50,7 @@ func TestAVideoHasTimeToBeDownloadedAndKept(t *testing.T) {
 		cost := 0.3
 		return Outcome{Results: []Result{{ContentType: "video/mp4", Data: []byte("mp4")}}, CostUSD: &cost}, nil
 	}
-	f.onKeep = func(ctx context.Context, j Job) { d.note(string(j.Kind)+" keep", ctx) }
+	f.onKeep = func(ctx context.Context, j Job) error { d.note(string(j.Kind)+" keep", ctx); return nil }
 	q, pool := testQueue(t, f)
 	start(t, q)
 
@@ -79,5 +80,42 @@ func TestAVideoHasTimeToBeDownloadedAndKept(t *testing.T) {
 	}
 	if v := scalar[*bool](t, pool, `SELECT (args->>'video')::bool FROM framy.river_job WHERE (args->>'job_id')::bigint = $1`, image); v != nil {
 		t.Errorf("the image's River job is marked: %v", *v)
+	}
+}
+
+// A copy that takes all of its time still leaves the ending its own: the
+// paid picture is done, or failed as storage with its cost, and never left
+// for the next attempt to call interrupted.
+func TestASlowCopyLeavesTheEndingItsOwnTime(t *testing.T) {
+	ctx := context.Background()
+	for _, c := range []struct {
+		name   string
+		kept   bool
+		status Status
+		class  Class
+	}{
+		{"kept as its time ran out", true, Done, ""},
+		{"not kept in time", false, Failed, Storage},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFake()
+			f.onKeep = func(ctx context.Context, _ Job) error {
+				<-ctx.Done()
+				if c.kept {
+					return nil
+				}
+				return fmt.Errorf("put the result: %w", ctx.Err())
+			}
+			q, _ := testQueue(t, f)
+			q.keepFor = func(Job, []Result) time.Duration { return 200 * time.Millisecond }
+			id := enqueue(t, q, job(alice, imageOffer))
+			if err := q.work(ctx, id); err != nil {
+				t.Fatalf("the attempt: %v", err)
+			}
+			j := get(t, q, id)
+			if j.Status != c.status || j.ErrorClass != c.class || j.ActualUSD == nil || *j.ActualUSD != 0.02 {
+				t.Fatalf("%s %s, cost %v; want %s %s with the cost", j.Status, j.ErrorClass, j.ActualUSD, c.status, c.class)
+			}
+		})
 	}
 }

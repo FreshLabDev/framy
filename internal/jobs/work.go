@@ -32,13 +32,14 @@ type generateWorker struct {
 	q *Queue
 }
 
-// Timeout is the attempt's limit: the client's for an image, longer for a
-// video, whose last poll downloads it and copies it to R2.
+// Timeout is the attempt's limit: an image's call and the copy of its
+// pictures to R2, and longer for a video, whose last poll downloads it and
+// copies it to R2. River rescues no job before its limit has passed.
 func (w *generateWorker) Timeout(rj *river.Job[generateArgs]) time.Duration {
 	if rj.Args.Video {
 		return videoAttempt
 	}
-	return 0
+	return imageAttempt
 }
 
 func (w *generateWorker) Work(ctx context.Context, rj *river.Job[generateArgs]) error {
@@ -181,7 +182,7 @@ func (q *Queue) submit(ctx context.Context, p Provider, j Job) error {
 	cancel()
 
 	// What came back is written down even when a stop has begun.
-	ctx, done := detachFor(ctx, settleLimit(j))
+	ctx, done := detach(ctx)
 	defer done()
 	if pe != nil {
 		if pe.retryable() && j.Submits < maxSubmits {
@@ -245,7 +246,7 @@ func (q *Queue) poll(ctx context.Context, p Provider, j Job) error {
 	}
 	cancel()
 
-	ctx, done := detachFor(ctx, settleLimit(j))
+	ctx, done := detach(ctx)
 	defer done()
 	late := j.SubmittedAt != nil && q.now().Sub(*j.SubmittedAt) > runDeadline
 	switch {
@@ -265,7 +266,10 @@ func (q *Queue) poll(ctx context.Context, p Provider, j Job) error {
 	return q.settle(ctx, j, out)
 }
 
-// settle ends a run the provider finished.
+// settle ends a run the provider finished. Copying the results and writing
+// the ending each have their own time, both apart from the attempt's: a
+// copy that takes all of its time still leaves the ending its own, so a
+// paid result is never left for the next attempt to call interrupted.
 func (q *Queue) settle(ctx context.Context, j Job, out Outcome) error {
 	e := ending{cost: out.CostUSD}
 	switch {
@@ -274,7 +278,10 @@ func (q *Queue) settle(ctx context.Context, j Job, out Outcome) error {
 	case len(out.Results) == 0:
 		e.status, e.class, e.msg = Failed, ProviderFailed, "the run ended with no result"
 	default:
-		if err := q.cfg.Sink.Keep(ctx, j, out.Results); err != nil {
+		keep, done := detachFor(ctx, q.keepFor(j, out.Results))
+		err := q.cfg.Sink.Keep(keep, j, out.Results)
+		done()
+		if err != nil {
 			if j.ProviderJobID != "" {
 				// The provider still holds the result: ask for it again.
 				return fmt.Errorf("keep the results of job %d: %w", j.ID, err)
@@ -287,6 +294,8 @@ func (q *Queue) settle(ctx context.Context, j Job, out Outcome) error {
 			e.grounding = out.Grounding
 		}
 	}
+	ctx, done := detach(ctx)
+	defer done()
 	return q.end(ctx, j.ID, e)
 }
 
@@ -444,13 +453,23 @@ func detachFor(ctx context.Context, d time.Duration) (context.Context, context.C
 	return context.WithTimeout(context.WithoutCancel(ctx), d)
 }
 
-// settleLimit is how long what follows a call of j's may take: a video's
-// result is copied to R2 in it.
-func settleLimit(j Job) time.Duration {
+// keepLimit is how long copying a run's results to R2 may take: a video's
+// three minutes, and for pictures settleWrites and keepPerMiB for each MiB
+// of them, up to imageKeep, so that four 4K pictures over a home line are
+// not cut short and a small one that cannot be kept fails soon. A picture
+// that comes as a link is of a size not known before it is fetched.
+func keepLimit(j Job, results []Result) time.Duration {
 	if j.Kind == catalog.Video {
 		return videoKeep
 	}
-	return settleWrites
+	var size int64
+	for _, r := range results {
+		if r.Data == nil {
+			return imageKeep
+		}
+		size += int64(len(r.Data))
+	}
+	return min(settleWrites+time.Duration(size>>20)*keepPerMiB, imageKeep)
 }
 
 // clip keeps an error message to a size a row can hold.

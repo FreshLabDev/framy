@@ -126,8 +126,9 @@ type fakeProvider struct {
 	inFlight map[int64]int
 	most     map[int64]int
 	kept     map[int64]int
-	// onKeep, when set, sees the context results are kept with.
-	onKeep func(context.Context, Job)
+	// onKeep, when set, sees the context results are kept with, and its
+	// error is the copy's.
+	onKeep func(context.Context, Job) error
 }
 
 func newFake() *fakeProvider {
@@ -168,7 +169,9 @@ func (f *fakeProvider) Keep(ctx context.Context, j Job, results []Result) error 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.onKeep != nil {
-		f.onKeep(ctx, j)
+		if err := f.onKeep(ctx, j); err != nil {
+			return err
+		}
 	}
 	f.kept[j.ID] += len(results)
 	return nil

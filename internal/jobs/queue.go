@@ -73,17 +73,23 @@ const (
 	// videoPoll bounds a poll of a video run: the one that finds the video
 	// done downloads it in the same call, up to 128 MiB.
 	videoPoll = 5 * time.Minute
-	// videoKeep bounds what follows that poll: copying the video to R2 and
-	// ending the job. A poll may come back after a stop has begun, so this
-	// runs apart from the attempt's own limit.
-	videoKeep = 3 * time.Minute
-	// settleWrites bounds the writes that follow any other call.
+	// videoKeep bounds copying a finished video to R2, and imageKeep the
+	// pictures of a run, which get keepPerMiB for each MiB (keepLimit). A
+	// call may come back after a stop has begun, so the copy and the writes
+	// that follow it run apart from the attempt's own limit.
+	videoKeep  = 3 * time.Minute
+	imageKeep  = 2 * time.Minute
+	keepPerMiB = 2 * time.Second
+	// settleWrites bounds the writes that follow a call, each on its own:
+	// a slow copy does not eat the time of the write that ends the job.
 	settleWrites = 30 * time.Second
 	attemptLimit = 4 * time.Minute
-	// videoAttempt is a video job's attempt: the poll, the copy, a margin.
-	// River leaves a job alone until its own limit has passed, however old
-	// rescueAfter says it is, so the images keep the shorter rescue.
-	videoAttempt = videoPoll + videoKeep + time.Minute
+	// imageAttempt and videoAttempt are a job's attempt: the call or the
+	// poll, the writes that follow it, the copy, the ending, a margin. River
+	// leaves a job alone until its own limit has passed, however old
+	// rescueAfter says it is, and an attempt still alive is never rescued.
+	imageAttempt = imageCall + settleWrites + imageKeep + settleWrites + time.Minute
+	videoAttempt = videoPoll + settleWrites + videoKeep + settleWrites + time.Minute
 	rescueAfter  = 5 * time.Minute
 	// maxSubmits caps the paid requests refused before the run started.
 	maxSubmits = 5
@@ -138,6 +144,9 @@ type Queue struct {
 	log    *slog.Logger
 	now    func() time.Time
 	cancel context.CancelFunc
+	// keepFor is how long a run's results may take to be copied: keepLimit,
+	// short in tests.
+	keepFor func(Job, []Result) time.Duration
 }
 
 // NewQueue builds the queue on pool, whose search_path is framy.
@@ -152,7 +161,7 @@ func NewQueue(pool *pgxpool.Pool, cfg Config) (*Queue, error) {
 	if cfg.Log == nil {
 		cfg.Log = slog.Default()
 	}
-	q := &Queue{pool: pool, cfg: cfg, log: cfg.Log, now: time.Now}
+	q := &Queue{pool: pool, cfg: cfg, log: cfg.Log, now: time.Now, keepFor: keepLimit}
 
 	workers := river.NewWorkers()
 	if err := river.AddWorkerSafely(workers, &generateWorker{q: q}); err != nil {
