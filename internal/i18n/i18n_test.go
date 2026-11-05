@@ -262,6 +262,19 @@ func TestNoEmDashInTranslations(t *testing.T) {
 	}
 }
 
+// A straight ' or " is a typewriter's mark. framy writes the typographic ones
+// (’ “ ” « » „), so the bot and the site set "framy’s" alike; the only markup
+// in a translation is <code>, which takes no attribute to quote.
+func TestNoStraightQuotesInTranslations(t *testing.T) {
+	for _, key := range Keys() {
+		for _, code := range Codes() {
+			if s := translations[key][code]; strings.ContainsAny(s, `'"`) {
+				t.Errorf("%s [%s] has a straight quote: %q", key, code, s)
+			}
+		}
+	}
+}
+
 // panelMark is a symbol a string in Go code may carry although isEmoji
 // counts it: the marks of a chosen option (core/docs/panels.md, R7) and the
 // flags of the language picker's labels.

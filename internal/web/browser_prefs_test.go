@@ -343,7 +343,7 @@ func TestBrowserPrefs(t *testing.T) {
 	// What the provider's check refused, each in its own words; the paste stays to be fixed.
 	for key, want := range map[string]string{
 		"sk-test-rejected-0000000000": "OpenAI did not accept the key: it is wrong or revoked.",
-		"sk-test-forbidden-000000000": "OpenAI accepted the key but does not let it list the models. Allow that in the key's settings.",
+		"sk-test-forbidden-000000000": "OpenAI accepted the key but does not let it list the models. Allow that in the key’s settings.",
 	} {
 		s = prefs(t, ctx, `
 	await typeKey("openai", `+jsString(key)+`);
@@ -745,8 +745,8 @@ func TestBrowserPrefsDefaults(t *testing.T) {
 	return { oa: rowText("openai").sub, ge: rowText("gemini").sub, image: defRow("image"), video: defRow("video"), composer: name(),
 	  tg: note("p-tg"), on: tog.getAttribute("aria-checked"), lang: sheet().querySelector("select.pick").value };`)
 	if s["oa"] != "Key …ab12 · worksThrough framy: $0.42 in all, $0.10 in 30 days" || s["ge"] != "Key …cd34 · accepted" ||
-		fmt.Sprint(s["image"]) != "map[btns:[Change] sub:MAI-Image 2.6 Flash, framy's choice title:Pictures]" ||
-		fmt.Sprint(s["video"]) != "map[btns:[Change] sub:HeyGen Video, framy's choice title:Videos]" || s["composer"] != "MAI-Image 2.6 Flash" ||
+		fmt.Sprint(s["image"]) != "map[btns:[Change] sub:MAI-Image 2.6 Flash, framy’s choice title:Pictures]" ||
+		fmt.Sprint(s["video"]) != "map[btns:[Change] sub:HeyGen Video, framy’s choice title:Videos]" || s["composer"] != "MAI-Image 2.6 Flash" ||
 		s["tg"] != "Send results to the chatWhat you make on the site also comes to your chat with framy" || s["on"] != "true" || s["lang"] != "" {
 		t.Errorf("rows: %v", s)
 	}
@@ -792,7 +792,7 @@ func TestBrowserPrefsDefaults(t *testing.T) {
 	if s["title"] != "Default model for pictures" || s["under"] != false || s["picker"] != true || s["inline"] != true || s["svgs"] != float64(0) ||
 		fmt.Sprint(s["letters"]) != "[]" ||
 		fmt.Sprint(image["btns"]) != "[Reset Change]" || !strings.HasPrefix(fmt.Sprint(image["sub"]), fmt.Sprint(s["fam"])) ||
-		strings.Contains(fmt.Sprint(image["sub"]), "framy's choice") || s["composer"] != image["sub"] {
+		strings.Contains(fmt.Sprint(image["sub"]), "framy’s choice") || s["composer"] != image["sub"] {
 		t.Errorf("pick a default: %v (sent %q)", s, picked)
 	}
 
@@ -820,9 +820,9 @@ func TestBrowserPrefsDefaults(t *testing.T) {
 	await until(() => sheet().querySelector('[data-k="p-tg"] .tog').getAttribute("aria-checked") === "false");
 	await wait(300);
 	return { title, letters, marked, back, image: defRow("image").sub, tg: note("p-tg") };`)
-	if s["title"] != "Default model for videos" || fmt.Sprint(s["back"]) != "map[picker:true scrim:false video:HeyGen Video, framy's choice]" ||
+	if s["title"] != "Default model for videos" || fmt.Sprint(s["back"]) != "map[picker:true scrim:false video:HeyGen Video, framy’s choice]" ||
 		fmt.Sprint(s["letters"]) != "[]" || fmt.Sprint(s["marked"]) != "[HeyGen TBC]" ||
-		s["image"] != "MAI-Image 2.6 Flash, framy's choice" || s["tg"] != "Send results to the chatWhat you make on the site stays on the site" {
+		s["image"] != "MAI-Image 2.6 Flash, framy’s choice" || s["tg"] != "Send results to the chatWhat you make on the site stays on the site" {
 		t.Errorf("back, reset, switch: %v", s)
 	}
 	f.with(func() {

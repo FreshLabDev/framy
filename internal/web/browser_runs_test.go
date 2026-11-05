@@ -1016,7 +1016,7 @@ func TestBrowserRunSound(t *testing.T) {
 	s.sound = sent.map((b) => b.settings.generate_audio);
 	s.offers = sent.map((b) => b.offer);
 	return s;`)
-	if acts := fmt.Sprint(s["acts"]); s["label"] != "Sound refused" || s["why"] != "The model's sound may break copyright." || s["said"] != "" ||
+	if acts := fmt.Sprint(s["acts"]); s["label"] != "Sound refused" || s["why"] != "The model’s sound may break copyright." || s["said"] != "" ||
 		!strings.HasPrefix(acts, "[Try without sound Edit the prompt") || !strings.HasSuffix(s["line"].(string), " · $0") {
 		t.Errorf("sound: %v", s)
 	}
