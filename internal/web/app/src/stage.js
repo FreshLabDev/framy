@@ -3,10 +3,10 @@
 // or why there is none, with the buttons that fit.
 import { $, $$, h, ic, isPhone } from "./dom.js";
 import { anim, rise, snap, EASE, motion } from "./motion.js";
-import { t, fmtNum } from "./i18n.js";
+import { t, fmtNum, fmtSecs } from "./i18n.js";
 import { C, vname, famLogo, lg, ratioNum, ratioOfSize, PNAME, provMark, show, SICON } from "./catalog.js";
 import { S, M, payOf, settings, sourceRatio, connection, FR, MAXFR, scopeFr, plan } from "./state.js";
-import { isFinal, outsOf } from "./api.js";
+import { isFinal, outsOf, POLL_MS } from "./api.js";
 import { failure, waiting, left, BILLING } from "./errors.js";
 import { priceText, sumOf } from "./price.js";
 import { setScope, addFrame, removeFrame, openTune, framesNote, miniShape } from "./composer.js";
@@ -231,6 +231,8 @@ function runRatio(run, res = outsOf(run.job)[0]) {
   return f?.w && f?.h ? f.w / f.h : m?.kind === "video" ? 16 / 9 : 1;
 }
 
+// The tag of a run read every few seconds, since its stream was refused.
+const pollTag = () => { const every = fmtSecs(POLL_MS / 1000); return h("span", { class: "jtag", title: t("net.poll_tip", { every }) }, t("net.poll", { every })); };
 // A line that counts down: its text is asked again every second.
 const live = (text, cls = "") => { const el = h("small", { class: ("tk " + cls).trim() }, text()); el._text = text; return el; };
 // The wait: how long since the press, or since the job was made, and how long
@@ -401,7 +403,7 @@ function renderPress(st, run) {
   const cost = parts.length && parts.every(Boolean) ? sumOf(parts).label
     : paidJobs.length || run.frames.some((fm) => fm.pay !== "free") ? run.shownLabel : t("bar.free");
   const line = h("p", { class: "jline", "data-k": "j-line" }, [models.map((id) => (C.byId[id] ? vname(C.byId[id]) : "")).filter(Boolean).join(", "), cost].filter(Boolean).join(" · "),
-    going && run.net === "poll" ? h("span", { class: "jtag", title: t("net.poll_tip") }, t("net.poll")) : null);
+    going && run.net === "poll" ? pollTag() : null);
   const why = failed.length ? h("div", { class: "jwhy", "data-k": "j-why" }, failed.map((c) => h("p", {}, t("fr.failed", { n: c.i + 1, why: c.v.status?.querySelector("b")?.textContent || "" })))) : null;
   const queued = run.phase === "prep" ? !run.sending : js.some((j) => j.status === "queued");
   const acts = going
@@ -448,7 +450,7 @@ function renderRun(st, run) {
   const cost = j?.cost?.label ? j.cost.label : v.zero ? zeroOf(j?.estimate?.label || run.priceLabel)
     : j?.free || (run.pay === "free" && !v.fail) ? t("bar.free") : run.shownLabel && !v.fail ? run.shownLabel : "";
   const line = h("p", { class: "jline", "data-k": "j-line" }, [m ? vname(m) : "", cost].filter(Boolean).join(" · "),
-    going && run.net === "poll" ? h("span", { class: "jtag", title: t("net.poll_tip") }, t("net.poll")) : null);
+    going && run.net === "poll" ? pollTag() : null);
   const [text, note] = v.why || [];
   const why = text || note
     ? h("div", { class: "jwhy", "data-k": "j-why" }, h("p", {}, text, text && note ? " " : "", note ? h("span", { class: "note" }, note) : null))

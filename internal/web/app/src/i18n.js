@@ -26,6 +26,11 @@ export const fmtSecs = (s) => t("unit.s", { n: fmtNum(+s || 0, { maximumFraction
 export const fmtTime = (ms) => new Date(ms).toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" });
 // "5 November, 14:30" in the browser's time zone: when a free run frees up.
 export const fmtAt = (ms) => made("a" + lang, () => new Intl.DateTimeFormat(lang, { day: "numeric", month: "long", hour: "numeric", minute: "2-digit" })).format(ms);
+// "in 10 seconds": a short wait, in the phrase the language says it with,
+// so the count takes the case it needs ("через 1 секунду").
+export const fmtInSecs = (s) => made("r" + lang, () => new Intl.RelativeTimeFormat(lang, { numeric: "auto" })).format(Math.max(1, Math.round(s)), "second");
+// "15 minutes": a length of time as a count of a unit, spelled out.
+export const fmtUnit = (n, unit) => made("u" + lang + unit, () => new Intl.NumberFormat(lang, { style: "unit", unit, unitDisplay: "long" })).format(n);
 // "in 3 hours", "in 2 days": when something comes back.
 export function fmtIn(ms) {
   const sec = Math.max(60, (ms - Date.now()) / 1000), rtf = made("r" + lang, () => new Intl.RelativeTimeFormat(lang, { numeric: "auto" }));

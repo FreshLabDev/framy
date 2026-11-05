@@ -52,7 +52,9 @@ import (
 
 // MoneyPause is how long the free tier stays closed after a free run failed
 // for lack of money: framy's key is out of credit or over its limit, and the
-// next run would only fail the same way.
+// next run would only fail the same way. The site says it and closes the
+// free tier as long on its side (errors.js MONEY_PAUSE_MIN, held equal by
+// TestTheSiteSaysTheServersNumbers).
 const MoneyPause = 15 * time.Minute
 
 // DefaultDailyBudgetUSD is the owner's budget (27 October): about 50 free

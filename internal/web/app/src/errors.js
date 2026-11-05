@@ -4,9 +4,18 @@
 // buttons fit. The English message of a job is shown only where it is the
 // provider's own reason, as the server marks it (error.from_provider):
 // framy's own line is never shown as what the provider said.
-import { t, fmtTime, fmtAt, fmtSecs, fmtNum } from "./i18n.js";
+import { t, fmtTime, fmtAt, fmtSecs, fmtNum, fmtUnit } from "./i18n.js";
 import { C, PNAME, vname, hasAudio } from "./catalog.js";
 import { priceText } from "./price.js";
+
+// MONEY_PAUSE_MIN is free.MoneyPause: how long the free tier stays closed
+// after a free run found framy's key out of credits. The server closes it;
+// the site says so and closes its own button as long.
+export const MONEY_PAUSE_MIN = 15;
+// CLIP_MAX_S is media.DefaultMaxSeconds, for an answer that did not say
+// max_seconds: the longest clip or sound framy takes. TestTheSiteSaysTheServersNumbers
+// holds both equal to the server's.
+const CLIP_MAX_S = 60;
 
 // The provider may have charged for these: the request reached it.
 export const MAYPAY = new Set(["timeout", "provider", "interrupted", "storage"]);
@@ -72,7 +81,7 @@ export function failure(j) {
   switch (cls) {
     case "moderation": return { cls, label: t("fail.moderation_l"), text: "", ...(free ? { note: t("fail.free_spent") } : none), said, acts: ["edit"] };
     case "money": return free
-      ? { cls, label: t("fail.free_closed_l"), text: t("fail.free_money"), note: t("fail.free_kept"), acts: ["bykey"], closeFree: 15 * 60e3 }
+      ? { cls, label: t("fail.free_closed_l"), text: t("fail.free_money", { pause: fmtUnit(MONEY_PAUSE_MIN, "minute") }), note: t("fail.free_kept"), acts: ["bykey"], closeFree: MONEY_PAUSE_MIN * 60e3 }
       : { cls, label: t("fail.money_l"), text: "", ...sent, acts: ["topup", "rekey"], provider: p };
     case "key": return free
       ? { cls, label: t("fail.free_off_l"), text: t("fail.free_key"), note: t("fail.free_kept"), acts: ["bykey"] }
@@ -110,7 +119,7 @@ export function refusal(err, ctx = {}) {
   const R = (label, text, acts = [], more = {}) => ({ code, label, text, acts, ...more });
   // A sound framy could not take: what was wrong with it.
   if (ctx.sound) switch (code) {
-    case "video_too_long": return R(t("ref.sound_bad_l"), t("ref.sound_long"));
+    case "video_too_long": return R(t("ref.sound_bad_l"), t("ref.sound_long", { max: clock(b.max_seconds || CLIP_MAX_S) }));
     case "unsupported_type": return R(t("ref.sound_bad_l"), t("files.sound_type"));
     case "unreadable": return R(t("ref.sound_bad_l"), t("ref.sound_unreadable"));
     case "too_large": return R(t("ref.sound_bad_l"), ctx.maxBytes ? t("files.sound_big", { n: fmtNum(Math.floor(ctx.maxBytes / 1e6)) }) : t("err.too_large"));
@@ -135,7 +144,7 @@ export function refusal(err, ctx = {}) {
     case "unknown_offer": return R(t("ref.model_l"), t("err.unknown_offer"));
     case "unknown_setting": return R(t("fail.invalid_l"), t("fail.invalid"));
     case "cannot_continue": return R(t("ref.cont_l"), t("ref.cannot_continue"), ctx.lastFrame ? ["lastframe"] : []);
-    case "video_too_long": return R(t("ref.too_long_l"), t("ref.too_long", { len: clock(b.seconds) }), ["cut"], { seconds: b.seconds });
+    case "video_too_long": { const max = clock(b.max_seconds || CLIP_MAX_S); return R(t("ref.too_long_l", { max }), t("ref.too_long", { len: clock(b.seconds), max }), ["cut"], { seconds: b.seconds }); }
     case "not_a_video": return R(t("ref.not_clip_l"), t("ref.not_a_video"));
     case "unsupported_type": return ctx.clip ? R(t("ref.clip_bad_l"), t("files.clip_type")) : R(t("ref.file_bad_l"), t("ref.not_a_picture", { name: ctx.name || "" }));
     case "unreadable": return ctx.clip ? R(t("ref.clip_bad_l"), t("ref.clip_unreadable")) : R(t("ref.file_bad_l"), t("err.unreadable"));

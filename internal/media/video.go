@@ -24,7 +24,8 @@ import (
 // goes either way, and with it the GPS position of a phone's clip.
 const (
 	// DefaultMaxSeconds is the longest clip framy keeps. No model takes more
-	// than 30 s; a longer clip is cut to the part the person picks.
+	// than 30 s; a longer clip is cut to the part the person picks. The site
+	// has it as CLIP_MAX_S for an answer without max_seconds.
 	DefaultMaxSeconds = 60
 	// DefaultVideoLongSide is the long side a clip is brought down to when it
 	// is encoded again: 1080p, which no editor exceeds on its input.

@@ -2,7 +2,7 @@
 // the DM, the currency, the language and the account. Each change goes to
 // the server first; the sheet shows what it said.
 import { $, $$, h, ic } from "./dom.js";
-import { t, lang, fmtNum, fmtIn, fmtTime } from "./i18n.js";
+import { t, lang, fmtNum, fmtIn, fmtInSecs, fmtTime } from "./i18n.js";
 import { api } from "./api.js";
 import { S, connection, autoModel, ownDefault } from "./state.js";
 import { C, PNAME, provMark, vname } from "./catalog.js";
@@ -110,7 +110,7 @@ function keyErr(p, code, saving) {
   switch (code) {
     // key_in_use: a video sent with the key still needs it, so the key stays.
     case "bad_key": case "key_rejected": case "key_forbidden": case "key_unreadable": case "key_in_use": case "keys_off": return t("key." + code, { provider: P });
-    case "check_unavailable": return t(saving ? "key.check_unavailable" : "key.recheck_unavailable", { provider: P });
+    case "check_unavailable": return t(saving ? "key.check_unavailable" : "key.recheck_unavailable", { provider: P, in: fmtInSecs(ks(p).retry || RETRY_S) });
     case "network": return t("err.network");
     case "http_429": return t("err.busy");
     default: return t("key.failed", { provider: P });
@@ -135,7 +135,7 @@ async function save(p, value) {
     meChanged();
   } catch (e) {
     if (gone(e)) return lost(e);
-    update(() => { k.busy = false; k.err = e.code; if (e.code === "check_unavailable") waitFor(p, e.retryAfter || 10); });
+    update(() => { k.busy = false; k.err = e.code; if (e.code === "check_unavailable") waitFor(p, e.retryAfter || RETRY_S); });
   }
 }
 // POST /api/connections/{provider}/check: Check. A refused key comes back as invalid.
@@ -151,7 +151,7 @@ async function recheck(p) {
     if (gone(e)) return lost(e);
     // Gone meanwhile, from another tab or the bot: the list is read again.
     if (e.code === "not_found") { k.busy = false; await refreshMe(); update(); return; }
-    update(() => { k.busy = false; k.err = e.code; if (e.code === "key_unreadable") k.edit = true; if (e.code === "check_unavailable") waitFor(p, e.retryAfter || 10); });
+    update(() => { k.busy = false; k.err = e.code; if (e.code === "key_unreadable") k.edit = true; if (e.code === "check_unavailable") waitFor(p, e.retryAfter || RETRY_S); });
   }
 }
 // DELETE /api/connections/{provider}: framy forgets the key. The provider
@@ -170,9 +170,12 @@ async function disconnect(p) {
   meChanged();
 }
 // A check the provider did not answer may be tried again after Retry-After:
-// the button counts down where it stands.
+// the button counts down where it stands, and the message says the same wait.
+// RETRY_S stands in when the answer had no Retry-After.
+const RETRY_S = 10;
 function waitFor(p, secs) {
   const k = ks(p);
+  k.retry = secs;
   k.wait = Date.now() + secs * 1000;
   clearInterval(k.tick);
   const tick = () => {

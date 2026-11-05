@@ -75,6 +75,7 @@ const (
 
 // FlowLifetime is how long a flow lasts from its start: the time to log in at
 // OpenRouter and press Authorize. OpenRouter's own code lives as long.
+// web.oauth.expired says it (TestTheSiteSaysHowLongAConnectionWaits).
 const FlowLifetime = 10 * time.Minute
 
 // cookieName: the __Host- prefix makes a browser take the cookie only if it

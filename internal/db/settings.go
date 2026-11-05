@@ -140,7 +140,8 @@ type Spent struct {
 
 // Spent sums the actual cost of the person's runs on each of their keys, by
 // provider: the jobs not on the free allowance, created since the key was
-// saved, whose cost is known. A provider with no such run is absent.
+// saved, whose cost is known. A provider with no such run is absent. The
+// 30 days are the ones web.key.spent names.
 func (s *Store) Spent(ctx context.Context, userID int64) (map[string]Spent, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT c.provider, sum(j.actual_usd),

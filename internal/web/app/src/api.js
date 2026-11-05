@@ -58,6 +58,8 @@ export const isFinal = (s) => s === "done" || s === "failed" || s === "cancelled
 // What a job shows: the clip it went on from with its own video after it,
 // where the server joined them (results then hold only the new part), else its results.
 export const outsOf = (j) => (j?.joined ? [j.joined] : j?.results || []);
+// POLL_MS: how often a job is read when its stream is refused; the stage says it.
+export const POLL_MS = 5000;
 const wait = (ms, sig) => new Promise((done) => { const t = setTimeout(done, ms); sig?.addEventListener("abort", () => { clearTimeout(t); done(); }); });
 
 /* A job's events (GET /api/jobs/{id}/events). Server-sent events read through fetch, since the Mini App
@@ -75,7 +77,7 @@ export function watchJob(id, onJob, onError, onNet = () => {}) {
     while (!stop.signal.aborted) {
       try { const j = await api(`/api/jobs/${id}`, { signal: stop.signal }); say("poll"); deliver(j); }
       catch (e) { if (e.name === "AbortError") return; if (e.status === 404 || e.status === 401) { onError?.(e); return; } if (e.code === "network") say("lost"); }
-      await wait(5000, stop.signal);
+      await wait(POLL_MS, stop.signal);
     }
   }
 

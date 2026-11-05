@@ -113,7 +113,8 @@ const (
 
 // RunDeadline: a run the provider has not finished by then, counted from
 // the paid request, expires. Until then framy asks about it, and the key it
-// was sent with stays (keys.Service.Delete).
+// was sent with stays (keys.Service.Delete). The site says "up to an hour"
+// (TestTheSiteSaysHowLongARunMayTake).
 const RunDeadline = time.Hour
 
 // Config is the queue's setup. Providers are keyed by the catalog's provider

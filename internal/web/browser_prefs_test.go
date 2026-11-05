@@ -361,7 +361,7 @@ func TestBrowserPrefs(t *testing.T) {
 	await until(() => !form("openai").querySelector("[data-wait]").disabled, 40);
 	const a = form("openai").querySelector("[data-wait]");
 	return { err: kerr("openai"), during, after: [a.textContent, a.disabled] };`)
-	if s["err"] != "OpenAI did not answer. The key is not saved; try again in 10 seconds." || fmt.Sprint(s["during"]) != "[In 2 s true]" || fmt.Sprint(s["after"]) != "[Check false]" {
+	if s["err"] != "OpenAI did not answer. The key is not saved; try again in 2 seconds." || fmt.Sprint(s["during"]) != "[In 2 s true]" || fmt.Sprint(s["after"]) != "[Check false]" {
 		t.Errorf("no answer: %v", s)
 	}
 
@@ -422,7 +422,7 @@ func TestBrowserPrefs(t *testing.T) {
 	btn(rowOf("gemini"), "Check").click();
 	await until(() => rowText("gemini").bad);
 	return rowText("gemini");`)
-	if fmt.Sprint(s) != "map[bad:true btns:[In 2 s Disconnect] sub:AI Studio did not answer. Try again in 10 seconds.]" {
+	if fmt.Sprint(s) != "map[bad:true btns:[In 2 s Disconnect] sub:AI Studio did not answer. Try again in 2 seconds.]" {
 		t.Errorf("check without an answer: %v", s)
 	}
 
