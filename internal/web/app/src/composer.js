@@ -13,7 +13,7 @@ import { priceEl, priceText, known, need, onPrices, usd, needTotal, knownTotal }
 import { renderStage, stageFrom, refit, runOver, ratioOf, syncStrip } from "./stage.js";
 import { openPicker } from "./picker.js";
 import { openSheet, closeSheets, hint } from "./ui.js";
-import { addFiles, removeFile, fitModel } from "./files.js";
+import { addFiles, removeFile, fitModel, looksLikePhoto } from "./files.js";
 import { generate, signIn } from "./run.js";
 import { openCut, thumbMedia, frameEl, looksLikeClip } from "./clips.js";
 import { openPrefs } from "./prefs.js";
@@ -25,7 +25,9 @@ const FILES = { dur: 360,
   enter: (el) => anim(el, [{ transform: "scale(.4) rotate(-6deg)", opacity: 0 }, { transform: "none", opacity: 1 }], { duration: 480, easing: SPRING }),
   leave: (g) => anim(g, [{ transform: "none", opacity: 1 }, { transform: "scale(.4)", opacity: 0 }], { duration: 220, easing: OUT, fill: "forwards" }) };
 
-const PICS = "image/png,image/jpeg,image/webp,image/gif,image/avif,image/heic";
+// A HEIC is named by its extension too: a system that knows no type for it
+// would grey it out in the file dialog.
+const PICS = "image/png,image/jpeg,image/webp,image/gif,image/avif,image/heic,image/heif,.heic,.heif";
 const CLIPS = "video/mp4,video/quicktime,video/webm,video/x-matroska,.mkv,.mov,.m4v";
 const SOUNDS = "audio/mpeg,audio/wav,audio/ogg,audio/flac,audio/aac,audio/mp4,audio/x-m4a,.mp3,.wav,.ogg,.oga,.opus,.flac,.aac,.m4a";
 
@@ -88,7 +90,7 @@ export function wireComposer() {
     if (fs.length) { e.preventDefault(); addFiles(fs, e.slot || ""); }
   });
   document.addEventListener("paste", (e) => {
-    const fs = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith("image/") || looksLikeClip(f));
+    const fs = [...(e.clipboardData?.files || [])].filter((f) => looksLikePhoto(f) || looksLikeClip(f));
     if (fs.length) { e.preventDefault(); addFiles(fs); }
   });
   // A price can make a row of tiles stack, and its marker has to follow.
