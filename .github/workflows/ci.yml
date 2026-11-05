@@ -2,8 +2,11 @@
 name: CI
 
 on:
+  # The two long-lived branches on push, and any other branch through its
+  # pull request: with every branch on push, a pull request's branch ran
+  # the whole of CI twice for each commit.
   push:
-    branches: ["**"]
+    branches: [dev, main]
   pull_request:
   # Weekly, so a new advisory against a dependency or the standard library is
   # noticed while nothing is being pushed.
