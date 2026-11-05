@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -203,6 +204,22 @@ func TestPresignedLinks(t *testing.T) {
 		if _, err := c.PresignGet("k", ttl, ""); err == nil {
 			t.Errorf("a link for %s", ttl)
 		}
+	}
+}
+
+func TestListNamesTheKeysUnderAPrefix(t *testing.T) {
+	srv := r2test.New(t)
+	c := srv.Client(t)
+	for _, k := range []string{"incoming/12/a", "incoming/12/b", "incoming/12/c", "incoming/123/d", "in/x.jpg"} {
+		srv.Put(k, r2test.Object{Data: []byte("x")})
+	}
+	// Three keys come in two pages of the fake; 123 is another person.
+	got, err := c.List(context.Background(), "incoming/12/")
+	if err != nil || !slices.Equal(got, []string{"incoming/12/a", "incoming/12/b", "incoming/12/c"}) {
+		t.Errorf("%v %v", got, err)
+	}
+	if got, err := c.List(context.Background(), "nothing/"); err != nil || len(got) != 0 {
+		t.Errorf("an empty prefix: %v %v", got, err)
 	}
 }
 

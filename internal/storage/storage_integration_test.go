@@ -25,6 +25,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -985,10 +986,19 @@ func TestDeletingEveryFileOfAPerson(t *testing.T) {
 	if _, err := h.pool.Exec(ctx, `UPDATE framy.asset SET created_at = now() + interval '1 hour' WHERE id = $1`, late); err != nil {
 		t.Fatal(err)
 	}
+	// Clips put by link that framy never took: three of alice's, more than a
+	// page of the bucket's list, and one of bob's, whose id begins as hers.
+	clip := r2test.Object{Data: []byte("a clip"), ContentType: "video/mp4"}
+	for _, k := range []string{"incoming/3001/a", "incoming/3001/b", "incoming/3001/c", "incoming/30011/d"} {
+		h.bucket.Put(k, clip)
+	}
 
 	n, err := h.store.DeleteAll(ctx, alice, time.Now())
 	if err != nil || n != 301 {
 		t.Fatalf("deleted %d, %v; want 301", n, err)
+	}
+	if left := h.incoming(t); !slices.Equal(left, []string{"incoming/30011/d"}) {
+		t.Errorf("incoming after the deletion: %v", left)
 	}
 	for _, key := range append(keys, "u/3001/out/9-0.png") {
 		if _, ok := h.bucket.Get(key); ok {

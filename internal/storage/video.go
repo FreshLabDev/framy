@@ -134,6 +134,19 @@ func (s *Store) TakeVideo(ctx context.Context, userID int64, token string, cut *
 	return a, nil
 }
 
+// dropIncomingOf removes the clips the person put into incoming/ that framy
+// never took, as their account goes. It never fails the deletion: what it
+// leaves, the lifecycle rule takes within a day.
+func (s *Store) dropIncomingOf(ctx context.Context, userID int64) {
+	keys, err := s.incoming.List(ctx, s.incomingKey(userID, ""))
+	if err != nil {
+		s.log.Warn("the clips of a deleted account stay in incoming/ until the lifecycle rule", "error", err)
+	}
+	for _, key := range keys {
+		s.dropIncoming(ctx, key)
+	}
+}
+
 func (s *Store) dropIncoming(ctx context.Context, key string) {
 	if err := s.incoming.Delete(context.WithoutCancel(ctx), key); err != nil {
 		s.log.Warn("a clip stays in incoming/ until the lifecycle rule", "key", key, "error", err)

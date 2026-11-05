@@ -89,6 +89,7 @@ type Bucket interface {
 	Get(ctx context.Context, key string) (io.ReadCloser, error)
 	Head(ctx context.Context, key string) (r2.Object, error)
 	Delete(ctx context.Context, key string) error
+	List(ctx context.Context, prefix string) ([]string, error)
 	PresignGet(key string, ttl time.Duration, disposition string) (string, error)
 	PresignGetAt(key string, at time.Time, ttl time.Duration, disposition, cacheControl string) (string, error)
 	PresignPut(key string, size int64, ttl time.Duration) (string, error)
@@ -821,8 +822,10 @@ const deleteWorkers = 8
 // and results, the object first and then its row, and returns how many went.
 // A file kept later, by a run that started while the account was being
 // deleted, is left. It stops at the first object that would not go; what
-// went stays gone, so a second call carries on.
+// went stays gone, so a second call carries on. The clips the person put
+// into incoming/ and framy never took go too.
 func (s *Store) DeleteAll(ctx context.Context, userID int64, before time.Time) (int, error) {
+	s.dropIncomingOf(ctx, userID)
 	n := 0
 	for {
 		rows, err := s.pool.Query(ctx, `

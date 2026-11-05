@@ -8,6 +8,7 @@ package r2test
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
@@ -134,6 +135,10 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	bucket, key, ok := strings.Cut(strings.TrimPrefix(r.URL.Path, "/"), "/")
+	if bucket == Bucket && key == "" && r.Method == http.MethodGet && r.URL.Query().Get("list-type") == "2" {
+		s.list(w, r)
+		return
+	}
 	if !ok || bucket != Bucket || key == "" {
 		failWith(w, r, http.StatusNotFound, "NoSuchBucket", "the bucket does not exist")
 		return
@@ -180,6 +185,40 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	default:
 		failWith(w, r, http.StatusMethodNotAllowed, "MethodNotAllowed", r.Method)
 	}
+}
+
+// listPage is how many keys a page of a list holds, small so that tests
+// see more than one page.
+const listPage = 2
+
+// list answers ListObjectsV2: the keys under prefix after the continuation
+// token, a page at a time.
+func (s *Server) list(w http.ResponseWriter, r *http.Request) {
+	prefix, after := r.URL.Query().Get("prefix"), r.URL.Query().Get("continuation-token")
+	var keys []string
+	for _, k := range s.Keys() {
+		if strings.HasPrefix(k, prefix) && k > after {
+			keys = append(keys, k)
+		}
+	}
+	more := len(keys) > listPage
+	if more {
+		keys = keys[:listPage]
+	}
+	w.Header().Set("Content-Type", "application/xml")
+	fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?><ListBucketResult>`)
+	for _, k := range keys {
+		fmt.Fprint(w, "<Contents><Key>")
+		_ = xml.EscapeText(w, []byte(k))
+		fmt.Fprint(w, "</Key></Contents>")
+	}
+	fmt.Fprintf(w, "<IsTruncated>%t</IsTruncated>", more)
+	if more {
+		fmt.Fprint(w, "<NextContinuationToken>")
+		_ = xml.EscapeText(w, []byte(keys[len(keys)-1]))
+		fmt.Fprint(w, "</NextContinuationToken>")
+	}
+	fmt.Fprint(w, "</ListBucketResult>")
 }
 
 func failWith(w http.ResponseWriter, r *http.Request, status int, code, msg string) {

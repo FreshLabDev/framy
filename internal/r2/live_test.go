@@ -157,6 +157,10 @@ func TestLiveObjects(t *testing.T) {
 	if err != nil || obj.Size != int64(len(body)) || obj.ContentType != "text/plain" {
 		t.Fatalf("head: %+v, %v", obj, err)
 	}
+	// Deleting an account lists the person's clips under incoming/.
+	if keys, err := c.List(ctx, key); err != nil || len(keys) != 1 || keys[0] != key {
+		t.Fatalf("list: %d keys, %v", len(keys), err)
+	}
 	rc, err := c.Get(ctx, key)
 	if err != nil {
 		t.Fatalf("get: %v", err)
@@ -382,6 +386,10 @@ func TestLiveIncoming(t *testing.T) {
 	}
 	if obj, err := clips.Head(ctx, key); err != nil || obj.Size != int64(len(body)) {
 		t.Fatalf("after the PUT: %+v, %v", obj, err)
+	}
+	// Deleting an account lists the person's clips with this token.
+	if keys, err := clips.List(ctx, key); err != nil || len(keys) != 1 || keys[0] != key {
+		t.Fatalf("list in %s: %d keys, %v", clipsBucket, len(keys), err)
 	}
 
 	src, secret := liveKey(t), []byte("framy r2live a file of the main bucket")
