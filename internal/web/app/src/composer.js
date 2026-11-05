@@ -15,7 +15,7 @@ import { openPicker } from "./picker.js";
 import { openSheet, closeSheets } from "./ui.js";
 import { addFiles, removeFile, fitModel } from "./files.js";
 import { generate, signIn } from "./run.js";
-import { openCut, thumbMedia, frameEl, looksLikeClip } from "./clips.js";
+import { openCut, thumbMedia, frameEl, looksLikeClip, fmtPart } from "./clips.js";
 import { openPrefs } from "./prefs.js";
 
 const FORM = { rel: true, dur: 380, after: 90,
@@ -217,7 +217,7 @@ function renderFiles(m, pay) {
   const fc = m.traits?.faces, faces = fc && R.some((r) => r.go) ? t(fc === "adults" ? "files.faces_adults" : "files.faces_no") : "";
   if (cutting) {
     const need = cutNeeded(), mx = cutLimits().max;
-    const what = S.cut ? t("files.cut_taken", { a: fmtNum(S.cut.start, { maximumFractionDigits: 1 }), b: fmtNum(S.cut.start + S.cut.seconds, { maximumFractionDigits: 1 }) })
+    const what = S.cut ? t("files.cut_taken", { a: fmtPart(S.cut.start), b: fmtPart(S.cut.start + S.cut.seconds) })
       : need ? t("files.clip_len", { len: fmtSecs(c.secs), n: fmtNum(mx) }) : "";
     box.append(h("p", { class: "fhint cut", "data-k": "f-cut" }, faces ? h("span", { class: "fw" }, faces) : null, what ? h("span", {}, what + " ") : null,
       h("button", { type: "button", class: "link-t", onclick: openCut }, t(S.cut ? "act.change_part" : "act.pick_part"))));

@@ -166,7 +166,7 @@ export async function takeClip(f, cut, { signal, step, again = false }) {
   const key = cut ? cut.start.toFixed(3) + "+" + cut.seconds.toFixed(3) : "";
   if (cut && f.cuts[key]) return f.cuts[key];
   const part = cut ? { start: cut.start, seconds: cut.seconds } : {};
-  const cutText = () => t("step.cutting", { a: fmtNum(cut.start, { maximumFractionDigits: 1 }), b: fmtNum(cut.start + cut.seconds, { maximumFractionDigits: 1 }) });
+  const cutText = () => t("step.cutting", { a: fmtPart(cut.start), b: fmtPart(cut.start + cut.seconds) });
   const snd = f.kind === "audio", text = cut ? cutText : () => t(snd ? "step.sound_prep" : "step.clip_prep"), fig = cut ? "cut" : "strip";
   let body;
   if (f.upload) body = { file: f.upload, ...part };
@@ -206,7 +206,12 @@ export async function takeClip(f, cut, { signal, step, again = false }) {
 /* The editor: the clip's timeline with a window of the length the model takes. */
 
 const ED = {};
-const fmtT = (s, d = 1) => t("unit.s", { n: fmtNum(s, { minimumFractionDigits: d, maximumFractionDigits: d }) });
+/* The editor moves a part's edges by the clip's frames, so its times say
+   hundredths, the edges, the part and its length alike: a step of one frame
+   changes them, and the part read under the timeline is the one on the
+   buttons. The composer then says the part with the same figures. */
+const fmtT = (s, d = 2) => t("unit.s", { n: fmtNum(s, { minimumFractionDigits: d, maximumFractionDigits: d }) });
+export const fmtPart = (s) => fmtNum(s, { maximumFractionDigits: 2 });
 
 export function mountCutter() {
   const el = h("section", { class: "sheet cutter", id: "cutter", hidden: true, role: "dialog", "aria-modal": "true", "aria-labelledby": "cutT" },
@@ -273,16 +278,16 @@ function layout() {
   Object.assign(ED.l.style, { left: "0", width: a + "%" });
   Object.assign(ED.r.style, { left: b + "%", right: "0" });
   ED.edges.replaceChildren(...[["start", t("cut.start"), start], ["end", t("cut.end"), end]].map(([k, label, f]) =>
-    opt({ key: "edge", v: k, on: ED.edge === k, pick: () => setEdge(k) }, label, h("small", {}, fmtT(f / fps, 2)))));
+    opt({ key: "edge", v: k, on: ED.edge === k, pick: () => setEdge(k) }, label, h("small", {}, fmtT(f / fps)))));
   placeSeg(ED.edges, false, true);
-  ED.read.replaceChildren(t("cut.part") + " ", h("b", {}, fmtT(start / fps, 1) + " – " + fmtT(end / fps, 1)), " · " + fmtT((end - start) / fps, 1));
+  ED.read.replaceChildren(t("cut.part") + " ", h("b", {}, fmtT(start / fps) + " – " + fmtT(end / fps)), " · " + fmtT((end - start) / fps));
 }
 function setEdge(e) { stopPlay(); ED.edge = e; layout(); show(e === "start" ? ED.start : ED.end - 1); }
 function show(f) {
   const { fps, total } = ED;
   ED.cur = Math.max(0, Math.min(total - 1, f));
   if (!ED.playing) { try { ED.view.currentTime = (ED.cur + 0.5) / fps; } catch {} }
-  ED.tc.textContent = fmtT(ED.cur / fps, 2);
+  ED.tc.textContent = fmtT(ED.cur / fps);
   ED.ph.style.transform = `translateX(${((ED.cur + 0.5) / total) * ED.tl.clientWidth}px)`;
 }
 function step(d) {

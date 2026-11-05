@@ -327,6 +327,40 @@ func TestBrowserCutterRTL(t *testing.T) {
 	noErrors(t, ctx)
 }
 
+// TestBrowserCutterTimes checks that the editor of a clip's part says its
+// times with the same figures everywhere: on the Start and End buttons, in
+// the part under the timeline, and in the composer once the part is taken.
+func TestBrowserCutterTimes(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 390, 844, true)
+	s := js[map[string]any](t, ctx, pageHelpers+`
+	async function until(f, n = 60) { for (let i = 0; i < n; i++) { const v = f(); if (v) return v; await wait(100); } return null; }
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(700);
+	const b = Uint8Array.from(atob(`+jsString(loopWebM)+`), (c) => c.charCodeAt(0));
+	const dt = new DataTransfer();
+	dt.items.add(new File([b], "loop.webm", { type: "video/webm" }));
+	document.body.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
+	(await until(() => document.querySelector('#how [data-seg="pay"] [data-v="openrouter"]')))?.click();
+	const link = await until(() => document.querySelector('#files [data-k="f-cut"] .link-t'));
+	if (!link) return { link: false };
+	link.click();
+	await until(() => !document.querySelector("#cutter").hidden && document.querySelector("#cutter .timeline .win").style.width);
+	await wait(500);
+	// The end one frame back, where a tenth would round it.
+	document.querySelector('#cutter .edges [data-v="end"]').click(); await wait(100);
+	document.querySelectorAll("#cutter .transport > .ib")[0].click(); await wait(100);
+	const edges = ["start", "end"].map((k) => document.querySelector('#cutter .edges [data-v="' + k + '"] small').textContent), read = document.querySelector("#cutter .readout").textContent;
+	document.querySelector("#cutter .take").click();
+	const taken = (await until(() => document.querySelector('#files [data-k="f-cut"]')?.textContent.match(/Part \S+ s/)?.[0])) || "";
+	return { edges: edges.join(","), read, taken };`)
+	if s["edges"] != "0.00 s,1.97 s" || s["read"] != "Part 0.00 s – 1.97 s · 1.97 s" || s["taken"] != "Part 0–1.97 s" {
+		t.Errorf("the part's times: %v", s)
+	}
+	noErrors(t, ctx)
+}
+
 // TestBrowserClipReadLate checks a clip the browser reads slowly: it comes
 // into the composer after the wait with no length, and when its length is
 // read later the composer shows it and prices the run with it.
