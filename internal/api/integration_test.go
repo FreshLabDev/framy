@@ -509,8 +509,14 @@ func TestAJobsWholeLifeArrivesOverTheStreamInOrder(t *testing.T) {
 	s.quiet(150 * time.Millisecond)
 
 	close(w.prov.release)
+	// What the provider charged comes first, written before the results are
+	// copied, so that no ending can lose it.
 	evID, m := s.event(wait)
-	if evID != 3 || m["status"] != "done" {
+	if c, _ := m["cost"].(map[string]any); evID != 3 || m["status"] != "running" || c["usd"] != 0.0391 {
+		t.Fatalf("%d %v", evID, m)
+	}
+	evID, m = s.event(wait)
+	if evID != 4 || m["status"] != "done" {
 		t.Fatalf("%d %v", evID, m)
 	}
 	cost := m["cost"].(map[string]any)
@@ -539,20 +545,21 @@ func TestAStreamOpenedLateOrResumedMissesNothing(t *testing.T) {
 	_, m, _ := in.post(alice, "late", body(paidOffer, "key"))
 	id := idOf(t, m)
 	path := fmt.Sprintf("/api/jobs/%d/events", id)
-	eventually(t, "the job to end", func() bool { return seqOf(t, w.pool, id) == 3 })
+	// queued, running, the cost, done.
+	eventually(t, "the job to end", func() bool { return seqOf(t, w.pool, id) == 4 })
 
 	// Late: the end, and nothing of what led to it.
 	s := in.openStream(alice, path)
-	if evID, m := s.event(wait); evID != 3 || m["status"] != "done" || len(m["results"].([]any)) != 1 {
+	if evID, m := s.event(wait); evID != 4 || m["status"] != "done" || len(m["results"].([]any)) != 1 {
 		t.Fatalf("%d %v", evID, m)
 	}
 	if !s.ended(wait) {
 		t.Error("the stream should end")
 	}
 	// Resumed from any id before the end: the end, once.
-	for _, last := range []string{"1", "2"} {
+	for _, last := range []string{"1", "2", "3"} {
 		s = in.openStream(alice, path, "Last-Event-ID", last)
-		if evID, _ := s.event(wait); evID != 3 {
+		if evID, _ := s.event(wait); evID != 4 {
 			t.Errorf("from %s: event %d", last, evID)
 		}
 		if !s.ended(wait) {
@@ -560,7 +567,7 @@ func TestAStreamOpenedLateOrResumedMissesNothing(t *testing.T) {
 		}
 	}
 	// From the end: nothing, and 204 so that EventSource stops.
-	if s = in.openStream(alice, path, "Last-Event-ID", "3"); s.resp.StatusCode != http.StatusNoContent {
+	if s = in.openStream(alice, path, "Last-Event-ID", "4"); s.resp.StatusCode != http.StatusNoContent {
 		t.Errorf("%d", s.resp.StatusCode)
 	}
 }
@@ -590,13 +597,14 @@ func TestARestartLosesNoResult(t *testing.T) {
 		t.Fatal("a stream outlived its process")
 	}
 	close(w.prov.release)
-	eventually(t, "the job to end", func() bool { return seqOf(t, w.pool, id) == last+1 })
+	// The cost, then the end.
+	eventually(t, "the job to end", func() bool { return seqOf(t, w.pool, id) == last+2 })
 
 	// The next process: the client reconnects with the id it had.
 	second := w.instance()
 	s = second.openStream(alice, path, "Last-Event-ID", strconv.FormatInt(last, 10))
 	evID, m := s.event(wait)
-	if evID != last+1 || m["status"] != "done" || len(m["results"].([]any)) != 1 {
+	if evID != last+2 || m["status"] != "done" || len(m["results"].([]any)) != 1 {
 		t.Fatalf("%d %v", evID, m)
 	}
 }

@@ -119,3 +119,48 @@ func TestASlowCopyLeavesTheEndingItsOwnTime(t *testing.T) {
 		})
 	}
 }
+
+// What the provider charged is written down before the results are copied,
+// and an attempt that comes after one which kept them and stopped short of
+// the ending finishes the job as done: the person sees the paid pictures,
+// not "interrupted".
+func TestResultsKeptBeforeAStopMakeTheRunDone(t *testing.T) {
+	ctx := context.Background()
+	t.Run("the cost is written before the copy", func(t *testing.T) {
+		f := newFake()
+		q, pool := testQueue(t, f)
+		var noted *float64
+		f.onKeep = func(ctx context.Context, j Job) error {
+			return pool.QueryRow(ctx, `SELECT actual_usd::float8 FROM framy.job WHERE id=$1`, j.ID).Scan(&noted)
+		}
+		id := enqueue(t, q, job(alice, imageOffer))
+		if err := q.work(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+		if noted == nil || *noted != 0.02 {
+			t.Fatalf("the cost while the results were copied: %v", noted)
+		}
+	})
+	t.Run("a later attempt finds the results", func(t *testing.T) {
+		f := newFake()
+		q, pool := testQueue(t, f)
+		id := enqueue(t, q, job(alice, imageOffer))
+		for _, stmt := range []string{
+			`UPDATE framy.job SET status='running', started_at=now(), submitted_at=now(), submits=1, actual_usd=0.02 WHERE id=$1`,
+			`INSERT INTO framy.asset (user_id, kind, job_id, object_key, content_type, bytes, sha256)
+			 VALUES (1001, 'result', $1::bigint, 'u/1001/out/' || $1::bigint::text || '-0.png', 'image/png', 3, 'x')`,
+		} {
+			if _, err := pool.Exec(ctx, stmt, id); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := q.work(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+		j := get(t, q, id)
+		results := scalar[int](t, pool, `SELECT results FROM framy.job WHERE id=$1`, id)
+		if j.Status != Done || results != 1 || j.ActualUSD == nil || *j.ActualUSD != 0.02 || f.count(f.submits, id) != 0 {
+			t.Fatalf("%s %s, %d results, cost %v, sent %d more times", j.Status, j.ErrorClass, results, j.ActualUSD, f.count(f.submits, id))
+		}
+	})
+}

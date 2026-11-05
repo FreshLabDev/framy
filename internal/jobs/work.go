@@ -96,8 +96,18 @@ func (q *Queue) work(ctx context.Context, id int64) error {
 	case j.ProviderJobID != "":
 		return q.poll(ctx, p, j)
 	case j.SubmittedAt != nil:
-		// The paid request went out and its answer never came back: the
-		// worker stopped mid-run. Sending it again could pay twice.
+		// The paid request went out and the attempt that sent it did not
+		// end the job. Results it kept make the run done, with the cost it
+		// wrote down; otherwise the worker stopped mid-run, and sending the
+		// request again could pay twice.
+		n, err := keptResults(ctx, q.pool, j.ID)
+		if err != nil {
+			return err
+		}
+		if n > 0 {
+			q.log.Warn("job ended by a later attempt with the results kept before", "job", j.ID, "results", n)
+			return q.end(ctx, j.ID, ending{status: Done, results: n})
+		}
 		return q.end(ctx, j.ID, ending{status: Failed, class: Interrupted, msg: "the worker stopped while the paid request was out; it is not sent again"})
 	}
 	if q.cfg.Inputs != nil {
@@ -278,6 +288,7 @@ func (q *Queue) settle(ctx context.Context, j Job, out Outcome) error {
 	case len(out.Results) == 0:
 		e.status, e.class, e.msg = Failed, ProviderFailed, "the run ended with no result"
 	default:
+		q.noteOutcome(ctx, j.ID, out)
 		keep, done := detachFor(ctx, q.keepFor(j, out.Results))
 		err := q.cfg.Sink.Keep(keep, j, out.Results)
 		done()
@@ -297,6 +308,37 @@ func (q *Queue) settle(ctx context.Context, j Job, out Outcome) error {
 	ctx, done := detach(ctx)
 	defer done()
 	return q.end(ctx, j.ID, e)
+}
+
+// noteOutcome writes down what the provider charged for a finished run and
+// what a grounded run brought, before its results are copied: an attempt
+// that does not get to the ending leaves them for the one that does. It is
+// one of the writes that follow the call, on their detached ctx and within
+// their limit (settleWrites). A write that fails is left to the ending,
+// which writes them too.
+func (q *Queue) noteOutcome(ctx context.Context, id int64, out Outcome) {
+	var grounding []byte
+	if !out.Grounding.Empty() {
+		grounding, _ = json.Marshal(out.Grounding)
+	}
+	if out.CostUSD == nil && grounding == nil {
+		return
+	}
+	if _, err := q.pool.Exec(ctx, `
+		UPDATE job SET actual_usd=COALESCE($2, actual_usd), grounding=COALESCE($3::jsonb, grounding), updated_at=now()
+		WHERE id=$1 AND status='running'`, id, out.CostUSD, grounding); err != nil {
+		q.log.Warn("job cost not written before its results", "job", id, "error", err)
+	}
+}
+
+// keptResults is how many results of job id are in framy's storage.
+func keptResults(ctx context.Context, db querier, id int64) (int, error) {
+	var n int
+	err := db.QueryRow(ctx, `SELECT count(*) FROM asset WHERE job_id=$1 AND kind='result'`, id).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count the results of job %d: %w", id, err)
+	}
+	return n, nil
 }
 
 // ending is how a job ends.
