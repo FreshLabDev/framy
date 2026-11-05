@@ -361,13 +361,14 @@ func videoFailure(r videoJob) *jobs.Error {
 		}
 	}
 	text = strings.TrimSpace(text)
-	if text == "" {
-		text = "no reason given"
-	}
 	if len(text) > 300 {
 		text = text[:300]
 	}
 	e := &APIError{InBody: true, Message: text}
+	if text == "" {
+		// The job's line says so; nothing goes out as OpenRouter's words.
+		e.Message, e.noBody = "no reason given", true
+	}
 	class := jobs.ProviderFailed
 	switch {
 	case soundRefused.MatchString(text):

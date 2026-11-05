@@ -539,6 +539,11 @@ func TestErrorsAreToldApart(t *testing.T) {
 			if d := pe.RetryAfter - c.wait; d < -2*time.Second || d > 2*time.Second {
 				t.Errorf("retry after %s, want %s", pe.RetryAfter, c.wait)
 			}
+			// A page that is not OpenAI's, such as Cloudflare's, has no words
+			// of OpenAI's: the status's name in the job's line is framy's.
+			if notOpenAIs := strings.HasPrefix(c.body, "<"); notOpenAIs != (pe.Said() == "") {
+				t.Errorf("said %q", pe.Said())
+			}
 			for _, secret := range []string{testKey, "sk-proj"} {
 				if strings.Contains(err.Error(), secret) {
 					t.Errorf("a key is in the error: %v", err)

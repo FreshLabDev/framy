@@ -449,6 +449,9 @@ func TestTheKeyWithoutBillingIsNotATemporaryLimit(t *testing.T) {
 			if !strings.HasPrefix(err.Error(), "key: gemini key status needs_billing") {
 				t.Errorf("the text a job row keeps: %q", err.Error())
 			}
+			if want := map[bool]string{true: "You exceeded your current quota.", false: message}[name == "a quota value of 0"]; pe.Said() != want {
+				t.Errorf("said %q, want Google's words %q", pe.Said(), want)
+			}
 			if u.calls != 1 {
 				t.Errorf("%d calls", u.calls)
 			}
@@ -533,6 +536,11 @@ func TestErrorsAreToldApart(t *testing.T) {
 			if d := pe.RetryAfter - c.wait; d < -2*time.Second || d > 2*time.Second {
 				t.Errorf("retry after %s, want %s", pe.RetryAfter, c.wait)
 			}
+			// A page that is not Google's, such as a proxy's, has no words of
+			// Google's: the status's name in the job's line is framy's.
+			if notGoogles := strings.HasPrefix(c.body, "<"); notGoogles != (pe.Said() == "") {
+				t.Errorf("said %q", pe.Said())
+			}
 			if strings.Contains(err.Error(), testKey) {
 				t.Errorf("the key is in the error: %v", err)
 			}
@@ -577,16 +585,16 @@ func TestABlockOnTheWireIsARefusal(t *testing.T) {
 func TestARefusalInAFinishedRunIsNotAFailure(t *testing.T) {
 	const usagePrompt = `{"total_input_tokens":271,"total_output_tokens":0,"total_thought_tokens":0,"input_tokens_by_modality":[{"modality":"text","tokens":271}]}`
 	for _, c := range []struct {
-		name, body, reason, stage string
-		cost                      bool
+		name, body, reason, stage, said string
+		cost                            bool
 	}{
-		{"a prompt feedback block", `{"promptFeedback":{"blockReason":"PROHIBITED_CONTENT"},"usageMetadata":{"promptTokenCount":271}}`, "PROHIBITED_CONTENT", "prompt", false},
-		{"the same, in snake_case", `{"id":"v1_x","status":"failed","prompt_feedback":{"block_reason":"OTHER","block_reason_message":"Blocked, most often because of a reference image."}}`, "OTHER", "prompt", false},
-		{"a candidate's finish reason", `{"candidates":[{"finishReason":"IMAGE_SAFETY","finishMessage":"The image was withheld."}],"usageMetadata":{"promptTokenCount":271}}`, "IMAGE_SAFETY", "result", false},
-		{"a finish reason inside an interaction", `{"id":"v1_x","status":"completed","steps":[{"type":"model_output","finish_reason":"IMAGE_PROHIBITED_CONTENT","content":[]}],"usage":` + usagePrompt + `}`, "IMAGE_PROHIBITED_CONTENT", "result", true},
-		{"an error list", `{"id":"v1_x","status":"failed","errors":[{"code":"unexpected","message":"x"},{"code":"image_safety","message":"Safety violations blocked image generation."}],"usage":` + usagePrompt + `}`, "IMAGE_SAFETY", "result", true},
-		{"an error object", `{"id":"v1_x","status":"failed","error":{"code":"safety","message":"blocked"}}`, "SAFETY", "", false},
-		{"the filter that says nothing", `{"candidates":[{"finishReason":"OTHER"}]}`, "OTHER", "result", false},
+		{"a prompt feedback block", `{"promptFeedback":{"blockReason":"PROHIBITED_CONTENT"},"usageMetadata":{"promptTokenCount":271}}`, "PROHIBITED_CONTENT", "prompt", "", false},
+		{"the same, in snake_case", `{"id":"v1_x","status":"failed","prompt_feedback":{"block_reason":"OTHER","block_reason_message":"Blocked, most often because of a reference image."}}`, "OTHER", "prompt", "Blocked, most often because of a reference image.", false},
+		{"a candidate's finish reason", `{"candidates":[{"finishReason":"IMAGE_SAFETY","finishMessage":"The image was withheld."}],"usageMetadata":{"promptTokenCount":271}}`, "IMAGE_SAFETY", "result", "The image was withheld.", false},
+		{"a finish reason inside an interaction", `{"id":"v1_x","status":"completed","steps":[{"type":"model_output","finish_reason":"IMAGE_PROHIBITED_CONTENT","content":[]}],"usage":` + usagePrompt + `}`, "IMAGE_PROHIBITED_CONTENT", "result", "", true},
+		{"an error list", `{"id":"v1_x","status":"failed","errors":[{"code":"unexpected","message":"x"},{"code":"image_safety","message":"Safety violations blocked image generation."}],"usage":` + usagePrompt + `}`, "IMAGE_SAFETY", "result", "Safety violations blocked image generation.", true},
+		{"an error object", `{"id":"v1_x","status":"failed","error":{"code":"safety","message":"blocked"}}`, "SAFETY", "", "blocked", false},
+		{"the filter that says nothing", `{"candidates":[{"finishReason":"OTHER"}]}`, "OTHER", "result", "", false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			p, _ := serve(t, reply(200, c.body))
@@ -604,6 +612,11 @@ func TestARefusalInAFinishedRunIsNotAFailure(t *testing.T) {
 			var r *Refusal
 			if !errors.As(out.Err, &r) || r.Reason != c.reason || r.Stage != c.stage {
 				t.Errorf("refusal %+v, want %s at %q", r, c.reason, c.stage)
+			}
+			// The person reads Google's words, never framy's line, and nothing
+			// when Google gave only its code.
+			if got := out.Err.Said(); got != c.said {
+				t.Errorf("said %q, want %q", got, c.said)
 			}
 			if (out.CostUSD != nil) != c.cost {
 				t.Errorf("cost %v", out.CostUSD)
@@ -641,6 +654,10 @@ func TestNoImageCarriesTheModelsWords(t *testing.T) {
 			}
 			if !strings.Contains(out.Err.Error(), c.text) {
 				t.Errorf("the job row keeps only the error text, and %q is not in %q", c.text, out.Err.Error())
+			}
+			// What the person reads is the model's words alone.
+			if got := out.Err.Said(); got != c.text {
+				t.Errorf("said %q, want the model's words %q", got, c.text)
 			}
 		})
 	}

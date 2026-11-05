@@ -270,7 +270,7 @@ func (q *Queue) settle(ctx context.Context, j Job, out Outcome) error {
 	e := ending{cost: out.CostUSD}
 	switch {
 	case out.Err != nil:
-		e.status, e.class, e.msg = Failed, out.Err.Class, out.Err.Error()
+		e.status, e.class, e.msg, e.said = Failed, out.Err.Class, out.Err.Error(), out.Err.Said()
 	case len(out.Results) == 0:
 		e.status, e.class, e.msg = Failed, ProviderFailed, "the run ended with no result"
 	default:

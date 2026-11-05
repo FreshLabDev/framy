@@ -46,8 +46,9 @@ type APIError struct {
 	// LimitSource says which limit a 402 or a 403 hit, such as
 	// openrouter_key_limit.
 	LimitSource string
-	// noBody: the answer had no error of OpenRouter's, and Message is the
-	// status's name, such as Cloudflare's page for a 524.
+	// noBody: the answer had no words of OpenRouter's, and Message is
+	// framy's: the status's name, such as Cloudflare's page for a 524, or
+	// that a failed video came with no reason.
 	noBody bool
 }
 

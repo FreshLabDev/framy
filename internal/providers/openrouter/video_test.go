@@ -522,6 +522,11 @@ func TestAVideoThatEndedWithoutAResultIsClassified(t *testing.T) {
 			if !strings.Contains(out.Err.Error(), tc.in) {
 				t.Errorf("error %q lacks %q", out.Err.Error(), tc.in)
 			}
+			// A failure with no reason has no words of OpenRouter's: "no
+			// reason given" is framy's, for the job's line.
+			if said := out.Err.Said(); tc.status == videoFailed && tc.err == "" && said != "" {
+				t.Errorf("said %q for a failure with no reason", said)
+			}
 			if out.CostUSD == nil {
 				t.Errorf("the cost OpenRouter reported was dropped")
 			}

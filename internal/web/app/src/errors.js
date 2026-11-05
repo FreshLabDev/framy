@@ -2,7 +2,8 @@
 // (its error.class, docs/design.md, Jobs), and a press the server refused
 // before any job existed. Each says what happened to the money and which
 // buttons fit. The English message of a job is shown only where it is the
-// provider's own reason.
+// provider's own reason, as the server marks it (error.from_provider):
+// framy's own line is never shown as what the provider said.
 import { t, fmtTime, fmtAt, fmtSecs, fmtNum } from "./i18n.js";
 import { C, PNAME, vname, hasAudio } from "./catalog.js";
 import { priceText } from "./price.js";
@@ -57,7 +58,7 @@ export function failure(j) {
   // The most the run could have cost: the label of the estimate, which for "up to" is its top.
   const up = j.estimate && j.estimate.kind !== "unknown" ? j.estimate.label : "";
   const may = free ? back : up ? t("fail.may_charge", { p: up, provider: P }) : t("fail.may_charge_some", { provider: P });
-  const msg = OWNWORDS.has(cls) && j.error?.message ? ownWords(j.error.message) : "";
+  const msg = OWNWORDS.has(cls) && j.error?.from_provider && j.error.message ? ownWords(j.error.message) : "";
   const said = msg ? t("fail.said", { provider: P, text: msg }) : "";
   const again = ["retry", "edit"];
   if (j.status === "cancelled") return { cls: "cancelled", label: t("stage.cancelled"), text: "", ...none, acts: again };

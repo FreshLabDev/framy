@@ -35,8 +35,9 @@ type State struct {
 
 	ErrorClass jobs.Class
 	// Error is what the provider said, in its own words, or framy's line
-	// when it said nothing of its own.
+	// when it said nothing of its own; Said tells which.
 	Error   string
+	Said    bool
 	RetryAt *time.Time
 
 	EstimateUSD *float64
@@ -165,7 +166,7 @@ type pgData struct{ pool *pgxpool.Pool }
 const stateColumns = `id, event_seq, status, kind, offer_id, free, error_class, COALESCE(provider_message, error), retry_at,
 	estimate_usd::float8, estimate, actual_usd::float8,
 	currency, fx_rate::float8, fx_date, created_at, finished_at, grounding,
-	model_id, prompt, settings, surface, COALESCE(batch, ''), batch_frames`
+	model_id, prompt, settings, surface, COALESCE(batch, ''), batch_frames, provider_message IS NOT NULL`
 
 func scanState(row pgx.Row) (State, error) {
 	var (
@@ -182,7 +183,7 @@ func scanState(row pgx.Row) (State, error) {
 		&s.ID, &s.Seq, &s.Status, &s.Kind, &s.Offer, &s.Free, &errCls, &errText, &s.RetryAt,
 		&s.EstimateUSD, &estim, &s.ActualUSD,
 		&cur, &rate, &s.FXDate, &s.CreatedAt, &s.FinishedAt, &ground,
-		&s.Model, &s.Prompt, &settings, &s.Surface, &s.Batch, &s.BatchFrames)
+		&s.Model, &s.Prompt, &settings, &s.Surface, &s.Batch, &s.BatchFrames, &s.Said)
 	if err != nil {
 		return State{}, err
 	}

@@ -44,6 +44,10 @@ const fakeFaces = `refused: openrouter 400: HTTP 400: {"error":{"code":"InputVid
 // faces, with only the provider's words.
 const fakeFacesWords = "The request failed because the input image 'content[0]' may contain real person."
 
+// fakeOwnLine is framy's own line about a run that ended without a word
+// from the provider: never shown as what the provider said.
+const fakeOwnLine = "moderation: gemini blocked the prompt (SAFETY)"
+
 // fakeWrapped is any other refusal stored the same way.
 const fakeWrapped = `refused: openrouter 400: HTTP 400: {"error":{"code":"InvalidParameter","message":"The duration is too long. Request id: 0217abd"}}`
 
@@ -235,10 +239,13 @@ func (f *fakeRuns) create(w http.ResponseWriter, r *http.Request) {
 	switch p := in.Prompt; {
 	case strings.HasPrefix(p, "fail:"):
 		cls := strings.TrimPrefix(p, "fail:")
-		steps = append(steps, at("running", nil), at("failed", map[string]any{"error": map[string]any{"class": cls, "message": fakeMessage}}))
+		steps = append(steps, at("running", nil), at("failed", map[string]any{"error": map[string]any{"class": cls, "message": fakeMessage, "from_provider": true}}))
+	case strings.HasPrefix(p, "own:"):
+		// framy's own line, as a run the provider ended with no words of its own has.
+		steps = append(steps, at("running", nil), at("failed", map[string]any{"error": map[string]any{"class": strings.TrimPrefix(p, "own:"), "message": fakeOwnLine}}))
 	case p == "faces", p == "wrapped":
 		msg := map[string]string{"faces": fakeFaces, "wrapped": fakeWrapped}[p]
-		steps = append(steps, at("running", nil), at("failed", map[string]any{"error": map[string]any{"class": "refused", "message": msg}}))
+		steps = append(steps, at("running", nil), at("failed", map[string]any{"error": map[string]any{"class": "refused", "message": msg, "from_provider": p == "wrapped"}}))
 	case p == "faces:photo":
 		steps = append(steps, at("running", nil), at("failed", map[string]any{"error": map[string]any{"class": "faces", "message": fakeFacesWords}}))
 	case p == "retry":
@@ -357,7 +364,7 @@ func (f *fakeRuns) batch(w http.ResponseWriter, r *http.Request) {
 		steps := []map[string]any{at("queued", nil), at("running", nil)}
 		switch {
 		case strings.HasPrefix(outcome, "fail:"):
-			steps = append(steps, at("failed", map[string]any{"error": map[string]any{"class": strings.TrimPrefix(outcome, "fail:"), "message": fakeMessage}}))
+			steps = append(steps, at("failed", map[string]any{"error": map[string]any{"class": strings.TrimPrefix(outcome, "fail:"), "message": fakeMessage, "from_provider": true}}))
 		case outcome == "running":
 		default:
 			var results []map[string]any
@@ -550,6 +557,14 @@ func TestBrowserRuns(t *testing.T) {
 	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+`return await press("wrapped", (s) => s.failed);`)
 	if said := s["said"].(string); !strings.HasSuffix(said, "said: “The duration is too long.”") || strings.ContainsAny(said, "{}") {
 		t.Errorf("wrapped refusal: %q", said)
+	}
+	// A refusal or a failure with no words of the provider's says nothing in
+	// its name: framy's line about it is not the provider's.
+	for _, cls := range []string{"moderation", "refused", "provider"} {
+		s = js[map[string]any](t, ctx, pageHelpers+runHelpers+`return await press("own:`+cls+`", (s) => s.failed);`)
+		if s["said"] != "" || strings.Contains(s["text"].(string), "gemini blocked") {
+			t.Errorf("%s with framy's own line: %v", cls, s)
+		}
 	}
 
 	// A job that waits to go again counts the time down, and Cancel stops it.

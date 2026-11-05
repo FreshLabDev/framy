@@ -707,12 +707,19 @@ func TestAFailedJobSaysWhatTheProviderSaid(t *testing.T) {
 		provider_message='The input video may contain real person.' WHERE id=$1`, id)
 	path := fmt.Sprintf("/api/jobs/%d", id)
 	got := jsonOf(t, in.do(alice, "GET", path, nil))["error"].(map[string]any)
-	if got["class"] != "faces" || got["message"] != "The input video may contain real person." {
+	if got["class"] != "faces" || got["message"] != "The input video may contain real person." || got["from_provider"] != true {
 		t.Fatalf("error = %v", got)
 	}
 	exec(t, w.pool, `UPDATE job SET error_class='invalid_request', error='invalid_request: fast is not a setting', provider_message=NULL WHERE id=$1`, id)
 	got = jsonOf(t, in.do(alice, "GET", path, nil))["error"].(map[string]any)
-	if got["class"] != "invalid_request" || got["message"] != "invalid_request: fast is not a setting" {
+	if got["class"] != "invalid_request" || got["message"] != "invalid_request: fast is not a setting" || got["from_provider"] != nil {
+		t.Fatalf("error = %v", got)
+	}
+	// A refusal with no words of the provider's keeps framy's line, which the
+	// site must not show as the provider's.
+	exec(t, w.pool, `UPDATE job SET error_class='moderation', error='moderation: gemini blocked the prompt (SAFETY)' WHERE id=$1`, id)
+	got = jsonOf(t, in.do(alice, "GET", path, nil))["error"].(map[string]any)
+	if got["class"] != "moderation" || got["message"] != "moderation: gemini blocked the prompt (SAFETY)" || got["from_provider"] != nil {
 		t.Fatalf("error = %v", got)
 	}
 }

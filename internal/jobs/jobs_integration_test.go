@@ -614,6 +614,32 @@ func TestOnlyARefusalBeforeTheRunIsRetried(t *testing.T) {
 		}
 	})
 
+	// A run the provider took and ended without a result brings its words in
+	// the outcome, as a refusal inside a 200 or a failed video does.
+	t.Run("the provider's words in a run that ended", func(t *testing.T) {
+		p := newFake()
+		cost := 0.004
+		p.submit = func(context.Context, Job) (Submission, error) {
+			return Submission{Outcome: &Outcome{CostUSD: &cost, Err: &Error{Class: Moderation,
+				Err: said("gemini declined the run (NO_IMAGE): the model answered in text: Which fox?", "Which fox?")}}}, nil
+		}
+		q, pool := testQueue(t, p)
+		id := enqueue(t, q, job(alice, imageOffer))
+		for range 2 {
+			if err := q.work(ctx, id); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var line, words string
+		if err := pool.QueryRow(ctx, `SELECT error, provider_message FROM framy.job WHERE id=$1`, id).Scan(&line, &words); err != nil {
+			t.Fatal(err)
+		}
+		if j := get(t, q, id); j.Status != Failed || j.ErrorClass != Moderation || j.ActualUSD == nil || *j.ActualUSD != cost ||
+			line != "moderation: gemini declined the run (NO_IMAGE): the model answered in text: Which fox?" || words != "Which fox?" {
+			t.Fatalf("%s %s, error %q, provider_message %q", j.Status, j.ErrorClass, line, words)
+		}
+	})
+
 	t.Run("a refusal that waits has the provider's words until the next request", func(t *testing.T) {
 		p := newFake()
 		refuse := true

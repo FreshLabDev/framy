@@ -51,10 +51,19 @@ type APIError struct {
 	Stage string
 	// Categories are the coarse categories of a block, such as sexual.
 	Categories []string
+	// noBody: the answer had no error of OpenAI's, and Message is the
+	// status's name, such as Cloudflare's page for a 524.
+	noBody bool
 }
 
-// Said is OpenAI's words, for the person.
-func (e *APIError) Said() string { return e.Message }
+// Said is OpenAI's words, for the person: none when the answer was not
+// OpenAI's, since the status's name is framy's.
+func (e *APIError) Said() string {
+	if e.noBody {
+		return ""
+	}
+	return e.Message
+}
 
 func (e *APIError) Error() string {
 	var b strings.Builder
@@ -169,7 +178,7 @@ func statusError(status int, h http.Header, data []byte, key string) *jobs.Error
 		e.fill(env.Error, key)
 	} else {
 		// Not OpenAI's body, such as Cloudflare's page for a 524.
-		e.Message = http.StatusText(status)
+		e.Message, e.noBody = http.StatusText(status), true
 	}
 	pe := &jobs.Error{Class: e.class(), Err: e}
 	if pe.Class == jobs.RateLimited || pe.Class == jobs.Unavailable {

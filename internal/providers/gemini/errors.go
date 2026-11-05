@@ -2,6 +2,7 @@
 package gemini
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -64,6 +65,9 @@ func (e *KeyError) Error() string {
 // KeyStatus is the status the answer proved, or "".
 func (e *KeyError) KeyStatus() string { return e.Status }
 
+// Said is Google's words about the key, for the person.
+func (e *KeyError) Said() string { return e.Message }
+
 // KeyStatusOf returns the key status an error from this adapter proved:
 // needs_billing, no_credits or invalid; "" for any other error.
 func KeyStatusOf(err error) string {
@@ -108,6 +112,12 @@ const (
 	// 2,000 characters of error.
 	maxText = 1000
 )
+
+// Said is what a person should read of the refusal, in Google's or the
+// model's words and without framy's line around them: what the model said
+// in place of the picture or the video, else Google's explanation of the
+// block. It is empty when Google gave only its code.
+func (r *Refusal) Said() string { return cmp.Or(r.Text, r.Message) }
 
 func (r *Refusal) Error() string {
 	var b strings.Builder
@@ -187,10 +197,19 @@ type APIError struct {
 	QuotaZero bool
 	// RetryDelay is Google's own wait, from RetryInfo or the message.
 	RetryDelay time.Duration
+	// noBody: the answer had no error of Google's, and Message is the
+	// status's name, such as a proxy's page for a 502.
+	noBody bool
 }
 
-// Said is Google's words, for the person.
-func (e *APIError) Said() string { return e.Message }
+// Said is Google's words, for the person: none when the answer was not
+// Google's, since the status's name is framy's.
+func (e *APIError) Said() string {
+	if e.noBody {
+		return ""
+	}
+	return e.Message
+}
 
 func (e *APIError) Error() string {
 	var b strings.Builder
@@ -358,7 +377,7 @@ func statusError(status int, h http.Header, data []byte, key string) *jobs.Error
 		e.fill(env.Error, key)
 	} else {
 		// Not Google's body, such as a proxy's page for a 502.
-		e.Message = http.StatusText(status)
+		e.Message, e.noBody = http.StatusText(status), true
 	}
 	if e.Code == "" {
 		// "Any error code not listed falls back to the snake_case version of

@@ -98,6 +98,8 @@ type estimateJSON struct {
 type errorJSON struct {
 	Class   string `json:"class"`
 	Message string `json:"message,omitempty"`
+	// FromProvider: Message is the provider's own words, not framy's line.
+	FromProvider bool `json:"from_provider,omitempty"`
 }
 
 type resultJSON struct {
@@ -229,7 +231,8 @@ func (a *API) renderOne(s State, lang string, links map[int64]storage.FileLinks)
 		v.Cost = &m
 	}
 	if s.ErrorClass != "" {
-		v.Error = &errorJSON{Class: string(s.ErrorClass), Message: publicMessage(s.ErrorClass, s.Error)}
+		msg := publicMessage(s.ErrorClass, s.Error)
+		v.Error = &errorJSON{Class: string(s.ErrorClass), Message: msg, FromProvider: s.Said && msg != ""}
 	}
 	if s.Status == jobs.Done {
 		v.Results = filesJSON(s.Results, links, true)
