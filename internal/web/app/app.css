@@ -418,7 +418,10 @@ input.search::placeholder {color: var(--muted);}
   /* The tiles scroll sideways in a row of their own; the line about them stands beside the row while
      it has 160 px there, and under it otherwise, in as many lines as it takes. */
   .composer .files {column-gap: 10px; row-gap: 8px;}
-  .composer .ftiles {display: flex; flex: 0 1 auto; min-width: 0; gap: 6px; align-items: center; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;}
+  /* The row keeps room inside its scroll for the ring of a focused tile and the reach of a finger on a
+     tile's cross; the negative margins keep the tiles where they stand. */
+  .composer .ftiles {display: flex; flex: 0 1 auto; min-width: 0; gap: 6px; align-items: center; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
+    padding: 8px 4px 4px; margin: -8px -4px -4px;}
   .composer .ftiles::-webkit-scrollbar {display: none;}
   .composer .ftiles:has(> .fgroup) {align-items: flex-end; column-gap: 16px;}
   .composer .files.nofiles .fhint {display: none;}

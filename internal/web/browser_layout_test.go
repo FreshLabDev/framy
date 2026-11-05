@@ -634,3 +634,55 @@ func TestBrowserFilesHint(t *testing.T) {
 		noErrors(t, ctx)
 	}
 }
+
+// TestBrowserDockFocus walks the dock of a phone with Tab, three photos in
+// it: focus goes in the order the dock reads (the kind, the model, the
+// settings, the prompt, the files, Create) and the ring of every control is
+// whole, the tiles in their scrolling row included.
+func TestBrowserDockFocus(t *testing.T) {
+	ts := fakeAPI(t)
+	ctx := browserAs(t, ts.URL, 390, 844, opened{phone: true})
+	js[bool](t, ctx, pageHelpers+dropHelpers+`await dropPhotos(3); document.activeElement?.blur(); return true;`)
+	var seen []map[string]any
+	for i := 0; i < 40 && len(seen) < 12; i++ {
+		if err := chromedp.Do(ctx, chromedp.KeyEvent("\t")); err != nil {
+			t.Fatal(err)
+		}
+		got := js[map[string]any](t, ctx, `
+		const e = document.activeElement;
+		if (!e || !document.querySelector("#composer").contains(e)) return { out: true };
+		const cs = getComputedStyle(e), ext = (parseFloat(cs.outlineOffset) || 0) + (parseFloat(cs.outlineWidth) || 0), r = e.getBoundingClientRect();
+		let cut = "";
+		for (let p = e.parentElement; p && p !== document.body; p = p.parentElement) {
+		  if (!/(hidden|auto|scroll|clip)/.test(getComputedStyle(p).overflowX + getComputedStyle(p).overflowY)) continue;
+		  const q = p.getBoundingClientRect();
+		  if (Math.max(q.left - (r.left - ext), q.top - (r.top - ext), r.right + ext - q.right, r.bottom + ext - q.bottom) > 0.5) { cut = p.className; break; }
+		}
+		return { name: e.getAttribute("aria-label") || e.id || e.textContent.trim() || e.className, x: Math.round(r.left), y: Math.round(r.top), h: Math.round(r.height), cut };`)
+		if got["out"] == true {
+			if len(seen) > 0 {
+				break
+			}
+			continue
+		}
+		seen = append(seen, got)
+	}
+	if len(seen) < 6 {
+		t.Fatalf("Tab reached %d controls of the dock: %v", len(seen), seen)
+	}
+	for i, s := range seen {
+		if s["cut"] != "" {
+			t.Errorf("the ring of %v is cut by %v", s["name"], s["cut"])
+		}
+		if i == 0 {
+			continue
+		}
+		p := seen[i-1]
+		// The next control stands lower, or on the same line further on.
+		sameLine := s["y"].(float64) < p["y"].(float64)+p["h"].(float64)/2 && s["y"].(float64) > p["y"].(float64)-p["h"].(float64)/2
+		if s["y"].(float64) < p["y"].(float64)-1 && !sameLine || sameLine && s["x"].(float64) <= p["x"].(float64) {
+			t.Errorf("Tab goes from %v (%v, %v) back to %v (%v, %v)", p["name"], p["x"], p["y"], s["name"], s["x"], s["y"])
+		}
+	}
+	noErrors(t, ctx)
+}

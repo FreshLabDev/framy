@@ -42,9 +42,10 @@ export function act(fn) {
 }
 
 export function mountComposer() {
+  // On a phone the kind and the tools share the row over the prompt, the kind first, as Tab goes.
   return h("section", { class: "composer", id: "composer", "aria-label": t("composer.label") },
-    h("div", { class: "dtools", id: "dtools" }),
     h("div", { class: "seg kind", role: "radiogroup", "aria-label": t("kind.label"), id: "kind", "data-seg": "kind", "data-dur": 460 }),
+    h("div", { class: "dtools", id: "dtools" }),
     h("div", { id: "pwrap" },
       h("label", { class: "sr", for: "prompt" }, t("prompt.label")),
       h("textarea", { id: "prompt", rows: 3, maxlength: 4000 }),
