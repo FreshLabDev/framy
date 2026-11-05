@@ -502,3 +502,26 @@ func TestBrowserReducedMotion(t *testing.T) {
 	}
 	noErrors(t, ctx)
 }
+
+// TestBrowserDropHidden checks that the words of the layer shown while files
+// are dragged over the page stay out of the accessibility tree, where a
+// screen reader read them after Create as a line of the form, and that the
+// layer still shows them during a drag.
+func TestBrowserDropHidden(t *testing.T) {
+	ts := fakeAPI(t)
+	ctx := browserAs(t, ts.URL, 1440, 900, opened{})
+	for _, role := range []string{"StaticText", "generic", "paragraph"} {
+		for _, n := range axNames(t, ctx, role) {
+			if strings.Contains(n, "Drop to add") {
+				t.Errorf("a screen reader reads %q (%s)", n, role)
+			}
+		}
+	}
+	got := js[string](t, ctx, `
+	document.querySelector("#composer").classList.add("drag");
+	return getComputedStyle(document.querySelector("#composer"), "::after").content;`)
+	if !strings.Contains(got, "Drop to add") {
+		t.Errorf("the layer of a drag says %s", got)
+	}
+	noErrors(t, ctx)
+}

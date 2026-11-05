@@ -70,7 +70,9 @@ main.create {display: grid; grid-template-columns: minmax(0, 1fr); gap: 40px; pa
   main.create {grid-template-columns: 460px minmax(0, 1fr); gap: 56px; align-items: start; padding-bottom: 56px;}
 }
 .composer {display: grid; gap: 14px; position: relative;}
-.composer::after {content: attr(data-drop); position: absolute; inset: -8px; display: grid; place-items: center; background: rgba(0, 69, 79, .94); outline: 2px dashed var(--ink); font-size: 18px; font-weight: 600; opacity: 0; pointer-events: none; transition: opacity .18s;}
+/* What the drop is for shows while files are dragged over the page; a screen reader does not read it as
+   a line of the form after Create. */
+.composer::after {content: attr(data-drop); content: attr(data-drop) / ""; position: absolute; inset: -8px; display: grid; place-items: center; background: rgba(0, 69, 79, .94); outline: 2px dashed var(--ink); font-size: 18px; font-weight: 600; opacity: 0; pointer-events: none; transition: opacity .18s;}
 .composer.drag::after {opacity: 1;}
 .seg.kind > button {flex-direction: row; gap: 8px; min-height: 42px; font-size: 15px;}
 textarea#prompt {display: block; width: 100%; min-height: 88px; padding: 14px 16px; background: var(--deep); resize: none; overflow: hidden; font-size: 20px; line-height: 1.3;}
