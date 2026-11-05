@@ -78,6 +78,8 @@ type ChatRun struct {
 	OfferID  string
 	Settings map[string]any
 	Created  time.Time
+	// Finished is when the job ended; zero while it runs.
+	Finished time.Time
 }
 
 const chatRunColumns = `
@@ -85,7 +87,7 @@ const chatRunColumns = `
 	r.preview_ephemeral, r.command_ephemeral, COALESCE(r.panel_message_id, 0), r.lang,
 	r.taken, r.album, r.note, r.clip_file_id, r.clip_bytes, r.clip_seconds, r.stage, r.generate_at, r.stopped,
 	COALESCE(r.result_message_id, 0), COALESCE(r.inline_message_id, ''), j.user_id, j.prompt, j.free, j.kind, j.status, COALESCE(j.error_class, ''), COALESCE(j.error, ''), COALESCE(m.name, o.name, j.model_id),
-	j.offer_id, j.settings, j.created_at`
+	j.offer_id, j.settings, j.created_at, j.finished_at`
 
 const chatRunFrom = `
 	FROM chat_run r JOIN job j ON j.id = r.job_id
@@ -94,14 +96,17 @@ const chatRunFrom = `
 
 func scanChatRun(row pgx.Row) (ChatRun, error) {
 	var r ChatRun
-	var at *time.Time
+	var at, finished *time.Time
 	err := row.Scan(&r.JobID, &r.ChatID, &r.ThreadID, &r.CommandMessageID, &r.PreviewMessageID,
 		&r.PreviewEphemeral, &r.CommandEphemeral, &r.PanelMessageID, &r.Lang,
 		&r.Taken, &r.Album, &r.Note, &r.ClipFileID, &r.ClipBytes, &r.ClipSeconds, &r.Stage, &at, &r.Stopped,
 		&r.ResultMessageID, &r.InlineMessageID, &r.UserID, &r.Prompt, &r.Free, &r.Kind, &r.Status, &r.ErrorClass, &r.Error, &r.Model,
-		&r.OfferID, &r.Settings, &r.Created)
+		&r.OfferID, &r.Settings, &r.Created, &finished)
 	if at != nil {
 		r.GenerateAt = *at
+	}
+	if finished != nil {
+		r.Finished = *finished
 	}
 	return r, err
 }

@@ -705,7 +705,12 @@ func (f *Flow) resendRich(ctx context.Context, run db.ChatRun, press, body strin
 }
 
 // refused tells a request Telegram refused, which sent nothing, from one
-// that may have reached it.
+// that may have reached it; no retry changes a refusal. A 403 says the bot
+// may not write there: the person never started it, blocked it or is gone,
+// or the bot was removed from a group or may not post in it. A 400 says the
+// request itself is wrong for Telegram: the chat or the topic is unknown,
+// the bot lacks the right to send that media, or the file is one Telegram
+// does not take.
 func refused(err error) bool {
 	var api *tg.APIError
 	if !errors.As(err, &api) {

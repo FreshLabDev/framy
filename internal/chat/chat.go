@@ -212,6 +212,9 @@ type Flow struct {
 	// they were of (deliver.go).
 	ticks sync.Map // job id → *ticker
 	chats sync.Map // chat id → *chatTick
+	// retries are the runs whose result or card did not reach the chat,
+	// and when each is tried again (deliver.go).
+	retries sync.Map // job id → retry
 	// pace holds a chat Telegram asked to wait for (telegram.go); busy is
 	// how many runs each chat has generating, as the last round read them.
 	pace   *pace
@@ -503,6 +506,7 @@ func (f *Flow) dropLock(jobID int64, l *runLock) {
 // by itself once nothing holds it.
 func (f *Flow) forget(jobID int64) {
 	f.ticks.Delete(jobID)
+	f.retries.Delete(jobID)
 }
 
 // personLang is the person's language in core, or their client's.

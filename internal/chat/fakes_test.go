@@ -479,6 +479,8 @@ type fakeJob struct {
 	class  jobs.Class
 	// deleted: the person deleted the job, on the site or with the account.
 	deleted bool
+	// finished is when the job ended, as setStatus to an end stamps it.
+	finished time.Time
 }
 
 type fakeStore struct {
@@ -764,6 +766,7 @@ func (s *fakeStore) read(jobID int64) (db.ChatRun, error) {
 	out := *r
 	if j := s.jobs[jobID]; j != nil {
 		out.UserID, out.Prompt, out.Free, out.Status, out.ErrorClass = j.n.UserID, j.n.Prompt, j.n.Free, string(j.status), string(j.class)
+		out.Finished = j.finished
 		out.Kind = string(j.n.Offer.Kind)
 		m, _, _ := s.offer(j.n.Offer.ID)
 		out.Model, out.OfferID = m.Name, j.n.Offer.ID
@@ -893,6 +896,12 @@ func (s *fakeStore) setStatus(jobID int64, st jobs.Status, class jobs.Class) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.jobs[jobID].status, s.jobs[jobID].class = st, class
+	switch st {
+	case jobs.Done, jobs.Failed, jobs.Cancelled, jobs.Expired:
+		if s.now != nil {
+			s.jobs[jobID].finished = s.now()
+		}
+	}
 }
 
 // fakeQueue makes jobs in the fake store; refuse fails a free draft.
@@ -974,6 +983,8 @@ type fakeFiles struct {
 	uploads int
 	fail    error
 	results map[int64][]storage.Asset
+	// resultsErr fails Results, as a bucket that does not answer would.
+	resultsErr error
 	// joined maps a job to the clip Continue joined it to; opened are the
 	// keys Open read, in order.
 	joined map[int64]storage.Asset
@@ -1058,6 +1069,9 @@ func (f *fakeFiles) UploadCopy(_ context.Context, userID int64, r io.Reader, cop
 func (f *fakeFiles) Results(_ context.Context, jobID int64) ([]storage.Asset, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.resultsErr != nil {
+		return nil, f.resultsErr
+	}
 	return f.results[jobID], nil
 }
 

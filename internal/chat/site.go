@@ -167,7 +167,7 @@ func (f *Flow) mayWrite(ctx context.Context, video bool, rs ...db.SiteResult) bo
 	switch {
 	case err == nil:
 		return true
-	case mayNotWrite(err):
+	case refused(err):
 		f.log.Info("site result not sent: the bot may not write to the person", "jobs", jobIDs(rs))
 		f.endSite(ctx, db.DeliveryClosed, rs...)
 	default:
@@ -416,14 +416,6 @@ func (f *Flow) notSent(ctx context.Context, err error, rs ...db.SiteResult) {
 	}
 	f.log.Error("site result not sent", "jobs", jobIDs(rs), "error", err)
 	f.endSite(ctx, db.DeliveryFailed, rs...)
-}
-
-// mayNotWrite tells a refusal that says the bot may not write to the
-// person: a 403 (never started, blocked, deactivated) or a 400 (the chat
-// is unknown to the bot). Nothing sent there would arrive.
-func mayNotWrite(err error) bool {
-	var apiErr *tg.APIError
-	return errors.As(err, &apiErr) && (apiErr.ErrorCode == 403 || apiErr.ErrorCode == 400)
 }
 
 // postAlbum sends pictures as one album, the caption on the first, and

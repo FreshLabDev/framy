@@ -54,6 +54,28 @@ const (
 	following = 4
 )
 
+// When a result or an error card does not reach its chat (docs/design.md,
+// Limits of the chat): a refusal ends the run at once, anything else is
+// tried again, less often each time, from retryFirst up to retryMost, and
+// given up deliverWithin after the job ended.
+const (
+	retryFirst    = followEvery
+	retryMost     = 5 * time.Minute
+	deliverWithin = time.Hour
+)
+
+// retry is how often a run's delivery failed, and when it is tried again.
+type retry struct {
+	tries int
+	next  time.Time
+}
+
+// due tells whether the run's delivery may be tried now.
+func (f *Flow) due(jobID int64) bool {
+	v, ok := f.retries.Load(jobID)
+	return !ok || !f.now().Before(v.(retry).next)
+}
+
 // Telegram's limits on a photo; a bigger image goes as a document.
 const (
 	maxPhotoBytes = 10 << 20
@@ -177,9 +199,13 @@ func (f *Flow) step(ctx context.Context, jobID int64) {
 		case jobs.Queued, jobs.Running:
 			f.progress(ctx, run)
 		case jobs.Done:
-			f.deliver(ctx, run)
+			if f.due(jobID) {
+				f.deliver(ctx, run)
+			}
 		case jobs.Failed, jobs.Expired:
-			f.failed(ctx, run, reason(run))
+			if f.due(jobID) {
+				f.failed(ctx, run, reason(run))
+			}
 		case jobs.Cancelled:
 			f.close(ctx, run, db.StageGenerating)
 		}
@@ -345,7 +371,9 @@ func (f *Flow) captionEvery(chat int64) time.Duration {
 func (f *Flow) deliver(ctx context.Context, run db.ChatRun) {
 	results, err := f.cfg.Files.Results(ctx, run.JobID)
 	if err != nil {
-		f.log.Warn("results unread", "job", run.JobID, "error", err)
+		if f.giveUp(ctx, run, "results unread", err) {
+			f.undelivered(ctx, run)
+		}
 		return
 	}
 	if len(results) == 0 {
@@ -369,7 +397,9 @@ func (f *Flow) deliver(ctx context.Context, run db.ChatRun) {
 		msg, err = f.sendImage(ctx, run, a, caption)
 	}
 	if err != nil {
-		f.log.Error("result not sent", "job", run.JobID, "error", err)
+		if f.giveUp(ctx, run, "result not sent", err) {
+			f.undelivered(ctx, run)
+		}
 		return
 	}
 	res := resultOf(msg)
@@ -700,16 +730,79 @@ func (f *Flow) failed(ctx context.Context, run db.ChatRun, key string) {
 		f.log.Warn("error card not shown; replying", "job", run.JobID, "error", err)
 		sent, rerr := f.cfg.Telegram.SendReply(ctx, run.ChatID, run.CommandMessageID, run.ThreadID, text, kb)
 		if rerr != nil {
-			f.log.Error("failure not told", "job", run.JobID, "error", rerr)
-			return
-		}
-		f.deleteMessage(ctx, run.ChatID, run.PreviewMessageID)
-		if err := f.cfg.Store.SetChatRunPreview(ctx, run.JobID, sent.MessageID, false); err != nil {
-			f.log.Warn("failure reply not recorded", "job", run.JobID, "error", err)
+			if !f.giveUp(ctx, run, "failure not told", rerr) {
+				return
+			}
+			// Nothing in the chat says it failed; the site's history does.
+		} else {
+			f.deleteMessage(ctx, run.ChatID, run.PreviewMessageID)
+			if err := f.cfg.Store.SetChatRunPreview(ctx, run.JobID, sent.MessageID, false); err != nil {
+				f.log.Warn("failure reply not recorded", "job", run.JobID, "error", err)
+			}
 		}
 	}
 	if _, err := f.cfg.Store.FinishChatRun(ctx, run.JobID, db.StageFailed, db.ChatResult{}); err != nil {
 		f.log.Error("run not finished", "job", run.JobID, "error", err)
+		return
+	}
+	f.forget(run.JobID)
+}
+
+// giveUp decides what comes of a result or an error card that did not reach
+// the chat, and tells whether the run ends now. A refusal (refused) would be
+// the same every time: the bot was removed or blocked, it may not post
+// there, or the chat or the topic is gone. So the run ends at once, and the
+// person has the result in their history on the site; before, it was sent
+// again every round for good, the file read and the video readied each
+// time. Telegram asking to wait is the chat's hold (telegram.go), and a
+// stop is no failure. Anything else is tried again later, retryFirst after
+// the first failure and twice as long after each next one up to retryMost,
+// and given up when it still fails deliverWithin after the job ended.
+func (f *Flow) giveUp(ctx context.Context, run db.ChatRun, what string, err error) bool {
+	switch {
+	case ctx.Err() != nil, errors.Is(err, errHeld), tg.IsTooManyRequests(err):
+		return false
+	case refused(err):
+		f.log.Warn(what+": Telegram refused it, so the run ends", "job", run.JobID, "chat", run.ChatID, "error", err)
+		return true
+	}
+	v, _ := f.retries.Load(run.JobID)
+	r, _ := v.(retry)
+	r.tries++
+	now := f.now()
+	if r.tries > 1 && !run.Finished.IsZero() && now.Sub(run.Finished) > deliverWithin {
+		f.log.Error(what+" for too long, so the run ends", "job", run.JobID, "tries", r.tries, "error", err)
+		return true
+	}
+	wait := retryMost
+	if r.tries <= 8 {
+		wait = min(retryFirst<<(r.tries-1), retryMost)
+	}
+	r.next = now.Add(wait)
+	f.retries.Store(run.JobID, r)
+	f.log.Error(what, "job", run.JobID, "tries", r.tries, "again_in", wait, "error", err)
+	return false
+}
+
+// undelivered ends a run whose result the chat will not get. Where the
+// loop can still be changed, it says the result is in the person's history
+// and loses its Stop; in a chat the bot was removed from it stays as it
+// was, and nothing more is sent there.
+func (f *Flow) undelivered(ctx context.Context, run db.ChatRun) {
+	caption := lines(promptQuote(run.Prompt), t(run.Lang, "guest.elsewhere"), "<b>"+html.EscapeString(run.Model)+"</b>")
+	switch {
+	case guest(run):
+		f.guestCaption(ctx, run, caption, nil)
+	case run.PreviewMessageID != 0 && !run.PreviewEphemeral:
+		cctx, cancel := context.WithTimeout(ctx, cosmetic)
+		_, err := f.cfg.Telegram.EditMessageCaption(cctx, run.ChatID, run.PreviewMessageID, caption, tg.EditCaptionOptions{})
+		cancel()
+		if err != nil && !tg.IsMessageNotModified(err) {
+			f.log.Debug("loop not told the result went elsewhere", "job", run.JobID, "error", err)
+		}
+	}
+	if _, err := f.cfg.Store.MoveChatRun(ctx, run.JobID, db.StageGenerating, db.StageGone); err != nil {
+		f.log.Error("run not closed", "job", run.JobID, "error", err)
 		return
 	}
 	f.forget(run.JobID)

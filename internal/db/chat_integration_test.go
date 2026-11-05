@@ -6,6 +6,7 @@ package db
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/FreshLabDev/tg"
 )
@@ -79,6 +80,9 @@ func TestAChatRunFollowsItsJob(t *testing.T) {
 	if got.PreviewEphemeral || got.CommandEphemeral || got.PanelMessageID != 0 {
 		t.Fatalf("a preview in the chat = %+v", got)
 	}
+	if !got.Finished.IsZero() {
+		t.Fatalf("a draft has ended at %v", got.Finished)
+	}
 	open, err := store.OpenChatRuns(ctx)
 	if err != nil || len(open) != 1 || open[0].JobID != job {
 		t.Fatalf("open = %+v, %v", open, err)
@@ -112,6 +116,13 @@ func TestAChatRunFollowsItsJob(t *testing.T) {
 	}
 	if open, _ := store.OpenChatRuns(ctx); len(open) != 0 {
 		t.Fatalf("a finished run is open: %+v", open)
+	}
+	// When the job ended, which bounds how long a delivery is tried.
+	if _, err := store.pool.Exec(ctx, `UPDATE job SET status = 'done', finished_at = now() - interval '2 hours' WHERE id = $1`, job); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := store.ChatRun(ctx, job); err != nil || time.Since(got.Finished) < time.Hour {
+		t.Fatalf("finished = %v, %v", got.Finished, err)
 	}
 }
 
