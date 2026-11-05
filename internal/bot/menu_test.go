@@ -32,6 +32,9 @@ type drawn struct {
 }
 
 func everyPanel(v view) []drawn {
+	if v.bot == "" {
+		v.bot = "framytest_bot"
+	}
 	var out []drawn
 	add := func(name, text string, m *tg.InlineKeyboardMarkup) { out = append(out, drawn{name, text, m}) }
 	if v.sc == scopeGroup {
@@ -706,6 +709,57 @@ func TestPanelAlertsFitTelegram(t *testing.T) {
 			if n := len(utf16.Encode([]rune(i18n.T(code, key)))); n > 200 {
 				t.Errorf("%s [%s] is %d characters, over 200", key, code, n)
 			}
+		}
+	}
+}
+
+// Help says every way in: a plain message in the direct chat, /img and
+// /edit in a group, and the bot's own username for guest and inline mode,
+// which is not the same for the production bot and the test bot. It says
+// so whether it comes from /help or from the Help button.
+func TestHelpSaysEveryWayInWithTheBotsOwnName(t *testing.T) {
+	b, _, client := newBot()
+	ctx := context.Background()
+	if err := b.onMessage(ctx, message(dmChat, 7, "/help")); err != nil {
+		t.Fatal(err)
+	}
+	typed := client.last().text
+	if err := b.onCallback(ctx, callback(dmChat, 7, 7, actHelp, 0)); err != nil {
+		t.Fatal(err)
+	}
+	pressed := client.last().text
+	for _, got := range []string{typed, pressed} {
+		for _, want := range []string{"direct chat", "<code>/img</code>", "<code>/edit</code>", "send @framytest_bot", "Typing @framytest_bot", "one video"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("help has no %q: %s", want, got)
+			}
+		}
+		if strings.Contains(got, "framyin_bot") || strings.Contains(got, "{bot}") {
+			t.Errorf("help names another bot: %s", got)
+		}
+		if strings.Contains(got, "The site is") {
+			t.Errorf("help names a site framy was not given: %s", got)
+		}
+	}
+}
+
+// Help sends the person to the site for keys, so it says where the site
+// is, in a group too, where Open framy leads to the direct chat.
+func TestHelpNamesTheSite(t *testing.T) {
+	b, _, client := newBotWith(WithSiteURL(testSite))
+	ctx := context.Background()
+	if err := b.onMessage(ctx, message(dmChat, 7, "/help")); err != nil {
+		t.Fatal(err)
+	}
+	direct := client.last().text
+	if err := b.onCallback(ctx, callback(groupChat, 7, 7, actHelp, 99)); err != nil {
+		t.Fatal(err)
+	}
+	group := client.last().text
+	want := `The site is <a href="` + testSite + `">framy.example</a>: your library, keys and settings are there.`
+	for _, got := range []string{direct, group} {
+		if !strings.Contains(got, want+"</blockquote>") {
+			t.Errorf("help does not end with the site: %s", got)
 		}
 	}
 }

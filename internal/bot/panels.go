@@ -247,7 +247,7 @@ func (b *Bot) sendScreen(ctx context.Context, m *tg.Message, action, payload str
 	if err != nil {
 		return err
 	}
-	v := view{lang: i18n.Resolve(raw), owner: m.From.ID, sc: scopeOf(m.Chat)}
+	v := view{lang: i18n.Resolve(raw), owner: m.From.ID, sc: scopeOf(m.Chat), bot: b.username, site: b.appURL}
 	var text string
 	var keyboard *tg.InlineKeyboardMarkup
 	if v.sc == scopeGroup {
@@ -387,7 +387,7 @@ func (b *Bot) onCallback(ctx context.Context, cq *tg.CallbackQuery) error {
 // alert to show instead when the press is refused.
 func (b *Bot) runAction(ctx context.Context, cq *tg.CallbackQuery, action, raw string) (string, error) {
 	m := cq.Message
-	v := view{lang: i18n.Resolve(raw), owner: cq.From.ID, sc: scopeOf(m.Chat)}
+	v := view{lang: i18n.Resolve(raw), owner: cq.From.ID, sc: scopeOf(m.Chat), bot: b.username, site: b.appURL}
 	ephemeral := m.EphemeralMessageID != 0
 	if action == actClose {
 		if v.sc != scopeGroup {

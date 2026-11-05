@@ -88,12 +88,16 @@ func scopeOf(chat tg.Chat) scope {
 // view is who a panel is drawn for: the language it is written in, the person
 // whose buttons these are, and where it sits. account is read for the home
 // panel of a direct chat only; empty, that panel says nothing of the person
-// beyond their language.
+// beyond their language. bot is the bot's username, which Help names for
+// guest and inline mode: the test bot has its own. site is the site's https
+// address, which Help names; empty, Help leaves its line out.
 type view struct {
 	lang    string
 	owner   int64
 	sc      scope
 	account account
+	bot     string
+	site    string
 	// direct is the link a group's panel opens framy by (Bot.directURL);
 	// empty: none. addTo is the link the direct chat's panel adds framy to
 	// a group by (Bot.addToGroupURL); empty: none.
@@ -239,9 +243,16 @@ func (v view) languageLabel(code string) string {
 	return i18n.LabelOf(code)
 }
 
+// help says every way in. The site's line gives its address, since the
+// other lines send the person there for keys, and a group's Open framy
+// leads to the direct chat, not to the site.
 func (v view) help() (string, *tg.InlineKeyboardMarkup) {
-	return panel(v.t("help.title"), "", v.t("help.hint"), quote(v.t("help.body"))),
-		markup(v.navRow(actHome))
+	lines := []string{v.t("help.body", "bot", "@"+v.bot)}
+	if v.site != "" {
+		host := strings.TrimSuffix(strings.TrimPrefix(v.site, "https://"), "/")
+		lines = append(lines, v.t("help.site", "site", link(v.site, host)))
+	}
+	return panel(v.t("help.title"), "", v.t("help.hint"), quote(lines...)), markup(v.navRow(actHome))
 }
 
 // about is exactly the family's About card: name and version, one line of what

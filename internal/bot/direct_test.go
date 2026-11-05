@@ -144,13 +144,14 @@ func TestStartAtAKeyOpensTheSettingsThere(t *testing.T) {
 
 // What the strings say about the windows is written in each language; the
 // numbers come from the allowance, the words must follow the constants.
-// The bot's description writes the counts in words too ("Five images").
+// The bot's description and Help write the counts in words too ("Five
+// images").
 func TestHomeStringsNameTheWindowsOfTheAllowance(t *testing.T) {
 	if free.ImageWindow != 24*time.Hour || free.VideoWindow != 7*24*time.Hour {
-		t.Fatal("the allowance's windows changed: update home.free_images_left, home.free_videos_left and bot.description in every language")
+		t.Fatal("the allowance's windows changed: update home.free_images_left, home.free_videos_left, bot.description and help.body in every language")
 	}
 	if free.ImagesPerWindow != 5 || free.VideosPerWindow != 1 {
-		t.Fatal("the allowance's counts changed: update bot.description in every language")
+		t.Fatal("the allowance's counts changed: update bot.description and help.body in every language")
 	}
 }
 
