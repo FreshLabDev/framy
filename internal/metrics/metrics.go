@@ -282,6 +282,7 @@ func write(ctx context.Context, w io.Writer) {
 			}
 		}
 	}
+	writeProcess(w)
 }
 
 func writeHistogram(w io.Writer, name string, h *HistogramVec) {

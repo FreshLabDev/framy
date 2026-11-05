@@ -83,7 +83,9 @@ screen, a command or a table, check how the siblings do it.
 - **Version and metrics.** The About card shows the version from the build's
   ldflags, never a commit or a date. Metrics are in the Prometheus text
   format on `METRICS_ADDR`, never on the public listener: counters
-  `framy_*_total`, gauges and histograms `framy_*` named for what they hold.
+  `framy_*_total`, gauges and histograms `framy_*` named for what they hold,
+  beside the process's and the Go runtime's own under Prometheus's standard
+  `process_*` and `go_*` names.
 - **Writing.** No em dash anywhere a person reads; the i18n tests check the
   translations and the strings in Go code.
 
