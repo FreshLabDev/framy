@@ -66,7 +66,7 @@ func (f *Flow) Plain(ctx context.Context, m *tg.Message) {
 }
 
 func (f *Flow) answerPlain(ctx context.Context, m *tg.Message) {
-	f.withSlot(ctx, func() {
+	f.withSlot(ctx, m, func() {
 		if err := f.plain(ctx, m); err != nil && ctx.Err() == nil {
 			f.log.Error("plain message failed", "chat", m.Chat.ID, "message", m.MessageID, "error", err)
 		}
@@ -199,7 +199,7 @@ func (f *Flow) answerAsk(ctx context.Context, cq *tg.CallbackQuery) error {
 		command = commandMotion
 	}
 	var err error
-	f.withSlot(ctx, func() { err = f.command(ctx, m, command, f.words(m)) })
+	f.withSlot(ctx, m, func() { err = f.command(ctx, m, command, f.words(m)) })
 	return err
 }
 

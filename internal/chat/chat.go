@@ -200,11 +200,14 @@ type Config struct {
 // Flow runs /img and /edit in chats, and a plain message in a DM, and sends
 // the results made on the site to the DM.
 type Flow struct {
-	cfg    Config
-	log    *slog.Logger
-	now    func() time.Time
-	slot   chan struct{}
-	albums Albums
+	cfg  Config
+	log  *slog.Logger
+	now  func() time.Time
+	slot chan struct{}
+	// stopping is closed once the process stops (Run's context ends).
+	stopping chan struct{}
+	stopOnce sync.Once
+	albums   Albums
 	// mention is framy's mention in a plain message (Config.Username).
 	mention *regexp.Regexp
 
@@ -293,7 +296,7 @@ func New(cfg Config) (*Flow, error) {
 	cfg.AppURL = miniAppURL(cfg.AppURL)
 	p := newPace()
 	cfg.Telegram = guarded{Telegram: cfg.Telegram, pace: p}
-	f := &Flow{cfg: cfg, log: cfg.Log, now: time.Now, pace: p, slot: make(chan struct{}, cfg.Commands),
+	f := &Flow{cfg: cfg, log: cfg.Log, now: time.Now, pace: p, slot: make(chan struct{}, cfg.Commands), stopping: make(chan struct{}),
 		shareKey: newShareKey(), shareSlots: make(chan struct{}, shareSlots)}
 	if name := strings.TrimPrefix(cfg.Username, "@"); name != "" {
 		f.mention = regexp.MustCompile(`(?i)[ \t]*@` + regexp.QuoteMeta(name) + `\b[ \t]*`)
@@ -323,7 +326,7 @@ func (f *Flow) Command(ctx context.Context, m *tg.Message, command, prompt strin
 		return
 	}
 	f.wg.Go(func() {
-		f.withSlot(ctx, func() {
+		f.withSlot(ctx, m, func() {
 			if err := f.command(ctx, m, command, strings.TrimSpace(prompt)); err != nil && ctx.Err() == nil {
 				f.log.Error("chat command failed", "chat", m.Chat.ID, "message", m.MessageID, "error", err)
 			}
@@ -364,7 +367,7 @@ func (f *Flow) Mention(ctx context.Context, m *tg.Message, prompt string) {
 		return
 	}
 	f.wg.Go(func() {
-		f.withSlot(ctx, func() {
+		f.withSlot(ctx, m, func() {
 			if err := f.byName(ctx, m, strings.TrimSpace(prompt)); err != nil && ctx.Err() == nil {
 				f.log.Error("chat mention failed", "chat", m.Chat.ID, "message", m.MessageID, "error", err)
 			}
@@ -384,17 +387,58 @@ func (f *Flow) byName(ctx context.Context, m *tg.Message, prompt string) error {
 	return f.command(ctx, m, command, prompt)
 }
 
-// withSlot runs work as one of the commands worked at once, unless ctx ends
-// while it waits.
-func (f *Flow) withSlot(ctx context.Context, work func()) {
+// withSlot runs work as one of the commands worked at once, and tells
+// whether it did. A stop does not wait for a slot: the commands that have
+// one go on for the bot's grace, and one still waiting when the stop comes,
+// or that comes after it and finds none free, is not worked. Telegram has
+// been told its update was taken, and gives it to no one again, so m, what
+// it answers, is told to come back rather than left with nothing.
+func (f *Flow) withSlot(ctx context.Context, m *tg.Message, work func()) bool {
 	select {
 	case f.slot <- struct{}{}:
-	case <-ctx.Done():
-		return
+	default:
+		select {
+		case f.slot <- struct{}{}:
+		case <-ctx.Done():
+			f.turnAway(ctx, m)
+			return false
+		case <-f.stopping:
+			f.turnAway(ctx, m)
+			return false
+		}
 	}
 	defer func() { <-f.slot }()
 	work()
+	return true
 }
+
+// turnAwayWithin bounds the answer to a command a stop turned away.
+const turnAwayWithin = 5 * time.Second
+
+// turnAway tells the sender of m that framy is restarting and to send it
+// again: in the chat, or in the answer to a guest message.
+func (f *Flow) turnAway(ctx context.Context, m *tg.Message) {
+	if m == nil || m.From == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), turnAwayWithin)
+	defer cancel()
+	text := t(f.langOf(ctx, m), "run.restarting")
+	var err error
+	if m.GuestQueryID != "" {
+		err = f.guestText(ctx, m, text)
+	} else {
+		err = f.reply(ctx, m, text)
+	}
+	if err != nil {
+		f.log.Warn("a command a stop turned away was not told", "chat", m.Chat.ID, "error", err)
+		return
+	}
+	f.log.Info("a command a stop turned away was told to come back", "chat", m.Chat.ID)
+}
+
+// markStopping tells the commands waiting for a slot that the process stops.
+func (f *Flow) markStopping() { f.stopOnce.Do(func() { close(f.stopping) }) }
 
 // callbackPrefix starts the data of a run's buttons: "j:<job>:<action>".
 // askPrefix starts the answers to the question of a DM:

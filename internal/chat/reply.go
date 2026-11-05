@@ -25,7 +25,9 @@ func (f *Flow) Reply(ctx context.Context, m *tg.Message) {
 		return
 	}
 	f.wg.Go(func() {
-		f.withSlot(ctx, func() {
+		// A stop turns no one away here: words to a result may be no
+		// request at all, and the chat would read "send it again" to them.
+		f.withSlot(ctx, nil, func() {
 			if err := f.answerReply(ctx, m); err != nil && ctx.Err() == nil {
 				f.log.Error("reply to a result failed", "chat", m.Chat.ID, "message", m.MessageID, "error", err)
 			}

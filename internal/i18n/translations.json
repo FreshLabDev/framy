@@ -2879,6 +2879,24 @@
     "ja": "価格は不明",
     "ar": "السعر غير معروف"
   },
+  "run.restarting": {
+    "en": "framy is restarting and could not take this. Send it again in a minute.",
+    "ru": "framy перезапускается и не успел это принять. Отправь ещё раз через минуту.",
+    "uk": "framy перезапускається і не встиг це прийняти. Надішли ще раз за хвилину.",
+    "es": "framy se está reiniciando y no pudo recibir esto. Envíalo de nuevo en un minuto.",
+    "fr": "framy redémarre et n’a pas pu prendre ceci. Renvoie-le dans une minute.",
+    "de": "framy wird neu gestartet und konnte das nicht annehmen. Sende es in einer Minute noch einmal.",
+    "it": "framy si sta riavviando e non ha potuto prenderlo. Invialo di nuovo tra un minuto.",
+    "pl": "framy uruchamia się ponownie i nie zdążył tego przyjąć. Wyślij to jeszcze raz za minutę.",
+    "cs": "framy se restartuje a nestihl to přijmout. Pošli to znovu za minutu.",
+    "tr": "framy yeniden başlıyor ve bunu alamadı. Bir dakika sonra tekrar gönder.",
+    "sv": "framy startar om och kunde inte ta emot det här. Skicka det igen om en minut.",
+    "be": "framy перазапускаецца і не паспеў гэта прыняць. Адпраў яшчэ раз праз хвіліну.",
+    "ca": "framy s’està reiniciant i no ho ha pogut rebre. Torna-ho a enviar d’aquí a un minut.",
+    "zh": "framy 正在重启，没能接收这条消息。请一分钟后再发一次。",
+    "ja": "framy は再起動中のため、これを受け付けられませんでした。1分後にもう一度送ってください。",
+    "ar": "يُعاد تشغيل framy ولم يتمكن من استلام هذا. أرسله مرة أخرى بعد دقيقة."
+  },
   "run.setting_gone": {
     "en": "The model no longer offers this choice, so nothing changed. Here are its settings now.",
     "ru": "Модель больше не предлагает этот вариант, поэтому ничего не изменилось. Вот её настройки сейчас.",

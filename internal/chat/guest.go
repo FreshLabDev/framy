@@ -53,7 +53,7 @@ func (f *Flow) Guest(ctx context.Context, m *tg.Message, prompt string) {
 		return
 	}
 	f.wg.Go(func() {
-		f.withSlot(ctx, func() {
+		f.withSlot(ctx, m, func() {
 			if err := f.guest(ctx, m, strings.TrimSpace(prompt)); err != nil && ctx.Err() == nil {
 				f.log.Error("guest message failed", "error", err)
 			}

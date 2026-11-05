@@ -109,7 +109,10 @@ const deliverGrace = 15 * time.Second
 func (f *Flow) Run(ctx context.Context) {
 	work, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancel()
-	stop := context.AfterFunc(ctx, func() { time.AfterFunc(deliverGrace, cancel) })
+	stop := context.AfterFunc(ctx, func() {
+		f.markStopping()
+		time.AfterFunc(deliverGrace, cancel)
+	})
 	defer stop()
 	var site sync.WaitGroup
 	site.Go(func() { f.runSite(ctx, work) })
