@@ -537,25 +537,31 @@ func (f *Flow) postVideo(ctx context.Context, chatID int64, a storage.Asset, co 
 // one. A cover Telegram refuses does not keep the video back: it goes again
 // without one, and clients pick a frame of their own.
 func (f *Flow) uploadVideo(ctx context.Context, chatID int64, path, cover string, opts tg.VideoOptions) (tg.Message, error) {
-	send := func(o tg.VideoOptions) (tg.Message, error) {
-		return withFileAt(path, "framy.mp4", func(file tg.InputFile) (tg.Message, error) {
-			return f.cfg.Telegram.SendVideo(ctx, chatID, file, o)
+	send := func(cover string) (tg.Message, error) {
+		return sendFiles(f, func(o *outbox) (tg.Message, error) {
+			file, err := o.fileAt(path, "framy.mp4")
+			if err != nil {
+				return tg.Message{}, err
+			}
+			opts := opts
+			if cover != "" {
+				if opts.Cover, err = o.fileAt(cover, "cover.jpg"); err != nil {
+					return tg.Message{}, err
+				}
+			}
+			return f.cfg.Telegram.SendVideo(ctx, chatID, file, opts)
 		})
 	}
 	if cover == "" {
-		return send(opts)
+		return send("")
 	}
-	msg, err := withFileAt(cover, "cover.jpg", func(c tg.InputFile) (tg.Message, error) {
-		o := opts
-		o.Cover = c
-		return send(o)
-	})
+	msg, err := send(cover)
 	var apiErr *tg.APIError
 	if err == nil || !errors.As(err, &apiErr) || apiErr.ErrorCode != 400 {
 		return msg, err
 	}
 	f.log.Warn("cover refused; video sent without one", "error", err)
-	return send(opts)
+	return send("")
 }
 
 // coverQuality is the JPEG quality of a cover: no visible loss, and a
@@ -650,24 +656,20 @@ func (f *Flow) readyVideo(ctx context.Context, a storage.Asset, dir string) (v m
 	return media.Video{Path: in, ContentType: a.ContentType, Width: a.Width, Height: a.Height, Seconds: a.Seconds}, false, nil
 }
 
-// withFileAt hands send the file at path as an upload named name.
-func withFileAt(path, name string, send func(tg.InputFile) (tg.Message, error)) (tg.Message, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return tg.Message{}, err
-	}
-	defer file.Close()
-	return send(tg.InputFileUpload{Filename: name, Data: file})
-}
-
-// withResult reads the result from the bucket and hands it to send.
+// withResult reads the result from the bucket and hands it to send, by
+// path or as an upload (sendFiles).
 func (f *Flow) withResult(ctx context.Context, a storage.Asset, send func(tg.InputFile) (tg.Message, error)) (tg.Message, error) {
-	body, err := f.cfg.Files.Open(ctx, a)
-	if err != nil {
-		return tg.Message{}, err
-	}
-	defer body.Close()
-	return send(tg.InputFileUpload{Filename: "framy" + extOf(a.ContentType), Data: body})
+	return sendFiles(f, func(o *outbox) (tg.Message, error) {
+		body, err := f.cfg.Files.Open(ctx, a)
+		if err != nil {
+			return tg.Message{}, err
+		}
+		file, err := o.file(body, "framy"+extOf(a.ContentType))
+		if err != nil {
+			return tg.Message{}, err
+		}
+		return send(file)
+	})
 }
 
 // extOf is the extension a file sent to Telegram is named with, which a

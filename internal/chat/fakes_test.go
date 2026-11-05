@@ -117,6 +117,10 @@ func (f *fakeTelegram) record(c call) (tg.Message, error) {
 	if err := f.fail["cover"]; err != nil && c.cover != "" {
 		return tg.Message{}, err
 	}
+	// fail["local"] is a server that cannot read a file sent by its path.
+	if err := f.fail["local"]; err != nil && (strings.Contains(c.file, "local:") || strings.Contains(c.cover, "local:")) {
+		return tg.Message{}, err
+	}
 	f.calls = append(f.calls, c)
 	f.next++
 	if c.ephemeral != nil {
@@ -132,9 +136,20 @@ func fileOf(file tg.InputFile) string {
 		return "upload:" + v.Filename
 	case tg.InputFileString:
 		return v.Data
+	case tg.InputFileLocal:
+		// The server reads the file in the call: it must be there whole.
+		b, err := os.ReadFile(v.Path)
+		if err != nil || !filepath.IsAbs(v.Path) {
+			return "missing:" + filepath.Base(v.Path)
+		}
+		localRead.Store(v.Path, string(b))
+		return "local:" + filepath.Base(v.Path)
 	}
 	return "?"
 }
+
+// localRead is what the server read of each file sent by its path.
+var localRead sync.Map // path → content
 
 func (f *fakeTelegram) SendReply(_ context.Context, chatID, replyTo int64, threadID int, text string, markup *tg.InlineKeyboardMarkup) (tg.Message, error) {
 	return f.record(call{method: "sendMessage", chatID: chatID, messageID: replyTo, thread: threadID, text: text, markup: markup})

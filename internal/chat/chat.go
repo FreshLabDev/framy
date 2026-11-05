@@ -166,7 +166,13 @@ type Config struct {
 	Renderer  Renderer
 	Clips     Clips
 	Work      Work
-	Log       *slog.Logger
+	// Outbox makes directories on the volume framy shares with a local Bot
+	// API server, at the server's own path (BOT_API_FILES_DIR): a result
+	// written there is sent by its path, which the server reads from its
+	// disk, instead of uploaded, which tg holds in memory whole (outbox.go).
+	// Nil uploads. Its paths name the bot's token and never reach a log.
+	Outbox Work
+	Log    *slog.Logger
 	// Commands is how many commands are worked at once: downloads, uploads
 	// and the preview. 0 is 4.
 	Commands int
@@ -244,6 +250,9 @@ type Flow struct {
 	// swept is when takeDown last looked at every run of a deleted job, not
 	// only the open ones. Only the loop of Run reads and writes it.
 	swept time.Time
+	// byPath is set once a result went by its path, and uploadsOnly once
+	// the server took one uploaded it had refused by its path (sendFiles).
+	byPath, uploadsOnly atomic.Bool
 
 	wg sync.WaitGroup
 }

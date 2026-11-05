@@ -910,6 +910,8 @@ Temporary domain `framy.ws04.cc`. Mobile first; on a wide screen the composer an
   - Guest Mode, in BotFather's Mini App: framy handles it, on for both bots.
 - **`allowed_updates`:** `message`, `edited_message`, `callback_query`, `my_chat_member`, `inline_query`, `guest_message`; later `chosen_inline_result`.
 - **Server:** our `telegram-bot-api` in `--local` mode. framy and the server share a volume, so a result is sent by a path on that volume (`InputFileLocal`) instead of an upload. Uploads up to 2,000 MB and downloads of any size.
+  - **Results by path** (`internal/chat/outbox.go`): a result, its cover, an album of the site's results and Original are written to `framy-send/` in the bot's own media directory, which framy sees at the server's path (`BOT_API_FILES_DIR`), and sent by that path; each file has a directory of its own, so a document keeps its name. The files go once the call is over, and the hourly sweep of working files clears that directory too, what a crash left of it, with the token out of its errors. Previews, loops and cards are small, sent once and then by `file_id`, and stay uploads. With Telegram's own server, as the test bot has, every file is an upload.
+  - **A server that cannot read the path.** The first result sent by path that the server refuses with a 400, before any went, goes again as an upload. When that goes, the server does not see the volume where framy does: every result after is uploaded until a restart, and the log says so once, at error. When the upload is refused too, the refusal is the send's own and nothing changes.
 
 ## Changes to tg
 

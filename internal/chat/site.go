@@ -7,7 +7,6 @@ import (
 	"errors"
 	"html"
 	"math"
-	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -437,25 +436,29 @@ func (f *Flow) postAlbum(ctx context.Context, chatID int64, assets []storage.Ass
 	for _, a := range assets {
 		photos = photos && photoFits(a)
 	}
-	items := make([]tg.InputMedia, 0, len(assets))
-	for i, a := range assets {
-		body, err := f.cfg.Files.Open(ctx, a)
-		if err != nil {
-			return nil, err
+	return sendFiles(f, func(o *outbox) ([]tg.Message, error) {
+		items := make([]tg.InputMedia, 0, len(assets))
+		for i, a := range assets {
+			body, err := f.cfg.Files.Open(ctx, a)
+			if err != nil {
+				return nil, err
+			}
+			file, err := o.file(body, "framy"+extOf(a.ContentType))
+			if err != nil {
+				return nil, err
+			}
+			var text string
+			if i == 0 {
+				text = caption
+			}
+			if photos {
+				items = append(items, tg.InputMediaPhoto{Media: file, Caption: text})
+			} else {
+				items = append(items, tg.InputMediaDocument{Media: file, Caption: text})
+			}
 		}
-		defer body.Close()
-		file := tg.InputFileUpload{Filename: "framy" + extOf(a.ContentType), Data: body}
-		var text string
-		if i == 0 {
-			text = caption
-		}
-		if photos {
-			items = append(items, tg.InputMediaPhoto{Media: file, Caption: text})
-		} else {
-			items = append(items, tg.InputMediaDocument{Media: file, Caption: text})
-		}
-	}
-	return f.sendGroup(ctx, chatID, items)
+		return f.sendGroup(ctx, chatID, items)
+	})
 }
 
 // sendGroup sends an album and returns its messages.
@@ -494,29 +497,27 @@ func (f *Flow) postVideoAlbum(ctx context.Context, chatID int64, assets []storag
 		videos = append(videos, ready{v: v, streams: streams, cover: f.coverOf(ctx, dir, a.ID)})
 	}
 	send := func(covers bool) ([]tg.Message, error) {
-		items := make([]tg.InputMedia, 0, len(videos))
-		for i, r := range videos {
-			body, err := os.Open(r.v.Path)
-			if err != nil {
-				return nil, err
-			}
-			defer body.Close()
-			item := tg.InputMediaVideo{Media: tg.InputFileUpload{Filename: "framy.mp4", Data: body},
-				Width: r.v.Width, Height: r.v.Height, Duration: int(math.Ceil(r.v.Seconds)), SupportsStreaming: r.streams}
-			if covers && r.cover != "" {
-				c, err := os.Open(r.cover)
+		return sendFiles(f, func(o *outbox) ([]tg.Message, error) {
+			items := make([]tg.InputMedia, 0, len(videos))
+			for i, r := range videos {
+				file, err := o.fileAt(r.v.Path, "framy.mp4")
 				if err != nil {
 					return nil, err
 				}
-				defer c.Close()
-				item.Cover = tg.InputFileUpload{Filename: "cover.jpg", Data: c}
+				item := tg.InputMediaVideo{Media: file,
+					Width: r.v.Width, Height: r.v.Height, Duration: int(math.Ceil(r.v.Seconds)), SupportsStreaming: r.streams}
+				if covers && r.cover != "" {
+					if item.Cover, err = o.fileAt(r.cover, "cover.jpg"); err != nil {
+						return nil, err
+					}
+				}
+				if i == 0 {
+					item.Caption = caption
+				}
+				items = append(items, item)
 			}
-			if i == 0 {
-				item.Caption = caption
-			}
-			items = append(items, item)
-		}
-		return f.sendGroup(ctx, chatID, items)
+			return f.sendGroup(ctx, chatID, items)
+		})
 	}
 	msgs, err := send(true)
 	var apiErr *tg.APIError

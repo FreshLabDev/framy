@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -193,7 +195,8 @@ func run(log *slog.Logger) error {
 	}
 	// /img and /edit in chats (#24) make jobs on the queue and keep their
 	// photos in the bucket.
-	flow, err := openFlow(ctx, cfg, client, store, queue, files, work, allowance, people, me.Username, log)
+	outbox := outboxOf(cfg, client)
+	flow, err := openFlow(ctx, cfg, client, store, queue, files, work, outbox, allowance, people, me.Username, log)
 	if err != nil {
 		return err
 	}
@@ -384,7 +387,10 @@ func run(log *slog.Logger) error {
 		}
 		workers.Go(func() { rates.Run(ctx) })
 	}
-	workers.Go(func() { sweepWork(ctx, work, log) })
+	workers.Go(func() { sweepWork(ctx, work, "", log) })
+	if outbox != nil {
+		workers.Go(func() { sweepWork(ctx, *outbox, cfg.TelegramBotToken, log) })
+	}
 	if cfg.Primary() {
 		workers.Go(func() { sweepUnused(ctx, queue, files, log) })
 		workers.Go(func() { sweepSessions(ctx, signIn, log) })
@@ -552,7 +558,7 @@ func openStorage(ctx context.Context, cfg config.Config, store *db.Store, client
 // openFlow sets up /img and /edit. Without the bucket, or with an ffmpeg that
 // cannot draw the loops, they are off and the rest runs.
 func openFlow(ctx context.Context, cfg config.Config, client *tg.Client, store *db.Store, queue *jobs.Queue,
-	files *storage.Store, work media.Work, allowance *free.Allowance, people *keys.Service, username string, log *slog.Logger) (*chat.Flow, error) {
+	files *storage.Store, work media.Work, outbox *media.Work, allowance *free.Allowance, people *keys.Service, username string, log *slog.Logger) (*chat.Flow, error) {
 	if files == nil {
 		log.Warn("no bucket, so /img is off: the photos a run takes and its results are kept there")
 		return nil, nil
@@ -565,11 +571,26 @@ func openFlow(ctx context.Context, cfg config.Config, client *tg.Client, store *
 	// The same ffmpeg storage checked for clips: /edit reads the clip it
 	// takes and readies the result for Telegram.
 	clips := &media.Converter{FFmpeg: cfg.FFmpeg, FFprobe: cfg.FFprobe}
-	return chat.New(chat.Config{
+	chatCfg := chat.Config{
 		Telegram: client, Store: store, Queue: queue, Files: files, Allowance: allowance, Keys: people,
 		Renderer: renderer, Clips: clips, Work: work, Log: log.With("component", "chat"), AppURL: cfg.SiteURL,
 		Stack: cfg.Stack, Username: username,
-	})
+	}
+	if outbox != nil {
+		chatCfg.Outbox = *outbox
+	}
+	return chat.New(chatCfg)
+}
+
+// outboxOf is where results go to a local Bot API server by their path: a
+// directory of the bot's own media directory, which framy and the server
+// see at the same path, so tg does not hold a video in memory to upload it.
+// Nil with Telegram's own server, which reads no disk.
+func outboxOf(cfg config.Config, client *tg.Client) *media.Work {
+	if cfg.BotAPIFilesDir == "" || !client.IsLocalServer() {
+		return nil
+	}
+	return &media.Work{Root: filepath.Join(cfg.BotAPIFilesDir, cfg.TelegramBotToken, "framy-send")}
 }
 
 // sweepUnused clears the drafts that ended without running and then
@@ -675,12 +696,18 @@ func catchUpBucket(ctx context.Context, files *storage.Store) {
 
 // sweepWork clears working files a crash left behind: at start and every
 // hour, whatever is older than an hour. Nothing framy does takes that long.
-func sweepWork(ctx context.Context, work media.Work, log *slog.Logger) {
+// An error says secret, a part of the path that must not reach a log, as
+// ***: a local Bot API server names the bot's directory after its token.
+func sweepWork(ctx context.Context, work media.Work, secret string, log *slog.Logger) {
 	tick := time.NewTicker(time.Hour)
 	defer tick.Stop()
 	for {
 		if n, err := work.Sweep(time.Hour); err != nil {
-			log.Error("sweep working files", "error", err)
+			msg := err.Error()
+			if secret != "" {
+				msg = strings.ReplaceAll(msg, secret, "***")
+			}
+			log.Error("sweep working files", "error", msg)
 		} else if n > 0 {
 			log.Warn("swept working files a crash left", "count", n)
 		}
