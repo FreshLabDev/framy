@@ -686,3 +686,116 @@ func TestBrowserDockFocus(t *testing.T) {
 	}
 	noErrors(t, ctx)
 }
+
+// touchHelpers measure what a finger can press on a touch screen. reach is
+// the box a control answers to, its own or its ::after's when that reaches
+// further; small lists the controls in sight that answer to less than 44 by
+// 44 px; stolen lists the controls whose own drawing answers for another.
+const touchHelpers = `
+const CTL = "button, a[href], input:not([type=hidden]):not([type=file]), select, textarea, [role=button]";
+const live = (el) => el.getClientRects().length && getComputedStyle(el).visibility !== "hidden" && +getComputedStyle(el).opacity > 0 &&
+  getComputedStyle(el).pointerEvents !== "none" && !el.disabled && !el.closest("[hidden], [aria-hidden=true], .ind");
+const label = (el) => (el.getAttribute("aria-label") || el.textContent || el.placeholder || "").trim().slice(0, 24) + " (" + el.className + ")";
+const layer = (el) => el.closest(".sheet:not([hidden]), .full, .ask") || document.body;
+const top = () => { const s = [...document.querySelectorAll(".sheet:not([hidden]), .full:not([hidden]), .ask")].filter(live).pop(); return s || document.body; };
+function reach(el) {
+  const r = el.getBoundingClientRect(), a = getComputedStyle(el, "::after");
+  let w = r.width, h = r.height;
+  if (a.content !== "none" && a.position === "absolute") { w = Math.max(w, r.width - parseFloat(a.left) - parseFloat(a.right)); h = Math.max(h, r.height - parseFloat(a.top) - parseFloat(a.bottom)); }
+  return [Math.round(w), Math.round(h)];
+}
+function touch() {
+  const small = [], stolen = [], up = top();
+  for (const el of document.querySelectorAll(CTL)) {
+    if (!live(el) || layer(el) !== up) continue;
+    const r = el.getBoundingClientRect();
+    if (r.top < 0 || r.bottom > innerHeight || r.left < 0 || r.right > innerWidth) continue;
+    const [w, h] = reach(el), cross = el.matches(".thumb .rm");
+    // A cross on a tile reaches 28 by 33 px: farther in, a press on the photo would remove it.
+    if (cross ? w < 28 || h < 33 : w < 44 || h < 44) small.push(label(el) + " " + w + "x" + h);
+    for (const [x, y] of [[r.left + 2, r.top + 2], [r.right - 2, r.top + 2], [r.left + 2, r.bottom - 2], [r.right - 2, r.bottom - 2]]) {
+      const c = document.elementFromPoint(x, y)?.closest(CTL);
+      // The clear button inside the search field stands over the field's end.
+      if (c && c !== el && !el.contains(c) && !c.contains(el) && !(el.matches(".lsearch input") && c.matches(".lsearch .clr"))) { stolen.push(label(el) + " <- " + label(c)); break; }
+    }
+  }
+  return { small, stolen };
+}
+`
+
+// TestBrowserTouchTargets checks a phone's controls against a finger: every
+// control in sight answers to at least 44 by 44 px, drawn that big or
+// reaching that far around its drawing, and no reach takes a press from the
+// control beside it. It goes through the composer with photos, the picker,
+// the settings sheet, a result, a failed run, a strip of frames and their
+// results, the library with a search, the viewer and the settings.
+func TestBrowserTouchTargets(t *testing.T) {
+	report := func(name string, got map[string]any) {
+		t.Helper()
+		if s := got["small"].([]any); len(s) > 0 {
+			t.Errorf("%s: under a finger's size: %v", name, s)
+		}
+		if s := got["stolen"].([]any); len(s) > 0 {
+			t.Errorf("%s: a press goes to the neighbour: %v", name, s)
+		}
+	}
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	for _, c := range []struct {
+		lang string
+		w    int64
+	}{{"en", 390}, {"de", 360}} {
+		ctx := browserAs(t, ts.URL, c.w, 844, opened{lang: c.lang, phone: true})
+		at := func(name, body string) {
+			t.Helper()
+			report(fmt.Sprintf("%s at %d, %s", c.lang, c.w, name), js[map[string]any](t, ctx, pageHelpers+runHelpers+dropHelpers+touchHelpers+body+`
+			await wait(700);
+			return touch();`))
+		}
+		at("composer", `await dropPhotos(2);`)
+		at("picker", `document.querySelector("#dtools .chipbtn:not(.set)").click();`)
+		at("settings sheet", `document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })); await wait(600); document.querySelector("#dtools .chipbtn.set").click();`)
+		at("result", `document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })); await wait(600);
+		await press("done", (s) => s.done); await wait(900); document.querySelector("#prompt").value = "";`)
+		at("failed", `await press("fail:money", (s) => s.failed); document.querySelector("#prompt").value = "";`)
+		noErrors(t, ctx)
+
+		// Frames in a strip, then their results.
+		ctx = browserAs(t, ts.URL, c.w, 844, opened{lang: c.lang, phone: true})
+		at("board", `for (let i = 0; i < 2; i++) { document.querySelector("#stage .addf").click(); await wait(700); }
+		if (document.querySelectorAll("#stage .strip > .cell").length !== 3) throw new Error("no frames to press");`)
+		at("frames", `const s = await press("frames:done", () => document.querySelectorAll("#stage .jbox.cell.done img").length === 3);
+		if (s.timeout) throw new Error("no frames");
+		await wait(1500); document.querySelector("#prompt").value = "";`)
+		noErrors(t, ctx)
+	}
+
+	lib := newFakeLibrary()
+	ls := fakeSite(t, lib.mount)
+	ctx := browserAs(t, ls.URL+"/library", 390, 844, opened{phone: true})
+	report("library", js[map[string]any](t, ctx, pageHelpers+touchHelpers+`
+	for (let i = 0; i < 40 && !document.querySelector("#library .li"); i++) await wait(100);
+	const q = document.querySelector(".lsearch input"); q.value = "a"; q.dispatchEvent(new Event("input", { bubbles: true }));
+	await wait(800);
+	return touch();`))
+	noErrors(t, ctx)
+	ctx = browserAs(t, ls.URL+"/r/60", 390, 844, opened{phone: true})
+	report("viewer", js[map[string]any](t, ctx, pageHelpers+touchHelpers+`
+	for (let i = 0; i < 40 && !document.querySelector("#viewer:not([hidden]) .vrun"); i++) await wait(100);
+	await wait(1200);
+	return touch();`))
+	noErrors(t, ctx)
+
+	prefs := &fakePrefs{}
+	ps := fakeSite(t, func(srv *Server) {
+		prefs.mount(srv)
+		prefs.connect("openrouter", "or42", "valid")
+		prefs.connect("openai", "dead", "invalid")
+	})
+	ctx = browserAs(t, ps.URL, 390, 844, opened{phone: true})
+	report("settings", js[map[string]any](t, ctx, pageHelpers+touchHelpers+`
+	document.querySelector("#meBtn").click();
+	await wait(1200);
+	return touch();`))
+	noErrors(t, ctx)
+}

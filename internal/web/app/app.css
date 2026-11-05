@@ -875,6 +875,44 @@ html.full-on {overflow: hidden;}
   .addfr:not(:disabled):hover, .ghost.cell:not([aria-pressed="true"]):hover {background-color: var(--line);}
 }
 
+/* A finger needs about 44 px. On a touch screen the controls a finger presses are at least that tall,
+   and where a control is drawn smaller (a variant, a cross on a tile, the copy of a prompt, the buttons
+   of a header) it reaches that far around its drawing, into the space beside it and never over a
+   neighbour. A cross on a tile reaches outward, and inward no farther than the tile's middle. */
+@media (pointer: coarse) {
+  :where(.pill, .jprompt > .cp, .x, .signin, .me, .tab, .link, .morebtn, .scopetip button, .vnav .ib, .link-t, .mnote button, .dold button, .seg.kind > button, .sets .ratios.one > .rt) {position: relative;}
+  :where(.pill, .jprompt > .cp, .x, .signin, .me, .tab, .link, .morebtn, .scopetip button, .vnav .ib, .link-t, .mnote button, .dold button, .seg.kind > button, .sets .ratios.one > .rt, .jbox.cell > .tdl)::after {
+    content: ""; position: absolute; inset: min(0px, calc(50% - 22px)) var(--reach, 0px);}
+  /* A link in a line of text reaches 10 px over and under it, as far as the gaps around such lines go. */
+  :is(.link-t, .mnote button, .dold button)::after {inset-block: -10px;}
+  .pill {height: 36px; min-width: 40px; justify-content: center; --reach: -2px;}
+  .fvars {gap: 8px 4px;}
+  .jprompt > .cp {--reach: -8px;}
+  .vnav .ib {--reach: -3px;}
+  .jbox.cell > .tdl {--reach: -4px;}
+  .scopetip button {--reach: -4px;}
+  .sets .ratios.one > .rt {--reach: -1px;}
+  /* The kind's two buttons stand 2 px apart: each reaches 1 px into that gap and 3 px to its outer side. */
+  .seg.kind > button:first-of-type::after {inset-inline: -3px -1px;}
+  .seg.kind > button:last-of-type::after {inset-inline: -1px -3px;}
+  .thumb .rm::after {content: ""; position: absolute; inset: -8px -3px -3px;}
+  .jacts > button, .jacts > a {height: 44px;}
+  .jacts > .busy {min-height: 44px;}
+  .libhead .seg > button {min-height: 44px;}
+  .lsearch input {height: 44px; padding-inline-end: 44px;}
+  .lsearch .clr {right: 0; width: 44px; height: 44px;}
+  .srow > button, .srow select.pick, .kform input, .kform button {height: 44px;}
+  .kform {grid-template-columns: minmax(0, 1fr) auto 44px;}
+  .pbar .ib {width: 44px; height: 44px; min-height: 44px;}
+  .ptrack {height: 44px;}
+}
+@media (pointer: coarse) and (max-width: 959px) {
+  .jacts > .sq {width: 44px;}
+}
+@media (pointer: coarse) and (max-width: 389.98px) {
+  .jacts > .sq2 {width: 44px;}
+}
+
 /* The system's contrast colours (Windows contrast themes): the system paints every fill with its page
    colour, so what a fill alone showed is drawn here in the system's own colours. The choice made has
    the selection colour, a control has a frame, and a maker's mark, a slider, a switch and the dots of a
