@@ -127,6 +127,11 @@ func (q *Queue) waitFor(j Job) time.Duration {
 // claim starts a queued job if the person has a free slot and no older job
 // waiting for one. The person's claims take turns under a lock, so two
 // workers cannot both take the last slot.
+//
+// Slots and turns are counted on the job's own stack (docs/design.md,
+// Stacks): a job of a stack that is stopped stays queued or running until
+// that stack is back, and it must not hold up the person's runs on the
+// other one.
 func (q *Queue) claim(ctx context.Context, j Job) (bool, error) {
 	var claimed bool
 	err := pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
@@ -136,9 +141,9 @@ func (q *Queue) claim(ctx context.Context, j Job) (bool, error) {
 		tag, err := tx.Exec(ctx, `
 			UPDATE job SET status='running', retry_at=NULL, started_at=COALESCE(started_at, now()), updated_at=now()
 			WHERE id=$1 AND status='queued' AND (retry_at IS NULL OR retry_at <= now())
-			  AND (SELECT count(*) FROM job WHERE user_id=$2 AND status='running') < $3
+			  AND (SELECT count(*) FROM job r WHERE r.user_id=$2 AND r.stack=job.stack AND r.status='running') < $3
 			  AND NOT EXISTS (
-			    SELECT 1 FROM job o WHERE o.user_id=$2 AND o.status='queued' AND o.id < $1
+			    SELECT 1 FROM job o WHERE o.user_id=$2 AND o.stack=job.stack AND o.status='queued' AND o.id < $1
 			      AND (o.retry_at IS NULL OR o.retry_at <= now()))`,
 			j.ID, j.UserID, q.cfg.MaxRunning)
 		claimed = tag.RowsAffected() == 1
@@ -215,7 +220,8 @@ func (q *Queue) requeue(ctx context.Context, j Job, pe *Error) error {
 		if err != nil || tag.RowsAffected() == 0 {
 			return err
 		}
-		return q.wake(ctx, tx, j.UserID)
+		// A worker works only its own stack's jobs.
+		return q.wake(ctx, tx, j.UserID, q.cfg.Stack)
 	})
 	if err != nil {
 		return err
@@ -309,11 +315,11 @@ func (q *Queue) end(ctx context.Context, id int64, e ending) error {
 		}
 	}
 	var (
-		userID                int64
-		estimate, actual      *float64
-		provider, model, kind string
-		free                  bool
-		took                  *float64
+		userID                       int64
+		estimate, actual             *float64
+		provider, model, kind, stack string
+		free                         bool
+		took                         *float64
 	)
 	ended := false
 	err := pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
@@ -323,9 +329,9 @@ func (q *Queue) end(ctx context.Context, id int64, e ending) error {
 			       retry_at=NULL, finished_at=now(), updated_at=now()
 			WHERE id=$1 AND status IN ('queued', 'running')
 			RETURNING user_id, estimate_usd::float8, actual_usd::float8, provider, model_id, kind, free,
-			          EXTRACT(EPOCH FROM finished_at - queued_at)::float8`,
+			          EXTRACT(EPOCH FROM finished_at - queued_at)::float8, stack`,
 			id, e.status, e.class, clip(e.msg), e.cost, e.results, grounding, clip(e.said)).
-			Scan(&userID, &estimate, &actual, &provider, &model, &kind, &free, &took)
+			Scan(&userID, &estimate, &actual, &provider, &model, &kind, &free, &took, &stack)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
@@ -333,7 +339,7 @@ func (q *Queue) end(ctx context.Context, id int64, e ending) error {
 			return err
 		}
 		ended = true
-		return q.wake(ctx, tx, userID)
+		return q.wake(ctx, tx, userID, stack)
 	})
 	if err != nil || !ended {
 		return err
@@ -409,14 +415,15 @@ func (q *Queue) Waiting(ctx context.Context) (map[string]float64, error) {
 	return out, rows.Err()
 }
 
-// wake makes the person's next waiting job look for a slot now rather than
-// at its next WaitSlot. A job waiting out a refusal is left to sleep.
-func (q *Queue) wake(ctx context.Context, tx pgx.Tx, userID int64) error {
+// wake makes the person's next waiting job on stack look for a slot now
+// rather than at its next WaitSlot: the slot a job leaves is its stack's. A
+// job waiting out a refusal is left to sleep.
+func (q *Queue) wake(ctx context.Context, tx pgx.Tx, userID int64, stack string) error {
 	var riverID int64
 	err := tx.QueryRow(ctx, `
 		SELECT river_job_id FROM job
-		WHERE user_id=$1 AND status='queued' AND river_job_id IS NOT NULL AND (retry_at IS NULL OR retry_at <= now())
-		ORDER BY id LIMIT 1`, userID).Scan(&riverID)
+		WHERE user_id=$1 AND stack=$2 AND status='queued' AND river_job_id IS NOT NULL AND (retry_at IS NULL OR retry_at <= now())
+		ORDER BY id LIMIT 1`, userID, stack).Scan(&riverID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}

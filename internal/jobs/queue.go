@@ -110,7 +110,8 @@ type Config struct {
 	// lets every free job through.
 	Admit Admitter
 	Log   *slog.Logger
-	// MaxRunning is how many jobs one person runs at once; 2 by default.
+	// MaxRunning is how many jobs one person runs at once on this stack; 2
+	// by default.
 	MaxRunning int
 	// Workers per queue, by the queue's name without the stack;
 	// DefaultWorkers by default.

@@ -50,29 +50,34 @@ func (q *Queue) sweep(ctx context.Context) (int64, error) {
 			FROM river_job r
 			WHERE r.id = j.river_job_id AND j.status IN ('queued', 'running')
 			  AND r.state IN ('completed', 'cancelled', 'discarded')
-			RETURNING j.id, j.user_id, j.error_class`)
+			RETURNING j.id, j.user_id, j.stack, j.error_class`)
 		if err != nil {
 			return err
 		}
-		people := map[int64]bool{}
+		// The leader sweeps both stacks; a slot that frees is its own stack's.
+		type person struct {
+			user  int64
+			stack string
+		}
+		people := map[person]bool{}
 		for rows.Next() {
 			var id, user int64
-			var class string
-			if err := rows.Scan(&id, &user, &class); err != nil {
+			var stack, class string
+			if err := rows.Scan(&id, &user, &stack, &class); err != nil {
 				rows.Close()
 				return err
 			}
 			q.log.Warn("job ended by the sweep; River gave up on it", "job", id)
 			failed = append(failed, class)
-			people[user] = true
+			people[person{user, stack}] = true
 			n++
 		}
 		rows.Close()
 		if err := rows.Err(); err != nil {
 			return err
 		}
-		for user := range people {
-			if err := q.wake(ctx, tx, user); err != nil {
+		for p := range people {
+			if err := q.wake(ctx, tx, p.user, p.stack); err != nil {
 				return err
 			}
 		}

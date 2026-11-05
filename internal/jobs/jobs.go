@@ -9,7 +9,8 @@
 //   - a provider's job id is written the moment it comes back, so a retry
 //     asks about the run instead of paying for another;
 //   - only a 429 or a 5xx before the run started is retried;
-//   - one person runs at most two jobs at once, and the rest wait in order.
+//   - one person runs at most two jobs at once on each stack, and the rest
+//     wait in order.
 package jobs
 
 import (

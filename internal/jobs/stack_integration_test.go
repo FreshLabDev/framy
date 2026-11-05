@@ -70,39 +70,35 @@ func TestEachStackWorksOnlyItsOwnJobs(t *testing.T) {
 	}
 }
 
-// A person's runs at once are counted over both stacks, and the job that ends
-// on one wakes the next one waiting on the other.
-func TestAPersonsLimitHoldsAcrossStacks(t *testing.T) {
+// A person's slots and turns are counted on each stack apart: the runs a
+// stopped test bot left running and waiting hold up nothing of the same
+// person's on production, and production leaves them alone.
+func TestAStoppedStackHoldsUpNothingOnTheOther(t *testing.T) {
 	pool := testPool(t)
-	release := make(chan struct{})
-	prodFake, testFake := newFake(), newFake()
-	prodFake.submit = func(ctx context.Context, _ Job) (Submission, error) {
-		select {
-		case <-release:
-		case <-ctx.Done():
-			return Submission{}, ctx.Err()
-		}
-		return done(0.02), nil
-	}
+	prodFake := newFake()
 	prod := stackQueue(t, pool, "", prodFake)
-	test := stackQueue(t, pool, "test", testFake)
-	a1 := enqueue(t, prod, job(alice, imageOffer))
-	a2 := enqueue(t, prod, job(alice, imageOffer))
-	start(t, prod)
-	eventually(t, "alice's two jobs running on production", func() bool { return prodFake.count(prodFake.inFlight, alice) == 2 })
+	test := stackQueue(t, pool, "test", newFake())
+	// The test bot stopped with two of alice's videos at the provider and an
+	// image of hers waiting behind them.
+	t1 := enqueue(t, test, job(alice, videoOffer))
+	t2 := enqueue(t, test, job(alice, videoOffer))
+	t3 := enqueue(t, test, job(alice, imageOffer))
+	if _, err := pool.Exec(context.Background(), `
+		UPDATE framy.job SET status = 'running', started_at = now(), submitted_at = now(), provider_job_id = 'gen-' || id
+		WHERE id = ANY($1)`, []int64{t1, t2}); err != nil {
+		t.Fatal(err)
+	}
 
-	a3 := enqueue(t, test, job(alice, imageOffer))
-	start(t, test)
-	time.Sleep(500 * time.Millisecond)
-	if j := get(t, test, a3); j.Status != Queued || testFake.count(testFake.submits, a3) != 0 {
-		t.Fatalf("the third job: %s, %d requests", j.Status, testFake.count(testFake.submits, a3))
+	p1 := enqueue(t, prod, job(alice, imageOffer))
+	p2 := enqueue(t, prod, job(alice, imageOffer))
+	start(t, prod)
+	for _, id := range []int64{p1, p2} {
+		eventually(t, "alice's jobs on production done", func() bool { return get(t, prod, id).Status == Done })
 	}
-	close(release)
-	for _, id := range []int64{a1, a2, a3} {
-		eventually(t, "every job done", func() bool { return get(t, prod, id).Status == Done })
-	}
-	if testFake.count(testFake.submits, a3) != 1 || prodFake.count(prodFake.submits, a3) != 0 {
-		t.Errorf("the third job went to the test bot %d times and to production %d times",
-			testFake.count(testFake.submits, a3), prodFake.count(prodFake.submits, a3))
+	for id, want := range map[int64]Status{t1: Running, t2: Running, t3: Queued} {
+		if j := get(t, prod, id); j.Status != want || prodFake.count(prodFake.submits, id)+prodFake.count(prodFake.polls, id) != 0 {
+			t.Errorf("the test bot's job %d: %s, touched %d times by production, want %s untouched", id, j.Status,
+				prodFake.count(prodFake.submits, id)+prodFake.count(prodFake.polls, id), want)
+		}
 	}
 }
