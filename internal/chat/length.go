@@ -159,18 +159,31 @@ func (f *Flow) otherLength(ctx context.Context, cq *tg.CallbackQuery, run db.Cha
 	case err != nil:
 		return err
 	}
+	if err := f.drawLength(ctx, cq.ID, run.JobID, on, c, dir); err != nil {
+		// The card shows the length the run had, and so does the draft.
+		f.putBack(ctx, run, on, viewMain, s.inputs, true, err)
+		return err
+	}
+	return nil
+}
+
+// drawLength draws the card of a run that has just taken the length c of
+// its clip, kept in dir. The press was answered with a word already;
+// Telegram may still take it for the requester's own preview.
+func (f *Flow) drawLength(ctx context.Context, press string, jobID int64, on place, c clipChoice, dir string) error {
 	note := ""
 	if c.cut() != nil {
 		note = noteClipCut
 	}
-	if err := f.cfg.Store.SetChatRunNote(ctx, run.JobID, note); err != nil {
+	if err := f.cfg.Store.SetChatRunNote(ctx, jobID, note); err != nil {
 		return err
 	}
-	fresh, err := f.cfg.Store.ChatRun(ctx, run.JobID)
+	fresh, err := f.cfg.Store.ChatRun(ctx, jobID)
 	if err != nil {
 		return err
 	}
-	if s, err = f.stateOf(ctx, fresh); err != nil {
+	s, err := f.stateOf(ctx, fresh)
+	if err != nil {
 		return err
 	}
 	// The part kept starts where the clip does, so its first frame is the
@@ -179,7 +192,5 @@ func (f *Flow) otherLength(ctx context.Context, cq *tg.CallbackQuery, run db.Cha
 	if err != nil {
 		return err
 	}
-	// The press was answered with the word above; Telegram may still take
-	// it for the requester's own preview.
-	return f.drawCard(ctx, fresh, cq.ID, on, viewMain, s, dir, []string{poster})
+	return f.drawCard(ctx, fresh, press, on, viewMain, s, dir, []string{poster})
 }

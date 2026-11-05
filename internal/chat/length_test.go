@@ -272,3 +272,21 @@ func TestALengthTheCardDoesNotOfferChangesNothing(t *testing.T) {
 		t.Fatalf("after Generate: revised %d, cuts %d", len(h.queue.revised), len(h.files.cuts))
 	}
 }
+
+// A card not drawn after the other length puts the draft back on the clip
+// and the note the card still shows.
+func TestALengthNotDrawnPutsTheClipBack(t *testing.T) {
+	h := longClip(t, 12.4, withKey)
+	before, note := h.store.jobs[1].n, h.store.runs[1].Note
+	h.tg.fail["editMessageRich"] = errBoom
+	if err := h.press(1, 7, actKeyClip); err == nil {
+		t.Fatal("no error")
+	}
+	after := h.store.jobs[1].n
+	if !after.Free || len(after.Inputs) != 1 || after.Inputs[0] != before.Inputs[0] || after.Offer.ID != before.Offer.ID {
+		t.Fatalf("draft = %+v, was %+v", after, before)
+	}
+	if got := h.store.runs[1].Note; got != note || note != noteClipCut {
+		t.Fatalf("note = %q, was %q", got, note)
+	}
+}

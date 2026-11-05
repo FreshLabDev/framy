@@ -655,7 +655,7 @@ func (f *Flow) drawRich(ctx context.Context, run db.ChatRun, press string, v vie
 		return f.cfg.Telegram.EditMessageRich(ctx, run.ChatID, run.PreviewMessageID, body, media, kb)
 	})
 	if err != nil {
-		return fmt.Errorf("preview not redrawn: %w", err)
+		return fmt.Errorf("preview not redrawn: %w", editFailed(err))
 	}
 	return nil
 }

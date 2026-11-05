@@ -55,12 +55,14 @@ type call struct {
 }
 
 type fakeTelegram struct {
-	mu      sync.Mutex
-	calls   []call
-	next    int64
-	fail    map[string]error // by method
-	answers []string         // "text" or "alert:text"
-	files   map[string]string
+	mu    sync.Mutex
+	calls []call
+	next  int64
+	fail  map[string]error // by method
+	// failOnce fails the next call of a method, and only that one.
+	failOnce map[string]error
+	answers  []string // "text" or "alert:text"
+	files    map[string]string
 	// answeredAt is how many calls were made when each answer came.
 	answeredAt []int
 	// inlineAnswers are the inline answers, in order.
@@ -77,7 +79,7 @@ type fakeTelegram struct {
 }
 
 func newTelegram() *fakeTelegram {
-	return &fakeTelegram{next: 100, fail: map[string]error{}, files: map[string]string{}}
+	return &fakeTelegram{next: 100, fail: map[string]error{}, failOnce: map[string]error{}, files: map[string]string{}}
 }
 
 // record keeps a call. An ephemeral send fails with fail["ephemeral"], one
@@ -91,6 +93,10 @@ func (f *fakeTelegram) record(c call) (tg.Message, error) {
 		f.beforeEphemeral()
 	}
 	if err := f.fail[c.method]; err != nil {
+		return tg.Message{}, err
+	}
+	if err := f.failOnce[c.method]; err != nil {
+		delete(f.failOnce, c.method)
 		return tg.Message{}, err
 	}
 	if err := f.fail["ephemeral"]; err != nil && c.ephemeral != nil {

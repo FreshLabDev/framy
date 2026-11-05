@@ -2789,6 +2789,24 @@
     "ja": "いいえ",
     "ar": "لا"
   },
+  "run.not_redrawn": {
+    "en": "The preview could not be updated, so nothing changed. Try again.",
+    "ru": "Не получилось обновить предпросмотр, поэтому ничего не изменилось. Попробуй ещё раз.",
+    "uk": "Не вдалося оновити попередній перегляд, тож нічого не змінилося. Спробуй ще раз.",
+    "es": "No se pudo actualizar la vista previa, así que no cambió nada. Inténtalo de nuevo.",
+    "fr": "L’aperçu n’a pas pu être mis à jour, donc rien n’a changé. Réessaie.",
+    "de": "Die Vorschau ließ sich nicht aktualisieren, also hat sich nichts geändert. Versuch es noch einmal.",
+    "it": "Non è stato possibile aggiornare l’anteprima, quindi non è cambiato nulla. Riprova.",
+    "pl": "Nie udało się odświeżyć podglądu, więc nic się nie zmieniło. Spróbuj jeszcze raz.",
+    "cs": "Náhled se nepodařilo aktualizovat, takže se nic nezměnilo. Zkus to znovu.",
+    "tr": "Önizleme güncellenemedi, bu yüzden hiçbir şey değişmedi. Yeniden dene.",
+    "sv": "Förhandsvisningen kunde inte uppdateras, så inget har ändrats. Försök igen.",
+    "be": "Не атрымалася абнавіць папярэдні прагляд, таму нічога не змянілася. Паспрабуй яшчэ раз.",
+    "ca": "No s’ha pogut actualitzar la previsualització, així que no ha canviat res. Torna-ho a provar.",
+    "zh": "预览没能更新，所以什么都没有改变。请再试一次。",
+    "ja": "プレビューを更新できなかったため、何も変わっていません。もう一度お試しください。",
+    "ar": "تعذّر تحديث المعاينة، لذلك لم يتغيّر شيء. حاول مرة أخرى."
+  },
   "run.not_yours": {
     "en": "Only the one who sent the command can press this.",
     "ru": "Нажать может только тот, кто отправил команду.",

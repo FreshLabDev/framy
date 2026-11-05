@@ -450,9 +450,11 @@ func (f *Flow) pickModel(ctx context.Context, cq *tg.CallbackQuery, run db.ChatR
 	}
 	switch {
 	case p.model.ID == s.model.ID:
-		err := f.redrawAfter(ctx, run, cq.ID, on, viewMain)
-		_ = answer("")
-		return err
+		if err := f.redrawAfter(ctx, run, cq.ID, on, viewMain); err != nil {
+			_ = f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, t(run.Lang, "run.not_redrawn"))
+			return err
+		}
+		return answer("")
 	case p.locked:
 		return f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, t(run.Lang, "panel.key_needed"))
 	case p.why != "":
@@ -561,9 +563,88 @@ func (f *Flow) revise(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun,
 	}
 	// The press is answered once the card is drawn: until then it lets
 	// framy send the requester a preview of their own (resendRich).
-	err = f.redrawAfter(ctx, run, cq.ID, on, v)
+	if err := f.redrawAfter(ctx, run, cq.ID, on, v); err != nil {
+		text := "run.not_redrawn"
+		if !f.putBack(ctx, run, on, v, inputs, false, err) {
+			text = "run.expired"
+		}
+		_ = f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, t(run.Lang, text))
+		return err
+	}
 	_ = f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, "")
-	return err
+	return nil
+}
+
+// unsure is an edit of a message in place that failed with no answer from
+// Telegram, the connection lost or the time up: the edit may have reached
+// it, and the message may show the new card after all. A refusal changed
+// nothing.
+type unsure struct{ error }
+
+func (u unsure) Unwrap() error { return u.error }
+
+// editFailed marks err, the failure of an edit in place, unsure unless
+// Telegram refused the edit.
+func editFailed(err error) error {
+	if refused(err) {
+		return err
+	}
+	return unsure{err}
+}
+
+// putBack returns the draft to what the run's card still shows, when the
+// card could not be drawn after a change: run is the run as it was before
+// it, pressed on in the view v, inputs its files, which go back too when
+// files says so, and cause why the card was not drawn. Generate runs the
+// draft as it is, so a draft the card does not show would run a model,
+// settings or a price the requester never saw. When the edit may have
+// reached Telegram, the card is drawn once more from the draft put back, so
+// that the message shows it whichever way the edit went. A draft that will
+// not go back is cancelled and its preview closed, since what it shows can
+// no longer run; putBack tells whether the draft went back.
+func (f *Flow) putBack(ctx context.Context, run db.ChatRun, on place, v view, inputs []storage.Asset, files bool, cause error) bool {
+	ctx, done := detach(ctx)
+	defer done()
+	err := func() error {
+		model, offer, err := f.cfg.Store.Offer(ctx, run.OfferID)
+		if err != nil {
+			return err
+		}
+		settings := wholeNumbers(run.Settings)
+		est := price.Of(model, offer, requestOf(run.Prompt, settings, inputs))
+		n := jobs.New{UserID: run.UserID, Offer: offer, Prompt: run.Prompt, Settings: settings, Free: run.Free, Estimate: &est}
+		if files {
+			for _, a := range inputs {
+				n.Inputs = append(n.Inputs, a.ID)
+			}
+		}
+		q, err := f.quote(ctx, run.UserID, run.Lang)
+		if err != nil {
+			return err
+		}
+		if q.Code != fx.USD {
+			n.FX = &q
+		}
+		if err := f.cfg.Queue.Revise(ctx, run.JobID, n); err != nil {
+			return err
+		}
+		if files {
+			return f.cfg.Store.SetChatRunNote(ctx, run.JobID, run.Note)
+		}
+		return nil
+	}()
+	if err != nil {
+		f.log.Warn("draft not put back as its card shows it; cancelled", "job", run.JobID, "error", err)
+		f.cancel(ctx, run.JobID)
+		f.close(ctx, run, db.StagePreview)
+		return false
+	}
+	if errors.As(cause, new(unsure)) {
+		if err := f.redrawAfter(ctx, run, "", on, v); err != nil {
+			f.log.Warn("card not drawn again after the draft went back", "job", run.JobID, "error", err)
+		}
+	}
+	return true
 }
 
 // redrawAfter reads the run again after a change and draws its card, for
@@ -591,7 +672,7 @@ func (f *Flow) redraw(ctx context.Context, run db.ChatRun, press string, on plac
 		}
 		err = f.guestCard(ctx, run, previewCaption(run.Lang, run.Prompt, s.draft, labelDrawn(previewCard(run.Lang, s.draft))), kb)
 		if err != nil && !tg.IsMessageNotModified(err) {
-			return fmt.Errorf("guest card not redrawn: %w", err)
+			return fmt.Errorf("guest card not redrawn: %w", editFailed(err))
 		}
 		return nil
 	}
@@ -654,7 +735,7 @@ func (f *Flow) drawCard(ctx context.Context, run db.ChatRun, press string, on pl
 		}
 		msg, err := f.edit(ctx, run.ChatID, run.PreviewMessageID, pic, caption, public)
 		if err != nil && !tg.IsMessageNotModified(err) {
-			return fmt.Errorf("preview not redrawn: %w", err)
+			return fmt.Errorf("preview not redrawn: %w", editFailed(err))
 		}
 		fileID = fileIDOf(msg)
 	}
@@ -670,7 +751,7 @@ func (f *Flow) drawCard(ctx context.Context, run db.ChatRun, press string, on pl
 	}
 	err = f.editEphemeralPicture(ctx, run, target, pic, fileID, caption, kb)
 	if err != nil && !tg.IsMessageNotModified(err) {
-		return fmt.Errorf("ephemeral card not redrawn: %w", err)
+		return fmt.Errorf("ephemeral card not redrawn: %w", editFailed(err))
 	}
 	return nil
 }

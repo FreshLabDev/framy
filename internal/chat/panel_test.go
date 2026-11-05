@@ -672,3 +672,93 @@ func TestThePanelIsForAPreviewOnly(t *testing.T) {
 		t.Fatalf("calls = %+v", h.tg.calls)
 	}
 }
+
+// A card that cannot be drawn again leaves the draft as the card still
+// shows it, and the press says so: Generate runs only what the requester
+// saw.
+func TestACardNotDrawnPutsTheDraftBack(t *testing.T) {
+	h := panelHarness(t)
+	before := h.store.jobs[1].n
+	h.tg.fail["editMessageRich"] = errBoom
+	if err := h.press(1, 7, pick("google/nano-banana-pro")); err == nil {
+		t.Fatal("no error")
+	}
+	if got := h.tg.answers; len(got) != 1 || got[0] != "alert:"+i18n.T("en", "run.not_redrawn") {
+		t.Fatalf("answers = %q", got)
+	}
+	after := h.store.jobs[1].n
+	if after.Offer.ID != before.Offer.ID || !after.Free || !reflect.DeepEqual(after.Settings, before.Settings) ||
+		after.Estimate == nil || !reflect.DeepEqual(*after.Estimate, *before.Estimate) {
+		t.Fatalf("draft = %+v, was %+v", after, before)
+	}
+	if len(h.queue.cancelled) != 0 {
+		t.Fatalf("cancelled = %v", h.queue.cancelled)
+	}
+	// A setting goes back as well.
+	delete(h.tg.fail, "editMessageRich")
+	if err := h.press(1, 7, pick("google/nano-banana-pro")); err != nil {
+		t.Fatal(err)
+	}
+	onKey := h.store.jobs[1].n
+	h.tg.fail["editMessageRich"] = errBoom
+	if err := h.press(1, 7, actPickSetting+"resolution.2"); err == nil {
+		t.Fatal("no error")
+	}
+	if got := h.store.jobs[1].n; got.Offer.ID != onKey.Offer.ID || got.Free || !reflect.DeepEqual(got.Settings, onKey.Settings) {
+		t.Fatalf("draft = %+v, was %+v", got, onKey)
+	}
+}
+
+// A draft that will not go back is cancelled, so it cannot run unseen, and
+// its preview goes: the press says it expired rather than asking to try a
+// draft that is gone.
+func TestADraftThatWillNotGoBackIsCancelled(t *testing.T) {
+	h := panelHarness(t)
+	preview := run(t, h).PreviewMessageID
+	h.tg.fail["editMessageRich"] = errBoom
+	// The free run went to the key; going back to the free tier is refused.
+	h.queue.refuse = &free.LimitError{Kind: catalog.Image, Limit: 5}
+	if err := h.press(1, 7, pick("google/nano-banana-pro")); err == nil {
+		t.Fatal("no error")
+	}
+	if !reflect.DeepEqual(h.queue.cancelled, []int64{1}) || h.store.jobs[1].status != jobs.Cancelled {
+		t.Fatalf("cancelled = %v, status %s", h.queue.cancelled, h.store.jobs[1].status)
+	}
+	if got := h.tg.answers; len(got) != 1 || got[0] != "alert:"+i18n.T("en", "run.expired") {
+		t.Fatalf("answers = %q", got)
+	}
+	if del := h.tg.methods("deleteMessage"); len(del) != 1 || del[0].messageID != preview || h.store.stage(1) != db.StageGone {
+		t.Fatalf("calls = %+v, stage %s", h.tg.calls, h.store.stage(1))
+	}
+}
+
+// An edit that failed with no answer from Telegram may have reached it, so
+// the message may show the new model; once the draft is back, the card is
+// drawn again from it. A refused edit changed nothing and is not redrawn.
+func TestAnEditWithNoAnswerIsDrawnAgainFromTheDraftPutBack(t *testing.T) {
+	h := panelHarness(t)
+	before := h.store.jobs[1].n
+	h.tg.failOnce["editMessageRich"] = errBoom
+	if err := h.press(1, 7, pick("google/nano-banana-pro")); err == nil {
+		t.Fatal("no error")
+	}
+	if got := h.store.jobs[1].n; got.Offer.ID != before.Offer.ID || !got.Free {
+		t.Fatalf("draft = %+v, was %+v", got, before)
+	}
+	edits := h.tg.methods("editMessageRich")
+	if len(edits) != 1 || !strings.Contains(edits[0].text, "Model: <b>MAI-Image-2.6 Flash</b>") {
+		t.Fatalf("calls = %+v", h.tg.calls)
+	}
+	if got := h.tg.answers; len(got) != 1 || got[0] != "alert:"+i18n.T("en", "run.not_redrawn") {
+		t.Fatalf("answers = %q", got)
+	}
+
+	h.tg.reset()
+	h.tg.failOnce["editMessageRich"] = &tg.APIError{Method: "editMessageText", StatusCode: 400, ErrorCode: 400, Description: "Bad Request: message to edit not found"}
+	if err := h.press(1, 7, pick("google/nano-banana-pro")); err == nil {
+		t.Fatal("no error")
+	}
+	if got := h.tg.methods("editMessageRich"); len(got) != 0 {
+		t.Fatalf("calls = %+v", h.tg.calls)
+	}
+}
