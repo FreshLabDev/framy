@@ -2,7 +2,8 @@
 
 // Command build makes the site's assets: it bundles internal/web/app into
 // one minified script and one stylesheet, copies the fonts and the marks,
-// writes the web.* lines of every language, and fills the page template.
+// writes the web.* lines and the models' notes of every language, and fills
+// the page template.
 // Every asset is named by its content (app.3f9a1c2b4d5e.js), so the server
 // gives it a year in the cache; the page itself is checked every time.
 //
@@ -36,6 +37,9 @@ const (
 	dist = "dist"
 	// prefix marks the lines of translations.json that belong to the site.
 	prefix = "web."
+	// notes are the models' lines (note.<model id>), which the site shows
+	// under their own keys in the language it speaks.
+	notes = "note."
 )
 
 func main() {
@@ -243,14 +247,15 @@ func writeTexts(o *out) (map[string]string, error) {
 	for _, l := range i18n.LANGUAGE_OPTIONS {
 		lines := map[string]string{}
 		for k, by := range all {
-			if !strings.HasPrefix(k, prefix) {
+			name, web := strings.CutPrefix(k, prefix)
+			if !web && !strings.HasPrefix(k, notes) {
 				continue
 			}
 			t := by[l.Code]
 			if t == "" {
 				t = by[i18n.DefaultLang]
 			}
-			lines[strings.TrimPrefix(k, prefix)] = t
+			lines[name] = t
 		}
 		if len(lines) == 0 {
 			return nil, errors.New("translations.json has no web.* lines")

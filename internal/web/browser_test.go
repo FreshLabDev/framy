@@ -174,6 +174,26 @@ func browser(t *testing.T, url string, w, h int64, phone bool) context.Context {
 	return ctx
 }
 
+// TestBrowserNotesInPageLanguage opens the page in Russian over a catalog
+// whose notes came in English, as the server writes them for a request
+// without the person and a browser whose first language framy does not
+// speak: the notes under the models are in the page's language anyway.
+func TestBrowserNotesInPageLanguage(t *testing.T) {
+	ts := fakeSite(t, nil)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	js[bool](t, ctx, `localStorage.setItem("framy.lang", "ru"); return true;`)
+	if _, err := chromedp.Run(ctx, chromedp.Reload()); err != nil {
+		t.Fatal(err)
+	}
+	ready(t, ctx)
+	s := js[map[string]any](t, ctx, `return { lang: document.documentElement.lang, note: document.querySelector("#how .mnote.info")?.textContent || "",
+		titles: [...document.querySelectorAll('#how [data-seg="var"] [title]')].map((b) => b.title).join(" | ") };`)
+	if s["lang"] != "ru" || s["note"] != "Быстрее и дешевле, качество близко" || !strings.Contains(s["titles"].(string), "2.6: Точнее, для дизайна") {
+		t.Errorf("notes of a Russian page: %v", s)
+	}
+	noErrors(t, ctx)
+}
+
 // ready waits until the app has replaced the skeleton and the prices are in.
 func ready(t *testing.T, ctx context.Context) {
 	t.Helper()

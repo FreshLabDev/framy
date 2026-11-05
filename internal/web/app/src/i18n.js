@@ -1,10 +1,13 @@
-// The site's lines: the web.* keys of internal/i18n/translations.json, one
-// file per language, built by internal/web/build. t() fills {placeholders}.
+// The site's lines: the web.* keys of internal/i18n/translations.json and the
+// models' notes (note.<model id>), one file per language, built by
+// internal/web/build. t() fills {placeholders}.
 
 let lines = {};
 export let lang = "en";
 
 export function setTexts(code, texts) { lang = code; lines = texts || {}; document.documentElement.lang = code; document.documentElement.dir = code === "ar" ? "rtl" : "ltr"; }
+
+export const has = (key) => lines[key] != null;
 
 export function t(key, vars) {
   let s = lines[key];

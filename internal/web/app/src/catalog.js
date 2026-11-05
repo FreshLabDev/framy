@@ -2,7 +2,7 @@
 // families, the free plans by offer, what each model takes, and the settings
 // a person can change. Prices are not here: they come from POST /api/quote.
 import { h, ic } from "./dom.js";
-import { t, fmtNum } from "./i18n.js";
+import { t, has, fmtNum } from "./i18n.js";
 import LOGOS from "assets:logos";
 
 export const C = { models: [], byId: {}, FAM: [], famOf: {}, varOf: {}, plans: {}, free: {}, recommend: {} };
@@ -21,7 +21,10 @@ export function loadCatalog(cat) {
     const fm = m.family || {}, key = fm.id || m.id;
     let f = byKey[key];
     if (!f) { f = byKey[key] = { key, name: fm.name || m.name, axes: !!fm.line, order: i, vars: [] }; C.FAM.push(f); }
-    f.vars.push({ id: m.id, m, gen: fm.gen || "", tier: fm.tier || "", label: fm.label || m.name, note: m.note || "",
+    // The note is a line of the interface, in the language the page speaks: the catalog's
+    // is in the language the server guessed for the request, which can be another.
+    f.vars.push({ id: m.id, m, gen: fm.gen || "", tier: fm.tier || "", label: fm.label || m.name,
+      get note() { return has("note." + m.id) ? t("note." + m.id) : m.note || ""; },
       line: fm.line || "", fmt: fm.format || "", rank: fm.rank ?? 0, outBy: fm.outdated_by, isDef: !!fm.default });
   });
   C.FAM.forEach((f, i) => {
