@@ -48,6 +48,14 @@ type Sessions interface {
 	DeleteExpired(ctx context.Context, before time.Time) (int64, error)
 }
 
+// SessionsChannel is the PostgreSQL channel PGSessions notifies on when it
+// ends sessions, in the transaction that ends them. Every process of framy
+// remembers the sessions it found for a while (Auth.ForgetAll): production,
+// the test bot, and the old process during a deploy. The notice carries
+// nothing, so whoever LISTENs on the shared database, which asks for no
+// rights, learns only that someone signed out.
+const SessionsChannel = "framy_sessions"
+
 // PGSessions keeps sessions in framy.session. The pool's search_path is
 // framy, as everywhere in the service.
 //
@@ -91,16 +99,37 @@ func (p *PGSessions) Lookup(ctx context.Context, hash [32]byte, kind Kind, now t
 	return s, true, nil
 }
 
-// Delete implements Sessions.
+// Delete implements Sessions, and tells every process of framy
+// (SessionsChannel).
 func (p *PGSessions) Delete(ctx context.Context, hash [32]byte) error {
-	_, err := p.pool.Exec(ctx, `DELETE FROM session WHERE token_hash = $1`, hash[:])
+	_, err := p.end(ctx, `DELETE FROM session WHERE token_hash = $1`, hash[:])
 	return err
 }
 
-// DeleteUser implements Sessions.
+// DeleteUser implements Sessions, and tells every process of framy
+// (SessionsChannel).
 func (p *PGSessions) DeleteUser(ctx context.Context, userID int64) (int64, error) {
-	tag, err := p.pool.Exec(ctx, `DELETE FROM session WHERE user_id = $1`, userID)
-	return tag.RowsAffected(), err
+	return p.end(ctx, `DELETE FROM session WHERE user_id = $1`, userID)
+}
+
+// end runs a delete of sessions and, when it ended any, notifies
+// SessionsChannel as it commits.
+func (p *PGSessions) end(ctx context.Context, sql string, arg any) (int64, error) {
+	var n int64
+	err := pgx.BeginFunc(ctx, p.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, sql, arg)
+		if err != nil {
+			return err
+		}
+		if n = tag.RowsAffected(); n > 0 {
+			_, err = tx.Exec(ctx, `SELECT pg_notify($1, '')`, SessionsChannel)
+		}
+		return err
+	})
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
 }
 
 // DeleteExpired implements Sessions.

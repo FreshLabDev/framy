@@ -33,6 +33,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/FreshLabDev/framy/internal/auth"
 	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/db"
 	"github.com/FreshLabDev/framy/internal/free"
@@ -624,6 +625,42 @@ func TestAListenerDropAndReconnectLosesNothing(t *testing.T) {
 	}
 	if !s.ended(wait) {
 		t.Error("the stream should end")
+	}
+}
+
+// Sessions another process ended are forgotten here at once, and on each
+// connection, since a notice may have gone by while there was none; a job's
+// notice does not touch them.
+func TestTheListenerForgetsSessionsEndedElsewhere(t *testing.T) {
+	w := newWorld(t)
+	var forgot atomic.Int64
+	in := w.instance(func(o *rigOptions) {
+		prev := o.cfg
+		o.cfg = func(c *Config) {
+			prev(c)
+			c.SessionsEnded = func() { forgot.Add(1) }
+		}
+	})
+	eventually(t, "the sessions to be forgotten on connecting", func() bool { return forgot.Load() == 1 })
+
+	_, m, _ := in.post(alice, "sessions", body(paidOffer, "key"))
+	id := idOf(t, m)
+	s := in.openStream(alice, fmt.Sprintf("/api/jobs/%d/events", id))
+	s.event(wait)
+	exec(t, w.pool, `UPDATE job SET status='running', started_at=now() WHERE id=$1`, id)
+	s.event(wait)
+	if n := forgot.Load(); n != 1 {
+		t.Errorf("a job's notice forgot the sessions: %d", n)
+	}
+
+	exec(t, w.pool, `SELECT pg_notify($1, '')`, auth.SessionsChannel)
+	eventually(t, "the sessions to be forgotten on a notice", func() bool { return forgot.Load() == 2 })
+
+	reconnects := w.listening.Load()
+	exec(t, w.pool, `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = 'framy-events' AND datname = current_database()`)
+	eventually(t, "the listener to connect again", func() bool { return w.listening.Load() > reconnects })
+	if n := forgot.Load(); n != 3 {
+		t.Errorf("forgotten %d times after a reconnect, want 3", n)
 	}
 }
 

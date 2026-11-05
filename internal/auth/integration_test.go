@@ -196,6 +196,74 @@ func TestPGSessionsStayOnTheirStack(t *testing.T) {
 	}
 }
 
+// Ending sessions tells every process of framy, with a notice that names
+// nobody; ending none says nothing.
+func TestPGEndingSessionsIsNoticed(t *testing.T) {
+	ctx := context.Background()
+	store := testStore(t)
+	sessions := NewPGSessions(store.Pool(), "test")
+	if err := store.Touch(ctx, tg.User{ID: pgAnn, FirstName: "P"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := store.Pool().Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, "LISTEN "+SessionsChannel); err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Exec(context.Background(), "UNLISTEN *")
+	notice := func() (string, bool) {
+		t.Helper()
+		wait, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
+		defer cancel()
+		n, err := conn.Conn().WaitForNotification(wait)
+		if err != nil {
+			return "", false
+		}
+		return n.Payload, true
+	}
+	now := time.Now().Truncate(time.Second)
+	mk := func(secret string) Session {
+		return Session{Hash: sha256.Sum256([]byte(secret)), UserID: pgAnn, Kind: KindSite, Created: now, Expires: now.Add(time.Hour)}
+	}
+	one, two, three := mk("one"), mk("two"), mk("three")
+	for _, s := range []Session{one, two, three} {
+		if err := sessions.Create(ctx, s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, ok := notice(); ok {
+		t.Fatal("a new session was noticed as ended")
+	}
+
+	if err := sessions.Delete(ctx, one.Hash); err != nil {
+		t.Fatal(err)
+	}
+	if payload, ok := notice(); !ok || payload != "" {
+		t.Errorf("logging out: noticed %v, %q", ok, payload)
+	}
+	if err := sessions.Delete(ctx, one.Hash); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := notice(); ok {
+		t.Error("ending a gone session was noticed")
+	}
+	if n, err := sessions.DeleteUser(ctx, pgAnn); err != nil || n != 2 {
+		t.Fatalf("DeleteUser = %d, %v", n, err)
+	}
+	if payload, ok := notice(); !ok || payload != "" {
+		t.Errorf("ending everything: noticed %v, %q", ok, payload)
+	}
+	if n, err := sessions.DeleteUser(ctx, pgAnn); err != nil || n != 0 {
+		t.Fatalf("DeleteUser again = %d, %v", n, err)
+	}
+	if _, ok := notice(); ok {
+		t.Error("ending no session was noticed")
+	}
+}
+
 // The site and the bot are one account, and what the database holds of a
 // session is a hash.
 func TestPGSignInEndToEnd(t *testing.T) {

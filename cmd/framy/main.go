@@ -301,6 +301,7 @@ func run(log *slog.Logger) error {
 			_, err := signIn.RevokeAll(ctx, userID)
 			return err
 		},
+		SessionsEnded: signIn.ForgetAll,
 	})
 	if err != nil {
 		return err

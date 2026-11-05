@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/FreshLabDev/framy/internal/auth"
 	"github.com/FreshLabDev/framy/internal/metrics"
 )
 
@@ -127,6 +128,9 @@ type listener struct {
 	log       *slog.Logger
 	keepalive time.Duration
 	backoff   time.Duration
+	// sessionsEnded, when set, is also listened for on auth.SessionsChannel
+	// and called on each notice there and each time the connection is up.
+	sessionsEnded func()
 	// connected, when set, is told each time the connection is up and
 	// listening; tests wait on it.
 	connected func()
@@ -187,9 +191,17 @@ func (l *listener) session(ctx context.Context) error {
 	if _, err := conn.Exec(ctx, "LISTEN "+channel); err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}
+	if l.sessionsEnded != nil {
+		if _, err := conn.Exec(ctx, "LISTEN "+auth.SessionsChannel); err != nil {
+			return fmt.Errorf("listen: %w", err)
+		}
+	}
 	// Anything may have changed since the last connection (or since the
 	// process started).
 	l.hub.notifyAll()
+	if l.sessionsEnded != nil {
+		l.sessionsEnded()
+	}
 	if l.connected != nil {
 		l.connected()
 	}
@@ -199,6 +211,8 @@ func (l *listener) session(ctx context.Context) error {
 		quiet := errors.Is(wait.Err(), context.DeadlineExceeded)
 		cancel()
 		switch {
+		case err == nil && n.Channel == auth.SessionsChannel:
+			l.sessionsEnded()
 		case err == nil:
 			var e event
 			if json.Unmarshal([]byte(n.Payload), &e) != nil || e.Job == 0 {

@@ -65,7 +65,9 @@ const (
 
 	// cacheTTL is how long a found session is believed without asking the
 	// database again. Logout and "sign out everywhere" drop entries at once,
-	// so it matters only for rows deleted behind this process's back.
+	// in this process and, through SessionsChannel, in every other one, so it
+	// matters only for a notice that did not come (the listener was
+	// reconnecting) and rows deleted otherwise (the person left core).
 	cacheTTL = 30 * time.Second
 	// maxCached bounds the cache. Only live sessions are cached, so it takes
 	// that many signed-in people to reach it; it is then emptied.
@@ -341,6 +343,17 @@ func (a *Auth) lookup(ctx context.Context, kind Kind, hash [32]byte) (int64, boo
 	}
 	a.cacheMu.Unlock()
 	return s.UserID, true, nil
+}
+
+// ForgetAll drops every session this process remembers, so each is looked
+// up in the database again on its next request. framy calls it when another
+// process ended sessions (SessionsChannel), and when its listener connects,
+// since a notice may have gone by meanwhile.
+func (a *Auth) ForgetAll() {
+	a.cacheMu.Lock()
+	defer a.cacheMu.Unlock()
+	a.gen++
+	clear(a.cache)
 }
 
 // forget drops one session from the cache; forgetUser drops a person's.

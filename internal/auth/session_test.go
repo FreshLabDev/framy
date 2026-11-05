@@ -147,6 +147,31 @@ func TestPersonIsCached(t *testing.T) {
 
 }
 
+// A session another process ended is not believed from memory once that
+// process says so, and the people whose sessions stand are looked up again.
+func TestForgetAllDropsWhatAnotherProcessEnded(t *testing.T) {
+	mem := newMemSessions()
+	h := newHarness(t, withSessions(mem))
+	ended, kept := h.signInAs(testUserID), h.signInAs(7)
+	ended.signedIn()
+	kept.signedIn() // both cached
+	mem.mu.Lock()
+	delete(mem.rows, sha(ended.cookies[SessionCookie]))
+	mem.mu.Unlock()
+
+	h.auth.ForgetAll()
+	base := mem.lookupCount()
+	if _, ok := ended.signedIn(); ok {
+		t.Error("a session ended elsewhere is still believed")
+	}
+	if id, ok := kept.signedIn(); !ok || id != 7 {
+		t.Errorf("a live session went with it: %d %v", id, ok)
+	}
+	if n := mem.lookupCount() - base; n != 2 {
+		t.Errorf("%d lookups after forgetting, want 2", n)
+	}
+}
+
 func TestEndedSessionIsGoneAtOnceDespiteTheCache(t *testing.T) {
 	h := newHarness(t)
 	a, b := h.signInAs(testUserID), h.signInAs(7)

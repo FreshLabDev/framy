@@ -201,7 +201,13 @@ type Config struct {
 	// Revoke ends every session of the person, on the site and in the Mini
 	// App: internal/auth's RevokeAll. Deleting an account calls it last.
 	Revoke func(ctx context.Context, userID int64) error
-	Log    *slog.Logger
+	// SessionsEnded is called when a process of framy ended sessions
+	// (auth.SessionsChannel), and each time the listener connects, since a
+	// notice may have gone by meanwhile: internal/auth's ForgetAll, so a
+	// session ended in another process is not believed here from memory.
+	// Nil leaves the sessions to their cache's TTL.
+	SessionsEnded func()
+	Log           *slog.Logger
 
 	// MaxStreams per person, Ping, WriteTimeout and UploadSlots default to
 	// the constants above. MaxUpload is the largest photo the pipeline takes
@@ -356,7 +362,7 @@ func (a *API) Run(ctx context.Context) {
 	}
 	l := &listener{
 		cfg: a.cfg.Pool.Config().ConnConfig.Copy(), hub: a.hub, log: a.log.With("component", "events"),
-		keepalive: a.cfg.Keepalive, backoff: a.cfg.Backoff, connected: a.cfg.listening,
+		keepalive: a.cfg.Keepalive, backoff: a.cfg.Backoff, sessionsEnded: a.cfg.SessionsEnded, connected: a.cfg.listening,
 	}
 	l.run(ctx)
 }
