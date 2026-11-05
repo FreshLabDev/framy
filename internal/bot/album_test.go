@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -312,21 +314,80 @@ func TestAFailedNoteStopsNothing(t *testing.T) {
 	}
 }
 
+// clock is the bot's clock in a test: a wait moves it on at once, and what
+// was to happen meanwhile happens first, in order, at its own time.
+type clock struct {
+	mu     sync.Mutex
+	now    time.Time
+	events []event
+	slept  []time.Duration
+}
+
+type event struct {
+	at time.Time
+	do func()
+}
+
+// onClock has b keep the time of a new clock.
+func onClock(b *Bot) *clock {
+	c := &clock{now: time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)}
+	b.now, b.sleep = c.Now, c.sleep
+	return c
+}
+
+func (c *clock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+// after has do happen d from now.
+func (c *clock) after(d time.Duration, do func()) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e := event{c.now.Add(d), do}
+	i, _ := slices.BinarySearchFunc(c.events, e, func(a, b event) int {
+		if a.at.After(b.at) {
+			return 1
+		}
+		return -1
+	})
+	c.events = slices.Insert(c.events, i, e)
+}
+
+// elapsed is how long the clock has run since it started.
+func (c *clock) elapsed() time.Duration {
+	return c.Now().Sub(time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC))
+}
+
+func (c *clock) sleep(ctx context.Context, d time.Duration) bool {
+	c.mu.Lock()
+	until := c.now.Add(d)
+	c.slept = append(c.slept, d)
+	for len(c.events) > 0 && !c.events[0].at.After(until) {
+		e := c.events[0]
+		c.events = c.events[1:]
+		c.now = e.at
+		c.mu.Unlock()
+		e.do()
+		c.mu.Lock()
+	}
+	c.now = until
+	c.mu.Unlock()
+	return ctx.Err() == nil
+}
+
 // A wait ends when the album has been quiet for a moment, and whatever came
 // meanwhile is in it.
 func TestAlbumWaitsForTheRest(t *testing.T) {
 	b, _, _ := newBot()
+	c := onClock(b)
 	ctx := context.Background()
 	b.noteAlbumItem(ctx, photoMessage(groupChat, 61, "g"))
+	c.after(50*time.Millisecond, func() { b.noteAlbumItem(ctx, photoMessage(groupChat, 62, "g")) })
+	c.after(100*time.Millisecond, func() { b.noteAlbumItem(ctx, photoMessage(groupChat, 63, "g")) })
 
 	const settle = 150 * time.Millisecond
-	go func() {
-		for _, id := range []int64{62, 63} {
-			time.Sleep(50 * time.Millisecond)
-			b.noteAlbumItem(ctx, photoMessage(groupChat, id, "g"))
-		}
-	}()
-	start := time.Now()
 	items, err := b.Album(ctx, groupChat.ID, "g", settle, 5*time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -335,32 +396,31 @@ func TestAlbumWaitsForTheRest(t *testing.T) {
 		t.Fatalf("album = %+v", items)
 	}
 	// The last item came 100 ms in, and the album is read one settle later.
-	if took := time.Since(start); took < 100*time.Millisecond+settle-20*time.Millisecond || took > 3*time.Second {
-		t.Errorf("waited %v", took)
+	if c.elapsed() != 100*time.Millisecond+settle {
+		t.Errorf("waited %v, slept %v", c.elapsed(), c.slept)
 	}
 }
 
 func TestAlbumThatStoppedGrowingIsReadAtOnce(t *testing.T) {
 	b, store, _ := newBot()
+	c := onClock(b)
 	ctx := context.Background()
 	b.noteAlbumItem(ctx, photoMessage(groupChat, 71, "g"))
-	b.arrivals.mark(albumKey{-100, "g"}, time.Now().Add(-time.Second))
-	start := time.Now()
+	b.arrivals.mark(albumKey{-100, "g"}, c.Now().Add(-time.Second))
 	items, err := b.Album(ctx, -100, "g", 800*time.Millisecond, 5*time.Second)
 	if err != nil || len(items) != 1 || items[0].MessageID != 71 {
 		t.Fatalf("album = %+v, %v", items, err)
 	}
-	if took := time.Since(start); took > 400*time.Millisecond {
-		t.Errorf("waited %v for an album that was quiet already", took)
+	if len(c.slept) != 0 {
+		t.Errorf("waited %v for an album that was quiet already", c.slept)
 	}
 
 	// An album the bot has not seen grow in the last minute has no record to
 	// wait on, and what the store has is what it returns.
-	store.items[albumID{-100, 99}] = db.AlbumItem{ChatID: -100, MediaGroupID: "old", MessageID: 99, CreatedAt: time.Now()}
-	start = time.Now()
+	store.items[albumID{-100, 99}] = db.AlbumItem{ChatID: -100, MediaGroupID: "old", MessageID: 99, CreatedAt: c.Now()}
 	items, err = b.Album(ctx, -100, "old", 800*time.Millisecond, 5*time.Second)
-	if err != nil || len(items) != 1 || time.Since(start) > 400*time.Millisecond {
-		t.Errorf("an unseen album: %+v, %v after %v", items, err, time.Since(start))
+	if err != nil || len(items) != 1 || len(c.slept) != 0 {
+		t.Errorf("an unseen album: %+v, %v after %v", items, err, c.slept)
 	}
 	// Another chat's album with the same id is another album.
 	if items, err = b.Album(ctx, -200, "g", time.Second, time.Second); err != nil || len(items) != 0 {
@@ -371,27 +431,24 @@ func TestAlbumThatStoppedGrowingIsReadAtOnce(t *testing.T) {
 // An album that keeps growing is read at the cap, not when it ends.
 func TestAlbumWaitIsCapped(t *testing.T) {
 	b, _, _ := newBot()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	c := onClock(b)
+	ctx := context.Background()
 	b.noteAlbumItem(ctx, photoMessage(groupChat, 81, "g"))
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for id := int64(82); ctx.Err() == nil; id++ {
-			time.Sleep(10 * time.Millisecond)
-			b.noteAlbumItem(ctx, photoMessage(groupChat, id, "g"))
-		}
-	}()
-	start := time.Now()
-	items, err := b.Album(ctx, -100, "g", 300*time.Millisecond, 150*time.Millisecond)
-	took := time.Since(start)
-	cancel()
-	<-done
-	if err != nil || len(items) < 2 {
-		t.Fatalf("album = %d items, %v", len(items), err)
+	id := int64(81)
+	var next func()
+	next = func() {
+		id++
+		b.noteAlbumItem(ctx, photoMessage(groupChat, id, "g"))
+		c.after(10*time.Millisecond, next)
 	}
-	if took < 140*time.Millisecond || took > 280*time.Millisecond {
-		t.Errorf("waited %v, the cap was 150ms", took)
+	c.after(10*time.Millisecond, next)
+	items, err := b.Album(ctx, -100, "g", 300*time.Millisecond, 150*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Read at 150 ms, with what came by then: the first and fifteen more.
+	if c.elapsed() != 150*time.Millisecond || len(items) != 16 {
+		t.Errorf("read %d items after %v, the cap was 150ms", len(items), c.elapsed())
 	}
 }
 

@@ -180,9 +180,9 @@ func (b *Bot) noteAlbumItem(ctx context.Context, m *tg.Message) {
 	// Marked before the write as well as after it: an Album call that comes
 	// between the two must wait for this item, not read the album without it.
 	k := albumKey{it.ChatID, it.MediaGroupID}
-	b.arrivals.mark(k, time.Now())
+	b.arrivals.mark(k, b.now())
 	err := b.store.NoteAlbumItem(ctx, it)
-	b.arrivals.mark(k, time.Now())
+	b.arrivals.mark(k, b.now())
 	if err != nil {
 		metrics.AlbumFailures.Inc()
 		b.log.Error("album item not saved", "chat", it.ChatID, "message", it.MessageID, "error", err)
@@ -201,10 +201,10 @@ func (b *Bot) noteAlbumItem(ctx context.Context, m *tg.Message) {
 // of the chat (SeesEveryMessage).
 func (b *Bot) Album(ctx context.Context, chatID int64, mediaGroupID string, quiet, max time.Duration) ([]db.AlbumItem, error) {
 	k := albumKey{chatID, mediaGroupID}
-	deadline := time.Now().Add(max)
+	deadline := b.now().Add(max)
 	for {
 		last := b.arrivals.at(k)
-		now := time.Now()
+		now := b.now()
 		wake := last.Add(quiet)
 		if last.IsZero() || !wake.After(now) || !now.Before(deadline) {
 			break
@@ -212,7 +212,7 @@ func (b *Bot) Album(ctx context.Context, chatID int64, mediaGroupID string, quie
 		if wake.After(deadline) {
 			wake = deadline
 		}
-		if !wait(ctx, wake.Sub(now)) {
+		if !b.sleep(ctx, wake.Sub(now)) {
 			return nil, ctx.Err()
 		}
 	}
@@ -238,7 +238,7 @@ func (b *Bot) sweepAlbums(ctx context.Context, every time.Duration) {
 	tick := time.NewTicker(every)
 	defer tick.Stop()
 	for {
-		n, err := b.store.DeleteAlbumItemsBefore(ctx, time.Now().Add(-albumKeep))
+		n, err := b.store.DeleteAlbumItemsBefore(ctx, b.now().Add(-albumKeep))
 		switch {
 		case ctx.Err() != nil:
 			return
