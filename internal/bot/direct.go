@@ -126,25 +126,12 @@ func (v view) connectionList(list []keys.Connection) string {
 	slices.SortStableFunc(list, func(a, b keys.Connection) int { return rank(a.Provider) - rank(b.Provider) })
 	names := make([]string, len(list))
 	for i, c := range list {
-		names[i] = html.EscapeString(connectionName(c.Provider))
+		names[i] = html.EscapeString(catalog.ProviderName(c.Provider))
 		if word := v.statusWord(c.Status); word != "" {
 			names[i] += " (" + word + ")"
 		}
 	}
 	return strings.Join(names, ", ")
-}
-
-// connectionName is a brand name, the same in every language.
-func connectionName(provider string) string {
-	switch provider {
-	case catalog.OpenRouter:
-		return "OpenRouter"
-	case catalog.OpenAI:
-		return "OpenAI"
-	case catalog.Gemini:
-		return "Gemini"
-	}
-	return provider
 }
 
 func (v view) statusWord(s keys.Status) string {

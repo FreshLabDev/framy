@@ -32,13 +32,6 @@ const (
 	expandAfter = 200
 )
 
-// providerNames are the brands, written the same in every language.
-var providerNames = map[string]string{
-	catalog.OpenRouter: "OpenRouter",
-	catalog.OpenAI:     "OpenAI",
-	catalog.Gemini:     "Google Gemini",
-}
-
 // promptQuote is the prompt as the caption shows it.
 func promptQuote(prompt string) string {
 	prompt = strings.TrimSpace(prompt)
@@ -117,11 +110,7 @@ func priceLine(lang, pay, provider string, usage free.Meter, e price.Estimate, q
 	if pay == payFree {
 		return t(lang, "run.free", "left", strconv.Itoa(usage.Left()), "limit", strconv.Itoa(usage.Limit))
 	}
-	name := providerNames[provider]
-	if name == "" {
-		name = provider
-	}
-	return t(lang, "run.on_key", "price", priceLabel(lang, e, q), "provider", name)
+	return t(lang, "run.on_key", "price", priceLabel(lang, e, q), "provider", catalog.ProviderName(provider))
 }
 
 // priceLabel writes an estimate in dollars and, for another currency, in it
@@ -173,11 +162,7 @@ func previewCard(lang string, d draft) anim.Preview {
 		p.Label = t(lang, "card.free")
 		return p
 	}
-	name := providerNames[d.offer.Provider]
-	if name == "" {
-		name = d.offer.Provider
-	}
-	p.Label = t(lang, "card.key", "provider", name)
+	p.Label = t(lang, "card.key", "provider", catalog.ProviderName(d.offer.Provider))
 	p.Price, p.Local, p.LocalCode = cardPrice(lang, d.estimate, d.quote)
 	if p.Price == "" {
 		p.Price = t(lang, "run.price_unknown")

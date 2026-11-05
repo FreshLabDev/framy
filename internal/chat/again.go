@@ -10,6 +10,7 @@ import (
 
 	"github.com/FreshLabDev/tg"
 
+	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/db"
 	"github.com/FreshLabDev/framy/internal/jobs"
 	"github.com/FreshLabDev/framy/internal/price"
@@ -68,7 +69,7 @@ func (f *Flow) again(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun, 
 			return err
 		}
 		if !has {
-			return alert("run.need_key", "provider", providerName(d.offer.Provider))
+			return alert("run.need_key", "provider", catalog.ProviderName(d.offer.Provider))
 		}
 	}
 	// The preview answers the message pressed as a command would be answered.

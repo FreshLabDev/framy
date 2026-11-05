@@ -94,7 +94,7 @@ func TestDirectHomeSaysWhatIsLeftWhatIsConnectedAndWhatPricesAreIn(t *testing.T)
 		"<i>Images at the provider’s price.</i>\n\n" +
 		"<blockquote>Free images · 4 of 5 left in any 24 hours\n" +
 		"Free videos · 1 of 1 left in any 7 days\n" +
-		"Your keys · OpenRouter, OpenAI (no credits), Gemini\n" +
+		"Your keys · OpenRouter, OpenAI (no credits), AI Studio\n" +
 		"Language · English\n" +
 		"Currency · USD\n" +
 		"Not open yet: making images comes with the first test release.</blockquote>"
@@ -269,7 +269,7 @@ func TestOnlyAConnectionThatIsNotValidHasAStatusWord(t *testing.T) {
 	got := v.connectionList([]keys.Connection{
 		connection(catalog.Gemini, keys.Valid), connection("<b>", keys.Valid), connection(catalog.OpenRouter, keys.Valid),
 	})
-	if got != "OpenRouter, Gemini, &lt;b&gt;" {
+	if got != "OpenRouter, AI Studio, &lt;b&gt;" {
 		t.Errorf("list = %q", got)
 	}
 }

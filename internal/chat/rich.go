@@ -225,7 +225,7 @@ func pickOf(lang, prompt string, d draft, m catalog.Model, have map[string]bool,
 	}
 	return entry{
 		choice: choice{model: m, offer: fit[0]},
-		why:    t(lang, "run.need_key", "provider", providerName(fit[0].Provider)), locked: true,
+		why:    t(lang, "run.need_key", "provider", catalog.ProviderName(fit[0].Provider)), locked: true,
 	}
 }
 
@@ -235,8 +235,6 @@ func providerRank(order []string, provider string) int {
 	}
 	return len(order)
 }
-
-func providerName(provider string) string { return cmp.Or(providerNames[provider], provider) }
 
 // misfit is why an offer cannot take a run of taken photos, as the site's
 // picker words it; empty when it can.

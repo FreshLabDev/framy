@@ -7,6 +7,8 @@ import LOGOS from "assets:logos";
 
 export const C = { models: [], byId: {}, FAM: [], famOf: {}, varOf: {}, plans: {}, free: {}, recommend: {} };
 
+// The providers as people see them, the same names the bot and the chat use
+// (catalog.ProviderName): Google's is AI Studio, where its key is made.
 export const PNAME = { openrouter: "OpenRouter", openai: "OpenAI", gemini: "AI Studio" };
 
 export function loadCatalog(cat) {
