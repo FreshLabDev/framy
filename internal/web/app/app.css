@@ -200,7 +200,7 @@ input[type="range"]::-moz-range-thumb {width: 20px; height: 20px; background: va
 .bar {display: flex; gap: 12px; align-items: center; padding-top: 6px;}
 .price {flex: 1; min-width: 0; display: grid; gap: 2px;}
 .pnum {justify-self: start; display: inline-flex; font: 700 32px/1.08 var(--display); font-variant-numeric: tabular-nums;}
-.pnum.usd {cursor: help; border-bottom: 2px dotted var(--muted);}
+.pnum.hint {cursor: help; border-bottom: 2px dotted var(--muted);}
 .odo {position: relative; display: inline-flex; overflow: hidden;}
 .odo > .w {white-space: pre;}
 .odo > .amt {display: inline-flex; direction: ltr;}

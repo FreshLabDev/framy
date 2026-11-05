@@ -14,6 +14,7 @@ import (
 
 	"github.com/chromedp/cdproto/accessibility"
 	"github.com/chromedp/cdproto/cdp"
+	"github.com/chromedp/cdproto/input"
 	"github.com/chromedp/chromedp"
 )
 
@@ -76,11 +77,22 @@ const figure = () => {
   const width = parts.reduce((a, x) => a + x.getBoundingClientRect().width, 0);
   return { text, seen: seen(pn), plain: p.seen, width: Math.round(width), plainWidth: Math.round(p.width), split: pn.querySelectorAll(".ch").length };
 };
-// A variant that is not free, so the bar shows its price.
+// A variant that is not free, so the bar shows its price; on a phone it is
+// picked in the settings sheet.
 const paid = async () => {
+  const sheet = document.querySelector("#dtools .chipbtn.set");
+  const phone = sheet && vis(sheet);
+  if (phone) { sheet.click(); await wait(600); }
   const v = [...document.querySelectorAll("#how [data-seg=var] > button")].find((b) => b.getAttribute("aria-checked") !== "true");
   v.click();
   await wait(900);
+  if (phone) { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })); await wait(700); }
+};
+// Where the price stands, and its hint box if it shows.
+const tipNow = () => {
+  const tip = document.querySelector(".tip"), pn = document.querySelector("#pnum").getBoundingClientRect();
+  const r = tip && !tip.hidden ? tip.getBoundingClientRect() : null;
+  return { shown: !!r, tip: r ? tip.textContent : "", inside: !!r && r.left >= 0 && r.right <= innerWidth && r.top >= 0, above: !!r && r.bottom <= pn.top };
 };
 `
 
@@ -236,4 +248,167 @@ func TestBrowserPriceSpoken(t *testing.T) {
 	}
 	read("after", next)
 	noErrors(t, ctx)
+}
+
+// pointAt is the middle of what sel finds, in CSS pixels of the viewport.
+func pointAt(t *testing.T, ctx context.Context, sel string) (x, y float64) {
+	t.Helper()
+	p := js[[]float64](t, ctx, `const r = document.querySelector(`+jsString(sel)+`).getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2];`)
+	return p[0], p[1]
+}
+
+// tap touches the screen at the middle of what sel finds, as a finger does.
+func tap(t *testing.T, ctx context.Context, sel string) {
+	t.Helper()
+	x, y := pointAt(t, ctx, sel)
+	err := chromedp.Do(ctx, chromedp.Func(func(ctx context.Context, tg *chromedp.Target) error {
+		if _, err := cdp.Call(ctx, tg, input.DispatchTouchEvent, input.DispatchTouchEventParams{Type: input.DispatchTouchEventTypeTouchStart, TouchPoints: []*input.TouchPoint{{X: x, Y: y}}}); err != nil {
+			return err
+		}
+		_, err := cdp.Call(ctx, tg, input.DispatchTouchEvent, input.DispatchTouchEventParams{Type: input.DispatchTouchEventTypeTouchEnd, TouchPoints: []*input.TouchPoint{}})
+		return err
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// mouseTo moves the mouse to the middle of what sel finds.
+func mouseTo(t *testing.T, ctx context.Context, sel string) {
+	t.Helper()
+	x, y := pointAt(t, ctx, sel)
+	err := chromedp.Do(ctx, chromedp.Func(func(ctx context.Context, tg *chromedp.Target) error {
+		_, err := cdp.Call(ctx, tg, input.DispatchMouseEvent, input.DispatchMouseEventParams{Type: input.DispatchMouseEventTypeMouseMoved, X: x, Y: y})
+		return err
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// press presses a key on the keyboard.
+func press(t *testing.T, ctx context.Context, key, code string, vk int64) {
+	t.Helper()
+	err := chromedp.Do(ctx, chromedp.Func(func(ctx context.Context, tg *chromedp.Target) error {
+		if _, err := cdp.Call(ctx, tg, input.DispatchKeyEvent, input.DispatchKeyEventParams{Type: input.DispatchKeyEventTypeRawKeyDown, Key: key, Code: code, WindowsVirtualKeyCode: vk}); err != nil {
+			return err
+		}
+		_, err := cdp.Call(ctx, tg, input.DispatchKeyEvent, input.DispatchKeyEventParams{Type: input.DispatchKeyEventTypeKeyUp, Key: key, Code: code, WindowsVirtualKeyCode: vk})
+		return err
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// euro prices every run in euros, its dollars behind it.
+const euro = `(e) => ({ ...e, currency: "EUR", label: "€" + (e.usd * 0.9).toFixed(2) })`
+
+// TestBrowserPriceHint checks the dollars behind a price in another
+// currency: a tap shows them on a phone, hovering does with a mouse, and
+// focus from the keyboard; a screen reader has them as the price's
+// description; and a price in dollars promises no hint it does not have.
+func TestBrowserPriceHint(t *testing.T) {
+	ts := fakeAPI(t)
+	t.Run("dollars", func(t *testing.T) {
+		ctx := browserInit(t, ts.URL, 1440, 900, false, priceInit("en", `(e) => e`))
+		got := js[map[string]any](t, ctx, pageHelpers+priceHelpers+`
+		await paid();
+		const pn = document.querySelector("#pnum"), cs = getComputedStyle(pn);
+		return { text: document.querySelector("#podo").dataset.t, cursor: cs.cursor, line: cs.borderBottomStyle, role: pn.getAttribute("role"), tab: pn.getAttribute("tabindex"), title: pn.getAttribute("title") };`)
+		if got["cursor"] == "help" || got["line"] != "none" || got["role"] != nil || got["tab"] != nil || got["title"] != nil {
+			t.Errorf("a price in dollars: %v", got)
+		}
+		noErrors(t, ctx)
+	})
+	t.Run("phone", func(t *testing.T) {
+		ctx := browserInit(t, ts.URL, 390, 844, true, priceInit("en", euro))
+		got := js[map[string]any](t, ctx, pageHelpers+priceHelpers+`
+		await paid();
+		const pn = document.querySelector("#pnum"), cs = getComputedStyle(pn);
+		return { text: document.querySelector("#podo").dataset.t, line: cs.borderBottomStyle, role: pn.getAttribute("role"), tab: pn.getAttribute("tabindex"),
+		  hint: document.getElementById(pn.getAttribute("aria-describedby"))?.textContent, ...tipNow() };`)
+		usd, _ := got["hint"].(string)
+		if !regexp.MustCompile(`^≈ €0\.\d\d$`).MatchString(got["text"].(string)) || !regexp.MustCompile(`^\$0\.\d{2,4}$`).MatchString(usd) ||
+			got["line"] != "dotted" || got["role"] != "button" || got["tab"] != "0" || got["shown"] != false {
+			t.Fatalf("a price in euros: %v", got)
+		}
+		tipAfter := func(name string, shown bool) {
+			t.Helper()
+			s := js[map[string]any](t, ctx, pageHelpers+priceHelpers+`await wait(300); return tipNow();`)
+			if s["shown"] != shown || (shown && (s["tip"] != usd || s["inside"] != true || s["above"] != true)) {
+				t.Errorf("%s: %v, want shown %v with %q", name, s, shown, usd)
+			}
+		}
+		tap(t, ctx, "#pnum")
+		tipAfter("tap", true)
+		tap(t, ctx, "#pnum")
+		tipAfter("tap again", false)
+		tap(t, ctx, "#pnum")
+		tipAfter("tap once more", true)
+		tap(t, ctx, "#prompt")
+		tipAfter("tap elsewhere", false)
+		noErrors(t, ctx)
+	})
+	t.Run("desktop", func(t *testing.T) {
+		ctx := browserInit(t, ts.URL, 1440, 900, false, priceInit("en", euro))
+		usd := js[string](t, ctx, pageHelpers+priceHelpers+`
+		await paid();
+		const pn = document.querySelector("#pnum");
+		return document.getElementById(pn.getAttribute("aria-describedby")).textContent;`)
+		tipAfter := func(name string, shown bool) {
+			t.Helper()
+			s := js[map[string]any](t, ctx, pageHelpers+priceHelpers+`await wait(450); return tipNow();`)
+			if s["shown"] != shown || (shown && (s["tip"] != usd || s["inside"] != true)) {
+				t.Errorf("%s: %v, want shown %v with %q", name, s, shown, usd)
+			}
+		}
+		mouseTo(t, ctx, "#pnum")
+		tipAfter("hover", true)
+		mouseTo(t, ctx, "#prompt")
+		tipAfter("away", false)
+		// From the keyboard: focus shows it, Enter and Escape hide it.
+		press(t, ctx, "Shift", "ShiftLeft", 16)
+		js[bool](t, ctx, `document.querySelector("#pnum").focus(); return true;`)
+		tipAfter("focus", true)
+		press(t, ctx, "Enter", "Enter", 13)
+		tipAfter("enter", false)
+		press(t, ctx, "Enter", "Enter", 13)
+		tipAfter("enter again", true)
+		press(t, ctx, "Escape", "Escape", 27)
+		tipAfter("escape", false)
+		// A screen reader reads the price, a button, with its dollars as its description.
+		var found bool
+		err := chromedp.Do(ctx, chromedp.Func(func(ctx context.Context, tg *chromedp.Target) error {
+			r, err := cdp.Call(ctx, tg, accessibility.GetFullAXTree, accessibility.GetFullAXTreeParams{})
+			for _, n := range r.Nodes {
+				var role, name, desc string
+				if n.Role != nil {
+					_ = json.Unmarshal(n.Role.Value, &role)
+				}
+				if n.Name != nil {
+					_ = json.Unmarshal(n.Name.Value, &name)
+				}
+				if n.Description != nil {
+					_ = json.Unmarshal(n.Description.Value, &desc)
+				}
+				if role == "button" && strings.Contains(name, "€") {
+					found = desc == usd
+					if !found {
+						t.Errorf("the price as a screen reader has it: %q, %q", name, desc)
+					}
+				}
+			}
+			return err
+		}))
+		if err != nil || !found {
+			t.Errorf("no price button with its dollars: %v", err)
+		}
+		// A button still has its price read out in the live region.
+		shown := js[string](t, ctx, `return document.querySelector("#podo").dataset.t;`)
+		if got := spoken(t, ctx); len(got) == 0 || got[0] != shown {
+			t.Errorf("the live region reads %q, the price is %q", got, shown)
+		}
+		noErrors(t, ctx)
+	})
 }

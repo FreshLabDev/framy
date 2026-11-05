@@ -82,3 +82,57 @@ export function ask({ title, text, yes, no = t("cancel"), one = false }) {
     box.onkeydown = (e) => { if (e.key === "Escape") { e.stopPropagation(); end(false); } };
   });
 }
+
+/* A figure's hint, such as the dollars behind a price in another currency: one small box over the
+   figure, on hover with a mouse, on a tap, and on focus from the keyboard, since a title shows to a
+   mouse only. A screen reader has it as the figure's description. hint(el, "") takes it away. */
+let tipBox = null, tipOf = null, tipWait = 0;
+function tipHide() {
+  clearTimeout(tipWait);
+  if (!tipOf) return;
+  tipBox.hidden = true;
+  tipOf = null;
+}
+function tipShow(el) {
+  clearTimeout(tipWait);
+  if (!el._hint || !el.isConnected) return tipHide();
+  if (!tipBox) document.body.append((tipBox = h("div", { class: "tip", "aria-hidden": "true", hidden: true })));
+  const was = tipOf;
+  tipBox.textContent = el._hint;
+  tipBox.hidden = false;
+  tipOf = el;
+  // Over the figure, from its start; under it when there is no room above.
+  const r = el.getBoundingClientRect(), w = tipBox.offsetWidth, th = tipBox.offsetHeight;
+  const start = getComputedStyle(el).direction === "rtl" ? r.right - w : r.left;
+  tipBox.style.left = Math.max(8, Math.min(start, innerWidth - w - 8)) + "px";
+  tipBox.style.top = (r.top - th - 8 >= 8 ? r.top - th - 8 : r.bottom + 8) + "px";
+  if (was !== el) anim(tipBox, [{ opacity: 0, transform: "translateY(4px)" }, { opacity: 1, transform: "none" }], { duration: 160 });
+}
+export function hint(el, text) {
+  if (!el._desc) {
+    el._desc = h("span", { id: el.id + "-hint", hidden: true });
+    el.append(el._desc);
+    let by = "";
+    el.addEventListener("pointerenter", (e) => { if (e.pointerType === "mouse") tipWait = setTimeout(() => tipShow(el), 300); });
+    el.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse" && !el.matches(":focus-visible")) tipHide(); });
+    el.addEventListener("pointerdown", (e) => { by = e.pointerType; });
+    // A tap shows it and the next one hides it; a mouse has it already from hovering.
+    el.addEventListener("click", () => { if (by === "mouse") tipShow(el); else if (tipOf === el) tipHide(); else tipShow(el); by = ""; });
+    el.addEventListener("focus", () => { if (el.matches(":focus-visible")) tipShow(el); });
+    el.addEventListener("blur", tipHide);
+    el.addEventListener("keydown", (e) => {
+      if (!el._hint) return;
+      if (e.key === "Escape" && tipOf === el) tipHide();
+      else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (tipOf === el) tipHide(); else tipShow(el); }
+    });
+  }
+  el._hint = text || "";
+  if (el._desc.textContent !== el._hint) el._desc.textContent = el._hint;
+  el.classList.toggle("hint", !!text);
+  if (text) { el.tabIndex = 0; el.setAttribute("role", "button"); el.setAttribute("aria-describedby", el._desc.id); }
+  else { el.removeAttribute("tabindex"); el.removeAttribute("role"); el.removeAttribute("aria-describedby"); }
+  if (tipOf === el) tipShow(el);
+}
+document.addEventListener("pointerdown", (e) => { if (tipOf && !tipOf.contains(e.target)) tipHide(); }, true);
+addEventListener("scroll", () => tipHide(), { passive: true, capture: true });
+addEventListener("resize", () => tipHide());

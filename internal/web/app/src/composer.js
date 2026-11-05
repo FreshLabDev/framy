@@ -12,7 +12,7 @@ import { S, M, images, clip, payOf, usable, keyOk, connection, freeLeft, freeLim
 import { priceEl, priceText, known, need, onPrices, usd, needTotal, knownTotal } from "./price.js";
 import { renderStage, stageFrom, refit, runOver, ratioOf, syncStrip } from "./stage.js";
 import { openPicker } from "./picker.js";
-import { openSheet, closeSheets } from "./ui.js";
+import { openSheet, closeSheets, hint } from "./ui.js";
 import { addFiles, removeFile, fitModel } from "./files.js";
 import { generate, signIn } from "./run.js";
 import { openCut, thumbMedia, frameEl, looksLikeClip } from "./clips.js";
@@ -621,8 +621,8 @@ export function renderBar() {
   const text = free ? t("bar.free") : !ready ? "…" : unknown ? t("price.unknown") : priceText(e);
   const val = free ? 0 : unknown ? 1e9 : e.usd;
   const el = $("#pnum");
-  el.classList.toggle("usd", !free && !unknown);
-  if (!free && !unknown && e.currency && e.currency !== "USD") el.title = usd(e.kind === "up_to" ? e.max_usd : e.usd); else el.removeAttribute("title");
+  // A price in another currency keeps its dollars behind it, for a mouse, a finger and the keyboard alike.
+  hint(el, !free && !unknown && e.currency && e.currency !== "USD" ? usd(e.kind === "up_to" ? e.max_usd : e.usd) : "");
   const odo = $("#podo");
   if (odo.dataset.t !== text) roll(odo, text, lastVal == null ? 1 : val >= lastVal ? 1 : -1);
   // A price on its way is no price: a screen reader hears the next one, not "…" or the last model's.
