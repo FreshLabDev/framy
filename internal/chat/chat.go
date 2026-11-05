@@ -573,12 +573,16 @@ func waitText(lang string, d time.Duration) string {
 }
 
 // reply answers the command with text: an ephemeral command only its
-// sender sees, while Telegram takes the reply.
+// sender sees, while Telegram takes the reply. A reply that got no answer
+// may have reached the sender, so the chat is not told it too.
 func (f *Flow) reply(ctx context.Context, m *tg.Message, text string) error {
 	if ephemeralCommand(m) {
 		_, err := f.cfg.Telegram.SendEphemeralMessage(ctx, m.Chat.ID, m.From.ID, m.EphemeralMessageID, text, nil)
 		if err == nil {
 			return nil
+		}
+		if !refused(err) {
+			return fmt.Errorf("reply in %d: %w", m.Chat.ID, err)
 		}
 		f.log.Warn("ephemeral reply refused; the chat sees it", "chat", m.Chat.ID, "error", err)
 	}

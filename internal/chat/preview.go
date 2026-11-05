@@ -322,14 +322,18 @@ func (f *Flow) sendPreview(ctx context.Context, m *tg.Message, d draft, prompt, 
 	}
 	if opts.Ephemeral != nil {
 		sent, err := f.sendRich(ctx, m.Chat.ID, body, pic, opts)
-		if err == nil && sent.EphemeralMessageID != 0 {
+		switch {
+		case err == nil && sent.EphemeralMessageID != 0:
 			return sent.EphemeralMessageID, true, nil
-		}
-		if ctx.Err() != nil {
-			// A stop cut the send short; Telegram refused nothing, and the
-			// preview may have reached the person already. Sending it to the
-			// chat now would fail the same way.
-			return 0, false, fmt.Errorf("send the preview: %w", ctx.Err())
+		case err == nil && sent.MessageID != 0:
+			// Telegram put it in the chat itself.
+			return sent.MessageID, false, nil
+		case err != nil && !refused(err):
+			// No answer, or a stop cut the send short: Telegram refused
+			// nothing, and the preview may have reached the requester
+			// already. The chat would see one sent to it now beside theirs,
+			// with their photos and words.
+			return 0, false, fmt.Errorf("send the preview: %w", err)
 		}
 		f.log.Warn("ephemeral preview refused; the chat sees it", "chat", m.Chat.ID, "error", err)
 		opts.Ephemeral, opts.ReplyToEphemeral = nil, 0

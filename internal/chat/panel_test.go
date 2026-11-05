@@ -595,10 +595,14 @@ func TestAnUnrecordedPreviewIsDeletedAgain(t *testing.T) {
 	}
 }
 
+// errEphemeral is Telegram refusing an ephemeral message, which it then
+// did not send.
+var errEphemeral = &tg.APIError{Method: "sendRichMessage", StatusCode: 400, ErrorCode: 400, Description: "Bad Request: ephemeral messages are not allowed here"}
+
 func TestARefusedEphemeralPreviewGoesToTheChat(t *testing.T) {
 	h := newHarness(t)
 	h.flow.SetAlbums(fakeAlbums{admin: true})
-	h.tg.fail["ephemeral"] = errBoom
+	h.tg.fail["ephemeral"] = errEphemeral
 	if err := h.command(command("/img a fox"), CommandImage, "a fox"); err != nil {
 		t.Fatal(err)
 	}
@@ -608,6 +612,24 @@ func TestARefusedEphemeralPreviewGoesToTheChat(t *testing.T) {
 	}
 	if r := run(t, h); r.PreviewEphemeral {
 		t.Fatalf("run = %+v", r)
+	}
+}
+
+// An ephemeral preview that got no answer may have reached the requester:
+// the chat does not get it too, with their photo and their words, and the
+// draft, which no preview the run knows shows, goes.
+func TestAnEphemeralPreviewWithNoAnswerIsNotSentToTheChat(t *testing.T) {
+	h := newHarness(t)
+	h.flow.SetAlbums(fakeAlbums{admin: true})
+	h.tg.fail["ephemeral"] = errBoom
+	if err := h.command(photoReply("/img make it night"), CommandImage, "make it night"); err == nil {
+		t.Fatal("a preview with no answer went as sent")
+	}
+	if sent := h.tg.methods("sendRichMessage"); len(sent) != 0 {
+		t.Fatalf("the chat got the preview: %+v", sent)
+	}
+	if len(h.queue.cancelled) != 1 {
+		t.Fatalf("cancelled = %v", h.queue.cancelled)
 	}
 }
 
@@ -668,12 +690,22 @@ func TestAnEphemeralCommandIsRefusedToItsSenderAlone(t *testing.T) {
 	if len(sent) != 1 || sent[0].ephemeral == nil || sent[0].ephemeral.ReceiverUserID != 7 || sent[0].replyEphemeral != 5 || sent[0].text != i18n.T("en", "run.empty") {
 		t.Fatalf("reply = %+v", sent)
 	}
+	// Refused, it goes to the chat; with no answer it may have reached
+	// the sender, and the chat is not told it too.
 	h.tg.reset()
-	h.tg.fail["ephemeral"] = errBoom
+	h.tg.fail["ephemeral"] = errEphemeral
 	if err := h.command(m, CommandImage, ""); err != nil {
 		t.Fatal(err)
 	}
 	if sent := h.tg.methods("sendMessage"); len(sent) != 1 || sent[0].ephemeral != nil {
+		t.Fatalf("reply = %+v", sent)
+	}
+	h.tg.reset()
+	h.tg.fail["ephemeral"] = errBoom
+	if err := h.command(m, CommandImage, ""); err == nil {
+		t.Fatal("a reply with no answer went as sent")
+	}
+	if sent := h.tg.methods("sendMessage"); len(sent) != 0 {
 		t.Fatalf("reply = %+v", sent)
 	}
 }
