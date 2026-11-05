@@ -123,7 +123,7 @@ type Store interface {
 	Catalog(ctx context.Context) ([]catalog.Model, error)
 	CatalogSyncedAt(ctx context.Context) (time.Time, error)
 	// TypicalSeconds is how long a run of each offer typically takes, for
-	// an offer with enough runs to say.
+	// an offer whose runs, model or family have enough runs to say.
 	TypicalSeconds(ctx context.Context) (map[string]int, error)
 }
 
