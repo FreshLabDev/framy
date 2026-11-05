@@ -317,7 +317,7 @@ func TestBrowserPrefs(t *testing.T) {
 	if fmt.Sprint(s["or"]) != "map[bad:false btns:[Connect] sub:Sign in through OpenRouter. Have a key? Paste it]" ||
 		fmt.Sprint(s["oa"]) != "map[bad:false btns:[Key] sub:Paste a key, framy checks it]" ||
 		fmt.Sprint(s["groups"]) != "[Model keys Free Default models Telegram Currency Language Account]" ||
-		s["out"] != true || s["store"] != "Files stored: 1230 MB · pictures, clips and uploads" || !strings.HasPrefix(s["free"].(string), "Pictures0 left of 5 a day · next one in 3 hours") {
+		s["out"] != true || s["store"] != "Files stored: 1230 MB · pictures, clips and uploads" || !strings.HasPrefix(s["free"].(string), "Pictures0 of 5 left in any 24 hours · next one in 3 hours") {
 		t.Errorf("settings: %v", s)
 	}
 

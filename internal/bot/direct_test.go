@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -145,13 +146,26 @@ func TestStartAtAKeyOpensTheSettingsThere(t *testing.T) {
 // What the strings say about the windows is written in each language; the
 // numbers come from the allowance, the words must follow the constants.
 // The bot's description and Help write the counts in words too ("Five
-// images").
+// images"). The windows roll, so the bot and the site both name them in
+// hours and days ("in any 24 hours"), never as "a day", which reads as a
+// calendar day that starts again at midnight.
 func TestHomeStringsNameTheWindowsOfTheAllowance(t *testing.T) {
 	if free.ImageWindow != 24*time.Hour || free.VideoWindow != 7*24*time.Hour {
-		t.Fatal("the allowance's windows changed: update home.free_images_left, home.free_videos_left, bot.description and help.body in every language")
+		t.Fatal("the allowance's windows changed: update home.free_images_left, home.free_videos_left, web.free.per_day, web.free.per_week, web.prefs.left_day, web.prefs.left_week, bot.description and help.body in every language")
 	}
 	if free.ImagesPerWindow != 5 || free.VideosPerWindow != 1 {
 		t.Fatal("the allowance's counts changed: update bot.description and help.body in every language")
+	}
+	hours, days := strconv.Itoa(int(free.ImageWindow.Hours())), strconv.Itoa(int(free.VideoWindow.Hours()/24))
+	for _, code := range i18n.Codes() {
+		for key, n := range map[string]string{
+			"home.free_images_left": hours, "web.free.per_day": hours, "web.prefs.left_day": hours,
+			"home.free_videos_left": days, "web.free.per_week": days, "web.prefs.left_week": days,
+		} {
+			if !strings.Contains(i18n.T(code, key), n) {
+				t.Errorf("%s [%s] does not name the window as %s: %q", key, code, n, i18n.T(code, key))
+			}
+		}
 	}
 }
 
