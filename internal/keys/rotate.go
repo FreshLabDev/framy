@@ -31,9 +31,14 @@ const rotateBatch = 100
 // and to run in two places at once: a row is moved only if nobody else moved
 // it, or replaced it, since it was read.
 //
-// framy runs it at every start. Rotating the KEK is: add a line with the next
-// version to the KEK file, restart, wait for the log line that reports no
-// rows on the old version, remove the old line.
+// Production runs it at every start, and only production: the connection
+// table is one for every stack, and a rotation by a process whose KEK file
+// is not production's would move every data key to a version production
+// may not hold. Another stack runs Inspect. Rotating the KEK is: add a line
+// with the next version to production's KEK file, restart production, copy
+// the file to the other stacks and restart them, and remove the old line
+// from every file once no start reports keys on it (docs/design.md, Keys at
+// rest).
 func (s *Service) Rotate(ctx context.Context) (RotateResult, error) {
 	if s == nil {
 		return RotateResult{}, ErrDisabled
@@ -99,4 +104,34 @@ func (s *Service) rewrapRow(ctx context.Context, r row) (moved bool, err error) 
 		return false, err
 	}
 	return tag.RowsAffected() == 1, nil
+}
+
+// KEKState is where the stored data keys stand against the KEK file, as
+// Inspect reads it.
+type KEKState struct {
+	// Current is the version new data keys are wrapped under.
+	Current int
+	// Older rows are wrapped under a version the file holds but not the
+	// current one: production's next start moves them to Current, if its
+	// file has that line.
+	Older int
+	// Unreadable rows are wrapped under a version the file does not hold.
+	Unreadable int
+}
+
+// Inspect counts what Rotate would move and what the KEK file cannot read,
+// and changes nothing. It is the check of a stack other than production.
+func (s *Service) Inspect(ctx context.Context) (KEKState, error) {
+	if s == nil {
+		return KEKState{}, ErrDisabled
+	}
+	st := KEKState{Current: s.kek.current}
+	err := s.pool.QueryRow(ctx, `
+		SELECT count(*) FILTER (WHERE kek_version = ANY($1) AND kek_version <> $2),
+		       count(*) FILTER (WHERE NOT (kek_version = ANY($1)))
+		FROM connection`, s.kek.Versions(), s.kek.current).Scan(&st.Older, &st.Unreadable)
+	if err != nil {
+		return st, fmt.Errorf("count the connections by KEK version: %w", err)
+	}
+	return st, nil
 }

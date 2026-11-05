@@ -765,11 +765,11 @@ func openAllowance(cfg config.Config, store *db.Store, client *tg.Client, userAg
 	return allowance, watch, nil
 }
 
-// openKeys loads the KEK file and rotates what is wrapped under an older
-// version of it. Without a file it returns no service, which is a framy
-// that keeps no keys. A KEK file that cannot be read stops the start: it
-// is the operator's mistake, and running without it would look like every
-// stored key being gone.
+// openKeys loads the KEK file and, on production, rotates what is wrapped
+// under an older version of it. Without a file it returns no service, which
+// is a framy that keeps no keys. A KEK file that cannot be read stops the
+// start: it is the operator's mistake, and running without it would look
+// like every stored key being gone.
 func openKeys(ctx context.Context, cfg config.Config, store *db.Store, userAgent string, log *slog.Logger) (*keys.Service, error) {
 	if cfg.KEKFile == "" {
 		log.Warn("no FRAMY_KEK_FILE: people cannot connect keys of their own, and a run on one fails as key")
@@ -793,19 +793,50 @@ func openKeys(ctx context.Context, cfg config.Config, store *db.Store, userAgent
 	if err != nil {
 		return nil, err
 	}
-	// A failed rotation leaves every row readable under the version it had,
-	// so the service starts either way and says what is wrong.
+	checkKEK(ctx, svc, cfg.Primary(), kek.Versions(), log)
+	return svc, nil
+}
+
+// kekChecker is what checkKEK asks of keys.Service.
+type kekChecker interface {
+	Rotate(context.Context) (keys.RotateResult, error)
+	Inspect(context.Context) (keys.KEKState, error)
+}
+
+// checkKEK rewraps the data keys still under an older KEK version, on
+// production only: the connection table is one for both stacks, and the
+// test bot's copy of the KEK file rotating it would move every key to a
+// version production may not hold, so that no run on a person's key could
+// open it. Another stack only counts and says what is wrong. Either way the
+// service starts: a failed rotation leaves every row readable under the
+// version it had.
+func checkKEK(ctx context.Context, svc kekChecker, primary bool, versions []int, log *slog.Logger) {
+	if !primary {
+		st, err := svc.Inspect(ctx)
+		switch {
+		case err != nil:
+			log.Error("read the KEK versions of the stored keys", "error", err, "kek_versions", versions)
+		case st.Unreadable > 0:
+			log.Error("stored keys are wrapped under a KEK version this file lacks: this stack's KEK file has to be production's",
+				"unreadable", st.Unreadable, "kek_versions", versions)
+		case st.Older > 0:
+			log.Warn("stored keys are on an older KEK version than this file's newest line: keys saved here are wrapped under that line, which production cannot open until it restarts with it, so a new line goes into production's file first",
+				"older", st.Older, "kek_version", st.Current)
+		default:
+			log.Info("keys ready", "kek_versions", versions, "kek_version", st.Current, "rotation", "production's")
+		}
+		return
+	}
 	res, err := svc.Rotate(ctx)
 	switch {
 	case err != nil:
-		log.Error("KEK rotation failed", "error", err, "kek_versions", kek.Versions())
+		log.Error("KEK rotation failed", "error", err, "kek_versions", versions)
 	case res.Failed > 0 || res.Unreadable > 0:
 		log.Error("stored keys cannot be read with this KEK file: people have to enter them again, or the lines for their versions have to come back",
-			"unreadable", res.Unreadable, "rewrap_failed", res.Failed, "rewrapped", res.Rewrapped, "kek_versions", kek.Versions())
+			"unreadable", res.Unreadable, "rewrap_failed", res.Failed, "rewrapped", res.Rewrapped, "kek_versions", versions)
 	case res.Rewrapped > 0:
-		log.Info("data keys rewrapped under the current KEK; the older lines of the file can go", "rewrapped", res.Rewrapped, "kek_version", res.Current)
+		log.Info("data keys rewrapped under the current KEK; copy this KEK file to the other stacks and restart them, and the older lines can go from every file once no start finds keys on them", "rewrapped", res.Rewrapped, "kek_version", res.Current)
 	default:
-		log.Info("keys ready", "kek_versions", kek.Versions(), "kek_version", res.Current)
+		log.Info("keys ready", "kek_versions", versions, "kek_version", res.Current)
 	}
-	return svc, nil
 }

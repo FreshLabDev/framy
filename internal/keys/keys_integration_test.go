@@ -1291,6 +1291,45 @@ func TestRotationLeavesWhatItCannotReadAlone(t *testing.T) {
 	assertNoSecret(t, logs.String(), annOpenAI, both)
 }
 
+// The test bot's check counts what production would rewrap and what its
+// file cannot read, and moves nothing: the table is production's too.
+func TestInspectChangesNothing(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	both := testKEK(t, 1, 2)
+	lost := testKEK(t, 7)
+	p := newProviders(t)
+	svc, _ := newService(t, pool, both, p)
+
+	if st, err := svc.Inspect(ctx); err != nil || st != (KEKState{Current: 2}) {
+		t.Fatalf("an empty table: %+v, %v", st, err)
+	}
+	insertRaw(t, pool, kekOf(both, 1), ann, "openai", annOpenAI)
+	insertRaw(t, pool, kekOf(both, 1), bob, "openai", bobOpenAI)
+	insertRaw(t, pool, kekOf(both, 2), ann, "openrouter", annRouter)
+	insertRaw(t, pool, lost, ann, "gemini", annGemini)
+	before := snapshot(t, pool)
+
+	st, err := svc.Inspect(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st != (KEKState{Current: 2, Older: 2, Unreadable: 1}) {
+		t.Errorf("state = %+v", st)
+	}
+	after := snapshot(t, pool)
+	for id, was := range before {
+		now := after[id]
+		if now.version != was.version || !bytes.Equal(now.wrapped, was.wrapped) || !bytes.Equal(now.ciphertext, was.ciphertext) {
+			t.Errorf("%s was changed", id)
+		}
+	}
+	var none *Service
+	if _, err := none.Inspect(ctx); !errors.Is(err, ErrDisabled) {
+		t.Errorf("no service: %v", err)
+	}
+}
+
 // More rows than one batch, and two rotations at once: every row is moved
 // once and none is lost.
 func TestRotationBatchesAndRaces(t *testing.T) {

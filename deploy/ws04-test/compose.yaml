@@ -28,7 +28,10 @@
 # r2-incoming-access-key-id and r2-incoming-secret-access-key. The files in
 # secrets/ belong to uid 10001, the image's user, mode 0400: bot-token, kek
 # (a copy of production's: the keys people connect are stored once for
-# both), r2-access-key-id, r2-secret-access-key, openrouter-key, hook-path-secret
+# both; only production rewraps them, so a new line goes into production's
+# file first and is copied here once production has restarted,
+# docs/design.md, Keys at rest), r2-access-key-id, r2-secret-access-key,
+# openrouter-key, hook-path-secret
 # (head -c 32 /dev/urandom | base64), and telegram-login-client-id and
 # telegram-login-client-secret: the OpenID Connect client of @framytest_bot
 # in BotFather (Login Widget, with the redirect URI
