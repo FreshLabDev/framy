@@ -272,19 +272,36 @@ func (f *Flow) no(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun) err
 	return nil
 }
 
-// stop is Stop on the loop: see halt. A run that had started is told
-// stopped in the press's answer.
+// stop is Stop on the loop: see halt. A queued run is simply gone. A run
+// the model had started goes on, so the press's answer is an alert that says
+// what it costs: the person's key pays for it, or it counts toward the free
+// images or videos. The loop leaving the chat would otherwise read as the
+// money or the free run given back.
 func (f *Flow) stop(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun) error {
 	if run.Stage != db.StageGenerating {
 		return f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, "")
 	}
 	running, err := f.halt(ctx, run)
-	text := ""
-	if running {
-		text = t(run.Lang, "run.stopped")
+	if !running {
+		_ = f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, "")
+		return err
 	}
-	_ = f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, text)
+	_ = f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, stoppedText(run))
 	return err
+}
+
+// stoppedText is what a run Stop could not call off costs.
+func stoppedText(run db.ChatRun) string {
+	switch {
+	case !run.Free:
+		// The offer's key is <provider>:<model>, as catalog.OfferID writes it.
+		provider, _, _ := strings.Cut(run.OfferID, ":")
+		return t(run.Lang, "run.stopped_key", "provider", providerName(provider))
+	case catalog.Kind(run.Kind) == catalog.Video:
+		return t(run.Lang, "run.stopped_video")
+	default:
+		return t(run.Lang, "run.stopped_image")
+	}
 }
 
 // halt cancels a queued job, or lets a running one end in the person's

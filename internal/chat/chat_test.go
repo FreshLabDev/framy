@@ -410,23 +410,41 @@ func TestNoCancelsAndDeletes(t *testing.T) {
 	}
 }
 
+// A run the model had started goes on when Stop takes it out of the chat,
+// so the alert says what it costs rather than leaving it to read as given
+// back.
 func TestStopARunningJob(t *testing.T) {
-	h := newHarness(t)
-	id := h.preview(t)
-	if err := h.press(id, 7, actGenerate); err != nil {
-		t.Fatal(err)
-	}
-	h.store.setStatus(id, jobs.Running, "")
-	h.queue.cancelErr = jobs.ErrRunning
-	h.tg.reset()
-	if err := h.press(id, 7, actStop); err != nil {
-		t.Fatal(err)
-	}
-	if !h.store.runs[id].Stopped || h.store.stage(id) != db.StageGone || len(h.tg.methods("deleteMessage")) != 1 {
-		t.Fatalf("run %+v, calls %+v", h.store.runs[id], h.tg.calls)
-	}
-	if h.tg.answers[0] != i18n.T("en", "run.stopped") {
-		t.Fatalf("answers = %v", h.tg.answers)
+	for _, c := range []struct {
+		name  string
+		free  bool
+		offer catalog.Offer
+		want  string
+	}{
+		{"free image", true, catalog.Offer{ID: "openrouter:mai/image", Provider: catalog.OpenRouter, Kind: catalog.Image}, i18n.T("en", "run.stopped_image")},
+		{"free video", true, catalog.Offer{ID: "openrouter:wan/video", Provider: catalog.OpenRouter, Kind: catalog.Video}, i18n.T("en", "run.stopped_video")},
+		{"own key", false, catalog.Offer{ID: "gemini:gemini-3-pro-image", Provider: catalog.Gemini, Kind: catalog.Image},
+			"The model had already started, so the run goes on and your Google Gemini key pays for it. The result goes to your history on the site, not to the chat."},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h := newHarness(t)
+			id := h.preview(t)
+			if err := h.press(id, 7, actGenerate); err != nil {
+				t.Fatal(err)
+			}
+			h.store.jobs[id].n.Free, h.store.jobs[id].n.Offer = c.free, c.offer
+			h.store.setStatus(id, jobs.Running, "")
+			h.queue.cancelErr = jobs.ErrRunning
+			h.tg.reset()
+			if err := h.press(id, 7, actStop); err != nil {
+				t.Fatal(err)
+			}
+			if !h.store.runs[id].Stopped || h.store.stage(id) != db.StageGone || len(h.tg.methods("deleteMessage")) != 1 {
+				t.Fatalf("run %+v, calls %+v", h.store.runs[id], h.tg.calls)
+			}
+			if len(h.tg.answers) != 1 || h.tg.answers[0] != "alert:"+c.want {
+				t.Fatalf("answers = %v", h.tg.answers)
+			}
+		})
 	}
 }
 
@@ -441,6 +459,10 @@ func TestStopAQueuedJob(t *testing.T) {
 	}
 	if h.store.jobs[id].status != jobs.Cancelled || h.store.stage(id) != db.StageGone || h.store.runs[id].Stopped {
 		t.Fatalf("status %s, run %+v", h.store.jobs[id].status, h.store.runs[id])
+	}
+	// Nothing had started, so nothing is spent and there is nothing to say.
+	if a := h.tg.answers; a[len(a)-1] != "" {
+		t.Fatalf("answers = %v", a)
 	}
 }
 
