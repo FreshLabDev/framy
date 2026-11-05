@@ -179,7 +179,7 @@ func (q *Queue) submit(ctx context.Context, p Provider, j Job) error {
 	ctx, done := detachFor(ctx, settleLimit(j))
 	defer done()
 	if pe != nil {
-		if pe.retryable() && j.Submits < maxSubmits {
+		if pe.retryable() && j.Submits < pe.tries() {
 			return q.requeue(ctx, j, pe)
 		}
 		return q.end(ctx, j.ID, ending{status: Failed, class: pe.Class, msg: pe.Error(), said: pe.Said()})

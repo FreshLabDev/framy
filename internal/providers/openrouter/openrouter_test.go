@@ -390,6 +390,24 @@ func TestErrorsAreToldApart(t *testing.T) {
 	}
 }
 
+// A 502 of the Images API is a generation that did not complete, which is
+// not billed: it goes again, but a model that keeps failing on the prompt is
+// asked three times in all, not the queue's five. A video's 502 is
+// OpenRouter not reaching the model, and keeps the queue's cap.
+func TestAnImageThatWasNotMadeIsAskedFewerTimes(t *testing.T) {
+	body := `{"error":{"code":502,"message":"Generation failed","metadata":{"error_type":"provider_unavailable"}}}`
+	p, _ := serve(t, reply(502, body))
+	_, err := p.Submit(context.Background(), job(nil))
+	pe := classOf(t, err)
+	if pe.Class != jobs.Unavailable || pe.Tries != 3 || pe.Said() != "Generation failed" {
+		t.Errorf("an image's 502: %s, %d tries, said %q", pe.Class, pe.Tries, pe.Said())
+	}
+	p, _ = serve(t, reply(503, `{"error":{"code":503,"message":"No available provider"}}`))
+	if _, err := p.Submit(context.Background(), job(nil)); classOf(t, err).Tries != 0 {
+		t.Errorf("a 503 is capped: %v", err)
+	}
+}
+
 func TestAnErrorInA200IsReadAndNotRetried(t *testing.T) {
 	for _, c := range []struct {
 		name  string

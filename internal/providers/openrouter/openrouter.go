@@ -30,6 +30,10 @@ const DefaultBase = "https://openrouter.ai/api/v1"
 // and a run may return several.
 const DefaultMaxResponse = 256 << 20
 
+// imageTries is how many requests in all an image whose generation did not
+// complete gets: the first and two more.
+const imageTries = 3
+
 // DefaultMaxVideo bounds a finished video, which is held in memory while it
 // is copied to R2. Four video workers then hold 512 MiB at most; a 10 s 1080p
 // clip of today's models is 10 to 30 MB.
@@ -196,7 +200,18 @@ func (p *Provider) images(ctx context.Context, key string, body map[string]any) 
 	limited := http.MaxBytesReader(nil, resp.Body, p.cfg.MaxResponse)
 	if resp.StatusCode != http.StatusOK {
 		data, _ := io.ReadAll(io.LimitReader(limited, 1<<20))
-		return jobs.Outcome{}, statusError(resp.StatusCode, resp.Header, data)
+		pe := statusError(resp.StatusCode, resp.Header, data)
+		if resp.StatusCode == http.StatusBadGateway && pe.Class == jobs.Unavailable {
+			// "When a generation does not complete, the request returns a
+			// 502 Bad Gateway", and "a generation is either completed and
+			// billed in full, or it fails and is not billed" (OpenRouter,
+			// Image Generation). OpenRouter may have tried the model's
+			// other routes by then, and each try is a whole generation, so
+			// a model that failed on a prompt three times is not asked
+			// again.
+			pe.Tries = imageTries
+		}
+		return jobs.Outcome{}, pe
 	}
 	var r imageResponse
 	var images []image

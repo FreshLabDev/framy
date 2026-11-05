@@ -309,7 +309,12 @@ type Error struct {
 	Class Class
 	// RetryAfter is the provider's own wait, from Retry-After.
 	RetryAfter time.Duration
-	Err        error
+	// Tries caps the requests in all that a refusal before the run allows,
+	// when the adapter knows that sending more seldom helps, such as a
+	// model that failed to make the picture. Zero, or anything above the
+	// queue's own cap, leaves the queue's.
+	Tries int
+	Err   error
 }
 
 func (e *Error) Error() string {
@@ -335,6 +340,14 @@ func (e *Error) Said() string {
 // retryable: the provider refused before the run started, so nothing was
 // paid and sending again is safe.
 func (e *Error) retryable() bool { return e.Class == RateLimited || e.Class == Unavailable }
+
+// tries is how many requests in all the refusal allows.
+func (e *Error) tries() int {
+	if e.Tries > 0 && e.Tries < maxSubmits {
+		return e.Tries
+	}
+	return maxSubmits
+}
 
 // classify reads an error from a provider call made with ctx: the adapter's
 // class, or a timeout or a stop for the context's own errors.

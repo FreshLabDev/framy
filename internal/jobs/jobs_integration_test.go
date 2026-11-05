@@ -690,6 +690,30 @@ func TestOnlyARefusalBeforeTheRunIsRetried(t *testing.T) {
 			t.Fatalf("%s %s after %d submits", j.Status, j.ErrorClass, j.Submits)
 		}
 	})
+
+	// A model that failed to make the picture is asked fewer times: the
+	// adapter caps the tries, and the queue keeps to the cap.
+	t.Run("a refusal that allows fewer tries", func(t *testing.T) {
+		p := newFake()
+		p.submit = func(context.Context, Job) (Submission, error) {
+			return Submission{}, &Error{Class: Unavailable, Tries: 3, Err: said("openrouter 502: Generation failed", "Generation failed")}
+		}
+		q, pool := testQueue(t, p)
+		id := enqueue(t, q, job(alice, imageOffer))
+		for range maxSubmits {
+			_ = q.work(ctx, id)
+			if _, err := pool.Exec(ctx, `UPDATE framy.job SET retry_at=now() WHERE id=$1`, id); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if j := get(t, q, id); j.Status != Failed || j.ErrorClass != Unavailable || j.Submits != 3 {
+			t.Fatalf("%s %s after %d submits, want failed after 3", j.Status, j.ErrorClass, j.Submits)
+		}
+		var words *string
+		if err := pool.QueryRow(ctx, `SELECT provider_message FROM framy.job WHERE id=$1`, id).Scan(&words); err != nil || words == nil || *words != "Generation failed" {
+			t.Fatalf("the provider's words: %v, %v", words, err)
+		}
+	})
 }
 
 // saying is a provider's error with its own words, as an adapter's is.
