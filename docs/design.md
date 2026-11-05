@@ -787,23 +787,28 @@ In groups and in guest mode one run makes one result, and the card offers no cou
 
 ## Mini App
 
-The same frontend as the site, opened from:
-- the menu button;
-- the Main Mini App in the bot's profile;
-- the "Open on the site" link of a group preview, which carries a signed job id;
-- the inline results button.
+The same frontend as the site, on the site's origin ([#21](https://github.com/FreshLabDev/framy/issues/21)). It opens from:
+- the menu button beside the input field of every direct chat, set at start (`setChatMenuButton`, `internal/bot/commands.go`);
+- **Open framy** on the DM's `/start` panel, which is also where the button above inline results leads (Inline mode);
+- the Main Mini App in the bot's profile, where it is turned on in BotFather (Telegram setup).
 
-- **Job link.** A signed `startapp` payload (HMAC, as in `maply/internal/auth/payload.go`) carries the job id and an expiry. The server opens a draft only for its requester.
-- **Native controls.** Fullscreen when viewing a result, safe areas, MainButton as "Create", BackButton, haptics.
+Built (`internal/web/app/src`, Telegram's part in `main.js`):
+
+- **Telegram's controls.** MainButton is the composer's main action: Create, or the step that comes before it (sign in, cut the clip, add a key). BackButton closes a sheet or the full view, and takes the library back to the composer. SettingsButton in the Mini App's menu opens the settings once the person is signed in. The header, the background and the bottom bar take framy's colour, a vertical swipe does not close the app, and the layout keeps to the safe areas through CSS `env(safe-area-inset-*)`.
+- **Viewing a result** opens framy's own full view, and a video's player goes fullscreen through the browser's Fullscreen API (on an iPhone, its own player).
 - **Sending a result** (#37). `POST /api/files/{id}/share` saves the result as a prepared inline message for the person (`savePreparedInlineMessage`, any kind of chat), and the Mini App passes the `id` it answers to `Telegram.WebApp.shareMessage`, where the person picks the chat; framy need not be in it. Built (`internal/chat/share.go`):
   - A result that went out in a chat goes by its `file_id`, as what it went as, with the caption it had, as in inline mode. A chat run keeps the first message of an album, so that is the job's first result only.
   - Any other goes by a link Telegram fetches from framy, `SITE_URL/share/<token>`: a photo has to be a JPEG of at most 5 MB, so framy makes one when the link is fetched, 2560 px on the long side at most and see-through parts on white, with a thumbnail of 320; a video goes as it is kept when it is an MP4 of at most 20 MB, with a cover of its first frame that is not one colour. A WebM, a video over 20 MB, another kind of file (an SVG among them), or no https `SITE_URL` is refused with 422 `not_shareable`, and the Mini App offers Download instead. Under a WebM or an SVG it shows no Send to Telegram at all.
   - The token is the person, the file, the part and an expiry an hour off, signed with HMAC-SHA256 by a key made when the process starts, so no secret is added and a restart ends every link. A link of a result deleted since, of another part, forged or ended is a 404. Two pictures are made at once; a fetch waits up to 20 s for its turn.
   - Not checked yet against Telegram: whether it fetches the links when the message is saved or when it is sent, and that its limit on a video by link is 20 MB. A prepared message lives 24 hours, the links one, so a share that waits longer than an hour may fail.
 - **The original:** `downloadFile` with the result's presigned R2 link, which asks for an attachment and which the bucket's CORS lets Telegram Web fetch (Security and operations). Before Bot API 8.0, or without a link, the button is an ordinary link.
-- **Settings:** `CloudStorage` for interface preferences; everything else is on the server.
-- **OpenRouter connect** opens the external browser through `openLink` and returns to Telegram.
+- **Settings** are on the server (`PATCH /api/me`). Of them the browser keeps only the language (`localStorage`), so the first paint is in it before `/api/me` answers. `sessionStorage` holds, for the tab, the prompt being written and the Mini App's `initData`.
+- **OpenRouter connect** opens the start of the OAuth flow in the external browser through `openLink`, and reads `/api/me` again when the person comes back to Telegram.
 - **Keys:** not kept in `SecureStorage`. A run from a group happens on the server, so the key has to be there.
+- **Later** (#21):
+  - **The job link.** "Open on the site" under a group preview (`/img` and `/edit` in a group, step 4): a `startapp` link whose signed payload (HMAC, as in `maply/internal/auth/payload.go`) carries the job id and an expiry, so the server opens the draft only for its requester. It needs the Main Mini App, or a named one, in BotFather. `internal/auth` reads `start_param` from `initData`; nothing signs one or acts on it yet.
+  - Telegram's own fullscreen mode (`requestFullscreen`) for viewing a result, and `HapticFeedback`.
+  - `CloudStorage`, for an interface preference that should follow the person between devices; none needs it yet.
 
 ## Site
 
@@ -922,7 +927,7 @@ Temporary domain `framy.ws04.cc`. Mobile first; on a wide screen the composer an
 - **BotFather:**
   - the `/img` and `/edit` commands, also through `setMyCommands` for `all_group_chats`;
   - inline mode (`/setinline`), on for both bots since 30 October 2026, and inline feedback (`/setinlinefeedback`), enabled for both on 26 October; it does nothing until framy asks for `chosen_inline_result`;
-  - Main Mini App;
+  - Main Mini App, the Open button in the bot's profile and what a `t.me/<bot>?startapp=` link opens: not on for @framytest_bot on 31 October (`has_main_web_app: false` in `getMe`), and not checked for @framyin_bot;
   - the Login Widget client with the site's URLs, which gives the client id and secret;
   - Guest Mode, in BotFather's Mini App: framy handles it, on for both bots.
 - **Menus and profile texts** (`internal/bot/commands.go`): at every start framy sets the command menus of direct chats and groups and the description and short description in each of the sixteen languages, and once more without a language for other clients; a text Telegram already holds is not written again. Each language is its own: one Telegram refuses leaves the others published, and the rest of its own menus and texts too. The languages that failed are tried once more a minute later, or once the wait Telegram asked for is over; a wait still asked for after tg's own retry holds the languages after it for that second try rather than sending them into the limit. What is still missing then is logged once at warn, by language. A client in a missing language shows what Telegram had before, or the texts without a language.
