@@ -612,7 +612,7 @@
     "ar": "كل الـ {n} ث بمفتاحك"
   },
   "edit.limit": {
-    "en": "The free video is used up: {limit} in any 7 days. The next one is free in {wait}. To go on now, connect your own OpenRouter key on the site.",
+    "en": "The free video is used up: {limit} in any 7 days. The next one is free in {wait}. To make more now, connect your own OpenRouter key on the site.",
     "ru": "Бесплатное видео закончилось: {limit} за любые 7 дней. Следующее будет бесплатным через {wait}. Чтобы продолжить сейчас, подключи на сайте свой ключ OpenRouter.",
     "uk": "Безкоштовне відео закінчилося: {limit} за будь-які 7 днів. Наступне буде безкоштовним через {wait}. Щоб продовжити зараз, підключи на сайті свій ключ OpenRouter.",
     "es": "El vídeo gratis se ha acabado: {limit} en cualquier periodo de 7 días. El próximo será gratis dentro de {wait}. Para seguir ahora, conecta tu propia clave de OpenRouter en el sitio.",
@@ -630,7 +630,7 @@
     "ar": "انتهى الفيديو المجاني: {limit} خلال أي 7 أيام. الفيديو المجاني التالي بعد {wait}. للمتابعة الآن، اربط مفتاح OpenRouter الخاص بك على الموقع."
   },
   "edit.limit_at": {
-    "en": "The free video is used up: {limit} in any 7 days. The next free one: {at}. To go on now, connect your own OpenRouter key on the site.",
+    "en": "The free video is used up: {limit} in any 7 days. The next free one: {at}. To make more now, connect your own OpenRouter key on the site.",
     "ru": "Бесплатное видео закончилось: {limit} за любые 7 дней. Следующее бесплатное: {at}. Чтобы продолжить сейчас, подключи на сайте свой ключ OpenRouter.",
     "uk": "Безкоштовне відео закінчилося: {limit} за будь-які 7 днів. Наступне безкоштовне: {at}. Щоб продовжити зараз, підключи на сайті свій ключ OpenRouter.",
     "es": "El vídeo gratis se ha acabado: {limit} en cualquier periodo de 7 días. El próximo gratis: {at}. Para seguir ahora, conecta tu propia clave de OpenRouter en el sitio.",
@@ -2826,7 +2826,7 @@
     "ar": "جارٍ التوليد · {model}"
   },
   "run.limit": {
-    "en": "Free images are used up: {limit} in any 24 hours. The next one is free in {wait}. To go on now, connect your own OpenRouter key on the site.",
+    "en": "Free images are used up: {limit} in any 24 hours. The next one is free in {wait}. To make more now, connect your own OpenRouter key on the site.",
     "ru": "Бесплатные картинки закончились: {limit} за любые 24 часа. Следующая будет бесплатной через {wait}. Чтобы продолжить сейчас, подключи на сайте свой ключ OpenRouter.",
     "uk": "Безкоштовні зображення закінчилися: {limit} за будь-які 24 години. Наступне буде безкоштовним через {wait}. Щоб продовжити зараз, підключи на сайті свій ключ OpenRouter.",
     "es": "Las imágenes gratis se han acabado: {limit} en cualquier periodo de 24 horas. La próxima será gratis dentro de {wait}. Para seguir ahora, conecta tu propia clave de OpenRouter en el sitio.",
@@ -2844,7 +2844,7 @@
     "ar": "انتهت الصور المجانية: {limit} خلال أي 24 ساعة. الصورة المجانية التالية بعد {wait}. للمتابعة الآن، اربط مفتاح OpenRouter الخاص بك على الموقع."
   },
   "run.limit_at": {
-    "en": "Free images are used up: {limit} in any 24 hours. The next free one: {at}. To go on now, connect your own OpenRouter key on the site.",
+    "en": "Free images are used up: {limit} in any 24 hours. The next free one: {at}. To make more now, connect your own OpenRouter key on the site.",
     "ru": "Бесплатные картинки закончились: {limit} за любые 24 часа. Следующая бесплатная: {at}. Чтобы продолжить сейчас, подключи на сайте свой ключ OpenRouter.",
     "uk": "Безкоштовні зображення закінчилися: {limit} за будь-які 24 години. Наступне безкоштовне: {at}. Щоб продовжити зараз, підключи на сайті свій ключ OpenRouter.",
     "es": "Las imágenes gratis se han acabado: {limit} en cualquier periodo de 24 horas. La próxima gratis: {at}. Para seguir ahora, conecta tu propia clave de OpenRouter en el sitio.",
@@ -4284,7 +4284,7 @@
     "ar": "صورة أو فيديو جديد"
   },
   "web.cont.hint": {
-    "en": "The new video goes on from the end of this one.",
+    "en": "The new video continues from the end of this one.",
     "ru": "Новый ролик продолжит этот с конца.",
     "uk": "Нове відео продовжить це з кінця.",
     "es": "El nuevo vídeo continúa desde el final de este.",
@@ -4302,7 +4302,7 @@
     "ar": "يبدأ الفيديو الجديد من حيث ينتهي هذا الفيديو."
   },
   "web.cont.label": {
-    "en": "Goes on from",
+    "en": "Continues from",
     "ru": "Продолжение",
     "uk": "Продовження",
     "es": "Continúa desde",
@@ -5166,7 +5166,7 @@
     "ar": "هذا التشغيل ليس مجانيًا. اختر إعدادًا مجانيًا أو استخدم مفتاحًا."
   },
   "web.err.sign_in": {
-    "en": "Sign in again to go on.",
+    "en": "Sign in again to continue.",
     "ru": "Войди ещё раз, чтобы продолжить.",
     "uk": "Увійди ще раз, щоб продовжити.",
     "es": "Inicia sesión de nuevo para continuar.",
@@ -8586,7 +8586,7 @@
     "ar": "عاد الاتصال بـ framy."
   },
   "web.net.lost": {
-    "en": "No connection to framy. Runs go on on the server, and results come when it is back.",
+    "en": "No connection to framy. Runs keep going on the server, and the results come when the connection is back.",
     "ru": "Связь с framy пропала. Запуски идут на сервере, результат придёт, когда она вернётся.",
     "uk": "Немає з’єднання з framy. Запуски тривають на сервері, а результати прийдуть, коли воно повернеться.",
     "es": "Sin conexión con framy. Las ejecuciones siguen en el servidor y los resultados llegarán cuando vuelva.",
@@ -8604,7 +8604,7 @@
     "ar": "لا يوجد اتصال بـ framy. تستمر التشغيلات على الخادم، وستصل النتائج عند عودة الاتصال."
   },
   "web.net.lost_line": {
-    "en": "No connection: the run goes on on the server",
+    "en": "No connection: the run keeps going on the server",
     "ru": "Нет связи: запуск идёт на сервере",
     "uk": "Немає з’єднання: запуск триває на сервері",
     "es": "Sin conexión: la ejecución sigue en el servidor",
@@ -9828,7 +9828,7 @@
     "ar": "حذف"
   },
   "web.prefs.delete_failed": {
-    "en": "Not every file was deleted, the account is still here. Press again and the deletion goes on.",
+    "en": "Not every file was deleted, the account is still here. Press again to finish deleting.",
     "ru": "Не все файлы удалились, аккаунт на месте. Нажми ещё раз, удаление продолжится.",
     "uk": "Не всі файли видалилися, акаунт на місці. Натисни ще раз, і видалення триватиме.",
     "es": "No se eliminaron todos los archivos y la cuenta sigue aquí. Pulsa de nuevo y la eliminación continuará.",
@@ -10728,7 +10728,7 @@
     "ar": "framy مشغول"
   },
   "web.ref.cannot_continue": {
-    "en": "This video cannot go on with this model. Its last frame can start a new one.",
+    "en": "This video cannot be continued with this model. Its last frame can start a new one.",
     "ru": "Этот ролик не продолжить на этой модели. С его последнего кадра можно начать новый.",
     "uk": "Це відео не можна продовжити цією моделлю. З його останнього кадру можна почати нове.",
     "es": "Este vídeo no se puede continuar con este modelo. Su último fotograma sirve para empezar uno nuevo.",
