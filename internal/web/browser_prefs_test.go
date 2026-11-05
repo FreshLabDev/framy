@@ -36,6 +36,8 @@ type fakePrefs struct {
 	active    string            // what a deletion finds still going: "queued", "running" or ""
 	storeFail int               // deletions the storage fails first
 	deleted   bool
+	outFail   int  // sign-outs the session store fails first
+	out       bool // signed out: the cookie is gone
 	// slowMe: GET /api/me answers this late with the account as it was, and
 	// a PATCH sent with it is kept only after the GET has read it.
 	slowMe time.Duration
@@ -68,7 +70,7 @@ func (f *fakePrefs) mount(srv *Server) {
 	f.conns = map[string]map[string]any{}
 	f.currency, f.language, f.defaults, f.deliver = "USD", "en", map[string]string{}, true
 	signIn := func(w http.ResponseWriter) bool {
-		if f.deleted {
+		if f.deleted || f.out {
 			writeTestJSON(w, http.StatusUnauthorized, map[string]any{"error": "sign_in"})
 			return false
 		}
@@ -217,6 +219,18 @@ func (f *fakePrefs) mount(srv *Server) {
 		f.connect("openrouter", "or42", "valid")
 		f.mu.Unlock()
 		http.Redirect(w, r, "/?connect=openrouter&result=connected", http.StatusSeeOther)
+	})
+	// As internal/auth: the session store failing keeps the session and its cookie.
+	srv.HandleFunc("POST /auth/logout", func(w http.ResponseWriter, _ *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if f.outFail > 0 {
+			f.outFail--
+			writeTestJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "unavailable"})
+			return
+		}
+		f.out = true
+		w.WriteHeader(http.StatusNoContent)
 	})
 	srv.HandleFunc("POST /auth/miniapp", func(w http.ResponseWriter, _ *http.Request) {
 		writeTestJSON(w, http.StatusOK, map[string]any{"token": "test-token", "expires_in": 3600})
@@ -463,6 +477,37 @@ func TestBrowserPrefs(t *testing.T) {
 	f.with(func() {
 		if !f.deleted || f.active != "" {
 			t.Errorf("deleted %v, still going %q", f.deleted, f.active)
+		}
+	})
+	noErrors(t, ctx)
+}
+
+// TestBrowserPrefsSignOut checks that the page says signed out only when the
+// server ended the session: a refusal keeps the person signed in and says so,
+// and the next press signs them out.
+func TestBrowserPrefsSignOut(t *testing.T) {
+	f := &fakePrefs{outFail: 1}
+	ts := fakeSite(t, f.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := prefs(t, ctx, `
+	document.querySelector("#meBtn").click();
+	await until(() => !sheet().hidden && rowOf("gemini"));
+	btn(sheet(), "Sign out").click();
+	const q = await yes();
+	await until(() => toastText());
+	const r = { q, toast: toastText(), open: !sheet().hidden, out: !!btn(sheet(), "Sign out"), me: vis(document.querySelector("#meBtn")) };
+	btn(sheet(), "Sign out").click();
+	await yes();
+	await until(() => sheet().hidden && document.querySelector(".signin"));
+	r.toast2 = toastText(); r.top = document.querySelector("#top").textContent;
+	return r;`)
+	if s["q"] != "Sign out of framy?" || s["toast"] != "Could not sign out, you are still signed in. Try again in a minute." || s["open"] != true ||
+		s["out"] != true || s["me"] != true || s["toast2"] != "You signed out." || s["top"] != "framySign in with Telegram" {
+		t.Errorf("sign out: %v", s)
+	}
+	f.with(func() {
+		if !f.out || f.outFail != 0 {
+			t.Errorf("signed out %v, failures left %d", f.out, f.outFail)
 		}
 	})
 	noErrors(t, ctx)

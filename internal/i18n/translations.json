@@ -3617,6 +3617,24 @@
     "ja": "Telegram があなたを確認できませんでした。framy を閉じて、もう一度開いてください。",
     "ar": "لم يؤكد Telegram هويتك. أغلق framy وافتحه من جديد."
   },
+  "web.auth.not_signed_out": {
+    "en": "Could not sign out, you are still signed in. Try again in a minute.",
+    "ru": "Не получилось выйти, ты всё ещё в аккаунте. Попробуй через минуту.",
+    "uk": "Не вдалося вийти, ти досі в акаунті. Спробуй за хвилину.",
+    "es": "No se pudo cerrar la sesión, sigue abierta. Inténtalo de nuevo en un minuto.",
+    "fr": "Déconnexion impossible, ta session est toujours ouverte. Réessaie dans une minute.",
+    "de": "Die Abmeldung hat nicht geklappt, du bist noch angemeldet. Versuche es in einer Minute noch einmal.",
+    "it": "Non è stato possibile uscire, la sessione è ancora aperta. Riprova tra un minuto.",
+    "pl": "Nie udało się wylogować, sesja jest nadal aktywna. Spróbuj ponownie za minutę.",
+    "cs": "Odhlášení se nepovedlo, účet zůstává přihlášený. Zkus to znovu za minutu.",
+    "tr": "Çıkış yapılamadı, oturumun hâlâ açık. Bir dakika sonra tekrar dene.",
+    "sv": "Det gick inte att logga ut, du är fortfarande inloggad. Försök igen om en minut.",
+    "be": "Не атрымалася выйсці, ты ўсё яшчэ ў акаўнце. Паспрабуй праз хвіліну.",
+    "ca": "No s’ha pogut tancar la sessió, encara és oberta. Torna-ho a provar d’aquí a un minut.",
+    "zh": "无法退出登录，你仍处于登录状态。请一分钟后再试。",
+    "ja": "ログアウトできませんでした。まだログインしたままです。1 分後にもう一度お試しください。",
+    "ar": "تعذّر تسجيل الخروج، ما زلت مسجّلًا الدخول. حاول مرة أخرى بعد دقيقة."
+  },
   "web.auth.signed_out": {
     "en": "You signed out.",
     "ru": "Выход выполнен.",

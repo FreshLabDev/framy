@@ -35,7 +35,11 @@ export async function signIn() {
 export async function signOut() {
   const yes = await ask({ title: t("auth.signout_q"), yes: t("auth.signout") });
   if (!yes) return;
-  try { await api("/auth/logout", { method: "POST" }); } catch {}
+  // Only the server's yes ends the session. On a refusal, or with no
+  // connection, the cookie still opens the account: the person is told so,
+  // and does not walk away from a shared computer thinking they are out.
+  try { await api("/auth/logout", { method: "POST" }); }
+  catch (e) { toast(t(e.code === "network" ? "err.network" : "auth.not_signed_out")); return; }
   forget();
   toast(t("auth.signed_out"));
 }
