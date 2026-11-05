@@ -12,7 +12,7 @@ import { S, M, images, clip, payOf, usable, keyOk, connection, freeLeft, freeLim
 import { priceEl, priceText, known, need, onPrices, usd, needTotal, knownTotal } from "./price.js";
 import { renderStage, stageFrom, refit, runOver, ratioOf, syncStrip } from "./stage.js";
 import { openPicker } from "./picker.js";
-import { openSheet, closeSheets, hint } from "./ui.js";
+import { openSheet, closeSheets, hint, sheetOpen } from "./ui.js";
 import { addFiles, removeFile, fitModel, looksLikePhoto } from "./files.js";
 import { generate, signIn } from "./run.js";
 import { openCut, thumbMedia, frameEl, looksLikeClip } from "./clips.js";
@@ -76,20 +76,29 @@ export function wireComposer() {
   });
   $("#file").addEventListener("change", (e) => { addFiles([...e.target.files]); e.target.value = ""; });
   $("#slotfile").addEventListener("change", (e) => { addFiles([...e.target.files], into); e.target.value = ""; });
-  // Photos come in by drop or paste too.
+  // Photos come in by drop or paste too, where the composer is in sight: on
+  // its page, with no sheet, question or whole screen over it. Anywhere else
+  // a drop is turned away, so the browser does not open the file in framy's
+  // place either, and a paste is the field's.
   const comp = $("#composer");
   comp.dataset.drop = t("files.drop");
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
+  const inSight = () => S.view === "create" && !sheetOpen() && $("#full").hidden && $("#ask").hidden;
   let depth = 0;
-  document.addEventListener("dragenter", (e) => { if (![...(e.dataTransfer?.types || [])].includes("Files")) return; depth++; comp.classList.add("drag"); });
-  document.addEventListener("dragleave", () => { if (--depth <= 0) { depth = 0; comp.classList.remove("drag"); } });
-  document.addEventListener("dragover", (e) => { if ([...(e.dataTransfer?.types || [])].includes("Files")) e.preventDefault(); });
+  document.addEventListener("dragenter", (e) => { if (!hasFiles(e) || !inSight()) return; depth++; comp.classList.add("drag"); });
+  document.addEventListener("dragleave", () => { if (depth && --depth <= 0) { depth = 0; comp.classList.remove("drag"); } });
+  document.addEventListener("dragover", (e) => { if (!hasFiles(e)) return; e.preventDefault(); if (!inSight()) e.dataTransfer.dropEffect = "none"; });
   document.addEventListener("drop", (e) => {
     depth = 0; comp.classList.remove("drag");
     const fs = [...(e.dataTransfer?.files || [])];
+    if (!fs.length) return;
+    e.preventDefault();
     // A slot the files were dropped on says what they are.
-    if (fs.length) { e.preventDefault(); addFiles(fs, e.slot || ""); }
+    if (inSight()) addFiles(fs, e.slot || "");
   });
   document.addEventListener("paste", (e) => {
+    const field = e.target.closest?.("input, textarea, [contenteditable]");
+    if (!inSight() || (field && field.id !== "prompt")) return;
     const fs = [...(e.clipboardData?.files || [])].filter((f) => looksLikePhoto(f) || looksLikeClip(f));
     if (fs.length) { e.preventDefault(); addFiles(fs); }
   });

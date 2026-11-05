@@ -84,3 +84,61 @@ func TestBrowserUploadKeepsTransparency(t *testing.T) {
 	}
 	noErrors(t, ctx)
 }
+
+// TestBrowserFilesOnlyWhereSeen checks that a photo comes into the composer
+// by drop or paste only where the composer is in sight. Dropped on the
+// library or on the picker, it went into the composer out of sight; pasted
+// in the picker's search, it took the place of the text. A drop elsewhere is
+// still turned away, so the browser does not open the file instead of framy.
+func TestBrowserFilesOnlyWhereSeen(t *testing.T) {
+	ts := fakeAPI(t)
+	const steps = `
+	const paste = (on, files) => {
+	  const dt = new DataTransfer();
+	  for (const f of files) dt.items.add(f);
+	  const e = new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true });
+	  on.dispatchEvent(e);
+	  return e.defaultPrevented;
+	};
+	const dropped = async (on) => {
+	  const dt = new DataTransfer();
+	  dt.items.add(await png(64, 48));
+	  const e = new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt });
+	  on.dispatchEvent(e);
+	  await wait(900);
+	  return e.defaultPrevented;
+	};`
+	t.Run("composer", func(t *testing.T) {
+		ctx := browser(t, ts.URL, 1440, 900, false)
+		got := js[map[string]any](t, ctx, pageHelpers+slotHelpers+filesHelpers+pickerHelpers+steps+`
+		const out = {};
+		await openPicker();
+		out.pickerDrop = await dropped(document.querySelector("#pkrows"));
+		out.searchPaste = paste(document.querySelector("#pksearch"), [await png(64, 48)]);
+		await wait(600);
+		out.underPicker = thumbs();
+		document.querySelector("#picker [data-close]").click();
+		await wait(700);
+		out.pagePaste = paste(document.body, [await png(64, 48)]);
+		await wait(900);
+		out.composer = thumbs();
+		return out;`)
+		if got["pickerDrop"] != true || got["searchPaste"] != false || got["underPicker"].(float64) != 0 {
+			t.Errorf("with the picker open: %v, want the drop turned away and the paste the search's", got)
+		}
+		if got["pagePaste"] != true || got["composer"].(float64) != 1 {
+			t.Errorf("a paste on the composer's page: %v, want the photo taken", got)
+		}
+		noErrors(t, ctx)
+	})
+	t.Run("library", func(t *testing.T) {
+		ctx := browser(t, ts.URL+"/library", 1440, 900, false)
+		got := js[map[string]any](t, ctx, pageHelpers+slotHelpers+filesHelpers+steps+`
+		const prevented = await dropped(document.querySelector("#library"));
+		return { prevented, view: document.querySelector("#app").dataset.view, files: thumbs(), drag: document.querySelector("#composer").classList.contains("drag") };`)
+		if got["view"] != "library" || got["prevented"] != true || got["files"].(float64) != 0 || got["drag"] != false {
+			t.Errorf("a drop on the library: %v, want it turned away and the composer untouched", got)
+		}
+		noErrors(t, ctx)
+	})
+}
