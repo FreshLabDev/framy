@@ -586,3 +586,51 @@ func TestBrowserContrast(t *testing.T) {
 	check("library", ctx, `for (let i = 0; i < 40 && !document.querySelector("#library .li"); i++) await wait(100);`)
 	noErrors(t, ctx)
 }
+
+// dropHelpers drop made-up photos on the composer, as a person drops files.
+const dropHelpers = `
+const photo = async (hue) => { const cv = document.createElement("canvas"); cv.width = 64; cv.height = 48; const g = cv.getContext("2d");
+  g.fillStyle = "hsl(" + hue + ",60%,55%)"; g.fillRect(0, 0, 64, 48);
+  return new File([await new Promise((r) => cv.toBlob(r, "image/png"))], "p" + hue + ".png", { type: "image/png" }); };
+async function dropPhotos(n, on = "#composer") {
+  const dt = new DataTransfer();
+  for (let i = 0; i < n; i++) dt.items.add(await photo(i * 40));
+  document.querySelector(on).dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
+  await wait(1000);
+}
+`
+
+// TestBrowserFilesHint checks the row of files on a phone: the line about
+// the files (that they stay on the device, why one is not used) is never
+// cut by the edge of the screen or by the row's scroll, beside the tiles
+// while it fits and under them otherwise, and the tiles alone scroll.
+func TestBrowserFilesHint(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	for _, c := range []struct {
+		lang string
+		w    int64
+	}{{"en", 390}, {"de", 360}, {"ru", 360}, {"zh", 360}} {
+		ctx := browserAs(t, ts.URL, c.w, 800, opened{lang: c.lang, phone: true})
+		got := js[[]string](t, ctx, pageHelpers+dropHelpers+`
+		const bad = [], files = document.querySelector("#files"), right = document.querySelector("#prompt").getBoundingClientRect().right;
+		for (const n of [1, 2, 3, 4, 3]) {
+		  await dropPhotos(n - document.querySelectorAll("#files .thumb").length);
+		  const hints = [...files.querySelectorAll(".fhint")].filter(vis);
+		  if (!hints.length) bad.push(n + " files: no line about them");
+		  for (const h of hints) {
+		    const r = h.getBoundingClientRect();
+		    if (r.right > right + 1 || h.scrollWidth > h.clientWidth + 1 || h.closest(".ftiles")) bad.push(n + " files: cut " + JSON.stringify([r.left, r.right, right]) + " " + h.textContent);
+		  }
+		}
+		await dropPhotos(5);
+		const tiles = files.querySelector(".ftiles") || files;
+		if (tiles.scrollWidth <= tiles.clientWidth) bad.push("8 files do not scroll");
+		if (document.documentElement.scrollWidth > innerWidth) bad.push("the page scrolls sideways");
+		return bad;`)
+		if len(got) > 0 {
+			t.Errorf("%s at %d: %v", c.lang, c.w, got)
+		}
+		noErrors(t, ctx)
+	}
+}

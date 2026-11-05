@@ -87,6 +87,7 @@ textarea#prompt::placeholder {color: var(--muted);}
   .composer .files.nofiles {display: none;}
 }
 .files {position: relative; display: flex; flex-wrap: wrap; gap: 6px; align-items: center;}
+.ftiles {display: contents;}
 .thumb {position: relative; width: 64px; height: 64px; background: var(--deep);}
 .thumb img, .thumb canvas, .thumb video {display: block; width: 100%; height: 100%; object-fit: cover;}
 .thumb.off > :first-child {opacity: .3;}
@@ -97,7 +98,7 @@ textarea#prompt::placeholder {color: var(--muted);}
 /* As wide as its word needs, never narrower than a thumbnail: "Hinzufügen" stays inside its tile. */
 .addfile {min-width: 64px; height: 64px; padding: 0 6px; background: var(--deep); font-size: 12px; color: var(--soft); display: grid; place-items: center; align-content: center; gap: 3px; white-space: nowrap;}
 .addfile .ic {width: 18px; height: 18px; color: var(--ink);}
-.files:has(> .fgroup) {align-items: flex-end; column-gap: 16px; row-gap: 10px;}
+.files:has(.fgroup) {align-items: flex-end; column-gap: 16px; row-gap: 10px;}
 .fgroup {display: flex; flex-direction: column; gap: 5px; min-width: 0;}
 .fgroup > .gl {align-self: flex-start; font-size: 12px; line-height: 14px; color: var(--muted); white-space: nowrap;}
 .fgroup > .gt {display: flex; flex-wrap: wrap; gap: 6px; align-items: center;}
@@ -414,13 +415,19 @@ input.search::placeholder {color: var(--muted);}
   .composer > .seg.kind .t {display: none;}
   .composer > .how {display: none;}
   .composer textarea#prompt {min-height: 54px; max-height: 30vh; overflow: auto; padding: 12px 14px; font-size: 18px;}
-  .composer .files {flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;}
+  /* The tiles scroll sideways in a row of their own; the line about them stands beside the row while
+     it has 160 px there, and under it otherwise, in as many lines as it takes. */
+  .composer .files {column-gap: 10px; row-gap: 8px;}
+  .composer .ftiles {display: flex; flex: 0 1 auto; min-width: 0; gap: 6px; align-items: center; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;}
+  .composer .ftiles::-webkit-scrollbar {display: none;}
+  .composer .ftiles:has(> .fgroup) {align-items: flex-end; column-gap: 16px;}
   .composer .files.nofiles .fhint {display: none;}
   .composer .thumb {flex: none; width: 52px; height: 52px;}
   .composer .addfile {flex: none; min-width: 52px; height: 52px;}
   .composer .fgroup {flex: none;}
   .composer .fgroup > .gt {flex-wrap: nowrap;}
-  .composer .fhint, .composer .fhint.cut {flex: 1 0 200px; padding-left: 4px; font-size: 13px;}
+  .composer .fhint, .composer .fhint.cut {flex: 1 1 160px; padding-left: 0; font-size: 13px;}
+  .composer .fgroup.cont {flex: 1 1 100%;}
   .composer .bar {padding-top: 0;}
   .composer .pnum {font-size: 30px;}
   /* On a phone the button leaves the price a narrow column: the line under the price runs on

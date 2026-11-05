@@ -207,9 +207,11 @@ function stepScope(dir) {
 }
 export function tuneClosed() { const how = $("#how"); if (how.parentElement !== $("#composer")) $("#composer").insertBefore(how, $("#bar")); placeSegs($("#composer")); }
 
-/* Files: photos and clips stay in the browser until Create; the ones the model will not take stand apart. */
+/* Files: photos and clips stay in the browser until Create; the ones the model will not take stand apart.
+   The tiles stand in a row of their own, which scrolls sideways on a phone; what is said about them
+   stands beside the row while it fits there, and under it when not, never cut. */
 function renderFiles(m, pay) {
-  const box = $("#files"), R = route(m, pay), c = clip();
+  const box = $("#files"), R = route(m, pay), c = clip(), tiles = h("div", { class: "ftiles" });
   box.replaceChildren();
   const thumb = (f, r) => h("div", { class: "thumb" + (r.go ? "" : " off") + (f.kind === "video" ? " clip" : ""), title: f.name + (r.why ? ": " + r.why : ""), "data-k": "f" + f.id },
     thumbMedia(f),
@@ -217,18 +219,19 @@ function renderFiles(m, pay) {
     h("button", { type: "button", class: "rm", "aria-label": t("files.remove"), onclick: () => act(() => { removeFile(f); render(); }) }, ic("close")));
   const cont = contEl(m, pay), slots = slotted(m, pay);
   if (cont) box.append(cont);
-  if (slots) box.append(...slotGroups(R, thumb));
+  if (slots) tiles.append(...slotGroups(R, thumb));
   else {
     const go = [], off = [];
     S.files.forEach((f, i) => (R[i].go ? go : off).push(thumb(f, R[i])));
     const max = R.filter((r) => r.go).length;
-    if (!off.length) box.append(...go);
+    if (!off.length) tiles.append(...go);
     else {
-      if (go.length) box.append(h("div", { class: "fgroup", "data-k": "g-go" }, h("span", { class: "gl" }, t("files.going", { n: max })), h("div", { class: "gt" }, go)));
-      box.append(h("div", { class: "fgroup out", "data-k": "g-off" }, h("span", { class: "gl" }, t("files.off")), h("div", { class: "gt" }, off)));
+      if (go.length) tiles.append(h("div", { class: "fgroup", "data-k": "g-go" }, h("span", { class: "gl" }, t("files.going", { n: max })), h("div", { class: "gt" }, go)));
+      tiles.append(h("div", { class: "fgroup out", "data-k": "g-off" }, h("span", { class: "gl" }, t("files.off")), h("div", { class: "gt" }, off)));
     }
-    box.append(h("button", { type: "button", class: "addfile", "data-k": "f-add", onclick: () => $("#file").click() }, ic("plus"), t("files.add")));
+    tiles.append(h("button", { type: "button", class: "addfile", "data-k": "f-add", onclick: () => $("#file").click() }, ic("plus"), t("files.add")));
   }
+  box.append(tiles);
   const why = [...new Set(R.filter((r) => !r.go).map((r) => r.why))];
   // The first clip's part: the one picked, or a button to pick it.
   const ci = c ? S.files.indexOf(c) : -1, cutting = ci >= 0 && R[ci].go && c.secs > 0;
