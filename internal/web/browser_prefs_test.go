@@ -5,6 +5,7 @@
 package web
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -34,6 +35,7 @@ type fakePrefs struct {
 	puts      int               // keys sent to be checked
 	patches   []map[string]any  // PATCH /api/me bodies
 	active    string            // what a deletion finds still going: "queued", "running" or ""
+	kind      string            // and of what kind: "image" or "video"
 	storeFail int               // deletions the storage fails first
 	making    int               // disconnects refused first: a video on the key is still being made
 	deleted   bool
@@ -221,7 +223,7 @@ func (f *fakePrefs) mount(srv *Server) {
 		defer f.mu.Unlock()
 		jobs := []map[string]any{{"id": 6, "status": "done"}}
 		if f.active != "" {
-			jobs = append(jobs, map[string]any{"id": 7, "status": f.active})
+			jobs = append(jobs, map[string]any{"id": 7, "status": f.active, "kind": cmp.Or(f.kind, "image")})
 		}
 		writeTestJSON(w, http.StatusOK, map[string]any{"jobs": jobs})
 	})
@@ -290,6 +292,8 @@ const defRow = (k) => { const r = document.querySelector('#prefsBody [data-k="p-
 const kerr = (p) => form(p)?.querySelector(".kerr")?.textContent || "";
 const toastText = () => document.querySelector(".toast")?.textContent || "";
 async function yes() { const b = await until(() => !document.querySelector("#ask").hidden && document.querySelector("#ask .yes")); const q = document.querySelector("#ask h2").textContent; b.click(); await wait(100); return q; }
+// The question and what it says under it, before the press.
+async function yesSaid() { await until(() => !document.querySelector("#ask").hidden && document.querySelector("#ask .yes")); const p = document.querySelector("#ask p")?.textContent || ""; return (await yes()) + ": " + p; }
 `
 
 // prefs runs a step of the settings in the page and returns what it found.
@@ -520,20 +524,38 @@ func TestBrowserPrefs(t *testing.T) {
 		t.Errorf("refused for no key: %v", s)
 	}
 
-	// Deleting the account: a waiting run is cancelled first, a storage that
-	// fails is pressed again without a second question, and then nobody is
-	// signed in.
-	f.with(func() { f.active, f.storeFail = "queued", 1 })
+	// A started video holds the deletion up to the run's hour, and the
+	// dialog says so rather than "a few minutes".
+	f.with(func() { f.active, f.kind = "running", "video" })
 	s = prefs(t, ctx, `
 	btn(sheet(), "Delete").click();
 	const q1 = await yes();
-	const q2 = await yes();
+	const q2 = await yesSaid();
+	await until(() => document.querySelector("#ask").hidden);
+	return { q1, q2 };`)
+	if s["q1"] != "Delete the account?" || s["q2"] != "Runs finish first: A started video can take up to an hour. Then the account can be deleted." {
+		t.Errorf("delete while a video runs: %v", s)
+	}
+	f.with(func() {
+		if f.deleted {
+			t.Error("deleted while a video was running")
+		}
+	})
+
+	// Deleting the account: a waiting run is cancelled first, a storage that
+	// fails is pressed again without a second question, and then nobody is
+	// signed in.
+	f.with(func() { f.active, f.kind, f.storeFail = "queued", "image", 1 })
+	s = prefs(t, ctx, `
+	btn(sheet(), "Delete").click();
+	const q1 = await yes();
+	const q2 = await yesSaid();
 	await until(() => note("p-del").startsWith("Delete the accountNot every file"));
 	const failed = note("p-del");
 	btn(sheet(), "Again").click();
 	await until(() => sheet().hidden && document.querySelector(".signin"));
 	return { q1, q2, failed, asked: !document.querySelector("#ask").hidden, toast: toastText(), top: document.querySelector("#top").textContent };`)
-	if s["q1"] != "Delete the account?" || s["q2"] != "Runs finish first" ||
+	if s["q1"] != "Delete the account?" || s["q2"] != "Runs finish first: Some runs have not started yet and can be cancelled. Then the account can be deleted." ||
 		s["failed"] != "Delete the accountNot every file was deleted, the account is still here. Press again and the deletion goes on.Again" ||
 		s["asked"] != false || s["toast"] != "The account is deleted, and every session is closed." || s["top"] != "framySign in with Telegram" {
 		t.Errorf("delete: %v", s)

@@ -396,20 +396,26 @@ async function deleteAccount() {
   forget();
   toast(t("prefs.deleted"), { ms: 6000 });
 }
-// What still runs: the waiting jobs can be cancelled; the started ones finish.
+// What still runs: the waiting jobs can be cancelled; the started ones finish,
+// an image in minutes and a video in up to the run's hour. Without the list
+// both are said.
 async function activeJobs() {
-  let jobs = [];
+  let jobs = null;
   try { jobs = (await api("/api/jobs?limit=100")).jobs || []; } catch {}
-  const queued = jobs.filter((j) => j.status === "queued"), running = jobs.some((j) => j.status === "running");
+  const queued = (jobs || []).filter((j) => j.status === "queued"), running = (jobs || []).filter((j) => j.status === "running");
+  const kinds = new Set(running.length ? running.map((j) => j.kind) : ["image", "video"]);
+  const started = [kinds.has("image") ? t("prefs.wait_image") : "", kinds.has("video") ? t("prefs.wait_video") : ""];
+  const says = (...lines) => [...lines, t("prefs.wait_then")].filter(Boolean).join(" ");
   if (!queued.length) {
-    await ask({ title: t("prefs.wait_q"), text: t("prefs.wait_started"), yes: t("prefs.got_it"), one: true });
+    await ask({ title: t("prefs.wait_q"), text: says(...started), yes: t("prefs.got_it"), one: true });
     return;
   }
-  if (!(await ask({ title: t("prefs.wait_q"), text: t("prefs.wait_queued"), yes: t("prefs.cancel_waiting"), no: t("prefs.wait") }))) return;
+  const text = says(t("prefs.wait_queued"), ...(running.length ? started : []));
+  if (!(await ask({ title: t("prefs.wait_q"), text, yes: t("prefs.cancel_waiting"), no: t("prefs.wait") }))) return;
   await Promise.all(queued.map((j) => api(`/api/jobs/${j.id}/cancel`, { method: "POST" }).catch(() => null)));
   // Nothing else running: the deletion the person agreed to goes on.
-  if (!running) { update(() => { ACC = "fail"; }); return deleteAccount(); }
-  await ask({ title: t("prefs.wait_q"), text: t("prefs.wait_started"), yes: t("prefs.got_it"), one: true });
+  if (!running.length) { update(() => { ACC = "fail"; }); return deleteAccount(); }
+  await ask({ title: t("prefs.wait_q"), text: says(...started), yes: t("prefs.got_it"), one: true });
 }
 // The session ended under the sheet, or in the Mini App its launch did (launchGone).
 const gone = (e) => e.code === "sign_in" || !!launchGone(e);
