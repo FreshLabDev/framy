@@ -55,6 +55,8 @@ const (
 	imageSide   = 1024
 	videoHeight = 720
 	videoLength = 5
+	// upscaleFactor is the factor of an upscale nobody chose.
+	upscaleFactor = 2
 )
 
 func defaultOf(kind Kind, name string, p Param, shape float64) (any, bool) {
@@ -150,13 +152,16 @@ func enumDefault(kind Kind, name string, values []any, shape float64) (any, bool
 	return values[0], true
 }
 
-// rangeDefault is one result, 5 seconds, or the middle.
+// rangeDefault is one result, 5 seconds, an upscale of two times, as Black
+// Forest Labs defaults to, or the middle.
 func rangeDefault(name string, lo, hi float64) float64 {
 	switch name {
 	case "n":
 		return min(max(lo, 1), hi)
 	case "duration":
 		return min(max(lo, videoLength), hi)
+	case "upscale_factor":
+		return min(max(lo, upscaleFactor), hi)
 	}
 	return (lo + hi) / 2
 }

@@ -47,11 +47,11 @@ func TestDefaultsFollowOneRule(t *testing.T) {
 		}},
 		{"a video from text", video, 0, map[string]any{
 			"aspect_ratio": "16:9", "resolution": "768p", "duration": 6.0, "generate_audio": true,
-			"upscale_factor": 2.25, "creativity": 0.0,
+			"upscale_factor": 2.0, "creativity": 0.0,
 		}},
 		{"a video from a tall frame", video, 9.0 / 16, map[string]any{
 			"aspect_ratio": "9:16", "resolution": "768p", "duration": 6.0, "generate_audio": true,
-			"upscale_factor": 2.25, "creativity": 0.0,
+			"upscale_factor": 2.0, "creativity": 0.0,
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

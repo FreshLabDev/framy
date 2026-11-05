@@ -42,10 +42,17 @@ export function readSound(file) {
   });
 }
 
-// What the browser can read of a clip: its length, its size and a frame for
-// the thumbnail. A clip it cannot play (some MKV and HEVC) still goes, with
-// what is known; framy reads it on Create.
-export function readClip(file) {
+// What the browser can read of a clip: its length, its size, its frame rate
+// and a frame for the thumbnail. A clip it cannot play (some MKV and HEVC)
+// still goes, with what is known; framy reads it on Create.
+export async function readClip(file) {
+  const fps = Promise.race([frameRate(file).catch(() => 0), new Promise((ok) => setTimeout(() => ok(0), 3000))]);
+  const f = await readPlayable(file);
+  f.fps = await fps;
+  if (f.fps) f.meta.fps = f.fps;
+  return f;
+}
+function readPlayable(file) {
   const url = URL.createObjectURL(file);
   const f = { kind: "video", file, name: file.name, url, poster: "", w: 0, h: 0, secs: 0, bytes: file.size, upload: 0, token: "", cuts: {} };
   const done = () => {
@@ -75,6 +82,54 @@ export function readClip(file) {
     v.onerror = stop;
     v.src = url;
   });
+}
+
+// The frame rate of an MP4 or QuickTime clip from its index, as ffprobe
+// averages it: the video track's frames over the track's length. An upscale
+// is billed by it, so the price before Create can be exact. 0 where the file
+// does not say (WebM, MKV, a fragmented MP4): the price then allows up to
+// the most framy keeps, and framy reads the rate on Create.
+async function frameRate(file) {
+  const read = async (pos, n) => new DataView(await file.slice(pos, pos + n).arrayBuffer());
+  const type = (v, o) => String.fromCharCode(v.getUint8(o), v.getUint8(o + 1), v.getUint8(o + 2), v.getUint8(o + 3));
+  // A box's size and header: 64-bit when the size says 1, to the end when 0.
+  const size = (v, o, end) => {
+    const s = v.getUint32(o);
+    return s === 1 ? [Number(v.getBigUint64(o + 8)), 16] : s === 0 ? [end - o, 8] : [s, 8];
+  };
+  // The movie box sits among the top-level boxes, before the frames or after them.
+  let moov = null;
+  for (let pos = 0, i = 0; !moov && i < 32 && pos + 16 <= file.size; i++) {
+    const v = await read(pos, 16), [n, head] = size(v, 0, file.size - pos);
+    if (n < head) return 0;
+    if (type(v, 4) === "moov") moov = n <= 64 << 20 ? await read(pos + head, n - head) : null;
+    pos += n;
+  }
+  if (!moov) return 0;
+  const boxes = (from, to) => {
+    const out = [];
+    for (let p = from; p + 8 <= to; ) {
+      const [n, head] = size(moov, p, to);
+      if (n < head || p + n > to) break;
+      out.push({ type: type(moov, p + 4), from: p + head, to: p + n });
+      p += n;
+    }
+    return out;
+  };
+  const child = (box, t) => box && boxes(box.from, box.to).find((b) => b.type === t);
+  for (const trak of boxes(0, moov.byteLength).filter((b) => b.type === "trak")) {
+    const mdia = child(trak, "mdia"), hdlr = child(mdia, "hdlr"), mdhd = child(mdia, "mdhd");
+    if (!hdlr || !mdhd || type(moov, hdlr.from + 8) !== "vide") continue;
+    const long = moov.getUint8(mdhd.from) === 1;
+    const scale = moov.getUint32(mdhd.from + (long ? 20 : 12)), length = long ? Number(moov.getBigUint64(mdhd.from + 24)) : moov.getUint32(mdhd.from + 16);
+    const stts = child(child(child(mdia, "minf"), "stbl"), "stts");
+    if (!stts || !scale || !length) return 0;
+    let frames = 0;
+    for (let i = 0, n = moov.getUint32(stts.from + 4); i < n && stts.from + 16 + i * 8 <= stts.to; i++) frames += moov.getUint32(stts.from + 8 + i * 8);
+    const fps = frames / (length / scale);
+    return isFinite(fps) && fps > 0 ? Math.round(fps * 1000) / 1000 : 0;
+  }
+  return 0;
 }
 
 // A thumbnail of a clip or of a file framy keeps: the poster read before, a
@@ -203,8 +258,9 @@ export function openCut() {
   if (!c || !m || !c.secs) return;
   const lims = cutLimits(), fps = c.fps || 30, total = Math.max(1, Math.round(c.secs * fps));
   // framy cuts on the clip's own frames and rounds the end up to one, and
-  // the frame rate is not known here: a part a twentieth of a second under
-  // the limit keeps the cut within it at any rate from 20 frames a second.
+  // the frame rate here is an average or a guess of 30: a part a twentieth
+  // of a second under the limit keeps the cut within it at any rate from 20
+  // frames a second.
   const lim = lims.max, maxF = Math.min(total, lim < c.secs ? Math.floor((lim - 0.05) * fps) : total), minF = Math.max(1, Math.round(Math.max(0.1, lims.min) * fps));
   const start = S.cut ? Math.round(S.cut.start * fps) : 0;
   Object.assign(ED, { c, fps, total, maxF, minF, start, end: Math.min(total, S.cut ? start + Math.round(S.cut.seconds * fps) : start + maxF), edge: "start", playing: false });

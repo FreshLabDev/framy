@@ -46,10 +46,12 @@ func worse(a, b Kind) Kind {
 // Image is the size of an input image after framy's input pipeline.
 type Image struct{ Width, Height int }
 
-// Video is an attached video, as ffprobe reads it.
+// Video is an attached video, as ffprobe reads it. FPS is 0 where it is
+// not known.
 type Video struct {
 	Seconds       float64
 	Width, Height int
+	FPS           float64
 }
 
 // Request is what the person is about to run. Settings carries the value of

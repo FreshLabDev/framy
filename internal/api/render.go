@@ -110,8 +110,11 @@ type resultJSON struct {
 	Bytes       int64  `json:"bytes"`
 	Width       int    `json:"width,omitempty"`
 	Height      int    `json:"height,omitempty"`
-	// Seconds is a clip's length; absent for a picture.
+	// Seconds is a clip's length; absent for a picture. FPS is an input
+	// clip's frame rate, which prices an upscale of a part of it; absent
+	// for a result and where it is not known.
 	Seconds float64 `json:"seconds,omitempty"`
+	FPS     float64 `json:"fps,omitempty"`
 	// Segments is where each part of a joined clip begins, in seconds from
 	// its start, the first at 0: the clip it went on from, then each run
 	// after it. The player marks them. Absent for any other file, and for a
@@ -188,7 +191,7 @@ func filesJSON(files []Result, links map[int64]storage.FileLinks, download bool)
 	for _, r := range files {
 		l := links[r.ID]
 		v := resultJSON{ID: r.ID, ContentType: r.ContentType, Bytes: r.Bytes, Width: r.Width, Height: r.Height,
-			Seconds: r.Seconds, Segments: r.Segments, URL: l.URL}
+			Seconds: r.Seconds, FPS: r.FPS, Segments: r.Segments, URL: l.URL}
 		if download {
 			v.Download = l.Download
 		}

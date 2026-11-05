@@ -473,7 +473,7 @@ func requestOf(prompt string, settings map[string]any, inputs []storage.Asset) p
 		case !strings.HasPrefix(a.ContentType, "video/"):
 			images = append(images, price.Image{Width: a.Width, Height: a.Height})
 		case video == nil:
-			video = &price.Video{Seconds: a.Seconds, Width: a.Width, Height: a.Height}
+			video = &price.Video{Seconds: a.Seconds, Width: a.Width, Height: a.Height, FPS: a.FPS}
 		}
 	}
 	return priceRequest(prompt, settings, images, video)
@@ -678,7 +678,7 @@ func (f *Flow) draftVideo(ctx context.Context, m *tg.Message, c clip, prompt, ke
 		return draft{}, "", err
 	}
 	d.paths = []string{poster}
-	d.estimate = price.Of(model, offer, priceRequest(prompt, d.settings, nil, &price.Video{Seconds: a.Seconds, Width: a.Width, Height: a.Height}))
+	d.estimate = price.Of(model, offer, priceRequest(prompt, d.settings, nil, &price.Video{Seconds: a.Seconds, Width: a.Width, Height: a.Height, FPS: a.FPS}))
 	if d.quote, err = f.quote(ctx, user, lang); err != nil {
 		return draft{}, "", err
 	}

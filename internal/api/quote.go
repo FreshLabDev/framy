@@ -333,7 +333,7 @@ func addFiles(req *price.Request, m catalog.Model, files []fileMeta) {
 			req.Images = append(req.Images, price.Image{Width: w, Height: h})
 		case strings.HasPrefix(f.ContentType, "video/"):
 			if req.Video == nil {
-				req.Video = &price.Video{Seconds: f.Seconds, Width: f.Width, Height: f.Height}
+				req.Video = &price.Video{Seconds: f.Seconds, Width: f.Width, Height: f.Height, FPS: f.FPS}
 			}
 			req.Clips = append(req.Clips, f.Seconds)
 		case strings.HasPrefix(f.ContentType, "audio/"):

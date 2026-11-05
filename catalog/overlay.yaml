@@ -628,6 +628,11 @@ models:
   # A source up to 20 s, 50 MB and 2560x1440.
   black-forest-labs/flux-video-upscale:
     source_video: {required: true, max_seconds: 20, max_mib: 50, keeps_length: true}
+    # Black Forest Labs: creativity 0 is Precise, 1 is Creative.
+    price:
+      variants:
+        cents_per_megapixel_second_precise: {creativity: 0}
+        cents_per_megapixel_second_creative: {creativity: 1}
 
   heygen/avatar-iv:
     hide: a talking head from a photo and a voice; the composer takes no voice yet

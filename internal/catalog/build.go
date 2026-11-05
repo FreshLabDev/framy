@@ -336,9 +336,14 @@ func checkPrice(model string, h PriceHints, offers []Offer, warn func(string, ..
 			warn("model %s: price.openai_tokens.%s, but no offer has that quality", model, quality)
 		}
 	}
+	hasSKU := func(name string) bool {
+		return slices.ContainsFunc(offers, func(of Offer) bool {
+			return slices.ContainsFunc(of.Routes, func(r Route) bool { _, ok := r.SKUs[name]; return ok })
+		})
+	}
 	for _, variant := range slices.Sorted(maps.Keys(h.Variants)) {
-		if !bills(func(p Price) bool { return p.Variant == variant }) {
-			warn("model %s: price.variants.%s, but no offer has that variant", model, variant)
+		if !bills(func(p Price) bool { return p.Variant == variant }) && !hasSKU(variant) {
+			warn("model %s: price.variants.%s, but no offer has that variant or SKU", model, variant)
 		}
 	}
 	for _, billable := range slices.Sorted(maps.Keys(h.Skip)) {

@@ -273,6 +273,72 @@ func TestBrowserVideoSounds(t *testing.T) {
 	noErrors(t, ctx)
 }
 
+// TestBrowserClipFrameRate checks that a clip's frame rate, read from the
+// index of an MP4 or a QuickTime file before Create, goes with its quote: an
+// upscale is billed by it, and without it the price is a range up to 60
+// frames a second. A file whose index says none goes without.
+func TestBrowserClipFrameRate(t *testing.T) {
+	ts := fakeSite(t, func(srv *Server) { (&fakeRuns{}).mount(srv) })
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	js[bool](t, ctx, `
+	window.__quotes = [];
+	const fetch0 = window.fetch;
+	window.fetch = (u, o) => {
+	  if (String(u).endsWith("/api/quote")) __quotes.push(JSON.parse(o.body));
+	  return fetch0(u, o);
+	};
+	return true;`)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+slotHelpers+clipHelpers+`
+	const out = {};
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(800);
+	const drop = async (f) => {
+	  const dt = new DataTransfer();
+	  dt.items.add(f);
+	  document.body.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
+	  await wait(1500);
+	  return (own()?.files || []).find((x) => x.content_type?.startsWith("video/")) || null;
+	};
+	const rm = async () => { for (const b of [...document.querySelectorAll("#files .thumb .rm")]) { b.click(); await wait(300); } await wait(500); };
+	// 60 frames of 1001/30000 s after a sound track: 29.97 a second.
+	out.mp4 = await drop(mp4(60, 30000, 1001, "video/mp4", "c.mp4"));
+	await rm();
+	out.mov = await drop(mp4(48, 24, 1, "video/quicktime", "c.mov"));
+	await rm();
+	out.webm = await drop(new File([new Uint8Array(64)], "c.webm", { type: "video/webm" }));
+	return out;`)
+	for name, want := range map[string]any{"mp4": 29.97, "mov": float64(24), "webm": nil} {
+		f, _ := s[name].(map[string]any)
+		if f == nil || f["fps"] != want {
+			t.Errorf("the %s clip in the quote: %v, want fps %v", name, s[name], want)
+		}
+	}
+}
+
+// clipHelpers make an MP4 or QuickTime file with no frames but their index:
+// a sound track, then a video track of n frames of delta at scale a second.
+const clipHelpers = `
+const atom = (type, ...parts) => {
+  const n = 8 + parts.reduce((a, p) => a + p.length, 0), b = new Uint8Array(n);
+  new DataView(b.buffer).setUint32(0, n);
+  b.set([...type].map((c) => c.charCodeAt(0)), 4);
+  let o = 8;
+  for (const p of parts) { b.set(p, o); o += p.length; }
+  return b;
+};
+const u32 = (...xs) => { const b = new Uint8Array(4 * xs.length), v = new DataView(b.buffer); xs.forEach((x, i) => v.setUint32(i * 4, x)); return b; };
+const chars = (s) => Uint8Array.from(s, (c) => c.charCodeAt(0));
+const track = (handler, scale, length, stts) => atom("trak", atom("mdia",
+  atom("mdhd", u32(0, 0, 0, scale, length, 0)),
+  atom("hdlr", u32(0, 0), chars(handler), u32(0, 0, 0), new Uint8Array(1)),
+  atom("minf", atom("stbl", atom("stts", u32(0, 1, ...stts))))));
+const mp4 = (n, scale, delta, type, name) => new File([
+  atom("ftyp", chars("isom"), u32(512), chars("isommp41")),
+  atom("moov", track("soun", 48000, 96000, [94, 1024]), track("vide", scale, n * delta, [n, delta])),
+  atom("mdat"),
+], name, { type });
+`
+
 // soundHelpers make a WAV of a few seconds of silence.
 const soundHelpers = `
 const wav = (secs) => {

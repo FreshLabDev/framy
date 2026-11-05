@@ -428,7 +428,7 @@ function paySec(m, pay) {
 
 /* Settings: the ones a person decides, each as the control that fits it. */
 // Settings whose price usually depends on the value carry the price of each value; the rest do not.
-const PRICED = new Set(["resolution", "quality", "duration", "size", "generate_audio", "thinking_level", "google_search", "image_search", "upscale_factor", "fast"]);
+const PRICED = new Set(["resolution", "quality", "duration", "size", "generate_audio", "thinking_level", "google_search", "image_search", "upscale_factor", "creativity", "fast"]);
 const unpriced = new Map(); // offer id -> Set of names found not to change the price
 function settingsBlock(m, pay) {
   const o = offerOf(m, pay), s = settings(m, pay), box = h("div", { class: "sets", "data-k": "h-sets" });

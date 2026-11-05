@@ -144,9 +144,17 @@ func (s sku) quals() []string {
 
 // matchSKU says whether a SKU is for the request. A long SKU is for the
 // seconds past price.long, which perSecond prices on its own; without the
-// hint nothing says when it applies, so it stays a maybe.
+// hint nothing says when it applies, so it stays a maybe. A SKU that
+// price.variants names is for the settings it lists, whatever its name
+// says: FLUX Video Upscale's precise and creative rates are its creativity
+// 0 and 1.
 func (c *calc) matchSKU(s sku) (applies, contradicted bool) {
 	applies = len(s.open) == 0 && !s.long
+	if _, named := c.hints.Variants[s.name]; named {
+		if _, applies, contradicted = c.variant(s.name); contradicted {
+			return false, true
+		}
+	}
 	if s.res != "" {
 		switch res := c.resolution(); {
 		case res == "":
@@ -452,14 +460,21 @@ func (c *calc) skuQuantity(s sku) (lo, hi float64, ok bool) {
 		per := float64(w*h) / 1024
 		return math.Floor((24*sLo + 1 + clip) * per), math.Floor((24*sHi + 1 + clip) * per), true
 	case perMegapixelSecond:
+		// Black Forest Labs bills an upscale by the megapixel-second of the
+		// video it delivers, a megapixel being 1,048,576 pixels, at 24 frames
+		// a second and pro rata above it. The size it delivers is the
+		// source's times the factor, rounded as it rounds it, so this is
+		// about.
 		v := c.req.Video
 		if v == nil {
 			c.outputUnknown("the source video")
 			return 0, 0, false
 		}
 		fLo, fHi := c.factor()
-		mp := float64(v.Width*v.Height) / 1e6
-		return mp * fLo * fLo * v.Seconds, mp * fHi * fHi * v.Seconds, true
+		rLo, rHi := frameRate(v)
+		mp := float64(v.Width*v.Height) / (1 << 20)
+		c.about()
+		return mp * fLo * fLo * v.Seconds * rLo, mp * fHi * fHi * v.Seconds * rHi, true
 	case perImage:
 		n := float64(len(c.req.Images))
 		if !s.refsOnly {
@@ -469,6 +484,21 @@ func (c *calc) skuQuantity(s sku) (lo, hi float64, ok bool) {
 		return n, n, true
 	}
 	return 0, 0, false
+}
+
+// keptFPS is the highest frame rate framy keeps a clip at (internal/media):
+// a faster one goes to the provider at this rate.
+const keptFPS = 60
+
+// frameRate is how many times the rate at 24 frames a second a video is
+// billed: its own frame rate over 24, as framy keeps it, or anything up to
+// keptFPS where neither ffprobe nor the browser read one.
+func frameRate(v *Video) (lo, hi float64) {
+	if v.FPS > 0 {
+		r := math.Max(1, math.Min(v.FPS, keptFPS)/24)
+		return r, r
+	}
+	return 1, keptFPS / 24.0
 }
 
 // factor is the upscale factor: the chosen one, or the model's range.

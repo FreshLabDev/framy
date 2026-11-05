@@ -437,7 +437,7 @@ func (a *API) quote(r *http.Request, user int64, lang string) (fx.Quote, error) 
 func priceRequest(m catalog.Model, prompt string, settings map[string]any, inputs []InputAsset, continues *InputAsset) price.Request {
 	req := price.Request{Settings: settings, Prompt: prompt}
 	if continues != nil {
-		req.Video = &price.Video{Seconds: continues.Seconds, Width: continues.Width, Height: continues.Height}
+		req.Video = &price.Video{Seconds: continues.Seconds, Width: continues.Width, Height: continues.Height, FPS: continues.FPS}
 		req.Clips = append(req.Clips, continues.Seconds)
 	}
 	frames := frameCount(settings)
@@ -445,7 +445,7 @@ func priceRequest(m catalog.Model, prompt string, settings map[string]any, input
 		switch {
 		case strings.HasPrefix(in.ContentType, "video/"):
 			if req.Video == nil {
-				req.Video = &price.Video{Seconds: in.Seconds, Width: in.Width, Height: in.Height}
+				req.Video = &price.Video{Seconds: in.Seconds, Width: in.Width, Height: in.Height, FPS: in.FPS}
 			}
 			req.Clips = append(req.Clips, in.Seconds)
 		case strings.HasPrefix(in.ContentType, "audio/"):

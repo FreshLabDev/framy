@@ -104,8 +104,11 @@ type Result struct {
 	Bytes       int64
 	Width       int
 	Height      int
-	// Seconds is a clip's length, 0 for a picture and where it is not known.
+	// Seconds and FPS are a clip's length and frame rate, 0 for a picture
+	// and where they are not known. FPS is read for a job's inputs only,
+	// which the composer may cut and price again.
 	Seconds float64
+	FPS     float64
 	// Segments is where each part of a joined clip begins, in seconds from
 	// its start; nil for any other file, and for a clip joined before
 	// framy kept them.
@@ -119,9 +122,10 @@ type InputAsset struct {
 	Width       int
 	Height      int
 	Bytes       int64
-	// Seconds is a clip's length as ffprobe read it, 0 for a picture and
-	// where it is not known.
+	// Seconds and FPS are a clip's length and frame rate as ffprobe read
+	// them, 0 for a picture and where they are not known.
 	Seconds float64
+	FPS     float64
 }
 
 // ErrActive: the job is queued or running, or, for the account, some job is.
@@ -296,10 +300,11 @@ func (d pgData) files(ctx context.Context, userID int64, states []State) error {
 			job int64
 			Result
 		}
-		return x, r.Scan(&x.job, &x.ID, &x.ContentType, &x.Bytes, &x.Width, &x.Height, &x.Seconds)
+		return x, r.Scan(&x.job, &x.ID, &x.ContentType, &x.Bytes, &x.Width, &x.Height, &x.Seconds, &x.FPS)
 	}
 	rows, err := d.pool.Query(ctx, `
-		SELECT i.job_id, a.id, a.content_type, a.bytes, COALESCE(a.width, 0), COALESCE(a.height, 0), COALESCE(a.seconds, 0)::float8
+		SELECT i.job_id, a.id, a.content_type, a.bytes, COALESCE(a.width, 0), COALESCE(a.height, 0), COALESCE(a.seconds, 0)::float8,
+		       COALESCE(a.fps, 0)::float8
 		FROM job_input i JOIN asset a ON a.id = i.asset_id AND a.user_id = $2
 		WHERE i.job_id = ANY($1)
 		ORDER BY i.job_id, i.position`, ids, userID)
@@ -368,7 +373,8 @@ func (d pgData) Inputs(ctx context.Context, userID int64, ids []int64) ([]InputA
 		return nil, nil
 	}
 	rows, err := d.pool.Query(ctx, `
-		SELECT u.id, a.content_type, COALESCE(a.width, 0), COALESCE(a.height, 0), a.bytes, COALESCE(a.seconds, 0)::float8
+		SELECT u.id, a.content_type, COALESCE(a.width, 0), COALESCE(a.height, 0), a.bytes, COALESCE(a.seconds, 0)::float8,
+		       COALESCE(a.fps, 0)::float8
 		FROM unnest($2::bigint[]) WITH ORDINALITY AS u(id, ord)
 		JOIN asset a ON a.id = u.id AND a.user_id = $1
 		ORDER BY u.ord`, userID, ids)
@@ -377,7 +383,7 @@ func (d pgData) Inputs(ctx context.Context, userID int64, ids []int64) ([]InputA
 	}
 	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (InputAsset, error) {
 		var x InputAsset
-		return x, r.Scan(&x.ID, &x.ContentType, &x.Width, &x.Height, &x.Bytes, &x.Seconds)
+		return x, r.Scan(&x.ID, &x.ContentType, &x.Width, &x.Height, &x.Bytes, &x.Seconds, &x.FPS)
 	})
 }
 
@@ -388,15 +394,15 @@ func (d pgData) Continuation(ctx context.Context, userID, id int64) (Continuatio
 	err := d.pool.QueryRow(ctx, `
 		SELECT j.model_id, j.provider, COALESCE(j.provider_job_id, ''), j.status, j.free,
 		       r.id, COALESCE(r.content_type, ''), COALESCE(r.width, 0), COALESCE(r.height, 0), COALESCE(r.bytes, 0),
-		       COALESCE(r.seconds, 0)::float8
+		       COALESCE(r.seconds, 0)::float8, COALESCE(r.fps, 0)::float8
 		FROM job j
 		LEFT JOIN LATERAL (
-		  SELECT a.id, a.content_type, a.width, a.height, a.bytes, a.seconds FROM asset a
+		  SELECT a.id, a.content_type, a.width, a.height, a.bytes, a.seconds, a.fps FROM asset a
 		  WHERE a.job_id = j.id AND a.kind = 'result' AND a.content_type LIKE 'video/%'
 		  ORDER BY a.id LIMIT 1) r ON true
 		WHERE j.id = $1 AND j.user_id = $2 AND j.deleted_at IS NULL`, id, userID).Scan(
 		&c.ModelID, &c.Provider, &c.ProviderJobID, &c.Status, &c.Free,
-		&videoID, &v.ContentType, &v.Width, &v.Height, &v.Bytes, &v.Seconds)
+		&videoID, &v.ContentType, &v.Width, &v.Height, &v.Bytes, &v.Seconds, &v.FPS)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Continuation{}, ErrNotFound
 	}

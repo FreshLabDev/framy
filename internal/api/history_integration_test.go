@@ -79,7 +79,8 @@ func TestTheHistoryIsReadFromTheDatabase(t *testing.T) {
 	in := anAsset(t, pool, alice, fox, "u/1001/in/a.jpg", true)
 	out := anAsset(t, pool, alice, fox, "u/1001/out/a.png", false)
 	run := aJob(t, pool, alice, "failed", "video", "fox running", false)
-	anAsset(t, pool, alice, run, "u/1001/in/b.jpg", true)
+	clip := anAsset(t, pool, alice, run, "u/1001/in/b.mp4", true)
+	exec(t, pool, `UPDATE asset SET content_type = 'video/mp4', seconds = 4, fps = 29.97 WHERE id = $1`, clip)
 	cotton := aJob(t, pool, alice, "done", "image", "100% cotton shirt", false)
 	den := aJob(t, pool, alice, "done", "image", "fox_den at night", false)
 	aJob(t, pool, alice, "draft", "image", "draft fox", false)
@@ -125,6 +126,10 @@ func TestTheHistoryIsReadFromTheDatabase(t *testing.T) {
 	}
 	if failed := got[1]; failed.ID != run || len(failed.Inputs) != 1 || len(failed.Results) != 0 {
 		t.Errorf("the failed job: %+v", failed)
+	} else if c := failed.Inputs[0]; c.Seconds != 4 || c.FPS != 29.97 {
+		// An input clip comes with its frame rate: a part of it cut again
+		// is priced by it (an upscale).
+		t.Errorf("the input clip: %+v", c)
 	}
 	if last.Joined != nil {
 		t.Errorf("a job with no joined clip: %+v", last.Joined)

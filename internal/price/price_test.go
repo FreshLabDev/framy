@@ -83,7 +83,9 @@ type set = map[string]any
 func images(n int) []Image { return slices.Repeat([]Image{{Width: 1024, Height: 1024}}, n) }
 
 func TestEstimates(t *testing.T) {
-	clip := &Video{Seconds: 5, Width: 1280, Height: 720}
+	clip := &Video{Seconds: 5, Width: 1280, Height: 720, FPS: 24}
+	// 720p and 1080p in Black Forest Labs' megapixels of 1,048,576 pixels.
+	const hd, fhd = 1280.0 * 720 / (1 << 20), 1920.0 * 1080 / (1 << 20)
 	for _, tc := range []struct {
 		name     string
 		offer    string
@@ -198,7 +200,18 @@ func TestEstimates(t *testing.T) {
 		{"aleph's minimum", "openrouter:runway/aleph-2", Request{Video: &Video{Seconds: 1, Width: 1280, Height: 720}}, 0.56, 0, About},
 		{"aleph on 5 s", "openrouter:runway/aleph-2", Request{Video: clip}, 1.40, 0, About},
 		{"the free video edit", "openrouter:black-forest-labs/flux-video-edit", Request{Video: clip}, 0.15, 0, Exact},
-		{"upscale by two", "openrouter:black-forest-labs/flux-video-upscale", Request{Settings: set{"upscale_factor": 2}, Video: clip}, 0.9216 * 4 * 5 * 0.035, 0.9216 * 4 * 5 * 0.05, UpTo},
+		// Black Forest Labs bills the delivered video by the megapixel-second,
+		// a megapixel being 1,048,576 pixels, at 24 fps and pro rata above.
+		// creativity picks the rate: 0 is Precise, 1 Creative.
+		{"upscale by two, precise", "openrouter:black-forest-labs/flux-video-upscale", Request{Settings: set{"upscale_factor": 2, "creativity": 0.0}, Video: clip}, hd * 4 * 5 * 0.035, 0, About},
+		{"upscale by two, creative", "openrouter:black-forest-labs/flux-video-upscale", Request{Settings: set{"upscale_factor": 2, "creativity": 1.0}, Video: clip}, hd * 4 * 5 * 0.05, 0, About},
+		{"upscale of a 48 fps clip", "openrouter:black-forest-labs/flux-video-upscale", Request{Settings: set{"upscale_factor": 1.5, "creativity": 0.0}, Video: &Video{Seconds: 4, Width: 1920, Height: 1080, FPS: 48}}, fhd * 2.25 * 4 * 2 * 0.035, 0, About},
+		// framy keeps a clip at up to 60 frames a second, so a faster one, as
+		// the browser reads it before Create, is billed at 60.
+		{"upscale of a 120 fps clip", "openrouter:black-forest-labs/flux-video-upscale", Request{Settings: set{"upscale_factor": 2, "creativity": 1.0}, Video: &Video{Seconds: 2, Width: 1280, Height: 720, FPS: 120}}, hd * 4 * 2 * 2.5 * 0.05, 0, About},
+		// A frame rate ffprobe did not give: up to the 60 framy keeps.
+		{"upscale of a clip of no known rate", "openrouter:black-forest-labs/flux-video-upscale", Request{Settings: set{"upscale_factor": 2, "creativity": 0.0}, Video: &Video{Seconds: 5, Width: 1280, Height: 720}}, hd * 4 * 5 * 0.035, hd * 4 * 5 * 2.5 * 0.035, UpTo},
+		{"upscale with nothing chosen", "openrouter:black-forest-labs/flux-video-upscale", Request{Video: clip}, hd * 1.5 * 1.5 * 5 * 0.035, hd * 9 * 5 * 0.05, UpTo},
 		// Omni picks 3 to 10 s at 5,792 tokens a second of 720p.
 		{"omni at 720p", "gemini:gemini-omni-1.1-flash", Request{Settings: set{"resolution": "720p"}}, 5792 * 3 * 1.75e-5, 5792 * 10 * 1.75e-5, UpTo},
 		// Extending a 5 s clip may come back, and be billed, as 15 s.

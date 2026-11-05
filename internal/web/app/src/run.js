@@ -507,7 +507,7 @@ export function runOfBatch(js) {
 function fileOfInput(f) {
   const meta = { content_type: f.content_type, bytes: f.bytes, width: f.width, height: f.height }, base = { id: "j" + f.id, server: true, name: "", upload: f.id, w: f.width, h: f.height };
   if (String(f.content_type).startsWith("video/"))
-    return { ...base, kind: "video", url: f.url, poster: f.thumb?.url || "", secs: f.seconds || 0, bytes: f.bytes, token: "", cuts: {}, meta: { ...meta, seconds: f.seconds || 0 } };
+    return { ...base, kind: "video", url: f.url, poster: f.thumb?.url || "", secs: f.seconds || 0, fps: f.fps || 0, bytes: f.bytes, token: "", cuts: {}, meta: { ...meta, seconds: f.seconds || 0, ...(f.fps ? { fps: f.fps } : {}) } };
   if (String(f.content_type).startsWith("audio/"))
     return { ...base, kind: "audio", slot: "ref", url: f.url, secs: f.seconds || 0, bytes: f.bytes, token: "", cuts: {}, meta: { content_type: f.content_type, bytes: f.bytes, seconds: f.seconds || 0 } };
   return { ...base, kind: "image", url: f.thumb?.url || f.url, meta };

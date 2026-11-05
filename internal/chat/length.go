@@ -134,7 +134,7 @@ func (f *Flow) otherLength(ctx context.Context, cq *tg.CallbackQuery, run db.Cha
 	if limits := s.model.Traits.SourceVideo; limits != nil && limits.MaxMiB > 0 && a.Bytes > int64(limits.MaxMiB)<<20 {
 		return fmt.Errorf("%g s of the clip: %w", c.seconds, errTooBig)
 	}
-	est := price.Of(s.model, s.offer, priceRequest(run.Prompt, s.settings, nil, &price.Video{Seconds: a.Seconds, Width: a.Width, Height: a.Height}))
+	est := price.Of(s.model, s.offer, priceRequest(run.Prompt, s.settings, nil, &price.Video{Seconds: a.Seconds, Width: a.Width, Height: a.Height, FPS: a.FPS}))
 	n := jobs.New{
 		UserID: run.UserID, Offer: s.offer, Prompt: run.Prompt, Settings: s.settings,
 		Free: onFree, Estimate: &est, Inputs: []int64{a.ID},
