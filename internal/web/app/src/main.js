@@ -144,7 +144,7 @@ async function main() {
   route();
 
   const sp = new URLSearchParams(location.search), si = sp.get("sign_in");
-  if (si) { toast(t("auth." + (["cancelled", "expired", "failed"].includes(si) ? si : "failed"))); history.replaceState(null, "", location.pathname + location.hash); }
+  if (si) { toast(t("auth." + (["cancelled", "expired", "failed", "unavailable"].includes(si) ? si : "failed"))); history.replaceState(null, "", location.pathname + location.hash); }
   // Back from OpenRouter: the address says how the connect ended.
   if (sp.get("connect") === "openrouter") { history.replaceState(null, "", location.pathname + location.hash); oauthResult(sp.get("result") || ""); }
   // Reloaded for a new language from the settings: they open again.

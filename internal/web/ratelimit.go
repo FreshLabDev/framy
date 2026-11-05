@@ -112,21 +112,22 @@ func newLimiters(override Limits) (map[Class]*classLimiter, error) {
 	return out, nil
 }
 
-// limited counts the request in the class and, when it is over, answers 429
-// and reports true.
-func (s *Server) limited(w http.ResponseWriter, r *http.Request, class Class) bool {
+// limited counts the request in the class and, when it is over, answers 429,
+// or a redirect to location when the route has one (OnLimit), and reports
+// true.
+func (s *Server) limited(w http.ResponseWriter, r *http.Request, class Class, location string) bool {
 	cl := s.limits[class]
 	now := s.now()
 	if cl.ip != nil {
 		if ok, wait := cl.ip.take(bucketKey(ClientIP(r)), now); !ok {
-			s.tooMany(w, class, wait)
+			s.tooMany(w, class, wait, location)
 			return true
 		}
 	}
 	if cl.person != nil && s.person != nil {
 		if id := s.person(r); id != "" {
 			if ok, wait := cl.person.take(id, now); !ok {
-				s.tooMany(w, class, wait)
+				s.tooMany(w, class, wait, location)
 				return true
 			}
 		}
@@ -134,8 +135,13 @@ func (s *Server) limited(w http.ResponseWriter, r *http.Request, class Class) bo
 	return false
 }
 
-func (s *Server) tooMany(w http.ResponseWriter, class Class, wait time.Duration) {
+func (s *Server) tooMany(w http.ResponseWriter, class Class, wait time.Duration, location string) {
 	metrics.HTTPRateLimited.Inc(string(class))
+	if location != "" {
+		w.Header().Set("Location", location)
+		w.WriteHeader(http.StatusSeeOther)
+		return
+	}
 	w.Header().Set("Retry-After", strconv.Itoa(max(1, int(math.Ceil(wait.Seconds())))))
 	http.Error(w, "too many requests", http.StatusTooManyRequests)
 }

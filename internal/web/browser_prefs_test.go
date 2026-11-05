@@ -494,6 +494,21 @@ func TestBrowserPrefs(t *testing.T) {
 	noErrors(t, ctx)
 }
 
+// Back from a sign-in that could not start (Telegram out of reach, or too
+// many tries from one address), the site says so in the person's language
+// and drops the reason from the address.
+func TestBrowserSignInUnavailable(t *testing.T) {
+	f := &fakePrefs{}
+	ts := fakeSite(t, f.mount)
+	ctx := browser(t, ts.URL+"/?sign_in=unavailable", 1440, 900, false)
+	s := prefs(t, ctx, `
+	await until(() => toastText());
+	return { toast: toastText(), url: location.pathname + location.search };`)
+	if s["toast"] != "Sign-in is not available right now. Try again in a few minutes." || s["url"] != "/" {
+		t.Errorf("back from a sign-in that could not start: %v", s)
+	}
+}
+
 // The sessions could not be read when the page opened: /api/me answered 503,
 // not 401. The person is asked for again and appears, and no sign-in is
 // offered for good on the strength of a moment's outage.

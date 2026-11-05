@@ -120,6 +120,7 @@ func (a *Auth) provider(ctx context.Context) (*provider, error) {
 // Login starts Telegram Login: it makes a state, a nonce and a PKCE verifier,
 // keeps them in a short-lived cookie and redirects to Telegram. `return_to`
 // is where the person lands afterwards; only a path on this site is believed.
+// When sign-in cannot start, it sends the browser to `/?sign_in=unavailable`.
 func (a *Auth) Login() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !a.SiteEnabled() {
@@ -165,10 +166,11 @@ type failure struct {
 
 // Callback is Telegram's redirect back. It finds its sign-in in the cookie
 // by the state, trades the code (with the PKCE verifier, the client
-// authenticated in a header) for tokens, verifies the id_token and its nonce, takes the
-// account from the `id` claim, records the person in core and starts a
-// session in place of the browser's earlier one. A failure redirects to `/?sign_in=<reason>` with reason one of
-// `cancelled`, `expired` and `failed`, and sets no session.
+// authenticated in a header) for tokens, verifies the id_token and its
+// nonce, takes the account from the `id` claim, records the person in core
+// and starts a session in place of the browser's earlier one. A failure
+// redirects to `/?sign_in=<reason>` with reason one of `cancelled`,
+// `expired`, `failed` and `unavailable`, and sets no session.
 func (a *Auth) Callback() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !a.SiteEnabled() {
@@ -264,7 +266,7 @@ func (a *Auth) finishLogin(r *http.Request, st loginState) (int64, *failure) {
 	}
 	p, err := a.provider(r.Context())
 	if err != nil {
-		return 0, &failure{reason: "failed", result: "site_unavailable", err: err}
+		return 0, &failure{reason: "unavailable", result: "site_unavailable", err: err}
 	}
 	ctx := oidc.ClientContext(r.Context(), a.http)
 	tok, err := p.oauth.Exchange(ctx, code, oauth2.VerifierOption(st.Verifier))
@@ -524,6 +526,15 @@ func redirect(w http.ResponseWriter, location string) {
 	w.WriteHeader(http.StatusSeeOther)
 }
 
+// unavailablePath is where a sign-in that cannot start or finish just now
+// sends the browser: the site, which says so and that trying again in a
+// few minutes helps.
+const unavailablePath = "/?sign_in=unavailable"
+
+// signInUnavailable answers a navigation that cannot go on: Telegram's
+// discovery document cannot be read, the Login client is not configured,
+// or the server has no randomness. A bare 503 page in English, with no way
+// back, is what the person saw before.
 func signInUnavailable(w http.ResponseWriter) {
-	http.Error(w, "sign-in is not available", http.StatusServiceUnavailable)
+	redirect(w, unavailablePath)
 }

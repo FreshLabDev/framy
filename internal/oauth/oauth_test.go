@@ -146,6 +146,16 @@ func mustQuery(t *testing.T, raw string) url.Values {
 	return u.Query()
 }
 
+// The address the rate limit of the two routes sends a browser to is the
+// one the frontend reads a result from.
+func TestResultURLIsWhatTheSiteReads(t *testing.T) {
+	h := newHarness(t)
+	c := h.newConnector(Config{})
+	if got := c.ResultURL(Unavailable); got != "/?connect=openrouter&result=unavailable" {
+		t.Errorf("ResultURL(Unavailable) = %q", got)
+	}
+}
+
 func TestStartForNobodyGoesToSignInAndBack(t *testing.T) {
 	h := newHarness(t)
 	rr := h.browser(0).get(StartPath)

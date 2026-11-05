@@ -21,7 +21,8 @@
 //
 // Sign-in on the site needs the Telegram Login client (a client id and
 // secret from BotFather) and SiteURL; without them /auth/login and
-// /auth/callback answer 503 and everything else runs. The Mini App needs
+// /auth/callback send the browser back to the site with
+// ?sign_in=unavailable and everything else runs. The Mini App needs
 // only the bot token.
 package auth
 
@@ -213,9 +214,13 @@ func (a *Auth) SiteEnabled() bool { return a.clientID != "" }
 //	POST /auth/logout       ends the session or token of the request
 //	POST /auth/logout/all   ends every session and token of the person
 //	POST /auth/miniapp      {"init_data": "..."} -> a bearer token
+//
+// The two a browser navigates to send it back to the site with
+// ?sign_in=unavailable when they are over their rate limit, as when Telegram
+// cannot be reached, so the person reads why on the page they came from.
 func (a *Auth) Mount(site *web.Server) {
-	site.Handle("GET /auth/login", a.Login())
-	site.Handle("GET /auth/callback", a.Callback())
+	site.Handle("GET /auth/login", a.Login(), web.OnLimit(unavailablePath))
+	site.Handle("GET /auth/callback", a.Callback(), web.OnLimit(unavailablePath))
 	site.Handle("POST /auth/logout", a.Logout())
 	site.Handle("POST /auth/logout/all", a.Require(a.LogoutAll()))
 	// initData is a kilobyte or two.

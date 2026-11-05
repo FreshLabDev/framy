@@ -271,10 +271,13 @@ func run(log *slog.Logger) error {
 		if err != nil {
 			return err
 		}
-		site.HandleFunc("GET "+oauth.StartPath, connect.Start)
+		// Both are navigations: over the rate limit the browser goes back
+		// to the site, which says to try again in a few minutes.
+		busy := web.OnLimit(connect.ResultURL(oauth.Unavailable))
+		site.HandleFunc("GET "+oauth.StartPath, connect.Start, busy)
 		// The callback exchanges the code and checks the key, two calls to
 		// OpenRouter: more than the server's ten seconds to answer.
-		site.HandleFunc("GET "+oauth.CallbackPath, connect.Callback, web.Deadlines(10*time.Second, 45*time.Second))
+		site.HandleFunc("GET "+oauth.CallbackPath, connect.Callback, busy, web.Deadlines(10*time.Second, 45*time.Second))
 	} else {
 		log.Warn("connecting OpenRouter is off: it needs SITE_URL and FRAMY_KEK_FILE")
 	}

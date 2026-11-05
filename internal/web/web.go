@@ -174,6 +174,7 @@ type routeOptions struct {
 	read      time.Duration
 	write     time.Duration
 	public    bool
+	limitedTo string
 }
 
 // RouteOption changes how one route is served.
@@ -209,6 +210,12 @@ func Deadlines(read, write time.Duration) RouteOption {
 // Send Cache-Control: no-store, no-transform; the cache rules keep the
 // directives of a value that has no-store.
 func Stream() RouteOption { return Deadlines(0, 0) }
+
+// OnLimit is for a route people reach by following a link or a redirect,
+// such as a sign-in: over its rate class's limit, the browser is sent to
+// location (a path of the site that can say what happened) instead of being
+// shown a bare 429 page. The request is still counted as refused.
+func OnLimit(location string) RouteOption { return func(o *routeOptions) { o.limitedTo = location } }
 
 // PublicCache lets the route's handler say `public`. Without it a response
 // that says `public` is rewritten to `private, no-store`: Cloudflare caches
@@ -247,7 +254,7 @@ func (s *Server) route(h http.Handler, o routeOptions) http.Handler {
 		maxBody = defaultMaxBody
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if o.class != ClassDefault && s.limited(w, r, o.class) {
+		if o.class != ClassDefault && s.limited(w, r, o.class, o.limitedTo) {
 			return
 		}
 		if g, ok := w.(*guard); ok && o.public {
@@ -278,7 +285,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r = r.WithContext(context.WithValue(r.Context(), clientKey{}, c))
 	g := &guard{ResponseWriter: w, r: r, srv: s}
 	setStaticHeaders(g.Header())
-	if s.limited(g, r, ClassDefault) {
+	if s.limited(g, r, ClassDefault, "") {
 		return
 	}
 	s.chain.ServeHTTP(g, r)

@@ -749,13 +749,15 @@ func TestSiteSignInNeedsTheClient(t *testing.T) {
 		t.Fatal("enabled without a client")
 	}
 	b := h.browser()
+	// The person is sent back to the site, which says sign-in is not
+	// available, rather than shown a bare 503 page.
 	for _, target := range []string{"/auth/login", "/auth/callback?code=x&state=y"} {
 		r := b.get(target)
-		if r.code != http.StatusServiceUnavailable || !strings.HasPrefix(r.header.Get("Content-Type"), "text/plain") {
-			t.Errorf("%s: %d %q", target, r.code, r.header.Get("Content-Type"))
+		if r.code != http.StatusSeeOther || r.location() != "/?sign_in=unavailable" {
+			t.Errorf("%s: %d -> %q", target, r.code, r.location())
 		}
-		if r.cookie(loginCookie) != nil || r.location() != "" {
-			t.Errorf("%s set a cookie or redirected", target)
+		if r.cookie(loginCookie) != nil {
+			t.Errorf("%s set a login cookie", target)
 		}
 	}
 	// The rest runs: the Mini App does not need the Login client.
@@ -800,8 +802,8 @@ func TestDiscoveryFailureIsNotRemembered(t *testing.T) {
 	h.idp.discovery = http.StatusBadGateway
 	h.idp.mu.Unlock()
 	b := h.browser()
-	if r := b.get("/auth/login"); r.code != http.StatusServiceUnavailable || r.cookie(loginCookie) != nil {
-		t.Fatalf("with Telegram down: %d, cookie %v", r.code, r.cookie(loginCookie))
+	if r := b.get("/auth/login"); r.code != http.StatusSeeOther || r.location() != "/?sign_in=unavailable" || r.cookie(loginCookie) != nil {
+		t.Fatalf("with Telegram down: %d -> %q, cookie %v", r.code, r.location(), r.cookie(loginCookie))
 	}
 	h.idp.mu.Lock()
 	h.idp.discovery = 0
@@ -821,7 +823,7 @@ func TestSignInRoutesAreRateLimitedAndNotCached(t *testing.T) {
 	got429 := -1
 	for i := 0; i < 30; i++ {
 		last = b.get("/auth/login")
-		if last.code == http.StatusTooManyRequests {
+		if last.location() == "/?sign_in=unavailable" {
 			got429 = i
 			break
 		}
@@ -834,12 +836,18 @@ func TestSignInRoutesAreRateLimitedAndNotCached(t *testing.T) {
 			}
 		}
 	}
-	// The auth class: a burst of 10 per address.
-	if got429 != 10 {
-		t.Errorf("the 429 came at request %d, want 10 (the auth class's burst)", got429)
+	// The auth class: a burst of 10 per address. Past it the browser goes
+	// back to the site, which says to try again in a few minutes, as for a
+	// Telegram that cannot be reached; the callback does the same.
+	if got429 != 10 || last.code != http.StatusSeeOther {
+		t.Errorf("the refusal came at request %d as %d, want 10 (the auth class's burst) as 303", got429, last.code)
 	}
-	if last.header.Get("Retry-After") == "" {
-		t.Error("no Retry-After")
+	if r := b.get("/auth/callback?code=x&state=y"); r.code != http.StatusSeeOther || r.location() != "/?sign_in=unavailable" {
+		t.Errorf("the callback over the limit: %d -> %q", r.code, r.location())
+	}
+	// A fetch of the class is still told 429.
+	if r := b.do(http.MethodPost, "/auth/logout", ""); r.code != http.StatusTooManyRequests || r.header.Get("Retry-After") == "" {
+		t.Errorf("logout over the limit: %d, Retry-After %q", r.code, r.header.Get("Retry-After"))
 	}
 }
 

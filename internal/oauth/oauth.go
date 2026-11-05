@@ -115,8 +115,9 @@ const (
 	// Refused: OpenRouter, or the check of the key, refused what it was
 	// given. Starting again may help; the same result twice is for the owner.
 	Refused Result = "refused"
-	// Unavailable: OpenRouter or framy could not be reached or failed. Try
-	// again later. Nothing was saved.
+	// Unavailable: OpenRouter or framy could not be reached or failed, or
+	// the browser passed the routes' rate limit. Try again later. Nothing
+	// was saved.
 	Unavailable Result = "unavailable"
 )
 
@@ -351,8 +352,15 @@ func otherFlow(r *http.Request) bool {
 
 // finish sends the browser to the site with the result.
 func (c *Connector) finish(w http.ResponseWriter, r *http.Request, result Result) {
+	http.Redirect(w, r, c.ResultURL(result), http.StatusSeeOther)
+}
+
+// ResultURL is the site's address that tells the frontend how a connect
+// ended. The routes' rate limit sends the browser to ResultURL(Unavailable)
+// (web.OnLimit), so a person turned away reads why on the site.
+func (c *Connector) ResultURL(result Result) string {
 	q := url.Values{"connect": {Provider}, "result": {string(result)}}
-	http.Redirect(w, r, c.settings+"?"+q.Encode(), http.StatusSeeOther)
+	return c.settings + "?" + q.Encode()
 }
 
 // complete runs the callback's checks in order and returns how it ended with
