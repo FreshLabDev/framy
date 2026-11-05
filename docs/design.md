@@ -1059,20 +1059,24 @@ Cloudflare Tunnel: framy.ws04.cc
 
 `maply/internal/anim` cannot be imported from another module, so framy copied what it needs: the canvas, the text shaping and the encoder pipe. Proposal: extract a shared module once both projects change them.
 
-Main tables of the `framy` schema, created by a core migration with its own `framy_core` role, as maply's 018:
+The `framy` schema and its `framy_core` role come from core migration `019_framy.sql`, as maply's from 018. The tables in it are framy's own: its migrations (`migrations/`, embedded in the binary and recorded in `schema_migrations`) create them, and River's migrations (`jobs.MigrateRiver`, run after framy's) add River's `river_*` tables beside them.
 
 | Table | What it stores |
 |:--|:--|
-| `profile` | `user_id`, currency (#8), whether framy picked the language (the language itself is core's, shared with the other bots), the default image and video models, delivery to Telegram (migration 025) |
+| `profile` | `user_id`, currency (#8), whether framy picked the language (the language itself is core's, shared with the other bots), the default image and video models, delivery to Telegram (migration 025), and the name and photo the site shows (migration 012) |
+| `session` | a sign-in: the SHA-256 of the secret the browser's cookie or the Mini App's bearer token holds, never the secret, with the person, `site` or `miniapp` and the expiry (migration 008) |
 | `connection` | provider, encrypted key with its wrapped data key and KEK version, `last4`, status, last success, last error class; one per person and provider |
 | `catalog_model`, `catalog_offer` | models with the overlay's flags and traits; offers with their parameters, routes and prices, `expires_on`, `hidden`, `fetched_at`, `disabled_at` |
-| `job` | requester (`user_id`, NULL for a deleted account's job once its `forget_at` has passed), surface, chat and preview message, `dedupe_key`, offer, prompt, settings, `free`, status, idempotency key, River job, paid requests with `submitted_at` and `retry_at`, provider job id, the estimate with its lines, the actual cost, results, error class with framy's line and the provider's own words, the currency with `fx_rate` and `fx_date` |
-| `asset` | uploads and results: owner, job, storage key, size, type, picture size, SHA-256, `file_id`, `file_unique_id`; a result's thumbnail (key, size, bytes, tries) |
+| `job` | requester (`user_id`, NULL for a deleted account's job once its `forget_at` has passed), surface, chat and preview message, `dedupe_key`, offer, prompt, settings, `free`, status, idempotency key, River job, paid requests with `submitted_at` and `retry_at`, provider job id, the estimate with its lines, the actual cost, results, error class with framy's line and the provider's own words, the currency with `fx_rate` and `fx_date`, the stack that made it (`stack`, migration 029), the press of the site it belongs to and the frame of each result (`batch`, `batch_frames`, migration 030), and when the person deleted it (`deleted_at`) |
+| `asset` | uploads, results and joined clips: owner, job, storage key, size, type, picture size, SHA-256, `file_id`, `file_unique_id`; a video's length, frame rate and sound; a result's thumbnail (key, size, bytes, tries); the clip a last frame was taken from (`frame_of`, `frame_at`) and where the parts of a joined clip begin (`segments`) |
 | `job_input` | the files a job takes, in order; an empty place is a file deleted before the run |
-| `album_item` | the 48-hour album cache: chat, `media_group_id`, message, author, kind, `file_id`, `file_unique_id`, size and date, never the text; no foreign keys, since a DM is not a chat in core and a failed touch must not lose an item |
+| `chat_run` | a job started in a chat (migration 014): the chat and its topic, the command, the preview and whether it or the command is ephemeral, the answer of guest mode (`inline_message_id`), the language, what was taken of an album, the stage from preview to done, Stop, the result's message, `file_id` and which file it is (`result_asset_id`), the clip of `/edit`, and the bot whose chat it is (`stack`) |
+| `site_delivery` | a result made on the site and sent to the DM, written before anything goes out: `sending`, `sent` with the message, `closed`, `failed`, or `off` while delivery is off (migrations 020 and 025) |
+| `album_item` | the 48-hour album cache: the bot (`stack`), chat, `media_group_id`, message, author, kind, `file_id`, `file_unique_id`, size and date, never the text; no foreign keys, since a DM is not a chat in core and a failed touch must not lose an item |
 | `fx_rate` | date, code, UAH per unit, source (`nbu` or `currency-api`), fetched at |
 | `oauth_state` | the hash of the OAuth state, the PKCE verifier and the person, for 10 minutes; one per person and provider |
 | `webhook_delivery` | per provider and job, the digests of the idempotency keys and signatures of webhooks already acted on, for 7 days |
+| `runtime_state`, `stack_state` | where getUpdates stopped: production's offset in `runtime_state` (migration 001), any other stack's in `stack_state` (migration 029) |
 
 The free allowance is counted from `job`, not stored separately.
 

@@ -61,10 +61,11 @@ and a person who knows one of them should recognise framy. Before adding a
 screen, a command or a table, check how the siblings do it.
 
 - **One database.** framy's tables live in the `framy` schema of the shared
-  `core-postgres`, created by core migration `019_framy.sql` and reached as
-  `framy_core`. Identity, presence and language are core's: call `core.touch`
-  for every update with a sender, read the language with
-  `core.effective_language`, write it with `core.set_language` and
+  `core-postgres`. Core migration `019_framy.sql` creates the schema and the
+  `framy_core` role framy reaches it as; framy's own migrations create the
+  tables (docs/design.md, Architecture). Identity, presence and language are
+  core's: call `core.touch` for every update with a sender, read the language
+  with `core.effective_language`, write it with `core.set_language` and
   `core.clear_language`. framy holds `REFERENCES` on `core.person` and
   `core.chat` and no `SELECT`: it learns who a person is from the update or
   the Telegram Login claims. A new grant is a core migration that revokes
