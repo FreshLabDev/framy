@@ -102,7 +102,7 @@ Who pays in a chat: always the person who sent the command, from their free allo
 
 A model such as Nano Banana 2.1 has offers `gemini:gemini-nano-banana-2.1` and `openrouter:google/gemini-nano-banana-2.1`. The overlay maps them explicitly; names are not guessed. A model's id is its OpenRouter id, so it stays when a direct offer joins later; a model OpenRouter does not carry, such as Gemini Omni, gets its id in the overlay.
 
-The sync never deletes. An offer that leaves its source gets `disabled_at`, and a model with no offer left is disabled with it; one that comes back is restored. A failed listing changes nothing, a model whose endpoints fail keeps its last row, and a sync that would disable more than half of OpenRouter's offers is refused as a broken answer.
+The sync never deletes. An offer that leaves its source gets `disabled_at`, and a model with no offer left is disabled with it; one that comes back is restored. A failed listing changes nothing, and so does one where more than half the entries do not decode. A model whose entry does not decode, in any of the three listings, or whose endpoints fail, keeps its last row, and the sync logs why (`catalog offer not refreshed`): one field OpenRouter changes on one model holds back that model only. A sync that would disable more than half of OpenRouter's offers is refused as a broken answer.
 
 Prices of the same model at different providers are usually equal: OpenRouter charges the provider's price per request and takes its fee of about 5.5% when credits are bought. What differs is where the money comes from and which settings exist:
 

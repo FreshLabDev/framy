@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"slices"
@@ -39,9 +40,15 @@ type OpenRouterSource struct {
 // Upstream is what one fetch saw.
 type Upstream struct {
 	Offers []Offer
-	// Partial lists image offers whose endpoints could not be read; the
-	// store keeps what it had for them.
+	// Partial lists offers whose details could not be read this time: an
+	// image model's endpoints, or a model's entry in a listing that did not
+	// decode. The store keeps what it had for them.
 	Partial []string
+	// Why says, by offer id, why an offer in Partial was not read.
+	Why map[string]string
+	// Unreadable lists the entries of a listing that did not decode and
+	// whose model cannot be named, so nothing is kept for them.
+	Unreadable []string
 	// NoDiscount lists offers whose discount could not be read. They are
 	// saved with none, so their price errs on the dear side until the next
 	// sync.
@@ -115,29 +122,60 @@ type orModel struct {
 }
 
 // Fetch reads every catalog. A listing that fails fails the fetch, so a bad
-// hour changes nothing; an image model whose endpoints fail is left out and
-// named in Partial, unless so many fail that the answer cannot be trusted.
+// hour changes nothing. A model whose entry does not decode, in any listing,
+// or an image model whose endpoints fail, is left out and named in Partial,
+// unless so many fail that the answer cannot be trusted: one field OpenRouter
+// changes on one model keeps that model as it was and refreshes the rest.
 func (s *OpenRouterSource) Fetch(ctx context.Context) (Upstream, error) {
-	var models []orModel
-	if err := s.list(ctx, "/models?output_modalities=image,video", &models); err != nil {
+	up := Upstream{Why: map[string]string{}}
+	models, badMeta, err := listOf[orModel](ctx, s, "/models?output_modalities=image,video", &up)
+	if err != nil {
 		return Upstream{}, err
 	}
 	meta := make(map[string]orModel, len(models))
 	for _, m := range models {
 		meta[m.ID] = m
 	}
-	var images []orImageModel
-	if err := s.list(ctx, "/images/models", &images); err != nil {
+	images, badImages, err := listOf[orImageModel](ctx, s, "/images/models", &up)
+	if err != nil {
 		return Upstream{}, err
 	}
-	var videos []orVideoModel
-	if err := s.list(ctx, "/videos/models", &videos); err != nil {
+	videos, badVideos, err := listOf[orVideoModel](ctx, s, "/videos/models", &up)
+	if err != nil {
 		return Upstream{}, err
 	}
 	if len(images) == 0 || len(videos) == 0 {
 		// An empty list is an outage, not every model leaving at once.
 		return Upstream{}, fmt.Errorf("openrouter catalog: %d image and %d video models listed", len(images), len(videos))
 	}
+	// A model whose entry in /models did not decode lacks its input kinds
+	// and its shutdown day: it is kept as it was too.
+	keep := func(model string, why error) {
+		id := OfferID(OpenRouter, model)
+		if _, seen := up.Why[id]; !seen {
+			up.Partial = append(up.Partial, id)
+		}
+		up.Why[id] = why.Error()
+	}
+	for _, bad := range []map[string]error{badImages, badVideos} {
+		for _, model := range slices.Sorted(maps.Keys(bad)) {
+			keep(model, bad[model])
+		}
+	}
+	images = slices.DeleteFunc(images, func(m orImageModel) bool {
+		if err, bad := badMeta[m.ID]; bad {
+			keep(m.ID, err)
+			return true
+		}
+		return false
+	})
+	videos = slices.DeleteFunc(videos, func(m orVideoModel) bool {
+		if err, bad := badMeta[m.ID]; bad {
+			keep(m.ID, err)
+			return true
+		}
+		return false
+	})
 
 	routes, failed := s.endpoints(ctx, images)
 	if len(failed)*2 > len(images) {
@@ -154,11 +192,10 @@ func (s *OpenRouterSource) Fetch(ctx context.Context) (Upstream, error) {
 	}
 	discounts := s.discounts(ctx, ids)
 
-	var up Upstream
 	for _, m := range images {
 		id := OfferID(OpenRouter, m.ID)
-		if _, bad := failed[m.ID]; bad {
-			up.Partial = append(up.Partial, id)
+		if err, bad := failed[m.ID]; bad {
+			keep(m.ID, err)
 			continue
 		}
 		d, ok := discounts[m.ID]
@@ -386,21 +423,42 @@ func escapeID(id string) string {
 	return strings.Join(parts, "/")
 }
 
-// list reads a {"data": [...]} listing. An entry that does not decode is an
-// error: half a catalog would disable the other half.
-func (s *OpenRouterSource) list(ctx context.Context, path string, out any) error {
+// listOf reads a {"data": [...]} listing an entry at a time. An entry that
+// does not decode is named in bad by its model's id, so the caller keeps
+// that model as it was rather than dropping it: a model missing from a
+// snapshot is disabled. One whose id cannot be read either goes to
+// up.Unreadable. More than half the entries failing is an error, since such
+// an answer says more about OpenRouter than about its models.
+func listOf[T any](ctx context.Context, s *OpenRouterSource, path string, up *Upstream) ([]T, map[string]error, error) {
 	var l orListing
 	if err := s.get(ctx, path, &l); err != nil {
-		return err
+		return nil, nil, err
 	}
-	raw, err := json.Marshal(l.Data)
-	if err != nil {
-		return err
+	out := make([]T, 0, len(l.Data))
+	bad := map[string]error{}
+	var unnamed []string
+	for i, raw := range l.Data {
+		var v T
+		err := json.Unmarshal(raw, &v)
+		if err == nil {
+			out = append(out, v)
+			continue
+		}
+		err = fmt.Errorf("openrouter %s: %w", path, err)
+		var named struct {
+			ID string `json:"id"`
+		}
+		if json.Unmarshal(raw, &named) == nil && named.ID != "" {
+			bad[named.ID] = err
+			continue
+		}
+		unnamed = append(unnamed, fmt.Sprintf("entry %d: %v", i, err))
 	}
-	if err := json.Unmarshal(raw, out); err != nil {
-		return fmt.Errorf("openrouter %s: %w", path, err)
+	if failed := len(bad) + len(unnamed); failed*2 > len(l.Data) {
+		return nil, nil, fmt.Errorf("openrouter %s: %d of %d entries do not decode", path, failed, len(l.Data))
 	}
-	return nil
+	up.Unreadable = append(up.Unreadable, unnamed...)
+	return out, bad, nil
 }
 
 func (s *OpenRouterSource) get(ctx context.Context, path string, out any) error {

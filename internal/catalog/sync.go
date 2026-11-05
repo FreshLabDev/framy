@@ -86,7 +86,10 @@ func (s *Syncer) SyncOnce(ctx context.Context) error {
 		s.Log.Warn("catalog overlay mismatch", "detail", w)
 	}
 	for _, id := range snap.Keep {
-		s.Log.Warn("catalog offer not refreshed; kept as it was", "offer", id)
+		s.Log.Warn("catalog offer not refreshed; kept as it was", "offer", id, "why", up.Why[id])
+	}
+	for _, w := range up.Unreadable {
+		s.Log.Warn("catalog entry not understood; skipped", "detail", w)
 	}
 	if len(up.NoDiscount) > 0 {
 		s.Log.Warn("catalog discounts not read; those offers show their listed price until the next sync",
