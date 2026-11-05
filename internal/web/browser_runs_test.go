@@ -675,6 +675,32 @@ func TestBrowserRuns(t *testing.T) {
 	noErrors(t, ctx)
 }
 
+// TestBrowserRunsSaid checks what a screen reader hears of a run: a status
+// region beside the stage says each phase once as it comes, never the
+// clock, and why a run gave nothing.
+func TestBrowserRunsSaid(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const el = document.querySelector("#stageSay"), heard = [];
+	new MutationObserver(() => { if (el.textContent) heard.push(el.textContent); }).observe(el, { childList: true, characterData: true, subtree: true });
+	await press("slow", (s) => s.done);
+	await wait(300);
+	const done = heard.splice(0);
+	await press("fail:key", (s) => s.failed);
+	await wait(300);
+	return { role: el.getAttribute("role"), inStage: !!el.closest("#stage"), done, failed: heard };`)
+	done := fmt.Sprint(s["done"])
+	if s["role"] != "status" || s["inStage"] != false || done != "[Getting ready In the queue Making it Ready]" && done != "[In the queue Making it Ready]" {
+		t.Errorf("a run said: %v", s)
+	}
+	if f, _ := s["failed"].([]any); len(f) == 0 || f[len(f)-1] != "The key does not work. OpenRouter no longer accepts the key: it was revoked, or this model is closed to it." {
+		t.Errorf("a failed run said: %v", s["failed"])
+	}
+	noErrors(t, ctx)
+}
+
 // TestBrowserStreamFails checks a run whose events cannot be heard: a stream
 // framy keeps failing gives way to reading the job, which ends with the
 // result; a job that is not the person's leaves the stage saying so; signed

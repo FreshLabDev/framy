@@ -504,7 +504,7 @@ const sigOf = (run) => [run.n, run.phase, jobsOf(run).map((j) => [j.status, j.re
 // The run changed: the stage shows its new state, the frame glides to its new shape.
 export function runChanged() {
   const run = S.run;
-  if (!run) { shownSig = ""; renderStage(); return; }
+  if (!run) { shownSig = ""; renderStage(); say(""); return; }
   const sig = sigOf(run);
   if (sig === shownSig && run.step === shownStep) return;
   const fresh = run.n !== shownN;
@@ -512,8 +512,34 @@ export function runChanged() {
   const d = stageFrom();
   renderStage();
   d();
+  say(phaseOf(run));
   if (fresh && S.showJob) anim($("#stage [data-k=pv]"), [{ transform: "scale(.96)", opacity: 0.6 }, { transform: "none", opacity: 1 }], { duration: 420, easing: EASE });
   else if (motion() && (run.multi ? !runOver(run) : run.phase !== "job" || !isFinal(run.job?.status))) rise($$("#stage .jbox .c"), { y: 6 });
+}
+
+// What a screen reader hears of the run: each phase once as it comes (getting
+// ready, in the queue, making it, ready, or why it gave nothing), never the
+// clock, and while the next one is set up too.
+let said = "";
+function say(text) {
+  const el = $("#stageSay");
+  if (!el || text === said) return;
+  said = text;
+  el.textContent = text;
+}
+const labelOf = (v) => v.status?.querySelector("b")?.textContent || "";
+const withWhy = (label, why) => (why ? t("stage.why", { label, why }) : label);
+function phaseOf(run) {
+  if (run.multi && run.phase === "job") {
+    const js = jobsOf(run);
+    if (js.some((j) => j.status === "running")) return t("stage.running");
+    if (js.some((j) => !isFinal(j.status))) return t("stage.queued");
+    const cells = cellsOf(run), failed = cells.filter((c) => c.v.fail);
+    if (failed.length === cells.length) return phaseOf(failed[0].sub);
+    return withWhy(t("stage.done"), failed.map((c) => t("fr.failed", { n: c.i + 1, why: labelOf(c.v) })).join(" "));
+  }
+  const v = view(run);
+  return v.done ? t("stage.done") : withWhy(labelOf(v), v.fail ? v.why.filter(Boolean).join(" ") : "");
 }
 
 // The countdowns on the stage and in the viewer, once a second while there are any.

@@ -11771,6 +11771,24 @@
     "ja": "現在の生成に戻る",
     "ar": "العودة إلى التشغيل الحالي"
   },
+  "web.stage.done": {
+    "en": "Ready",
+    "ru": "Готово",
+    "uk": "Готово",
+    "es": "Listo",
+    "fr": "C’est prêt",
+    "de": "Fertig",
+    "it": "Pronto",
+    "pl": "Gotowe",
+    "cs": "Hotovo",
+    "tr": "Hazır",
+    "sv": "Klart",
+    "be": "Гатова",
+    "ca": "Llest",
+    "zh": "已完成",
+    "ja": "完成しました",
+    "ar": "جاهز"
+  },
   "web.stage.download": {
     "en": "Download",
     "ru": "Скачать",
@@ -11968,6 +11986,24 @@
     "zh": "{t}，通常 {u}",
     "ja": "{t}（通常 {u}）",
     "ar": "{t}، عادةً {u}"
+  },
+  "web.stage.why": {
+    "en": "{label}. {why}",
+    "ru": "{label}. {why}",
+    "uk": "{label}. {why}",
+    "es": "{label}. {why}",
+    "fr": "{label}. {why}",
+    "de": "{label}. {why}",
+    "it": "{label}. {why}",
+    "pl": "{label}. {why}",
+    "cs": "{label}. {why}",
+    "tr": "{label}. {why}",
+    "sv": "{label}. {why}",
+    "be": "{label}. {why}",
+    "ca": "{label}. {why}",
+    "zh": "{label}。{why}",
+    "ja": "{label}。{why}",
+    "ar": "{label}. {why}"
   },
   "web.step.clip_prep": {
     "en": "Preparing the clip",

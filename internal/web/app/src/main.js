@@ -48,7 +48,9 @@ function mount() {
   app.dataset.view = S.view;
   app.replaceChildren(
     h("div", { class: "wrap" }, h("header", { class: "top", id: "top" }),
-      h("main", { class: "create", id: "create" }, mountComposer(), h("section", { class: "stage", id: "stage", "aria-label": t("stage.label") })),
+      h("main", { class: "create", id: "create" }, mountComposer(), h("section", { class: "stage", id: "stage", "aria-label": t("stage.label") }),
+        // What a screen reader hears of a run; the stage is drawn anew, so it stands beside it.
+        h("p", { class: "sr", id: "stageSay", role: "status" })),
       mountLibrary()),
     h("div", { class: "scrim", id: "scrim", hidden: true, onclick: () => closeSheets() }),
     mountPicker(),
