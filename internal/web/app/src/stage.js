@@ -5,7 +5,7 @@ import { $, $$, h, ic, isPhone } from "./dom.js";
 import { anim, rise, snap, EASE, motion } from "./motion.js";
 import { t, fmtNum } from "./i18n.js";
 import { C, vname, famLogo, lg, ratioNum, ratioOfSize, PNAME, provMark, show, SICON } from "./catalog.js";
-import { S, M, payOf, settings, sourceRatio, connection, FR, MAXFR, scopeFr, plan } from "./state.js";
+import { S, M, payOf, settings, sourceRatio, connection, keyToConnect, FR, MAXFR, scopeFr, plan } from "./state.js";
 import { isFinal, outsOf } from "./api.js";
 import { failure, waiting, left, BILLING } from "./errors.js";
 import { priceText, sumOf } from "./price.js";
@@ -297,9 +297,12 @@ const REFFIG = { price_changed: "coin", not_free: "coin", free_limit: "clock", f
 // A square one shows only its icon on a phone, so each says its name.
 export const B = (icon, label, fn, cls = "") => h("button", { type: "button", class: cls || null, "aria-label": cls.startsWith("sq") ? label : null, onclick: fn }, ic(icon), h("span", { class: "t" }, label));
 const againActs = (run) => [B("again", t("act.retry"), () => again(run), "primary"), B("edit", t("act.edit"), () => editPrompt(run))];
+// The run again on the person's key; with no key that works, the way to
+// connect the one it would go on.
 function keyBtn(run) {
-  const p = keyFor(run);
-  return p ? B("key", t("act.bykey", { provider: PNAME[p] }), () => byKey(run), "primary") : null;
+  const p = keyFor(run), m = C.byId[run.model];
+  if (p) return B("key", t("act.bykey", { provider: PNAME[p] }), () => byKey(run), "primary");
+  return m ? keyFix(keyToConnect(m), "primary") : null;
 }
 const againBtn = (run, o, label, cls) => (o.again ? o.again(label, cls) : B("again", label, () => again(run), cls));
 function failActs(run, f, o = {}) {

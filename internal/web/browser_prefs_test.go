@@ -473,6 +473,61 @@ func TestBrowserPrefs(t *testing.T) {
 	noErrors(t, ctx)
 }
 
+// TestBrowserFreeUsedUp opens the composer of a person with no key whose
+// free pictures are used up. The button connects OpenRouter instead of
+// standing grey, the price is the run's on that key rather than "Free", and
+// when free runs are back reads to its end under it; on a phone the button
+// takes its own line for that. Free is no choice in Pay with, and the week's
+// free video still goes free.
+func TestBrowserFreeUsedUp(t *testing.T) {
+	f := &fakePrefs{}
+	ts := fakeSite(t, f.mount)
+	ctx := browser(t, ts.URL, 390, 844, true)
+	s := prefs(t, ctx, `
+	const p = document.querySelector("#prompt"), go = document.querySelector("#go"), pc = document.querySelector("#pcap");
+	p.value = "a fox in the snow"; p.dispatchEvent(new Event("input"));
+	await until(() => /Connect/.test(go.textContent) && /\$/.test(document.querySelector("#pnum").dataset.t));
+	await wait(400);
+	const out = { go: go.firstChild.nextSibling.textContent, on: !go.disabled, price: document.querySelector("#pnum").dataset.t, cap: pc.textContent,
+	  cut: pc.scrollWidth > pc.clientWidth + 1 || pc.scrollHeight > pc.clientHeight + 1, under: go.getBoundingClientRect().top >= pc.getBoundingClientRect().bottom };
+	go.click();
+	await until(() => !sheet().hidden);
+	await wait(400);
+	out.focus = document.activeElement.textContent.trim();
+	out.inRow = !!document.activeElement.closest('[data-p="openrouter"]');
+	document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+	await until(() => sheet().hidden);
+	document.querySelectorAll("#kind > button")[1].click();
+	await until(() => /Create/.test(go.textContent));
+	await wait(400);
+	out.video = [go.firstChild.nextSibling.textContent, document.querySelector("#pnum").dataset.t];
+	return out;`)
+	if s["go"] != "Connect OpenRouter" || s["on"] != true || !strings.HasPrefix(fmt.Sprint(s["price"]), "≈ $") ||
+		!regexp.MustCompile(`^Next free run: [A-Z][a-z]+ \d{1,2} at \d{1,2}:\d\d [AP]M$`).MatchString(fmt.Sprint(s["cap"])) || s["cut"] != false || s["under"] != true {
+		t.Errorf("free used up on a phone: %v", s)
+	}
+	if s["focus"] != "Connect" || s["inRow"] != true {
+		t.Errorf("the button leads to OpenRouter's row: %v", s)
+	}
+	if fmt.Sprint(s["video"]) != "[Create Free]" {
+		t.Errorf("the free video: %v", s["video"])
+	}
+
+	// Pay with has Free used up and not to be picked, and OpenRouter picked.
+	ctx = browser(t, ts.URL, 1440, 900, false)
+	s = prefs(t, ctx, `
+	await until(() => document.querySelector('#how [data-seg="pay"] [data-v="free"]'));
+	const seg = (v) => document.querySelector('#how [data-seg="pay"] [data-v="' + v + '"]');
+	seg("free").click();
+	await wait(300);
+	return { free: [seg("free").disabled, seg("free").getAttribute("aria-checked"), seg("free").textContent], key: seg("openrouter").getAttribute("aria-checked"),
+	  go: document.querySelector("#go").firstChild.nextSibling.textContent };`)
+	if fmt.Sprint(s["free"]) != "[true false FreeUsed up]" || s["key"] != "true" || s["go"] != "Connect OpenRouter" {
+		t.Errorf("pay with: %v", s)
+	}
+	noErrors(t, ctx)
+}
+
 // TestBrowserPrefsLanguage checks that a new language is the server's and
 // the page's: it reloads in it, with the settings open again.
 func TestBrowserPrefsLanguage(t *testing.T) {

@@ -428,7 +428,8 @@ function paySec(m, pay) {
   if (ps.length === 1) return h("div", { class: "paysec", "data-k": "h-pay" }, h("div", { class: "sec row" }, lab, h("div", { class: "pay1" }, name(ps[0]), h("small", {}, sub(ps[0])))));
   return h("div", { class: "paysec", "data-k": "h-pay" }, h("div", { class: "sec row" }, lab,
     h("div", { class: "seg", role: "radiogroup", "aria-label": t("pay.label"), "data-seg": "pay", "data-dur": 380 }, ps.map((p) =>
-      opt({ key: "pay", v: p, on: pay === p, cls: usable(m, p) ? "" : "off", title: p === "free" ? freePer(kind) : connection(p) ? t("pay.your_key", { last4: connection(p).last4 }) : null,
+      // Free that cannot pay now is not a choice: a run on it could not go.
+      opt({ key: "pay", v: p, on: pay === p, cls: usable(m, p) ? "" : "off", disabled: p === "free" && !usable(m, p), title: p === "free" ? freePer(kind) : connection(p) ? t("pay.your_key", { last4: connection(p).last4 }) : null,
         pick: () => act(() => { setPayHere(m, p); render(); }) }, h("span", { class: "row" }, name(p)), h("small", {}, sub(p)))))));
 }
 
@@ -639,6 +640,7 @@ export function renderBar() {
   const fc = $("#how .fcount");
   if (fc) fc.textContent = framesCount(P);
   const btn = $("#go");
+  btn.parentElement.classList.toggle("says", !!nx.why);
   btn.replaceChildren(nx.icon ? ic(nx.icon) : "", nx.label, nx.on ? h("small", { class: "kbd" }, MAC ? "⌘↵" : "Ctrl ↵") : "");
   btn.disabled = !nx.on;
   btn.onclick = nx.act === "create" ? generate : nx.act === "signin" ? signIn : nx.act === "cut" ? openCut : nx.act === "key" ? () => openPrefs(nx.provider) : nx.act === "close" ? closeMini : null;

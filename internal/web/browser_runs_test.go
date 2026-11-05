@@ -79,6 +79,9 @@ type fakeRuns struct {
 	out     bool             // signed out: a "stream:401" job was watched
 	expired bool             // the Mini App's launch data is refused, as an hour after Telegram signed it
 	trades  int              // how many times the launch data was traded for a token
+	// keyless: no key is connected, and a free picture is left by the meter,
+	// as when the bot took the last one since the page read it.
+	keyless bool
 }
 
 type fakeJob struct {
@@ -91,17 +94,21 @@ func (f *fakeRuns) mount(srv *Server) {
 	f.jobs = map[int64]*fakeJob{}
 	srv.HandleFunc("GET /api/me", func(w http.ResponseWriter, _ *http.Request) {
 		f.mu.Lock()
-		out := f.out
+		out, keyless := f.out, f.keyless
 		f.mu.Unlock()
 		if out {
 			writeTestJSON(w, http.StatusUnauthorized, map[string]any{"error": "sign_in"})
 			return
 		}
+		conns := []map[string]any{{"id": "c1", "provider": "openrouter", "last4": "abcd", "status": "ok"}}
+		images := map[string]any{"used": 5, "limit": 5, "left": 0, "window_seconds": 86400, "frees_at": time.Now().Add(3 * time.Hour).UTC()}
+		if keyless {
+			conns, images = []map[string]any{}, map[string]any{"used": 4, "limit": 5, "left": 1, "window_seconds": 86400}
+		}
 		writeTestJSON(w, http.StatusOK, map[string]any{
-			"user_id": 1, "name": "Ada", "language": "en", "currency": "USD",
-			"connections": []map[string]any{{"id": "c1", "provider": "openrouter", "last4": "abcd", "status": "ok"}},
+			"user_id": 1, "name": "Ada", "language": "en", "currency": "USD", "connections": conns,
 			"free": map[string]any{
-				"images": map[string]any{"used": 5, "limit": 5, "left": 0, "window_seconds": 86400, "frees_at": time.Now().Add(3 * time.Hour).UTC()},
+				"images": images,
 				"videos": map[string]any{"used": 0, "limit": 1, "left": 1, "window_seconds": 604800},
 			},
 		})
@@ -671,6 +678,36 @@ func TestBrowserRuns(t *testing.T) {
 	if acts := fmt.Sprint(s["acts"]); s["done"] != true || !strings.HasPrefix(acts, "[Download Again Edit the prompt") || s["prompt"] != "done" || s["ghost"] != true ||
 		s["revealing"] != true || s["settled"] != true || s["twice"] != false || s["once"] != true {
 		t.Errorf("result: %v", s)
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserRunsNoKey checks the way on for a person with no key when the
+// free run is refused after all: where a person with a key gets the run on
+// it, the card connects OpenRouter, and so does the button while the free
+// runs are paused, with when they are back under the price.
+func TestBrowserRunsNoKey(t *testing.T) {
+	runs := &fakeRuns{keyless: true}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`return await press("refuse:free_limit", (s) => s.failed);`)
+	if !strings.HasPrefix(fmt.Sprint(s["acts"]), "[Connect OpenRouter Edit the prompt") {
+		t.Errorf("free limit with no key: %v", s)
+	}
+	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const s = await press("refuse:free_closed", (s) => s.failed);
+	const go = document.querySelector("#go");
+	for (let i = 0; i < 30 && !/Connect/.test(go.textContent); i++) await wait(100);
+	s.go = [go.firstChild.nextSibling.textContent, go.disabled];
+	s.cap = document.querySelector("#pcap").textContent;
+	[...document.querySelectorAll("#stage .jacts > button")].find((b) => b.textContent.trim() === "Connect OpenRouter")?.click();
+	for (let i = 0; i < 30 && document.querySelector("#prefs").hidden; i++) await wait(100);
+	await wait(400);
+	s.focus = document.activeElement.closest('[data-p="openrouter"]') ? document.activeElement.textContent.trim() : "";
+	return s;`)
+	if s["label"] != "Free runs paused" || !strings.HasPrefix(fmt.Sprint(s["acts"]), "[Connect OpenRouter Edit the prompt") || fmt.Sprint(s["go"]) != "[Connect OpenRouter false]" ||
+		!regexp.MustCompile(`^Free again at \d{1,2}:\d\d [AP]M$`).MatchString(fmt.Sprint(s["cap"])) || s["focus"] != "Connect" {
+		t.Errorf("free paused with no key: %v", s)
 	}
 	noErrors(t, ctx)
 }
