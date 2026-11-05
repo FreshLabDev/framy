@@ -3,6 +3,7 @@
 package auth
 
 import (
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -27,7 +28,8 @@ func mustJSON(t *testing.T, s string, v any) {
 // loginStateOf decodes the browser's login cookie.
 func loginStateOf(t *testing.T, b *browser) loginState {
 	t.Helper()
-	raw, err := base64.RawURLEncoding.DecodeString(b.cookies[loginCookie])
+	payload, _, _ := strings.Cut(b.cookies[loginCookie], ".")
+	raw, err := base64.RawURLEncoding.DecodeString(payload)
 	if err != nil {
 		t.Fatalf("login cookie: %v", err)
 	}
@@ -36,10 +38,23 @@ func loginStateOf(t *testing.T, b *browser) loginState {
 	return st
 }
 
-// setLoginState writes a login cookie into the browser.
-func setLoginState(b *browser, st loginState) {
+// sealLoginState writes a login cookie into the browser as framy signs one:
+// what a test needs to reach the checks behind the signature.
+func sealLoginState(b *browser, st loginState) {
+	b.cookies[loginCookie] = b.h.auth.sealLogin(st)
+}
+
+// forgeLoginState writes the login cookie a client can make itself: the
+// fields of its choice, signed with key, or not at all when key is nil.
+func forgeLoginState(b *browser, st loginState, key []byte) {
 	raw, _ := json.Marshal(st)
-	b.cookies[loginCookie] = base64.RawURLEncoding.EncodeToString(raw)
+	v := base64.RawURLEncoding.EncodeToString(raw)
+	if key != nil {
+		m := hmac.New(sha256.New, key)
+		m.Write([]byte(v))
+		v += "." + base64.RawURLEncoding.EncodeToString(m.Sum(nil))
+	}
+	b.cookies[loginCookie] = v
 }
 
 func TestSignInThenSignOut(t *testing.T) {
@@ -465,8 +480,24 @@ func TestStateAndCookieChecks(t *testing.T) {
 		cb := b.approve(b.startLogin(""))
 		st := loginStateOf(t, b)
 		st.Verifier = "a-verifier-that-never-made-the-challenge-0123456789"
-		setLoginState(b, st)
+		sealLoginState(b, st)
 		expectRefused(t, h, b, b.get(cb), "failed", "site_exchange")
+	})
+	t.Run("a cookie edited in the browser", func(t *testing.T) {
+		h := newHarness(t)
+		b := h.browser()
+		cb := b.approve(b.startLogin(""))
+		payload, sig, _ := strings.Cut(b.cookies[loginCookie], ".")
+		raw, _ := base64.RawURLEncoding.DecodeString(payload)
+		edited := strings.Replace(string(raw), `"r":"/"`, `"r":"/library"`, 1)
+		if edited == string(raw) {
+			edited = strings.Replace(string(raw), `"t":`, `"r":"/library","t":`, 1)
+		}
+		b.cookies[loginCookie] = base64.RawURLEncoding.EncodeToString([]byte(edited)) + "." + sig
+		expectRefused(t, h, b, b.get(cb), "expired", "site_cookie")
+		if h.idp.tokenRequestCount() != 0 {
+			t.Error("the code was traded on an edited cookie")
+		}
 	})
 	t.Run("the callback used twice", func(t *testing.T) {
 		h := newHarness(t)
@@ -480,7 +511,7 @@ func TestStateAndCookieChecks(t *testing.T) {
 		expectNoSecondSession(t, h, b.get(cb), "expired", "site_no_state")
 		// ... and a replay with a copy of it meets a code the provider has used.
 		replay := h.browser()
-		setLoginState(replay, st)
+		sealLoginState(replay, st)
 		expectRefused(t, h, replay, replay.get(cb), "failed", "site_exchange")
 		if n := h.sessions.(*memSessions).count(); n != 1 {
 			t.Errorf("%d sessions after a replay", n)
@@ -566,16 +597,60 @@ func TestOpenRedirectsAreRefused(t *testing.T) {
 			}
 		})
 	}
-	// The cookie is the browser's to edit; the callback believes it no more
-	// than the query.
+	// The cookie is signed, so a browser cannot edit where it goes; and the
+	// callback believes even a signed one no more than the query.
 	h := newHarness(t)
 	b := h.browser()
 	cb := b.approve(b.startLogin("/fine"))
 	st := loginStateOf(t, b)
 	st.ReturnTo = "//evil.example"
-	setLoginState(b, st)
+	sealLoginState(b, st)
 	if r := b.get(cb); r.code != http.StatusSeeOther || r.location() != "/" {
 		t.Errorf("a doctored cookie sent the browser to %q", r.location())
+	}
+}
+
+// Someone who has another person's code, with the state and the nonce of
+// that sign-in (a callback address in a history, a proxy's log), cannot
+// write a login cookie to match: the callback takes only a cookie framy
+// signed, so it never trades the code. Without the signature only the
+// provider's check of the PKCE verifier stood in the way, and this fake
+// Telegram, like a lax one, does not make it.
+func TestALoginCookieFramyDidNotSignIsRefused(t *testing.T) {
+	for name, key := range map[string][]byte{
+		"unsigned":                             nil,
+		"signed with a key of its own":         []byte("the attacker's own key, 32 bytes!"),
+		"signed with the client secret itself": []byte(testClientSecret),
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			h.idp.mu.Lock()
+			h.idp.laxPKCE = true
+			h.idp.mu.Unlock()
+			victim := h.browser()
+			authURL, _ := url.Parse(victim.startLogin(""))
+			nonce := authURL.Query().Get("nonce")
+			leaked, _ := url.Parse(victim.approve(authURL.String()))
+
+			attacker := h.browser()
+			forgeLoginState(attacker, loginState{
+				State:    leaked.Query().Get("state"),
+				Nonce:    nonce,
+				Verifier: "any-verifier-at-all-since-the-provider-is-lax-0123",
+				At:       h.clock.Now().Unix(),
+			}, key)
+			expectRefused(t, h, attacker, attacker.get(leaked.String()), "expired", "site_cookie")
+			if h.idp.tokenRequestCount() != 0 {
+				t.Fatal("the code was traded on a cookie framy did not sign")
+			}
+			// The code is still the victim's to use.
+			if r := victim.get(leaked.String()); r.code != http.StatusSeeOther || r.location() != "/" {
+				t.Fatalf("the victim's own callback: %d -> %q", r.code, r.location())
+			}
+			if id, ok := victim.signedIn(); !ok || id != testUserID {
+				t.Fatalf("the victim is not signed in: %d %v", id, ok)
+			}
+		})
 	}
 }
 

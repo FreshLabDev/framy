@@ -27,6 +27,7 @@ package auth
 
 import (
 	"context"
+	"crypto/hkdf"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -127,6 +128,9 @@ type Auth struct {
 	initData               *Verifier
 	log                    *slog.Logger
 	now                    func() time.Time
+	// loginKey signs the login cookie. It is derived from the client
+	// secret, so it outlives a restart and stays the stack's own.
+	loginKey []byte
 
 	provMu sync.Mutex
 	prov   *provider
@@ -191,6 +195,9 @@ func New(cfg Config) (*Auth, error) {
 			return nil, fmt.Errorf("auth: SiteURL %w", err)
 		}
 		a.redirectURL = origin + "/auth/callback"
+		if a.loginKey, err = hkdf.Key(sha256.New, []byte(cfg.ClientSecret), nil, loginKeyInfo, sha256.Size); err != nil {
+			return nil, fmt.Errorf("auth: the key of the login cookie: %w", err)
+		}
 	}
 	return a, nil
 }

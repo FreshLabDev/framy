@@ -4,7 +4,9 @@ package auth
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -30,9 +32,20 @@ import (
 // the outcome. A table would need a write for every visitor of /auth/login,
 // signed in or not, and a sweep; the cookie needs neither, and what it holds
 // is of use only to the browser it was set on.
+//
+// The cookie is signed (sealLogin), so a browser can carry it but not write
+// it. Unsigned, the callback's checks of the state and the nonce would compare
+// what came back from Telegram with values the client chose: someone holding
+// another person's code and the state and nonce of their sign-in (a callback
+// address in a history or a proxy's log) could write a cookie to match and
+// be signed in as them, with only Telegram's check of the PKCE verifier in
+// the way.
 const (
 	loginCookie = "__Host-framy_login"
 	loginLife   = 10 * time.Minute
+	// loginKeyInfo names what the key derived from the client secret is
+	// for, so it is used for nothing else.
+	loginKeyInfo = "framy sign-in cookie"
 )
 
 // scopes of the sign-in: `profile` gives the `id` claim, which is the
@@ -121,10 +134,9 @@ func (a *Auth) Login() http.Handler {
 			ReturnTo: safeReturnTo(r.URL.Query().Get("return_to")),
 			At:       a.now().Unix(),
 		}
-		raw, _ := json.Marshal(st)
 		http.SetCookie(w, &http.Cookie{
 			Name:     loginCookie,
-			Value:    base64.RawURLEncoding.EncodeToString(raw),
+			Value:    a.sealLogin(st),
 			Path:     "/",
 			MaxAge:   int(loginLife.Seconds()),
 			HttpOnly: true,
@@ -159,15 +171,18 @@ func (a *Auth) Callback() http.Handler {
 			signInUnavailable(w)
 			return
 		}
-		st, haveState := a.readLogin(r)
+		st, found := a.readLogin(r)
 		clearCookie(w, loginCookie) // used once, whatever happens
 		var (
 			userID int64
 			f      *failure
 		)
-		if haveState {
+		switch found {
+		case loginFound:
 			userID, f = a.finishLogin(r, st)
-		} else {
+		case loginForged:
+			f = &failure{reason: "expired", result: "site_cookie", err: errors.New("the login cookie is not signed by this server")}
+		default:
 			f = &failure{reason: "expired", result: "site_no_state"}
 		}
 		if f != nil {
@@ -316,26 +331,53 @@ func language(locale string) string {
 	return l
 }
 
-// readLogin reads the login cookie. A cookie that is missing, damaged or
-// older than loginLife is no cookie.
-func (a *Auth) readLogin(r *http.Request) (loginState, bool) {
+// What readLogin found.
+type loginFind int
+
+const (
+	loginNone   loginFind = iota // no cookie, or one too old
+	loginForged                  // a cookie this server did not sign
+	loginFound
+)
+
+// sealLogin is the value of the login cookie: the JSON of st as base64url, a
+// dot, and the HMAC-SHA256 of that text under the login key.
+func (a *Auth) sealLogin(st loginState) string {
+	raw, _ := json.Marshal(st)
+	payload := base64.RawURLEncoding.EncodeToString(raw)
+	return payload + "." + base64.RawURLEncoding.EncodeToString(a.loginMAC(payload))
+}
+
+func (a *Auth) loginMAC(payload string) []byte {
+	m := hmac.New(sha256.New, a.loginKey)
+	m.Write([]byte(payload))
+	return m.Sum(nil)
+}
+
+// readLogin reads the login cookie. Nothing in it is believed before its
+// signature matches. A cookie that is missing or older than loginLife is
+// none; one that is damaged or signed by anyone else (a key since rotated
+// with the client secret included) is forged.
+func (a *Auth) readLogin(r *http.Request) (loginState, loginFind) {
 	c, err := r.Cookie(loginCookie)
 	if err != nil {
-		return loginState{}, false
+		return loginState{}, loginNone
 	}
-	raw, err := base64.RawURLEncoding.DecodeString(c.Value)
-	if err != nil {
-		return loginState{}, false
+	payload, sig, ok := strings.Cut(c.Value, ".")
+	mac, err := base64.RawURLEncoding.DecodeString(sig)
+	if !ok || err != nil || !hmac.Equal(mac, a.loginMAC(payload)) {
+		return loginState{}, loginForged
 	}
+	raw, err := base64.RawURLEncoding.DecodeString(payload)
 	var st loginState
-	if err := json.Unmarshal(raw, &st); err != nil || st.State == "" || st.Verifier == "" {
-		return loginState{}, false
+	if err != nil || json.Unmarshal(raw, &st) != nil || st.State == "" || st.Verifier == "" {
+		return loginState{}, loginForged
 	}
 	age := a.now().Sub(time.Unix(st.At, 0))
 	if age > loginLife || age < -time.Minute {
-		return loginState{}, false
+		return loginState{}, loginNone
 	}
-	return st, true
+	return st, loginFound
 }
 
 // safeReturnTo returns the path if it is one on this site and "/" otherwise.

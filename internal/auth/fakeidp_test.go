@@ -96,6 +96,9 @@ type fakeIDP struct {
 	// rejectTokens makes the next token requests answer 401 invalid_client,
 	// as a provider does that dislikes how the client authenticated.
 	rejectTokens int
+	// laxPKCE trades a code whatever verifier comes with it, as a provider
+	// would that does not hold the client to the challenge it sent.
+	laxPKCE bool
 }
 
 func newFakeIDP(t *testing.T, clock *testClock) *fakeIDP {
@@ -220,7 +223,7 @@ func (f *fakeIDP) serveToken(w http.ResponseWriter, r *http.Request) {
 	}
 	c.used = true
 	sum := sha256.Sum256([]byte(r.PostForm.Get("code_verifier")))
-	if b64(sum[:]) != c.challenge {
+	if !f.laxPKCE && b64(sum[:]) != c.challenge {
 		refuse("PKCE verifier does not match")
 		return
 	}
