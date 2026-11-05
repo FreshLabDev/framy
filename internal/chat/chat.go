@@ -76,6 +76,7 @@ type Telegram interface {
 type Store interface {
 	Offer(ctx context.Context, id string) (catalog.Model, catalog.Offer, error)
 	Catalog(ctx context.Context) ([]catalog.Model, error)
+	Settings(ctx context.Context, userID int64) (db.Settings, error)
 	UserLang(ctx context.Context, userID int64) (string, error)
 	ChatLang(ctx context.Context, chatID int64) (string, error)
 	Currency(ctx context.Context, userID int64) (string, error)

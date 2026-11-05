@@ -513,6 +513,17 @@ type fakeStore struct {
 	shareOwner map[int64]int64
 	// previewErr fails SetChatRunPreview.
 	previewErr error
+	// settings are each person's settings of the site, by user id.
+	settings map[int64]db.Settings
+}
+
+func (s *fakeStore) Settings(_ context.Context, userID int64) (db.Settings, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if st, ok := s.settings[userID]; ok {
+		return st, nil
+	}
+	return db.Settings{Deliver: true}, nil
 }
 
 // ShareSource finds the person's result in s.shares.

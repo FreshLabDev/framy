@@ -365,6 +365,9 @@ func (f *Flow) draft(ctx context.Context, m *tg.Message, src found, prompt, key,
 		return d, "", err
 	}
 	d.pay = payFree
+	if e, ok := f.ownModel(ctx, user, lang, prompt, d); ok {
+		d.onOwn(e)
+	}
 	if refusal, err := f.queueDraft(ctx, lang, newJob(m, key, prompt, inputs, &d), &d, false); refusal != "" || err != nil || d.id == 0 {
 		return draft{}, refusal, err
 	}
@@ -402,6 +405,9 @@ func (f *Flow) draftMotion(ctx context.Context, m *tg.Message, src found, prompt
 	d.estimate = price.Of(model, offer, priceRequest(prompt, settings, sizes, nil))
 	if d.quote, err = f.quote(ctx, user, lang); err != nil {
 		return draft{}, "", err
+	}
+	if e, ok := f.ownModel(ctx, user, lang, prompt, d); ok {
+		d.onOwn(e)
 	}
 	if refusal, err := f.queueDraft(ctx, lang, newJob(m, key, prompt, inputs, &d), &d, false); refusal != "" || err != nil || d.id == 0 {
 		return draft{}, refusal, err
