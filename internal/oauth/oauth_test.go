@@ -474,6 +474,45 @@ func TestACancelledAuthorizationEndsWithoutAnExchange(t *testing.T) {
 	}
 }
 
+// OpenRouter does not send the state back when the person denies access
+// (its OAuth guide, the state parameter of /auth), so a cancel comes without
+// one. It is still a cancel, not a connect that expired: an answer without a
+// code saves nothing, and the cookie and the person are checked as ever.
+func TestACancelWithoutTheStateIsACancel(t *testing.T) {
+	for name, tc := range map[string]struct {
+		query string
+		wait  time.Duration
+		want  Result
+	}{
+		"access denied":        {query: "?error=access_denied", want: Cancelled},
+		"nothing at all":       {query: "", want: Cancelled},
+		"another error":        {query: "?error=server_error", want: Refused},
+		"after ten minutes":    {query: "?error=access_denied", wait: time.Hour, want: Cancelled},
+		"a code with no state": {query: "?code=or-code-x", want: Expired},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			b := h.browser(ann)
+			b.start()
+			h.clock.Advance(tc.wait)
+			if got := b.callback(CallbackPath + tc.query); got != tc.want {
+				t.Fatalf("result %q, want %q", got, tc.want)
+			}
+			if _, exchanges, _ := h.or.counts(); exchanges != 0 {
+				t.Error("OpenRouter was asked to exchange")
+			}
+			if h.store.count() != 0 || len(h.keys.saved()) != 0 {
+				t.Error("the flow outlived the callback, or a key was saved")
+			}
+		})
+	}
+	// Without the cookie of a flow it is no cancel of anyone's: nothing to end.
+	h := newHarness(t)
+	if got := h.browser(ann).callback(CallbackPath + "?error=access_denied"); got != Expired {
+		t.Errorf("a cancel in a browser that started nothing: %q", got)
+	}
+}
+
 func TestAFailedExchangeSavesNothingAndSaysSo(t *testing.T) {
 	for name, tc := range map[string]struct {
 		force int

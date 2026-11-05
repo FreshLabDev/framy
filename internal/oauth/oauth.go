@@ -346,13 +346,6 @@ func (c *Connector) complete(ctx context.Context, r *http.Request) (Result, stri
 		c.log.Error("cannot take the OAuth flow", "error", err)
 		return Unavailable, "store"
 	}
-	q := r.URL.Query()
-	if subtle.ConstantTimeCompare([]byte(q.Get("state")), []byte(cookie.Value)) != 1 {
-		return Expired, "state differs from the cookie"
-	}
-	if !c.now().Before(flow.ExpiresAt) {
-		return Expired, "flow expired"
-	}
 	user, ok := c.person(r)
 	switch {
 	case !ok:
@@ -362,6 +355,10 @@ func (c *Connector) complete(ctx context.Context, r *http.Request) (Result, stri
 	case flow.Provider != Provider:
 		return Expired, "flow of another provider"
 	}
+	// An answer without a code is read before the state: OpenRouter does
+	// not send the state back when the person denies access, and such an
+	// answer saves nothing, so the state has nothing to guard there.
+	q := r.URL.Query()
 	if e := q.Get("error"); e != "" {
 		if e == "access_denied" {
 			return Cancelled, "access denied"
@@ -369,10 +366,16 @@ func (c *Connector) complete(ctx context.Context, r *http.Request) (Result, stri
 		return Refused, "provider error"
 	}
 	code := q.Get("code")
-	switch {
-	case code == "":
+	if code == "" {
 		return Cancelled, "no code"
-	case len(code) > maxCodeLen:
+	}
+	if subtle.ConstantTimeCompare([]byte(q.Get("state")), []byte(cookie.Value)) != 1 {
+		return Expired, "state differs from the cookie"
+	}
+	if !c.now().Before(flow.ExpiresAt) {
+		return Expired, "flow expired"
+	}
+	if len(code) > maxCodeLen {
 		return Refused, "code too long"
 	}
 	key, result, reason := c.exchange(ctx, code, flow.Verifier)
