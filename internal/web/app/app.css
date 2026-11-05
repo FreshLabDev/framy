@@ -850,3 +850,43 @@ html.full-on {overflow: hidden;}
 @media (hover: hover) {
   .addfr:not(:disabled):hover, .ghost.cell:not([aria-pressed="true"]):hover {background-color: var(--line);}
 }
+
+/* The system's contrast colours (Windows contrast themes): the system paints every fill with its page
+   colour, so what a fill alone showed is drawn here in the system's own colours. The choice made has
+   the selection colour, a control has a frame, and a maker's mark, a slider, a switch and the dots of a
+   strip are drawn in the colour of the text around them. The choice made keeps its colours over the
+   fills of a hover and of a variant row, and the system draws no page colour behind its words. */
+@media (forced-colors: active) {
+  .ind {display: none;}
+  :where(button, textarea, select, input:not([type="range"], [type="file"], [type="checkbox"], [type="radio"]), .tab, .jacts > a):not(.link-t, .mnote button, .dold button, .morebtn, .tog, .gap, .old, [tabindex="-1"]) {border: 1px solid;}
+  :is([role="radio"][aria-checked="true"], .tab[aria-current="page"], .rcard[aria-current="true"], .pill[aria-pressed="true"]) {forced-color-adjust: none; background-color: Highlight !important; color: HighlightText !important; border-color: Highlight !important;}
+  :is([role="radio"][aria-checked="true"], .tab[aria-current="page"], .rcard[aria-current="true"], .pill[aria-pressed="true"]):focus-visible {outline-color: CanvasText;}
+  :is([role="radio"][aria-checked="true"], .tab[aria-current="page"], .rcard[aria-current="true"], .pill[aria-pressed="true"]) * {color: inherit !important;}
+  .ic {color: inherit !important;}
+  .lg {background-color: transparent;}
+  .lg > i, .lgi, .fseg .dot {background-color: CanvasText;}
+  button :is(.lg > i, .lgi, .dot) {background-color: ButtonText;}
+  button:disabled :is(.lg > i, .lgi, .dot) {background-color: GrayText;}
+  :is([role="radio"][aria-checked="true"], .tab[aria-current="page"], .rcard[aria-current="true"], .pill[aria-pressed="true"]) :is(.lg > i, .lgi, .dot) {background-color: HighlightText;}
+  .frow[aria-current="true"]::before {background-color: Highlight;}
+  .frow[aria-current="true"] > .fhit {border: 2px solid Highlight;}
+  .ghost[aria-pressed="true"], .vpicks button[aria-pressed="true"] {outline: 3px solid Highlight; outline-offset: -3px;}
+  .ghost[aria-pressed="true"] > i {border-color: Highlight;}
+  .steps .ticks button.on {color: Highlight;}
+  input[type="range"] {forced-color-adjust: none; --fill: linear-gradient(to right, Highlight calc(10px + (100% - 20px) * var(--f, 0)), GrayText 0);}
+  [dir="rtl"] input[type="range"] {--fill: linear-gradient(to left, Highlight calc(10px + (100% - 20px) * var(--f, 0)), GrayText 0);}
+  input[type="range"]::-webkit-slider-thumb {background: ButtonText;}
+  input[type="range"]::-moz-range-thumb {background: ButtonText;}
+  input[type="range"]:focus-visible {outline-color: CanvasText;}
+  .tog .knob {border: 1px solid; background-color: transparent;}
+  .tog .knob::after {top: 3px; left: 3px; background-color: ButtonText;}
+  .tog[aria-checked="true"] .knob {background-color: Highlight; border-color: Highlight;}
+  .tog[aria-checked="true"] .knob::after {background-color: HighlightText;}
+  .pseg, .dots > i {background-color: GrayText;}
+  .pseg > i, .dots > i.on {background-color: Highlight;}
+  .timeline .ph {background-color: CanvasText;}
+  .toast {border: 2px solid;}
+  .tip, .scopetip, .ownmark, .chip.own, .chip.warn {border: 1px solid;}
+  .srow.bad {border-inline-start: 3px solid;}
+  .kform input[aria-invalid="true"] {border-width: 2px;}
+}

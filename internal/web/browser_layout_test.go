@@ -5,14 +5,17 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"image/png"
 	"os"
 	"testing"
 
 	"github.com/chromedp/cdproto/accessibility"
 	"github.com/chromedp/cdproto/cdp"
+	"github.com/chromedp/cdproto/emulation"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 )
@@ -44,9 +47,18 @@ func browserAs(t *testing.T, url string, w, h int64, o opened) context.Context {
 	if o.lang != "" {
 		pre += fmt.Sprintf("try { localStorage.setItem(\"framy.lang\", %s); } catch (e) {}\n", jsString(o.lang))
 	}
+	media := []*emulation.MediaFeature{}
+	for k, v := range o.media {
+		media = append(media, &emulation.MediaFeature{Name: k, Value: v})
+	}
 	err := chromedp.Do(ctx,
 		chromedp.EmulateViewport(w, h, vp...),
 		chromedp.Func(func(ctx context.Context, tg *chromedp.Target) error {
+			if len(media) > 0 {
+				if _, err := cdp.Call(ctx, tg, emulation.SetEmulatedMedia, emulation.SetEmulatedMediaParams{Features: media}); err != nil {
+					return err
+				}
+			}
 			_, err := cdp.Call(ctx, tg, page.AddScriptToEvaluateOnNewDocument, page.AddScriptToEvaluateOnNewDocumentParams{Source: pre})
 			return err
 		}),
@@ -258,4 +270,117 @@ func TestBrowserTabNames(t *testing.T) {
 		}
 		noErrors(t, ctx)
 	}
+}
+
+// forcedHelpers reads colours under the system's contrast colours: sys gives
+// a system colour as the page resolves it, and words lists the colours of the
+// words inside an element.
+const forcedHelpers = `
+const sys = (c) => { const d = document.createElement("i"); d.style.cssText = "position:absolute;forced-color-adjust:none;color:" + c; document.body.append(d); const v = getComputedStyle(d).color; d.remove(); return v; };
+const cs = (el) => getComputedStyle(el);
+const words = (el) => [...el.querySelectorAll("*")].filter((e) => [...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())).map((e) => cs(e).color);
+`
+
+// TestBrowserForcedColors checks the page under the system's contrast colours
+// (Windows contrast themes), which paint every fill with the page colour: the
+// option chosen in each choice has the selection colour with its words in the
+// selection's text colour, a control has a frame, a maker's mark and an icon
+// have the colour of the words, and a slider keeps its thumb and its fill.
+func TestBrowserForcedColors(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browserAs(t, ts.URL, 1440, 900, opened{media: map[string]string{"forced-colors": "active"}})
+	got := js[map[string]any](t, ctx, pageHelpers+forcedHelpers+`
+	await wait(500);
+	const hi = sys("Highlight"), hiText = sys("HighlightText"), canvas = sys("Canvas"), text = [sys("CanvasText"), sys("ButtonText")];
+	const bad = [];
+	if (!matchMedia("(forced-colors: active)").matches) bad.push("no forced colours");
+	const inds = [...document.querySelectorAll("[data-seg] > .ind")];
+	if (!inds.length || inds.some((e) => cs(e).display !== "none")) bad.push("the sliding block shows: " + inds.length);
+	const groups = { kind: '[data-seg="kind"]', variant: '[data-seg="var"]', pay: '[data-seg="pay"]', ratio: ".ratios[data-seg]", tab: '[data-seg="view"]' };
+	for (const [k, q] of Object.entries(groups)) {
+	  const g = document.querySelector(q);
+	  if (!g) { bad.push(k + ": no group"); continue; }
+	  const on = g.querySelector(':scope > [aria-checked="true"], :scope > [aria-current="page"]'), off = g.querySelector(':scope > [aria-checked="false"]:not(:disabled), :scope > a:not([aria-current])');
+	  if (cs(on).backgroundColor !== hi) bad.push(k + ": chosen on " + cs(on).backgroundColor);
+	  if (off && cs(off).backgroundColor === hi) bad.push(k + ": not chosen on the selection colour");
+	  const ws = [cs(on).color, ...words(on)].filter((c) => c !== hiText);
+	  if (ws.length) bad.push(k + ": words of the chosen in " + ws.join(", "));
+	  if (!off || parseFloat(cs(off).borderTopWidth) < 1 || cs(off).borderTopColor === canvas) bad.push(k + ": an option has no frame");
+	}
+	const mark = document.querySelector('[data-seg="pay"] > [aria-checked="true"] .lgi');
+	if (!mark || cs(mark).backgroundColor !== hiText) bad.push("the mark of the chosen key: " + (mark && cs(mark).backgroundColor));
+	const lg = document.querySelector("#how .mhead .lg > i");
+	if (!lg || !text.includes(cs(lg).backgroundColor)) bad.push("the maker's mark: " + (lg && cs(lg).backgroundColor));
+	const chev = document.querySelector("#how .mhead > .ic");
+	if (!chev || !text.includes(cs(chev).color)) bad.push("the icon of the model: " + (chev && cs(chev).color));
+	for (const sel of ["#prompt", "#go", "#how .mhead"]) {
+	  const el = document.querySelector(sel);
+	  if (!el || parseFloat(cs(el).borderTopWidth) < 1 || cs(el).borderTopColor === canvas) bad.push(sel + " has no frame");
+	}
+	// FLUX 3 has a slider of resolutions.
+	document.querySelector("#how .mhead").click();
+	await wait(700);
+	const q = document.querySelector("#pksearch");
+	q.value = "FLUX";
+	q.dispatchEvent(new Event("input", { bubbles: true }));
+	await wait(800);
+	const cur = document.querySelector('#pkrows .frow[aria-current="true"] > .fhit');
+	const row = [...document.querySelectorAll("#pkrows .frow")].find((r) => /FLUX/.test(r.textContent) && [...r.querySelectorAll(".pill")].some((b) => b.textContent.trim() === "3"));
+	[...row.querySelectorAll(".pill")].find((b) => b.textContent.trim() === "3").click();
+	await wait(900);
+	const s = [...document.querySelectorAll("#how .steps")].find(vis);
+	if (!s) return { bad: [...bad, "FLUX 3 shows no slider"] };
+	const r = s.querySelector("input[type=range]");
+	r.value = 1;
+	r.dispatchEvent(new Event("input", { bubbles: true }));
+	s.scrollIntoView({ block: "center" });
+	await wait(300);
+	if (cs(s.querySelector(".ticks button.on")).color !== hi) bad.push("the step chosen: " + cs(s.querySelector(".ticks button.on")).color);
+	// Where the thumb, the filled track and the rest of it are drawn, to look at on the screen.
+	const rr = r.getBoundingClientRect(), y = Math.round(rr.top + rr.height / 2);
+	const pts = { thumb: [Math.round(rr.left + 10 + (rr.width - 20) * r.value / r.max), y], fill: [Math.round(rr.left + 5), y], rest: [Math.round(rr.right - 5), y] };
+	return { bad, hi, canvas, pts, thumb: sys("ButtonText") };`)
+	if bad := got["bad"].([]any); len(bad) > 0 {
+		t.Errorf("forced colours (selection %v, page %v):\n%v", got["hi"], got["canvas"], bad)
+	}
+	buf, err := chromedp.Run(ctx, chromedp.CaptureScreenshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := png.Decode(bytes.NewReader(buf))
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := func(k string) [3]int {
+		p := got["pts"].(map[string]any)[k].([]any)
+		r, g, b, _ := img.At(int(p[0].(float64)), int(p[1].(float64))).RGBA()
+		return [3]int{int(r >> 8), int(g >> 8), int(b >> 8)}
+	}
+	far := func(a, b [3]int) int { return abs(a[0]-b[0]) + abs(a[1]-b[1]) + abs(a[2]-b[2]) }
+	canvas, thumb := rgbOf(got["canvas"].(string)), rgbOf(got["thumb"].(string))
+	if d := far(at("thumb"), thumb); d > 60 {
+		t.Errorf("the thumb is drawn in %v, want the button text %v", at("thumb"), thumb)
+	}
+	if far(at("fill"), canvas) < 90 || far(at("rest"), canvas) < 90 || far(at("fill"), at("rest")) < 90 {
+		t.Errorf("the track is lost: filled %v, the rest %v, the page %v", at("fill"), at("rest"), canvas)
+	}
+	noErrors(t, ctx)
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
+// rgbOf reads a colour as getComputedStyle gives it, "rgb(r, g, b)" or "rgba(r, g, b, a)".
+func rgbOf(s string) [3]int {
+	var c [3]int
+	var a float64
+	if _, err := fmt.Sscanf(s, "rgb(%d, %d, %d)", &c[0], &c[1], &c[2]); err != nil {
+		fmt.Sscanf(s, "rgba(%d, %d, %d, %g)", &c[0], &c[1], &c[2], &a)
+	}
+	return c
 }
