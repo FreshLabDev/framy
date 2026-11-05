@@ -23,7 +23,8 @@
 # prompt, which goes inline; the overlay says how many.
 #
 # Not described: gemini-2.5-flash-image, which is on Google's deprecation
-# page, and the *-preview ids, shut down on 25 June 2026.
+# page and shuts down on 15 March 2027, and the preview ids Google shut down
+# on 25 June 2026.
 
 provider: gemini
 

@@ -200,8 +200,10 @@ models:
         output_image: {1K: 1120, 2K: 1120, 4K: 2000}
         input_image: {"*": 560}
 
+  # The Gemini API's deprecations page and Vertex agree (5 November 2026).
   google/gemini-2.5-flash-image:
-    hide: on Google's deprecation page, and its own pages disagree on the shutdown date
+    hide: on Google's deprecation page; it shuts down on 15 March 2027, with Nano Banana 2 Lite in its place
+    deprecated: {shuts_down: "2027-03-15", successor: google/gemini-3.1-flash-lite-image}
 
   # Microsoft publishes no token count. About 1,024 a 1024x1024 image is
   # Artificial Analysis's price per image divided by the rate, on all four
