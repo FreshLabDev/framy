@@ -97,7 +97,10 @@ const (
 	maxSubmits = 5
 	// maxAttempts caps River's own retries, for errors that are framy's.
 	maxAttempts = 5
-	draftTTL    = 10 * time.Minute
+	// draftTTL is how long a draft waits for "Generate" after it was made
+	// or last changed (updated_at): a person still choosing the model and
+	// the settings of a preview is not timed out by its age.
+	draftTTL = 10 * time.Minute
 )
 
 // RunDeadline: a run the provider has not finished by then, counted from
@@ -348,8 +351,8 @@ func (q *Queue) Draft(ctx context.Context, n New) (id int64, created bool, err e
 	return id, created, err
 }
 
-// Generate queues a draft. A draft older than 10 minutes, already started or
-// cancelled gives ErrNotDraft, so a repeated press starts nothing.
+// Generate queues a draft. A draft left unchanged for 10 minutes, already
+// started or cancelled gives ErrNotDraft, so a repeated press starts nothing.
 func (q *Queue) Generate(ctx context.Context, id int64) error {
 	return pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
 		var userID int64
@@ -370,7 +373,7 @@ func (q *Queue) Generate(ctx context.Context, id int64) error {
 		var provider, kind string
 		err = tx.QueryRow(ctx, `
 			UPDATE job SET status='queued', queued_at=now(), updated_at=now()
-			WHERE id=$1 AND status='draft' AND created_at > now() - make_interval(secs => $2)
+			WHERE id=$1 AND status='draft' AND updated_at > now() - make_interval(secs => $2)
 			RETURNING provider, kind`, id, draftTTL.Seconds()).Scan(&provider, &kind)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotDraft
@@ -384,9 +387,9 @@ func (q *Queue) Generate(ctx context.Context, id int64) error {
 
 // Revise changes what a draft runs: the offer, the settings, who pays and
 // the price shown, as the chat's panels do. The person and the prompt stay,
-// and so does the draft's age. The files stay too while n.Inputs is nil;
-// otherwise they are replaced by n.Inputs, in order, which must be the
-// person's own, or ErrNoInput. A job that is not a draft any more gives
+// and the draft's 10 minutes start again. The files stay too while n.Inputs
+// is nil; otherwise they are replaced by n.Inputs, in order, which must be
+// the person's own, or ErrNoInput. A job that is not a draft any more gives
 // ErrNotDraft. A free revision asks the allowance as a new job would, about
 // the files it takes after the change.
 func (q *Queue) Revise(ctx context.Context, id int64, n New) error {
@@ -395,7 +398,7 @@ func (q *Queue) Revise(ctx context.Context, id int64, n New) error {
 		err := tx.QueryRow(ctx, `
 			SELECT user_id, (SELECT count(*) FROM job_input WHERE job_id = job.id)
 			FROM job
-			WHERE id=$1 AND status='draft' AND created_at > now() - make_interval(secs => $2)
+			WHERE id=$1 AND status='draft' AND updated_at > now() - make_interval(secs => $2)
 			FOR UPDATE`, id, draftTTL.Seconds()).Scan(&a.UserID, &a.Inputs)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotDraft
@@ -517,7 +520,7 @@ func (q *Queue) admitDraft(ctx context.Context, tx pgx.Tx, id int64) error {
 		       GREATEST(estimate_usd, (estimate->>'max_usd')::numeric)::float8,
 		       (SELECT count(*) FROM job_input WHERE job_id = job.id)
 		FROM job
-		WHERE id=$1 AND status='draft' AND created_at > now() - make_interval(secs => $2)
+		WHERE id=$1 AND status='draft' AND updated_at > now() - make_interval(secs => $2)
 		FOR UPDATE`, id, draftTTL.Seconds()).Scan(
 		&a.UserID, &a.Offer, &a.Kind, &a.Settings, &free, &estimate, &a.Inputs)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !free) {

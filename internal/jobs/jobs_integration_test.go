@@ -822,9 +822,25 @@ func TestTheSweep(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	given := enqueue(t, q, job(bob, imageOffer))
-	if _, err := pool.Exec(ctx, `UPDATE framy.job SET created_at = now() - interval '11 minutes' WHERE id = $1`, stale); err != nil {
+	// A draft made 11 minutes ago and last changed 9 minutes ago is a
+	// person still choosing: its 10 minutes count from the change, and
+	// start again with the next one.
+	worked, _, err := q.Draft(ctx, job(alice, imageOffer))
+	if err != nil {
 		t.Fatal(err)
+	}
+	given := enqueue(t, q, job(bob, imageOffer))
+	if _, err := pool.Exec(ctx, `UPDATE framy.job SET created_at = now() - interval '11 minutes', updated_at = now() - interval '11 minutes' WHERE id = $1`, stale); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE framy.job SET created_at = now() - interval '11 minutes', updated_at = now() - interval '9 minutes' WHERE id = $1`, worked); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Revise(ctx, worked, job(alice, imageOffer)); err != nil {
+		t.Fatalf("a draft made 11 minutes ago and changed 9 minutes ago was not revised: %v", err)
+	}
+	if err := q.Revise(ctx, stale, job(alice, imageOffer)); !errors.Is(err, ErrNotDraft) {
+		t.Fatalf("a draft left alone for 11 minutes was revised: %v", err)
 	}
 	// A job rescued on its last attempt: River discards it unworked.
 	if _, err := pool.Exec(ctx, `UPDATE framy.river_job SET state='discarded', finalized_at=now()
@@ -837,10 +853,13 @@ func TestTheSweep(t *testing.T) {
 	if n, err := q.sweep(ctx); err != nil || n != 2 {
 		t.Fatalf("sweep = %d, %v; want 2", n, err)
 	}
-	for id, want := range map[int64]Status{stale: Cancelled, fresh: Draft, given: Failed} {
+	for id, want := range map[int64]Status{stale: Cancelled, fresh: Draft, worked: Draft, given: Failed} {
 		if j := get(t, q, id); j.Status != want {
 			t.Errorf("job %d: %s, want %s", id, j.Status, want)
 		}
+	}
+	if err := q.Generate(ctx, worked); err != nil {
+		t.Fatalf("Generate on a draft just changed: %v", err)
 	}
 }
 

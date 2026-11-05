@@ -26,7 +26,7 @@ func (w *sweepWorker) Work(ctx context.Context, _ *river.Job[sweepArgs]) error {
 }
 
 // sweep ends what nobody else will:
-//   - drafts not confirmed within 10 minutes;
+//   - drafts left unconfirmed and unchanged for 10 minutes;
 //   - jobs River gave up on without working them, as it does with a job
 //     whose worker died on its last attempt.
 func (q *Queue) sweep(ctx context.Context) (int64, error) {
@@ -38,7 +38,7 @@ func (q *Queue) sweep(ctx context.Context) (int64, error) {
 		failed = failed[:0]
 		tag, err := tx.Exec(ctx, `
 			UPDATE job SET status='cancelled', error_class='draft_expired', finished_at=now(), updated_at=now()
-			WHERE status='draft' AND created_at <= now() - make_interval(secs => $1)`, draftTTL.Seconds())
+			WHERE status='draft' AND updated_at <= now() - make_interval(secs => $1)`, draftTTL.Seconds())
 		if err != nil {
 			return err
 		}
