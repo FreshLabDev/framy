@@ -423,11 +423,20 @@ func (r *References) validate() error {
 	if r == nil {
 		return nil
 	}
-	if *r == (References{}) {
+	if r.Image == 0 && r.Video == 0 && r.Audio == 0 && r.Files == 0 && r.VideoClip == nil && r.AudioClip == nil &&
+		!r.FrameRequired && len(r.ImageDurations) == 0 {
 		return errors.New("references says nothing")
 	}
 	if r.Image < 0 || r.Video < 0 || r.Audio < 0 || r.Files < 0 {
 		return errors.New("references cannot be negative")
+	}
+	for _, d := range r.ImageDurations {
+		if d <= 0 {
+			return errors.New("references.image_durations are seconds above 0")
+		}
+	}
+	if len(r.ImageDurations) > 0 && r.Image == 0 {
+		return errors.New("references.image_durations without references.image")
 	}
 	for name, c := range map[string]*Clip{"video_clip": r.VideoClip, "audio_clip": r.AudioClip} {
 		if c == nil {

@@ -213,6 +213,7 @@ models:
     passthrough:
       notAccepted: {type: text}
     source_video: {max_seconds: 8}
+    references: {image: 3, image_durations: [7]}
 hide:
   - match: openai/gpt-image-1*
     why: closed
@@ -228,6 +229,7 @@ hide:
 		"model openai/gpt-image-1 is featured but hidden: closed",
 		"no offer accepts the pass-through setting notAccepted",
 		"model google/veo-3.1: source_video is set, but no offer takes a video",
+		"model google/veo-3.1: references.image_durations has 7 s, but no offer makes that duration",
 		"openrouter:black-forest-labs/flux-video-edit takes only text and video; mark source_video.required",
 	} {
 		if !slices.ContainsFunc(snap.Warnings, func(w string) bool { return strings.Contains(w, want) }) {

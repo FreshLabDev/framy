@@ -551,6 +551,34 @@ func TestTheFilesOfARunAreChecked(t *testing.T) {
 	}
 }
 
+// A video from reference images goes at the one length the model makes those
+// at, priced at it; a run that asks for another is refused before the queue.
+func TestAVideoFromReferencesGoesAtItsLength(t *testing.T) {
+	r := jobRig(t)
+	r.conns.list = []keys.Connection{{Provider: catalog.OpenRouter, Status: keys.Valid}}
+	r.store.offers[veoOffer] = veo()
+	r.data.addAsset(alice, InputAsset{ID: 60, ContentType: "image/jpeg", Width: 1280, Height: 720})
+	r.data.addAsset(alice, InputAsset{ID: 61, ContentType: "image/jpeg", Width: 1280, Height: 720})
+
+	resp := r.post(alice, "/api/jobs", nextKey(), body(veoOffer, "key", `"inputs":[60,61]`))
+	n := r.queue.last()
+	if resp.StatusCode != http.StatusAccepted || n.Settings["duration"] != 8 || n.Estimate == nil || !near(n.Estimate.USD, 8*0.40) {
+		t.Fatalf("references with no length: %d %v %+v", resp.StatusCode, n.Settings, n.Estimate)
+	}
+	resp = r.post(alice, "/api/jobs", nextKey(), body(veoOffer, "key", `"inputs":[60]`, `"settings":{"frame_images":["first_frame"],"duration":4}`))
+	if resp.StatusCode != http.StatusAccepted || r.queue.last().Settings["duration"] != 4.0 {
+		t.Errorf("a start frame at 4 s: %d %v", resp.StatusCode, r.queue.last().Settings)
+	}
+	calls := r.queue.calls()
+	resp = r.post(alice, "/api/jobs", nextKey(), body(veoOffer, "key", `"inputs":[60,61]`, `"settings":{"duration":6}`))
+	if m := jsonOf(t, resp); resp.StatusCode != http.StatusUnprocessableEntity || m["error"] != "wrong_inputs" || !strings.Contains(fmt.Sprint(m["message"]), "8 s") {
+		t.Errorf("references at 6 s: %d %v", resp.StatusCode, m)
+	}
+	if r.queue.calls() != calls {
+		t.Error("a refused run reached the queue")
+	}
+}
+
 // A kept sound goes as a reference where the offer takes sounds, priced as
 // "about"; one of no known length, or to a model without sounds, is refused
 // before the queue.

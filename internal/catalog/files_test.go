@@ -78,6 +78,8 @@ func TestLoadFilesRejects(t *testing.T) {
 		{"negative clip floor", map[string]string{"overlay.yaml": "models:\n  a/b:\n    price: {clip_min_seconds: -3}\n"}, "cannot be negative"},
 		{"bad size", map[string]string{"overlay.yaml": "models:\n  a/b:\n    price: {sizes: {480p: {\"16:9\": 864×496}}}\n"}, "not a size"},
 		{"no sizes", map[string]string{"overlay.yaml": "models:\n  a/b:\n    price: {sizes: {480p: {}}}\n"}, "lists no sizes"},
+		{"reference length without references", map[string]string{"overlay.yaml": "models:\n  a/b:\n    references: {image_durations: [8]}\n"}, "image_durations without references.image"},
+		{"reference length of nothing", map[string]string{"overlay.yaml": "models:\n  a/b:\n    references: {image: 3, image_durations: [0]}\n"}, "seconds above 0"},
 		{"clip without count", map[string]string{"overlay.yaml": "models:\n  a/b:\n    references: {image: 2, video_clip: {max_seconds: 5}}\n"}, "video_clip without references.video"},
 		{"inverted clip", map[string]string{"overlay.yaml": "models:\n  a/b:\n    references: {audio: 2, audio_clip: {min_seconds: 9, max_seconds: 5}}\n"}, "min_seconds <= max_seconds"},
 		{"bad shutdown day", map[string]string{"overlay.yaml": "models:\n  a/b:\n    deprecated: {shuts_down: 2 November 2026}\n"}, "not a day"},

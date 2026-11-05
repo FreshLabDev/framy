@@ -237,6 +237,7 @@ func (a *API) prepare(r *http.Request, user int64, req createRequest, conns *con
 	files := countOf(settings, inputs, nil)
 	fillFrames(settings, m, offer, files.Images)
 	files.Frames = frameCount(settings)
+	fitDuration(settings, m, offer, &files)
 	if aerr := checkInputs(m, offer, files); aerr != nil {
 		return prepared{}, aerr, nil
 	}
@@ -508,6 +509,45 @@ func fillFrames(settings map[string]any, m catalog.Model, offer catalog.Offer, i
 	if len(types) > 0 {
 		settings[framesSetting] = types
 	}
+}
+
+// durationSetting is a video's length in seconds.
+const durationSetting = "duration"
+
+// fitDuration gives a video from reference images the length its model
+// makes those at, where the run sets none: framy's default length would be
+// refused, as Veo 3.1 makes them at 8 s only. It puts the length the run
+// asks for in c, which checkInputs holds against the files.
+func fitDuration(settings map[string]any, m catalog.Model, offer catalog.Offer, c *catalog.Count) {
+	if v, set := settings[durationSetting]; !set || v == nil {
+		if d := catalog.InputsOf(m, offer).Durations(*c); len(d) > 0 {
+			settings[durationSetting] = durationValue(offer, d[0])
+		}
+	}
+	c.Duration = secondsOf(settings[durationSetting])
+}
+
+// durationValue is a length as the offer lists it, so a run's settings
+// carry the value of its enum.
+func durationValue(offer catalog.Offer, secs float64) any {
+	for _, v := range offer.Params[durationSetting].Values {
+		if secondsOf(v) == secs {
+			return v
+		}
+	}
+	return secs
+}
+
+// secondsOf reads a length from the settings: a JSON number, or an int
+// from the catalog. Anything else is 0, no length.
+func secondsOf(v any) float64 {
+	switch x := v.(type) {
+	case float64:
+		return x
+	case int:
+		return float64(x)
+	}
+	return 0
 }
 
 // countOf counts a run's files by kind: the kept ones, then those still in

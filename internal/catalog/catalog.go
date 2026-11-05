@@ -187,6 +187,10 @@ type References struct {
 	// frame, so a run needs a picture. OpenRouter's frame_images says only
 	// that one is taken.
 	FrameRequired bool `json:"frame_required,omitempty" yaml:"frame_required,omitempty"`
+	// ImageDurations are the only lengths, in seconds, of a video made from
+	// reference images, where the maker makes those at fewer lengths than
+	// from words or frames: Veo 3.1 at 8 s only.
+	ImageDurations []float64 `json:"image_durations,omitempty" yaml:"image_durations,omitempty"`
 }
 
 // Clip bounds the attached videos or sounds of one run: the seconds and the

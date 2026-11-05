@@ -74,6 +74,9 @@ func Build(up Upstream, files Files, now time.Time) Snapshot {
 		if kind == Video && m.Hidden == "" {
 			checkSourceVideo(id, m.Traits.SourceVideo, offers, warn)
 		}
+		if r := m.Traits.References; r != nil {
+			checkRefDurations(id, r.ImageDurations, offers, warn)
+		}
 		if h := m.Traits.Price; h != nil {
 			checkPrice(id, *h, offers, warn)
 		}
@@ -269,6 +272,27 @@ func checkSourceVideo(model string, s *SourceVideo, offers []Offer, warn func(st
 			return
 		}
 	}
+}
+
+// checkRefDurations warns when a length the overlay gives a video from
+// reference images is not one any offer makes.
+func checkRefDurations(model string, durations []float64, offers []Offer, warn func(string, ...any)) {
+	for _, d := range durations {
+		if !slices.ContainsFunc(offers, func(of Offer) bool { return lasts(of.Params["duration"], d) }) {
+			warn("model %s: references.image_durations has %g s, but no offer makes that duration", model, d)
+		}
+	}
+}
+
+// lasts reports whether a duration parameter has this many seconds.
+func lasts(p Param, secs float64) bool {
+	switch p.Type {
+	case Enum:
+		return slices.ContainsFunc(p.Values, func(v any) bool { n, ok := number(v); return ok && n == secs })
+	case Range:
+		return p.Min != nil && p.Max != nil && *p.Min <= secs && secs <= *p.Max
+	}
+	return false
 }
 
 var (

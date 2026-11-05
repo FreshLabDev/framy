@@ -205,7 +205,7 @@ function basePay(m) {
 export const usable = (m, pay) => !S.signed || (pay === "free" ? freeLeft(m.kind) > 0 : keyOk(pay));
 
 export function sourceRatio() { const i = images()[0] || clip(); return i && i.w && i.h ? i.w / i.h : null; }
-export const settings = (m, pay, w = wanted()) => withFrames(m, pay, settingsOf(m, pay, w, sourceRatio()));
+export const settings = (m, pay, w = wanted()) => withRefLengths(m, pay, withFrames(m, pay, settingsOf(m, pay, w, sourceRatio())));
 // The Fast switch is the site's own, never a setting the server sees: on, the
 // run goes to the model's fast mode (Wan 3.0 Prime for Wan 3.0) with the
 // settings that fit it.
@@ -323,6 +323,24 @@ function withFrames(m, pay, set) {
   const r = route(m, pay), on = (s) => S.files.some((f, i) => r[i]?.go && f.kind === "image" && slotOf(f) === s);
   const list = on("start") ? (on("end") ? ["first_frame", "last_frame"] : ["first_frame"]) : [];
   return list.length ? { ...set, frame_images: list } : set;
+}
+
+// The lengths a video can have when reference images go into it, where the
+// model makes those at fewer than it lists (Veo 3.1 at 8 s only); null when
+// any listed length goes. A free run goes as its plan says.
+export function refLengths(m, pay) {
+  const d = inputsOf(m, pay).images?.ref_durations;
+  if (!d?.length || pay === "free" || m.kind !== "video" || S.kind !== "video") return null;
+  const r = route(m, pay);
+  return S.files.some((f, i) => r[i]?.go && f.kind === "image" && slotOf(f) === "ref") ? d : null;
+}
+// The length goes as chosen while the references allow it, else as the
+// first they do; the choice is kept for when they are gone.
+function withRefLengths(m, pay, set) {
+  const d = "duration" in set ? refLengths(m, pay) : null;
+  if (!d || d.some((x) => +x === +set.duration)) return set;
+  const v = offerOf(m, pay)?.params?.duration?.values?.find((x) => +x === +d[0]);
+  return { ...set, duration: v ?? d[0] };
 }
 
 // A continuation fits the model that made the video, through the same provider, on a key.

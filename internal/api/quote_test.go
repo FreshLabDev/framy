@@ -22,7 +22,27 @@ const (
 	heygenOff  = "openrouter:heygen/heygen-video-1"
 	refsOffer  = "openrouter:test/refs"
 	discounted = "openrouter:test/discounted"
+	veoOffer   = "openrouter:google/veo-3.1"
 )
+
+// veo makes a video from words or frames at 4, 6 or 8 s and from reference
+// images at 8 s only, at $0.40 a second.
+func veo() catalog.Model {
+	of := catalog.Offer{
+		ID: veoOffer, ModelID: "google/veo-3.1", Provider: catalog.OpenRouter, ProviderModelID: "google/veo-3.1",
+		Kind: catalog.Video, Name: "Veo 3.1", InputModalities: []string{"text", "image"},
+		Params: map[string]catalog.Param{
+			"resolution":   {Type: catalog.Enum, Values: []any{"720p"}},
+			"duration":     {Type: catalog.Enum, Values: []any{4, 6, 8}},
+			"frame_images": {Type: catalog.Enum, Values: []any{"first_frame", "last_frame"}},
+		},
+		Routes: []catalog.Route{{SKUs: map[string]string{"duration_seconds_720p": "0.40"}}},
+	}
+	return catalog.Model{
+		ID: of.ModelID, Kind: catalog.Video, Name: "Veo 3.1", Maker: "Google", Offers: []catalog.Offer{of},
+		Traits: catalog.Traits{References: &catalog.References{Image: 3, ImageDurations: []float64{8}}},
+	}
+}
 
 // heygen is the free video model: 5 s at 768p, $0.036 a second listed.
 func heygen() catalog.Model {
@@ -87,6 +107,36 @@ func TestAQuoteSaysWhichFilesTheOfferTakes(t *testing.T) {
 	}
 	if r := refusal(2); r["error"] != "wrong_inputs" || !strings.Contains(r["message"].(string), "do not go together") {
 		t.Errorf("a frame and a video: %v", r)
+	}
+}
+
+// A video from reference images is quoted at the one length the model makes
+// those at, and a run that asks for another is told so; from words or
+// frames it goes at framy's default.
+func TestAQuoteGivesReferencesTheirLength(t *testing.T) {
+	r := quoteRig(t)
+	r.store.offers[veoOffer] = veo()
+	photo := `{"content_type":"image/jpeg","width":1280,"height":720}`
+	_, m := quoteOf(t, r, 0, `{"items":[
+		{"offer":"`+veoOffer+`","files":[`+photo+`,`+photo+`]},
+		{"offer":"`+veoOffer+`","settings":{"duration":6},"files":[`+photo+`]},
+		{"offer":"`+veoOffer+`","settings":{"frame_images":["first_frame"]},"files":[`+photo+`]},
+		{"offer":"`+veoOffer+`"}
+	]}`)
+	got := items(t, m)
+	usd := func(i int) float64 { e, _ := got[i]["estimate"].(map[string]any); u, _ := e["usd"].(float64); return u }
+	set := func(i int) any { return got[i]["settings"].(map[string]any)["duration"] }
+	if set(0) != 8.0 || !near(usd(0), 8*0.40) || got[0]["refusal"] != nil {
+		t.Errorf("references with no length: %v", got[0])
+	}
+	if r, _ := got[1]["refusal"].(map[string]any); r["error"] != "wrong_inputs" || !strings.Contains(fmt.Sprint(r["message"]), "is 8 s long, and 6 s is set") {
+		t.Errorf("references at 6 s: %v", got[1])
+	}
+	if set(2) != 6.0 || !near(usd(2), 6*0.40) || got[2]["refusal"] != nil {
+		t.Errorf("a start frame: %v", got[2])
+	}
+	if set(3) != 6.0 || got[3]["refusal"] != nil {
+		t.Errorf("from words: %v", got[3])
 	}
 }
 

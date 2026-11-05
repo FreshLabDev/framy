@@ -359,11 +359,15 @@ models:
   # are GA and retire "May 4, 2027 or later", a date Google says it never
   # moves earlier, and Lite is a Preview with no date (Vertex model pages,
   # 5 November 2026).
+  #
+  # With reference images Veo 3.1 and 3.1 Fast make 8 s only: "reference
+  # image to video only supports 8 seconds" (Vertex, 3.1), "Must be 8 when
+  # using reference images" (Gemini API, both).
 
   google/veo-3.1:
     family: {id: veo, gen: "3.1", tier: std, label: "3.1"}
     featured: true
-    references: {image: 3}
+    references: {image: 3, image_durations: [8]}
     faces: adults
     passthrough:
       negativePrompt: {type: text}
@@ -371,7 +375,7 @@ models:
   google/veo-3.1-fast:
     family: {id: veo, gen: "3.1", tier: fast, label: 3.1 Fast}
     featured: true
-    references: {image: 3}
+    references: {image: 3, image_durations: [8]}
     faces: adults
     passthrough:
       negativePrompt: {type: text}

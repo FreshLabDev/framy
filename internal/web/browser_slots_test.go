@@ -257,6 +257,71 @@ func TestBrowserVideoSounds(t *testing.T) {
 	noErrors(t, ctx)
 }
 
+// TestBrowserReferencesSetTheLength checks a model that makes a video from
+// reference images at fewer lengths than it lists: on Veo 3.1 the length
+// offers 4, 6 and 8 s, only 8 s once pictures go as references, every quote
+// asks for 8 s then, and the person's own choice comes back with the
+// references gone.
+func TestBrowserReferencesSetTheLength(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, func(srv *Server) {
+		runs.mount(srv)
+		srv.HandleFunc("POST /api/uploads", func(w http.ResponseWriter, r *http.Request) {
+			c, _, err := image.DecodeConfig(r.Body)
+			if err != nil {
+				writeTestJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": "unreadable"})
+				return
+			}
+			writeTestJSON(w, http.StatusCreated, map[string]any{"id": c.Width, "content_type": "image/png", "bytes": 100, "width": c.Width, "height": c.Height})
+		})
+	})
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+slotHelpers+`
+	window.__quotes = [];
+	const fetch0 = window.fetch;
+	window.fetch = (u, o) => {
+	  if (String(u).endsWith("/api/quote")) __quotes.push(JSON.parse(o.body));
+	  return fetch0(u, o);
+	};
+	const out = {};
+	const lengths = () => [...document.querySelectorAll("#how [data-seg='set-duration'] > button")].map((b) => b.firstChild.textContent + (b.getAttribute("aria-checked") === "true" ? "*" : ""));
+	const veo = (from) => __quotes.slice(from).flatMap((q) => q.items).filter((it) => it.offer === "openrouter:google/veo-3.1");
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(800);
+	document.querySelector("#how .mhead").click();
+	await wait(700);
+	const q = document.querySelector("#pksearch");
+	q.value = "Veo"; q.dispatchEvent(new Event("input", { bubbles: true }));
+	await wait(800);
+	document.querySelector("#pkrows .frow .fhit").click();
+	await wait(900);
+	out.model = model();
+	[...document.querySelectorAll("#how [data-seg='set-duration'] > button")].find((b) => b.textContent.startsWith("4"))?.click();
+	await wait(900);
+	out.words = lengths();
+	const from = __quotes.length;
+	await dropOn("ref", [await png(40, 40), await png(41, 40)]);
+	out.refs = groups(); out.model2 = model(); out.withRefs = lengths();
+	out.asked = [...new Set(veo(from).map((it) => it.settings?.duration))];
+	for (const b of [...document.querySelectorAll("#files .thumb .rm")]) { b.click(); await wait(300); }
+	await wait(900);
+	out.after = lengths();
+	return out;`)
+	if s["model"] != "Veo 3.1" || s["model2"] != "Veo 3.1" || s["refs"] != "ref:2+" {
+		t.Fatalf("model %v, then %v with %v", s["model"], s["model2"], s["refs"])
+	}
+	if fmt.Sprint(s["words"]) != "[4 s* 6 s 8 s]" {
+		t.Errorf("lengths from words: %v", s["words"])
+	}
+	if fmt.Sprint(s["withRefs"]) != "[8 s*]" || fmt.Sprint(s["asked"]) != "[8]" {
+		t.Errorf("lengths with references: %v, quoted at %v", s["withRefs"], s["asked"])
+	}
+	if fmt.Sprint(s["after"]) != "[4 s* 6 s 8 s]" {
+		t.Errorf("lengths with the references gone: %v", s["after"])
+	}
+	noErrors(t, ctx)
+}
+
 // soundHelpers make a WAV of a few seconds of silence.
 const soundHelpers = `
 const wav = (secs) => {

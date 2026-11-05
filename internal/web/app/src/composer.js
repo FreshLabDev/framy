@@ -7,7 +7,7 @@ import { t, fmtNum, fmtIn, fmtSecs } from "./i18n.js";
 import { C, PNAME, vname, famLogo, lg, provMark, freePlan, pays, offerOf, facts, factEl, deprecation, fieldsOf, SECONDARY, SEARCH, SICON,
   label, show, ordered, ratioNum, ratioOfSize, sizeK, resScore, needsVideo } from "./catalog.js";
 import { S, M, images, clip, payOf, usable, keyOk, connection, freeLeft, freeLimit, freesAt, freePer, settings, route, runItem, altItem, next, sourceRatio, quoteNow,
-  maxSecs, needsCut, contFits, slotOf, sources, inputsOf, placeFiles, refuses,
+  maxSecs, needsCut, contFits, slotOf, sources, inputsOf, placeFiles, refuses, refLengths,
   FR, MAXFR, scopeFr, newFrame, common, wanted, setModelHere, setPayHere, setWantedHere, tidy, ownBits, hasOwn, plan, paidItems, cutLimits, cutNeeded } from "./state.js";
 import { priceEl, priceText, known, need, onPrices, usd, needTotal, knownTotal } from "./price.js";
 import { renderStage, stageFrom, refit, runOver, ratioOf, syncStrip } from "./stage.js";
@@ -468,11 +468,15 @@ function toggleMore() {
 const setWanted = setWantedHere;
 function settingField(m, pay, o, s, name) {
   if (name === "size") return sizeFields(m, pay, o, s);
-  const p = o.params[name] || { type: "boolean" }, v = s[name], key = "set-" + name;
+  // With reference images some models make fewer lengths: only those are offered.
+  const all = o.params[name] || { type: "boolean" }, lens = name === "duration" ? refLengths(m, pay) : null;
+  const fit = lens && all.type === "enum" ? all.values.filter((x) => lens.some((y) => +y === +x)) : lens;
+  const p = lens ? { type: "enum", values: fit.length ? fit : lens } : all, v = s[name], key = "set-" + name;
   const set = (x) => act(() => { setWanted(name, x); render(); });
   const priced = PRICED.has(name) && !unpriced.get(o.id)?.has(name);
   const values = p.type === "enum" ? p.values : p.type === "boolean" ? [false, true] : null;
-  if (priced && values) learnPriced(m, pay, o, s, name, values);
+  // Whether the values change the price is learnt from all of them, not from the few references leave.
+  if (priced && values && !lens) learnPriced(m, pay, o, s, name, values);
   const priceWith = (x) => (priced ? h("small", {}, priceEl(altItem(m, pay, { ...s, [name]: x }))) : null);
   const src = sourceRatio();
   let control;
