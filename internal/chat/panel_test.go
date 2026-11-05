@@ -136,9 +136,10 @@ func TestThePreviewHasModelAndSettingsWhenThereAreAny(t *testing.T) {
 	if gen := e.markup.InlineKeyboard[0][0].Text; gen != i18n.T("en", "run.generate") {
 		t.Fatalf("generate = %q", gen)
 	}
-	// After a model, both lists are folded.
+	// After a model, both lists are folded. In a group one run makes one
+	// result, so there is no count.
 	if !strings.Contains(e.text, "<details><summary>Model: <b>Nano Banana Pro</b></summary>") ||
-		!strings.Contains(e.text, "<details><summary>Settings: <b>Auto · 1K · ×1</b></summary>") {
+		!strings.Contains(e.text, "<details><summary>Settings: <b>Auto · 1K</b></summary>") || strings.Contains(e.text, "Sn.") {
 		t.Fatalf("preview = %s", e.text)
 	}
 }
@@ -299,11 +300,11 @@ func TestASettingChangesTheRunOnTheKey(t *testing.T) {
 	}
 	kb := edits[0].markup
 	got := labels(kb)
-	// A label row, then the values; the boolean seed is not offered.
+	// A label row, then the values; the boolean seed is not offered, nor
+	// the count in a group, where one run makes one result.
 	if got[0][0] != i18n.T("en", "set.aspect_ratio") || kb.InlineKeyboard[0][0].Disabled == nil || kb.InlineKeyboard[0][0].CallbackData != "" ||
 		strings.Join(got[1], "|") != "✓ "+i18n.T("en", "web.val.auto")+"|1:1|16:9|9:16" || strings.Join(got[2], "|") != "4:3" ||
-		got[3][0] != i18n.T("en", "set.resolution") || strings.Join(got[4], "|") != "✓ 1K|2K|4K" ||
-		got[5][0] != i18n.T("en", "set.n") || strings.Join(got[6], "|") != "✓ ×1|×2|×3|×4" || len(got) != 8 {
+		got[3][0] != i18n.T("en", "set.resolution") || strings.Join(got[4], "|") != "✓ 1K|2K|4K" || len(got) != 6 {
 		t.Fatalf("settings = %v", got)
 	}
 	if kb.InlineKeyboard[1][2].CallbackData != "j:1:S0.2" {

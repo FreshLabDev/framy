@@ -193,7 +193,7 @@ func TestASettingPickKeepsTheSettingsOpen(t *testing.T) {
 		t.Fatalf("calls = %+v", h.tg.calls)
 	}
 	body := edits[0].text
-	if !strings.Contains(body, "<details open><summary>Settings: <b>Auto · 2K · ×1</b></summary>") ||
+	if !strings.Contains(body, "<details open><summary>Settings: <b>Auto · 2K</b></summary>") ||
 		!strings.Contains(body, `<tg-button type="callback_data" style="primary" data="j:1:Sresolution.1">2K</tg-button>`) {
 		t.Fatalf("preview = %s", body)
 	}
@@ -209,8 +209,9 @@ func TestASettingPickKeepsTheSettingsOpen(t *testing.T) {
 }
 
 // The settings are the composer's first ones: a size only where there is
-// neither an aspect ratio nor a resolution, the counts up to four, a long
-// list of lengths cut to the round ones, and sound as two words.
+// neither an aspect ratio nor a resolution, the counts up to four where
+// results may be several, a long list of lengths cut to the round ones,
+// and sound as two words.
 func TestTheSettingsAreTheComposers(t *testing.T) {
 	image := catalog.Offer{Kind: catalog.Image, Params: map[string]catalog.Param{
 		"aspect_ratio": {Type: catalog.Enum, Values: []any{"1:1", "16:9"}},
@@ -228,11 +229,24 @@ func TestTheSettingsAreTheComposers(t *testing.T) {
 		}
 		return out
 	}
-	if got := names(settingsOf(image)); !reflect.DeepEqual(got, []string{"aspect_ratio", "quality", "background", "n"}) {
+	sets := settingsOf(image, true)
+	if got := names(sets); !reflect.DeepEqual(got, []string{"aspect_ratio", "quality", "background", "n"}) {
 		t.Fatalf("settings = %v", got)
 	}
+	if !reflect.DeepEqual(sets[3].values, []any{1, 2, 3, 4}) {
+		t.Fatalf("counts = %v", sets[3].values)
+	}
+	// One result is the rule where they may not be several.
+	if got := names(settingsOf(image, false)); !reflect.DeepEqual(got, []string{"aspect_ratio", "quality", "background"}) {
+		t.Fatalf("settings = %v", got)
+	}
+	// An upstream of OpenRouter that makes two at once makes the counts two.
+	image.Routes = []catalog.Route{{Provider: "a", Params: map[string]catalog.Param{"n": {Type: catalog.Range, Max: num(2)}}}}
+	if sets := settingsOf(image, true); !reflect.DeepEqual(sets[3].values, []any{1, 2}) {
+		t.Fatalf("counts = %v", sets[3].values)
+	}
 	delete(image.Params, "aspect_ratio")
-	if got := names(settingsOf(image)); got[len(got)-1] != "size" {
+	if got := names(settingsOf(image, true)); got[len(got)-1] != "size" {
 		t.Fatalf("settings = %v", got)
 	}
 
@@ -245,7 +259,7 @@ func TestTheSettingsAreTheComposers(t *testing.T) {
 		"generate_audio": {Type: catalog.Boolean},
 		"size":           {Type: catalog.Enum, Values: []any{"1280x720", "720x1280"}},
 	}}
-	sets := settingsOf(video)
+	sets = settingsOf(video, true)
 	if got := names(sets); !reflect.DeepEqual(got, []string{"duration", "generate_audio"}) {
 		t.Fatalf("settings = %v", got)
 	}

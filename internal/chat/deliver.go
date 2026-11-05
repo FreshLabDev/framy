@@ -248,8 +248,14 @@ func (f *Flow) progress(ctx context.Context, run db.ChatRun) {
 	}
 }
 
+// severalResults tells whether a run may make more than one result: in
+// the person's DM with framy, where they come as one album. In a group one
+// run makes one result, and a guest run's answer is one message.
+func severalResults(run db.ChatRun) bool { return !guest(run) && run.ChatID == run.UserID }
+
 // deliver puts the result in the chat: in place of the loop when it came
-// quickly, as a reply to the command otherwise.
+// quickly, as a reply to the command otherwise. Several results of a DM's
+// run come as one album.
 func (f *Flow) deliver(ctx context.Context, run db.ChatRun) {
 	results, err := f.cfg.Files.Results(ctx, run.JobID)
 	if err != nil {
@@ -258,6 +264,10 @@ func (f *Flow) deliver(ctx context.Context, run db.ChatRun) {
 	}
 	if len(results) == 0 {
 		f.failed(ctx, run, "err.failed")
+		return
+	}
+	if len(results) > 1 && severalResults(run) {
+		f.deliverAlbum(ctx, run, results)
 		return
 	}
 	a := results[0]
@@ -278,6 +288,34 @@ func (f *Flow) deliver(ctx context.Context, run db.ChatRun) {
 	}
 	res := resultOf(msg)
 	if _, err := f.cfg.Store.FinishChatRun(ctx, run.JobID, db.StageDone, res); err != nil {
+		f.log.Error("run not finished", "job", run.JobID, "error", err)
+		return
+	}
+	f.forget(run.JobID)
+}
+
+// deliverAlbum puts several results in the DM as one album, the caption on
+// the first, and the loop goes: an album cannot take the loop's place. An
+// album takes no keyboard either, so there is no Animate, Again or Original
+// under it, as under a press of frames from the site. The run keeps the
+// first picture as its message.
+func (f *Flow) deliverAlbum(ctx context.Context, run db.ChatRun, results []storage.Asset) {
+	caption := resultCaption(run.Prompt, run.Model)
+	var (
+		msgs []tg.Message
+		err  error
+	)
+	if strings.HasPrefix(results[0].ContentType, "video/") {
+		msgs, err = f.postVideoAlbum(ctx, run.ChatID, results, caption)
+	} else {
+		msgs, err = f.postAlbum(ctx, run.ChatID, results, caption)
+	}
+	if err != nil {
+		f.log.Error("results not sent", "job", run.JobID, "error", err)
+		return
+	}
+	f.deleteMessage(ctx, run.ChatID, run.PreviewMessageID)
+	if _, err := f.cfg.Store.FinishChatRun(ctx, run.JobID, db.StageDone, resultOf(msgs[0])); err != nil {
 		f.log.Error("run not finished", "job", run.JobID, "error", err)
 		return
 	}

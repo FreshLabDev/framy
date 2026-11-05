@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -617,6 +618,96 @@ func TestASlowResultIsAReply(t *testing.T) {
 	}
 	if h.store.stage(id) != db.StageDone {
 		t.Fatalf("stage %s", h.store.stage(id))
+	}
+}
+
+// In a DM a run on the key may make several results: the card offers the
+// count, and they come as one album with the caption on the first, the
+// loop gone, the run on the first picture.
+func TestSeveralResultsOfADirectChatComeAsOneAlbum(t *testing.T) {
+	h := newHarness(t)
+	h.store.models = panelCatalog()
+	h.flow.cfg.Keys = fakeKeys{conns: []keys.Connection{{Provider: catalog.OpenRouter, Status: keys.Valid}}}
+	if err := h.command(photoSaid("make it night"), CommandImage, "make it night"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.press(1, 7, pick("google/nano-banana-pro")); err != nil {
+		t.Fatal(err)
+	}
+	h.tg.reset()
+	if err := h.press(1, 7, actPickSetting+"n.2"); err != nil {
+		t.Fatal(err)
+	}
+	edits := h.tg.methods("editMessageRich")
+	if len(edits) != 1 || !strings.Contains(edits[0].text, "Settings: <b>Auto · 1K · ×3</b>") ||
+		!strings.Contains(edits[0].text, `data="j:1:Sn.3">×4<`) {
+		t.Fatalf("preview = %+v", edits)
+	}
+	if n := h.queue.revised[len(h.queue.revised)-1]; n.Settings["n"] != 3 {
+		t.Fatalf("revision = %+v", n)
+	}
+	if err := h.press(1, 7, actGenerate); err != nil {
+		t.Fatal(err)
+	}
+	loop := run(t, h).PreviewMessageID
+	h.tg.reset()
+	h.store.setStatus(1, jobs.Done, "")
+	pic := storage.Asset{ID: 50, ContentType: "image/png", Bytes: 1 << 20, Width: 1024, Height: 1024}
+	second, third := pic, pic
+	second.ID, third.ID = 51, 52
+	h.files.results[1] = []storage.Asset{pic, second, third}
+	h.now = h.now.Add(12 * time.Second)
+	before := h.tg.next
+	h.flow.step(context.Background(), 1)
+	first := before + 1 + int64(slices.IndexFunc(h.tg.calls, func(c call) bool { return c.method == "sendMediaGroup" }))
+	sent := h.tg.methods("sendMediaGroup")
+	if len(sent) != 1 || sent[0].chatID != 7 || sent[0].file != strings.Repeat("photo:upload:framy.png,", 2)+"photo:upload:framy.png" ||
+		!strings.Contains(sent[0].text, "make it night") || !strings.Contains(sent[0].text, "Nano Banana Pro") {
+		t.Fatalf("sent = %+v", sent)
+	}
+	if len(h.tg.methods("editMessageMedia")) != 0 || len(h.tg.methods("sendPhoto")) != 0 {
+		t.Fatalf("calls = %+v", h.tg.calls)
+	}
+	if d := h.tg.methods("deleteMessage"); len(d) != 1 || d[0].messageID != loop {
+		t.Fatalf("the loop stayed: %+v", d)
+	}
+	if h.store.stage(1) != db.StageDone || h.store.results[1].MessageID != first || h.store.results[1].FileID != "album-file" {
+		t.Fatalf("stage %s, result %+v", h.store.stage(1), h.store.results[1])
+	}
+}
+
+// In a group one run makes one result: the card has no count, a count
+// pressed anyway changes nothing, and a run that made several anyway, from
+// before, sends its first.
+func TestARunOfAGroupMakesOneResult(t *testing.T) {
+	h := panelHarness(t)
+	if err := h.press(1, 7, pick("google/nano-banana-pro")); err != nil {
+		t.Fatal(err)
+	}
+	if body := h.tg.methods("editMessageRich")[0].text; strings.Contains(body, "Sn.") || strings.Contains(body, "×") {
+		t.Fatalf("preview = %s", body)
+	}
+	h.tg.reset()
+	revised := len(h.queue.revised)
+	if err := h.press(1, 7, actPickSetting+"n.2"); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.queue.revised) != revised || len(h.tg.methods("editMessageRich")) != 0 {
+		t.Fatalf("revised %+v, calls %+v", h.queue.revised, h.tg.calls)
+	}
+	if err := h.press(1, 7, actGenerate); err != nil {
+		t.Fatal(err)
+	}
+	h.tg.reset()
+	h.store.setStatus(1, jobs.Done, "")
+	pic := storage.Asset{ID: 50, ContentType: "image/png", Bytes: 1 << 20, Width: 1024, Height: 1024}
+	second := pic
+	second.ID = 51
+	h.files.results[1] = []storage.Asset{pic, second}
+	h.now = h.now.Add(40 * time.Second)
+	h.flow.step(context.Background(), 1)
+	if len(h.tg.methods("sendMediaGroup")) != 0 || len(h.tg.methods("sendPhoto")) != 1 {
+		t.Fatalf("calls = %+v", h.tg.calls)
 	}
 }
 

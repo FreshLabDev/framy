@@ -197,6 +197,9 @@ type draft struct {
 	// the key that could go free.
 	hasKey   bool
 	freeLeft bool
+	// many: the run's results may be several (severalResults), so the card
+	// offers n.
+	many bool
 }
 
 // video tells whether the run makes a video.
@@ -263,6 +266,7 @@ func (f *Flow) command(ctx context.Context, m *tg.Message, command, prompt strin
 		// The same command came again while its draft was being made.
 		return nil
 	}
+	d.many = m.Chat.Type == "private"
 	preview, ephemeral, err := f.sendPreview(ctx, m, d, prompt, lang, dir, "", foldAll)
 	if err != nil {
 		f.cancel(ctx, d.id)

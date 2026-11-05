@@ -67,7 +67,9 @@ func viewFamily(hash string) view { return view{screen: screenFamily, fam: hash}
 
 // shownSettings are the settings the keyboard's panel offers, in its
 // order; the rest stay as the model has them. n is how many results, up to
-// maxResults. A rich preview offers settingsOf's.
+// maxResults, and only where they may be several (severalResults); it is
+// last, so leaving it out moves no other setting's index. A rich preview
+// offers settingsOf's.
 var shownSettings = []string{"aspect_ratio", "resolution", "quality", "size", "n"}
 
 const (
@@ -112,7 +114,7 @@ func (f *Flow) stateOf(ctx context.Context, run db.ChatRun) (state, error) {
 		return state{}, err
 	}
 	s := state{inputs: inputs}
-	s.id, s.model, s.offer = run.JobID, model, offer
+	s.id, s.model, s.offer, s.many = run.JobID, model, offer, severalResults(run)
 	s.settings = wholeNumbers(run.Settings)
 	s.taken, s.album, s.note = run.Taken, run.Album, run.Note
 	for _, a := range inputs {
@@ -284,8 +286,9 @@ type setting struct {
 
 // panelSettings are the settings of an offer the keyboard's panel offers,
 // numbered as its buttons carry them: a guest run's, and a preview sent as
-// a photo before previews were rich messages.
-func panelSettings(o catalog.Offer) []setting {
+// a photo before previews were rich messages. many: the run may make
+// several results, so n is offered.
+func panelSettings(o catalog.Offer, many bool) []setting {
 	var out []setting
 	for _, name := range shownSettings {
 		p, ok := o.Params[name]
@@ -297,10 +300,9 @@ func panelSettings(o catalog.Offer) []setting {
 		case catalog.Enum:
 			values = p.Values
 		case catalog.Range:
-			if name != "n" {
-				continue
+			if name == "n" && many {
+				values = results(o)
 			}
-			values = results(p)
 		}
 		if len(values) > 1 {
 			out = append(out, setting{name: name, values: values})
@@ -317,7 +319,7 @@ func (f *Flow) keyboardOf(ctx context.Context, run db.ChatRun, s state, v view) 
 		return f.modelKeyboard(ctx, run, s, v)
 	case screenSettings:
 		var rows [][]tg.InlineKeyboardButton
-		for pi, set := range panelSettings(s.offer) {
+		for pi, set := range panelSettings(s.offer, s.many) {
 			rows = append(rows, []tg.InlineKeyboardButton{{Text: t(run.Lang, "set."+set.name), Disabled: &tg.DisabledButton{}}})
 			for vi, v := range set.values {
 				text := valueLabel(run.Lang, set.name, v)
@@ -463,10 +465,11 @@ func (f *Flow) pickModel(ctx context.Context, cq *tg.CallbackQuery, run db.ChatR
 	return f.revise(ctx, cq, run, on, p.model, p.offer, p.settings, p.free, false, viewMain)
 }
 
-// carried are the settings that go to another model: those it takes.
+// carried are the settings that go to another model: those it takes. n
+// goes too, since a run that may not make several results has it at one.
 func carried(settings map[string]any, o catalog.Offer) map[string]any {
 	out := map[string]any{}
-	for _, set := range settingsOf(o) {
+	for _, set := range settingsOf(o, true) {
 		if v, ok := settings[set.name]; ok && slices.ContainsFunc(set.values, func(x any) bool { return sameSetting(x, v) }) {
 			out[set.name] = v
 		}
@@ -495,10 +498,11 @@ func (f *Flow) pickSetting(ctx context.Context, cq *tg.CallbackQuery, run db.Cha
 		_ = answer("")
 		return err
 	}
-	sets := settingsOf(offer)
+	many := severalResults(run)
+	sets := settingsOf(offer, many)
 	pi := slices.IndexFunc(sets, func(s setting) bool { return s.name == ps })
 	if n, err := strconv.Atoi(ps); err == nil {
-		sets, pi = panelSettings(offer), n
+		sets, pi = panelSettings(offer, many), n
 	}
 	if pi < 0 || pi >= len(sets) || vi < 0 || vi >= len(sets[pi].values) {
 		return answer("")
@@ -547,7 +551,7 @@ func (f *Flow) revise(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun,
 			return kerr
 		}
 		if !has && anyKey {
-			d := draft{model: model, offer: offer, pay: payFree, settings: settings, taken: run.Taken, quote: q}
+			d := draft{model: model, offer: offer, pay: payFree, settings: settings, taken: run.Taken, quote: q, many: severalResults(run)}
 			for _, a := range inputs {
 				d.images = append(d.images, price.Image{Width: a.Width, Height: a.Height})
 			}

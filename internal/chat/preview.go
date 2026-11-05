@@ -274,7 +274,7 @@ func previewKeyboard(lang string, jobID int64, d draft) *tg.InlineKeyboardMarkup
 		more = append(more, button(t(lang, "run.as_image"), callback(jobID, actImage), ""))
 	default:
 		more = append(more, button(t(lang, "run.model"), callback(jobID, actModel), ""))
-		if d.pay != payFree && len(panelSettings(d.offer)) > 0 {
+		if d.pay != payFree && len(panelSettings(d.offer, d.many)) > 0 {
 			more = append(more, button(t(lang, "run.settings"), callback(jobID, actSettings), ""))
 		}
 		if d.taken <= free.VideoHeyGen.MaxInputs {

@@ -296,12 +296,13 @@ const framesSetting = "frame_images"
 // drawnSettings are the settings the rich preview offers, in its order: the
 // ones the site's composer shows first. A size goes only where the model has
 // neither an aspect ratio nor a resolution, and never on a video, as
-// catalog.Defaults decides. n is how many results, up to maxResults.
+// catalog.Defaults decides. n is how many results, up to maxResults, and
+// only where they may be several (severalResults).
 var drawnSettings = []string{"aspect_ratio", "resolution", "quality", "background", "n", "duration", "generate_audio", "size"}
 
 // settingsOf are the settings of an offer the rich preview offers, with
-// their values.
-func settingsOf(o catalog.Offer) []setting {
+// their values. many: the run may make several results, so n is offered.
+func settingsOf(o catalog.Offer, many bool) []setting {
 	_, ratio := o.Params["aspect_ratio"]
 	_, res := o.Params["resolution"]
 	var out []setting
@@ -315,7 +316,9 @@ func settingsOf(o catalog.Offer) []setting {
 		case catalog.Enum:
 			values = p.Values
 		case catalog.Range:
-			values = results(p)
+			if name == "n" && many {
+				values = results(o)
+			}
 		case catalog.Boolean:
 			if name == "generate_audio" {
 				values = []any{false, true}
@@ -331,18 +334,17 @@ func settingsOf(o catalog.Offer) []setting {
 	return out
 }
 
-// results are the counts of results n offers, up to maxResults; none for
-// another range.
-func results(p catalog.Param) []any {
-	if p.Max == nil {
-		return nil
-	}
+// results are the counts of results the offer's n offers: as many as one
+// run of it makes (catalog.AtOnce, which an upstream of OpenRouter may
+// lower), up to maxResults.
+func results(o catalog.Offer) []any {
+	p := o.Params["n"]
 	lo := 1
 	if p.Min != nil && *p.Min > 1 {
 		lo = int(*p.Min)
 	}
 	var out []any
-	for v := lo; v <= min(int(*p.Max), maxResults); v++ {
+	for v := lo; v <= min(catalog.AtOnce(o), maxResults); v++ {
 		out = append(out, v)
 	}
 	return out
@@ -523,7 +525,7 @@ func richSettings(lang string, jobID int64, d draft, open bool) string {
 	if d.pay == payFree || d.clip {
 		return ""
 	}
-	sets := settingsOf(d.offer)
+	sets := settingsOf(d.offer, d.many)
 	if len(sets) == 0 {
 		return ""
 	}
