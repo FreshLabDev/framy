@@ -261,11 +261,26 @@ function tookEl(run) {
   return live(() => { const s = fmtClock((Date.now() - since) / 1000); return u > 0 ? t("stage.usually", { t: s, u: fmtClock(u) }) : s; }, "took");
 }
 
+// What a run being made says in place of Cancel. A video takes minutes, so it
+// also says the person can leave and where the video will come: the DM for a
+// run made there, or one made on the site while its results go to the chat
+// (Settings); the library for the rest of the site's and the Mini App's. A
+// run of a group or of guest mode comes where it was asked for.
+function busyEl(run, j) {
+  let k = run.kind === "video" ? "cancel.running_video" : "cancel.running";
+  if (run.kind === "video") {
+    const s = j?.surface;
+    if (s === "dm" || (s === "site" && S.me?.deliver_to_telegram !== false)) k = "cancel.running_video_chat";
+    else if (s === "site" || s === "mini_app") k = "cancel.running_video_library";
+  }
+  return h("span", { class: "busy" }, ic("info"), t(k));
+}
+
 // What the stage says about run: the frame's status, the reason under it and
 // the buttons. The library's viewer shows a run with it too: o.res is which
 // result, o.again makes the button that runs it again.
 export function view(run, o = {}) {
-  const j = run.job, kind = run.kind;
+  const j = run.job;
   // ht is the figure of the halftone in the frame (halftone.js).
   const spin = (label, sub, ht) => ({ status: h("div", { class: "c run" }, h("b", {}, label), sub), ht });
   const stop = h("button", { type: "button", onclick: () => cancel(run) }, ic("stop"), t("act.cancel"));
@@ -288,7 +303,7 @@ export function view(run, o = {}) {
     return { ...spin(t("stage.queued"), tookEl(run), { fig: "queue" }), acts: [stop] };
   }
   if (st === "running") {
-    return { ...spin(t("stage.running"), tookEl(run), { fig: "loop" }), acts: [h("span", { class: "busy" }, ic("info"), t(kind === "video" ? "cancel.running_video" : "cancel.running"))] };
+    return { ...spin(t("stage.running"), tookEl(run), { fig: "loop" }), acts: [busyEl(run, j)] };
   }
   const res = outsOf(j)[o.res || 0];
   if (st === "done" && res) return { done: true, res, acts: doneActs(run, j, res, o) };
@@ -453,7 +468,7 @@ function renderPress(st, run) {
   const why = failed.length ? h("div", { class: "jwhy", "data-k": "j-why" }, failed.map((c) => h("p", {}, t("fr.failed", { n: c.i + 1, why: c.v.status?.querySelector("b")?.textContent || "" })))) : null;
   const queued = run.phase === "prep" ? !run.sending : js.some((j) => j.status === "queued");
   const acts = going
-    ? [queued ? B("stop", t("act.cancel"), () => cancel(run)) : h("span", { class: "busy" }, ic("info"), t(run.kind === "video" ? "cancel.running_video" : "cancel.running"))]
+    ? [queued ? B("stop", t("act.cancel"), () => cancel(run)) : busyEl(run, run.job)]
     : [items.length ? allDown(items) : null, B("again", t("act.again"), () => again(run), "sq2"), B("edit", t("act.edit"), () => editPrompt(run), "sq"),
       h("button", { type: "button", class: "sq", "aria-label": t("stage.next"), title: t("stage.next"), onclick: () => drop() }, ic("plus"), h("span", { class: "t" }, t("stage.next")))];
   const prompt = run.prompt ? h("p", { class: "jprompt", "data-k": "j-prompt", hidden: samePrompt(run) }, h("span", { class: "tx" }, run.prompt),

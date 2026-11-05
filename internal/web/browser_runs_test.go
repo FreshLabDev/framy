@@ -67,6 +67,7 @@ type fakeRuns struct {
 	shares  int              // how many results were prepared for sharing
 	batches []map[string]any // the bodies of POST /api/batches, in order
 	lang    string           // the person's language, English when empty
+	offDM   bool             // the site's results stay off the chat (Settings)
 }
 
 type fakeJob struct {
@@ -80,7 +81,7 @@ func (f *fakeRuns) mount(srv *Server) {
 	lang := cmp.Or(f.lang, "en")
 	srv.HandleFunc("GET /api/me", func(w http.ResponseWriter, _ *http.Request) {
 		writeTestJSON(w, http.StatusOK, map[string]any{
-			"user_id": 1, "name": "Ada", "language": lang, "currency": "USD",
+			"user_id": 1, "name": "Ada", "language": lang, "currency": "USD", "deliver_to_telegram": !f.offDM,
 			"connections": []map[string]any{{"id": "c1", "provider": "openrouter", "last4": "abcd", "status": "ok"}},
 			"free": map[string]any{
 				"images": map[string]any{"used": 5, "limit": 5, "left": 0, "window_seconds": 86400, "frees_at": time.Now().Add(3 * time.Hour).UTC()},
@@ -617,6 +618,35 @@ func TestBrowserRuns(t *testing.T) {
 		t.Errorf("result: %v", s)
 	}
 	noErrors(t, ctx)
+}
+
+// TestBrowserVideoWaitSaysLeave checks what a video being made says in place
+// of Cancel: that the person can leave, and where the video will come, by
+// the setting that sends the site's results to the chat. On a small phone
+// the line wraps and nothing scrolls sideways.
+func TestBrowserVideoWaitSaysLeave(t *testing.T) {
+	for _, c := range []struct {
+		off  bool
+		w, h int64
+		want string
+	}{
+		{false, 1440, 900, "The video is being made already and cannot be stopped. You can leave: it will come to your chat with framy and to the library."},
+		{true, 320, 568, "The video is being made already and cannot be stopped. You can leave: it will be in the library."},
+	} {
+		runs := &fakeRuns{offDM: c.off}
+		ts := fakeSite(t, runs.mount)
+		ctx := browser(t, ts.URL, c.w, c.h, c.w < 768)
+		s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(700);
+	await press("running", (s) => s.label === "Making it");
+	const b = document.querySelector("#stage .jacts > .busy"), r = b?.getBoundingClientRect();
+	return { busy: b?.textContent.trim(), inside: !!r && r.left >= 0 && r.right <= innerWidth, overflow: document.documentElement.scrollWidth - innerWidth };`)
+		if s["busy"] != c.want || s["inside"] != true || s["overflow"].(float64) > 0 {
+			t.Errorf("%dx%d, off %v: %v", c.w, c.h, c.off, s)
+		}
+		noErrors(t, ctx)
+	}
 }
 
 // TestBrowserRunsPhone checks a failure on a phone: the reason and its
