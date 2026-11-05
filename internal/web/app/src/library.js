@@ -342,10 +342,15 @@ function pressSaid(js) {
   const costs = js.map((j) => j.cost).filter((c) => c?.label);
   return costs.length ? sumOf(costs.map((c) => ({ ...c, kind: "exact" }))).label : js.every((j) => j.free) ? t("bar.free") : "";
 }
-const relinked = new Set();
+// A run is read again for new links when its picture does not load, as one
+// read over an hour ago does not. Its new links live 10 minutes at the least,
+// so it is read at most once in that time: a picture broken for good is not
+// asked for again and again, and one whose links ran out once more, in a tab
+// open for hours, is read again.
+const relinked = new Map();
 async function relink(id) {
-  if (relinked.has(id)) return;
-  relinked.add(id);
+  if (Date.now() - (relinked.get(id) || 0) < 10 * 60e3) return;
+  relinked.set(id, Date.now());
   try { took(await api(`/api/jobs/${id}`), true); } catch (e) { if (e.status === 404) gone(id); }
 }
 

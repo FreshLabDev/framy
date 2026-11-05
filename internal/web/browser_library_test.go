@@ -729,3 +729,51 @@ func TestBrowserViewerJoined(t *testing.T) {
 	}
 	noErrors(t, ctx)
 }
+
+// TestBrowserLibraryRelink checks a tile whose picture does not load: the run
+// is read again for new links, again once its new links ran out too, and not
+// twice within ten minutes.
+func TestBrowserLibraryRelink(t *testing.T) {
+	f := newFakeLibrary()
+	ts := fakeSite(t, f.mount)
+	ctx := browser(t, ts.URL+"/library", 1440, 900, false)
+	link := func(h int) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		_, j := f.find(50)
+		res := j["results"].([]any)[0].(map[string]any)
+		res["thumb"] = map[string]any{"url": fmt.Sprintf("/test/result.png?h=%d", h), "width": 480, "height": 480}
+	}
+	reads := func() int { f.mu.Lock(); defer f.mu.Unlock(); return f.reads[50] }
+	// The picture's link ran out: the tile says so as the browser does, by an error.
+	fail := libHelpers + `
+	await settled();
+	const img = () => tiles().find((e) => e.getAttribute("href") === "/r/50")?.querySelector(".cover img");
+	const fail = (h) => { img().dispatchEvent(new Event("error")); return until(() => img()?.getAttribute("src").endsWith("h=" + h) && img().getAttribute("src")); };`
+	link(1)
+	got := js[string](t, ctx, fail+`
+	return await fail(1);`)
+	if got == "" || reads() != 1 {
+		t.Fatalf("the first read for links: %q, %d reads", got, reads())
+	}
+	// An hour on, its new links ran out as well.
+	link(2)
+	got = js[string](t, ctx, fail+`
+	const now0 = Date.now;
+	Date.now = () => now0() + 61 * 60e3;
+	try { return await fail(2); } finally { Date.now = now0; }`)
+	if got == "" || reads() != 2 {
+		t.Fatalf("the second read for links: %q, %d reads", got, reads())
+	}
+	// A picture that fails at once again is not read for a third time.
+	link(3)
+	js[any](t, ctx, fail+`
+	const now0 = Date.now;
+	Date.now = () => now0() + 62 * 60e3;
+	try { img().dispatchEvent(new Event("error")); await wait(600); } finally { Date.now = now0; }
+	return 1;`)
+	if reads() != 2 {
+		t.Errorf("read again within ten minutes: %d reads", reads())
+	}
+	noErrors(t, ctx)
+}
