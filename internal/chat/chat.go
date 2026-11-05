@@ -84,6 +84,8 @@ type Store interface {
 	AddChatRun(ctx context.Context, r db.ChatRun) error
 	ChatRun(ctx context.Context, jobID int64) (db.ChatRun, error)
 	OpenChatRuns(ctx context.Context) ([]db.ChatRun, error)
+	DeletedChatRuns(ctx context.Context, open bool) ([]db.ChatRun, error)
+	DropChatRun(ctx context.Context, jobID int64) (bool, error)
 	MoveChatRun(ctx context.Context, jobID int64, from, to string) (bool, error)
 	SetChatRunPreview(ctx context.Context, jobID, messageID int64, ephemeral bool) error
 	SetChatRunPanel(ctx context.Context, jobID, panelID int64) error
@@ -213,6 +215,9 @@ type Flow struct {
 	shareSlots chan struct{}
 	// shareSeq makes each link of a guest run new (guestURL).
 	shareSeq atomic.Int64
+	// swept is when takeDown last looked at every run of a deleted job, not
+	// only the open ones. Only the loop of Run reads and writes it.
+	swept time.Time
 
 	wg sync.WaitGroup
 }

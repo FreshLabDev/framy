@@ -162,16 +162,20 @@ func TestARemovedJobIsClearedButStillCountsAsFree(t *testing.T) {
 	}
 	ran := aJob(t, pool, alice, "done", "image", "a free fox", true)
 	anAsset(t, pool, alice, ran, "u/1001/in/c.jpg", true)
-	exec(t, pool, `INSERT INTO chat_run (job_id, chat_id, command_message_id, lang) VALUES ($1, 42, 7, 'en')`, ran)
+	exec(t, pool, `INSERT INTO chat_run (job_id, chat_id, command_message_id, lang, stage, clip_file_id) VALUES ($1, 42, 7, 'en', 'done', 'clip')`, ran)
 	exec(t, pool, `INSERT INTO site_delivery (job_id, state, message_id) VALUES ($1, 'sent', 77)`, ran)
 	refused := aJob(t, pool, alice, "failed", "image", "a refused fox", true)
+	// It ended a moment ago and the bot has not put it in the chat yet.
+	undelivered := aJob(t, pool, alice, "done", "image", "an undelivered fox", true)
+	exec(t, pool, `INSERT INTO chat_run (job_id, chat_id, command_message_id, preview_message_id, lang, stage, clip_file_id)
+		VALUES ($1, 42, 8, 9, 'en', 'generating', 'clip')`, undelivered)
 	running := aJob(t, pool, alice, "running", "image", "a running fox", true)
 	before, err := allow.Usage(ctx, alice)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	for _, id := range []int64{ran, refused} {
+	for _, id := range []int64{ran, refused, undelivered} {
 		if err := d.Remove(ctx, alice, id); err != nil {
 			t.Fatalf("remove %d: %v", id, err)
 		}
@@ -203,12 +207,20 @@ func TestARemovedJobIsClearedButStillCountsAsFree(t *testing.T) {
 		state != "sent" || message != nil {
 		t.Errorf("site delivery %q %v: %v", state, message, err)
 	}
+	// The loop still in the chat waits for the bot to take it down; only
+	// the clip it pointed at goes now.
+	var preview int64
+	var clip string
+	if err := pool.QueryRow(ctx, `SELECT preview_message_id, clip_file_id FROM chat_run WHERE job_id = $1`, undelivered).Scan(&preview, &clip); err != nil ||
+		preview != 9 || clip != "" {
+		t.Errorf("the open run: %d %q, %v", preview, clip, err)
+	}
 
 	after, err := allow.Usage(ctx, alice)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if before.Images.Used != 3 || after.Images.Used != before.Images.Used {
+	if before.Images.Used != 4 || after.Images.Used != before.Images.Used {
 		t.Errorf("free images used %d, then %d: deleting gives no run back", before.Images.Used, after.Images.Used)
 	}
 
@@ -251,6 +263,10 @@ func TestForgettingAnAccount(t *testing.T) {
 	for _, job := range []int64{done, bobs} {
 		exec(t, pool, `INSERT INTO site_delivery (job_id, state, message_id) VALUES ($1, 'sent', 77)`, job)
 	}
+	// The draft's preview is open in a chat; done's result is in one.
+	exec(t, pool, `INSERT INTO chat_run (job_id, chat_id, command_message_id, preview_message_id, lang, clip_file_id)
+		VALUES ($1, 42, 7, 8, 'en', 'clip')`, draft)
+	exec(t, pool, `INSERT INTO chat_run (job_id, chat_id, command_message_id, lang, stage) VALUES ($1, 42, 9, 'en', 'done')`, done)
 
 	count := func(sql string, args ...any) int {
 		t.Helper()
@@ -293,6 +309,12 @@ func TestForgettingAnAccount(t *testing.T) {
 	}
 	if n := count(`SELECT count(*) FROM job WHERE id = $1 AND status = 'cancelled'`, draft); n != 1 {
 		t.Error("the draft was not cancelled")
+	}
+	if n := count(`SELECT count(*) FROM chat_run WHERE job_id = $1`, done); n != 0 {
+		t.Error("the run of a sent result stayed")
+	}
+	if n := count(`SELECT count(*) FROM chat_run WHERE job_id = $1 AND stage = 'preview' AND preview_message_id = 8 AND clip_file_id = ''`, draft); n != 1 {
+		t.Error("the open preview's run is not left for the bot to take down, or kept its clip")
 	}
 	if n := count(`SELECT count(*) FROM job WHERE id = $1 AND deleted_at IS NULL AND prompt <> ''`, bobs); n != 1 {
 		t.Error("bob's job was touched")

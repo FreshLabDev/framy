@@ -124,9 +124,11 @@ func (s *Store) AddChatRun(ctx context.Context, r ChatRun) error {
 }
 
 // ChatRun reads the run of job id, or ErrNoRun. A run in another bot's chat
-// is none of this stack's.
+// is none of this stack's, and a run of a deleted job is none at all: no
+// press works it and no card shows it (DeletedChatRuns).
 func (s *Store) ChatRun(ctx context.Context, jobID int64) (ChatRun, error) {
-	r, err := scanChatRun(s.pool.QueryRow(ctx, `SELECT `+chatRunColumns+chatRunFrom+` WHERE r.job_id = $1 AND r.stack = $2`, jobID, s.stack))
+	r, err := scanChatRun(s.pool.QueryRow(ctx, `SELECT `+chatRunColumns+chatRunFrom+`
+		WHERE r.job_id = $1 AND r.stack = $2 AND j.deleted_at IS NULL`, jobID, s.stack))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ChatRun{}, ErrNoRun
 	}
@@ -137,23 +139,65 @@ func (s *Store) ChatRun(ctx context.Context, jobID int64) (ChatRun, error) {
 }
 
 // OpenChatRuns are the runs a chat of this stack's bot still has to be told
-// about: a preview or the generating loop, oldest first.
+// about: a preview or the generating loop of a job not deleted, oldest
+// first.
 func (s *Store) OpenChatRuns(ctx context.Context) ([]ChatRun, error) {
-	rows, err := s.pool.Query(ctx, `SELECT `+chatRunColumns+chatRunFrom+`
-		WHERE r.stage IN ('preview', 'generating') AND r.stack = $1 ORDER BY r.job_id`, s.stack)
+	out, err := s.chatRuns(ctx, `r.stage IN ('preview', 'generating') AND r.stack = $1 AND j.deleted_at IS NULL ORDER BY r.job_id`)
 	if err != nil {
 		return nil, fmt.Errorf("open chat runs: %w", err)
+	}
+	return out, nil
+}
+
+// DeletedChatRuns are this stack's runs whose job was deleted, alone on the
+// site or with the account, oldest first and at most 64. Deleting a job
+// drops its run at once unless its preview or loop is still in the chat:
+// that run waits here for the bot to take the message down and drop it.
+// open keeps to those, which the index of open runs finds at once. Without
+// it the runs that moved on in the moment their job went come too, to be
+// dropped; finding them reads every run of the stack's, which a delivered
+// result keeps for good, so it is a look to take now and then only.
+func (s *Store) DeletedChatRuns(ctx context.Context, open bool) ([]ChatRun, error) {
+	where := `j.deleted_at IS NOT NULL AND r.stack = $1 ORDER BY r.job_id LIMIT 64`
+	if open {
+		where = `r.stage IN ('preview', 'generating') AND ` + where
+	}
+	out, err := s.chatRuns(ctx, where)
+	if err != nil {
+		return nil, fmt.Errorf("chat runs of deleted jobs: %w", err)
+	}
+	return out, nil
+}
+
+// chatRuns reads the runs that rest picks and orders, with this stack as
+// $1.
+func (s *Store) chatRuns(ctx context.Context, rest string) ([]ChatRun, error) {
+	rows, err := s.pool.Query(ctx, `SELECT `+chatRunColumns+chatRunFrom+` WHERE `+rest, s.stack)
+	if err != nil {
+		return nil, err
 	}
 	defer rows.Close()
 	var out []ChatRun
 	for rows.Next() {
 		r, err := scanChatRun(rows)
 		if err != nil {
-			return nil, fmt.Errorf("open chat runs: %w", err)
+			return nil, err
 		}
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// DropChatRun deletes this stack's run of a deleted job and tells whether
+// it was still there; the run of a job that was not deleted stays.
+func (s *Store) DropChatRun(ctx context.Context, jobID int64) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+		DELETE FROM chat_run r USING job j
+		WHERE r.job_id = $1 AND r.stack = $2 AND j.id = r.job_id AND j.deleted_at IS NOT NULL`, jobID, s.stack)
+	if err != nil {
+		return false, fmt.Errorf("drop the chat run of job %d: %w", jobID, err)
+	}
+	return tag.RowsAffected() == 1, nil
 }
 
 // MoveChatRun moves the run of job id from stage from to stage to, and tells

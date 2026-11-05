@@ -29,6 +29,11 @@ import (
 const (
 	// followEvery is how often the open runs are read.
 	followEvery = 2 * time.Second
+	// sweepEvery is how often takeDown looks at every run of a deleted job,
+	// not only those still open in a chat: one that moved on in the moment
+	// its job went is in the chat already and only waits to be dropped, and
+	// the look reads every run of the stack's.
+	sweepEvery = time.Hour
 	// actionEvery repeats the chat action, which Telegram shows for 5 s.
 	actionEvery = 4500 * time.Millisecond
 	// captionEvery is how often the caption tells the time taken; a group
@@ -82,8 +87,9 @@ func (f *Flow) Run(ctx context.Context) {
 	}
 }
 
-// follow works every open run once.
+// follow takes down the runs of deleted jobs and works every open run once.
 func (f *Flow) follow(ctx context.Context) {
+	f.takeDown(ctx)
 	runs, err := f.cfg.Store.OpenChatRuns(ctx)
 	if err != nil {
 		if ctx.Err() == nil {
@@ -113,6 +119,10 @@ func (f *Flow) step(ctx context.Context, jobID int64) {
 	}
 	defer mu.Unlock()
 	run, err := f.cfg.Store.ChatRun(ctx, jobID)
+	if errors.Is(err, db.ErrNoRun) {
+		// Its job was deleted since the round began: takeDown has it next.
+		return
+	}
 	if err != nil {
 		f.log.Warn("chat run unread", "job", jobID, "error", err)
 		return
@@ -145,6 +155,68 @@ func (f *Flow) step(ctx context.Context, jobID int64) {
 			f.close(ctx, run, db.StageGenerating)
 		}
 	}
+}
+
+// takeDown ends the runs whose job was deleted, alone on the site or with
+// the account: a preview or loop still in the chat goes, as No would take
+// it, or says Deleted where it cannot be deleted, and the run is dropped
+// with what it kept of the chat. A result already sent stays in its chat. A
+// press working on the run has it; the next round looks again. Every round
+// looks at the open runs; the first and then one an hour at all of them.
+func (f *Flow) takeDown(ctx context.Context) {
+	now := f.now()
+	all := f.swept.IsZero() || now.Sub(f.swept) >= sweepEvery
+	runs, err := f.cfg.Store.DeletedChatRuns(ctx, !all)
+	if err != nil {
+		if ctx.Err() == nil {
+			f.log.Error("runs of deleted jobs unread", "error", err)
+		}
+		return
+	}
+	if all {
+		f.swept = now
+	}
+	for _, run := range runs {
+		v, _ := f.locks.LoadOrStore(run.JobID, &sync.Mutex{})
+		mu := v.(*sync.Mutex)
+		if !mu.TryLock() {
+			continue
+		}
+		dropped, err := f.cfg.Store.DropChatRun(ctx, run.JobID)
+		mu.Unlock()
+		if err != nil {
+			f.log.Warn("run of a deleted job not dropped", "job", run.JobID, "error", err)
+			continue
+		}
+		if dropped && (run.Stage == db.StagePreview || run.Stage == db.StageGenerating) {
+			f.deletedRun(ctx, run)
+		}
+		f.forget(run.JobID)
+	}
+}
+
+// deletedRun takes down the preview or loop of a run whose job was deleted.
+func (f *Flow) deletedRun(ctx context.Context, run db.ChatRun) {
+	if !guest(run) {
+		f.deleteEphemeral(ctx, run.ChatID, run.UserID, run.PanelMessageID)
+		if run.PreviewEphemeral {
+			f.deleteEphemeral(ctx, run.ChatID, run.UserID, run.PreviewMessageID)
+		} else {
+			f.deleteMessage(ctx, run.ChatID, run.PreviewMessageID)
+		}
+		return
+	}
+	// An inline message cannot be deleted: it keeps one word and no
+	// buttons. The preview is still text, the loop a clip with a caption.
+	text := t(run.Lang, "guest.deleted")
+	if run.Stage == db.StagePreview {
+		err := f.cfg.Telegram.EditInlineMessageTextWithPreview(ctx, run.InlineMessageID, text, nil, nil)
+		if err != nil && !tg.IsMessageNotModified(err) {
+			f.log.Warn("guest preview of a deleted job not closed", "job", run.JobID, "error", err)
+		}
+		return
+	}
+	f.guestCaption(ctx, run, text, nil)
 }
 
 // progress keeps the chat action going and the time on the caption.

@@ -863,6 +863,24 @@
     "ja": "キャンセルしました。",
     "ar": "أُلغي."
   },
+  "guest.deleted": {
+    "en": "Deleted.",
+    "ru": "Удалено.",
+    "uk": "Видалено.",
+    "es": "Eliminado.",
+    "fr": "Supprimé.",
+    "de": "Gelöscht.",
+    "it": "Eliminato.",
+    "pl": "Usunięto.",
+    "cs": "Smazáno.",
+    "tr": "Silindi.",
+    "sv": "Raderat.",
+    "be": "Выдалена.",
+    "ca": "Eliminat.",
+    "zh": "已删除。",
+    "ja": "削除しました。",
+    "ar": "تم الحذف."
+  },
   "guest.elsewhere": {
     "en": "Telegram could not show the result here. It is in your history on the site.",
     "ru": "Telegram не смог показать результат здесь. Он есть в твоей истории на сайте.",

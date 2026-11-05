@@ -440,7 +440,8 @@ func (d pgData) Remove(ctx context.Context, userID, id int64) error {
 		// it was.
 		for _, stmt := range []string{
 			`DELETE FROM job_input WHERE job_id = $1`,
-			`DELETE FROM chat_run WHERE job_id = $1`,
+			dropRuns + `job_id = $1`,
+			keepOpenRuns + `job_id = $1`,
 			`UPDATE site_delivery SET message_id = NULL WHERE job_id = $1`,
 		} {
 			if _, err := tx.Exec(ctx, stmt, id); err != nil {
@@ -450,6 +451,15 @@ func (d pgData) Remove(ctx context.Context, userID, id int64) error {
 		return nil
 	})
 }
+
+// A deleted job's chat run goes with it, unless its preview or loop is
+// still in the chat: then the bot takes the message down and drops the run
+// (chat.Flow.takeDown), and only the clip it pointed at goes now. The run of
+// a result already sent goes at once; the result stays in its chat.
+const (
+	dropRuns     = `DELETE FROM chat_run WHERE stage NOT IN ('preview', 'generating') AND `
+	keepOpenRuns = `UPDATE chat_run SET clip_file_id = '', updated_at = now() WHERE `
+)
 
 func (d pgData) Active(ctx context.Context, userID int64) (bool, error) {
 	var active bool
@@ -470,7 +480,7 @@ func (d pgData) Active(ctx context.Context, userID int64) (bool, error) {
 // and the photos of albums framy saw the person send in a chat are deleted.
 // The jobs are cleared first: their rows are what a result being sent to the
 // DM holds (db.SentSiteResult), so its chat run is either written before and
-// deleted here, or not written at all. The sessions go through
+// dropped here, or not written at all. The sessions go through
 // Config.Revoke, which also drops what internal/auth remembers of them.
 // The person stays in core: that row is the family's, not framy's.
 func (d pgData) Forget(ctx context.Context, userID int64) error {
@@ -488,7 +498,8 @@ func (d pgData) Forget(ctx context.Context, userID int64) error {
 		for _, stmt := range []string{
 			`UPDATE job SET status = 'cancelled', finished_at = now(), updated_at = now() WHERE user_id = $1 AND status = 'draft'`,
 			`UPDATE job SET ` + cleared + ` WHERE user_id = $1 AND deleted_at IS NULL AND finished_at IS NOT NULL`,
-			`DELETE FROM chat_run WHERE job_id IN (SELECT id FROM job WHERE user_id = $1)`,
+			dropRuns + `job_id IN (SELECT id FROM job WHERE user_id = $1)`,
+			keepOpenRuns + `job_id IN (SELECT id FROM job WHERE user_id = $1)`,
 			`DELETE FROM job_input WHERE job_id IN (SELECT id FROM job WHERE user_id = $1)`,
 			`UPDATE site_delivery SET message_id = NULL WHERE job_id IN (SELECT id FROM job WHERE user_id = $1) AND message_id IS NOT NULL`,
 			`DELETE FROM connection WHERE user_id = $1`,

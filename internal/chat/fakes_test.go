@@ -465,6 +465,8 @@ type fakeJob struct {
 	n      jobs.New
 	status jobs.Status
 	class  jobs.Class
+	// deleted: the person deleted the job, on the site or with the account.
+	deleted bool
 }
 
 type fakeStore struct {
@@ -682,7 +684,51 @@ func (s *fakeStore) AddChatRun(_ context.Context, r db.ChatRun) error {
 func (s *fakeStore) ChatRun(_ context.Context, jobID int64) (db.ChatRun, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.deleted(jobID) {
+		return db.ChatRun{}, db.ErrNoRun
+	}
 	return s.read(jobID)
+}
+
+func (s *fakeStore) deleted(jobID int64) bool {
+	j := s.jobs[jobID]
+	return j != nil && j.deleted
+}
+
+// deleteJob deletes the job as the site does: its run goes with it unless
+// the preview or loop is still in the chat.
+func (s *fakeStore) deleteJob(jobID int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.jobs[jobID].deleted = true
+	s.jobs[jobID].n.Prompt = ""
+	if r, ok := s.runs[jobID]; ok && r.Stage != db.StagePreview && r.Stage != db.StageGenerating {
+		delete(s.runs, jobID)
+	}
+}
+
+func (s *fakeStore) DeletedChatRuns(_ context.Context, open bool) ([]db.ChatRun, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []db.ChatRun
+	for id, r := range s.runs {
+		if s.deleted(id) && (!open || r.Stage == db.StagePreview || r.Stage == db.StageGenerating) {
+			run, _ := s.read(id)
+			out = append(out, run)
+		}
+	}
+	slices.SortFunc(out, func(a, b db.ChatRun) int { return int(a.JobID - b.JobID) })
+	return out, nil
+}
+
+func (s *fakeStore) DropChatRun(_ context.Context, jobID int64) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.runs[jobID]; !ok || !s.deleted(jobID) {
+		return false, nil
+	}
+	delete(s.runs, jobID)
+	return true, nil
 }
 
 func (s *fakeStore) read(jobID int64) (db.ChatRun, error) {
@@ -740,7 +786,7 @@ func (s *fakeStore) OpenChatRuns(context.Context) ([]db.ChatRun, error) {
 	defer s.mu.Unlock()
 	var out []db.ChatRun
 	for id, r := range s.runs {
-		if r.Stage == db.StagePreview || r.Stage == db.StageGenerating {
+		if (r.Stage == db.StagePreview || r.Stage == db.StageGenerating) && !s.deleted(id) {
 			run, _ := s.read(id)
 			out = append(out, run)
 		}
