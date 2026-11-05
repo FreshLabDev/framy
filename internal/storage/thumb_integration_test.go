@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -189,5 +190,82 @@ func TestALinkStaysTheSameThroughItsWindow(t *testing.T) {
 	now = now.Add(time.Hour)
 	if next, _ := h.store.LinkAll(ctx, alice, []int64{id}, names); next[id].URL == first[id].URL {
 		t.Error("the next window got the same link")
+	}
+}
+
+// A person deleting a result never waits for its thumbnail: the loop holds
+// no lock on the row while it works, and a thumbnail made for a result that
+// went meanwhile goes too.
+func TestADeleteDoesNotWaitForAThumbnail(t *testing.T) {
+	h := newHarness(t, storage.Config{})
+	ctx := context.Background()
+	job := doneJob(t, h, alice)
+	key := "u/3001/out/" + strconv.FormatInt(job, 10) + "-0.png"
+	id := resultOf(t, h, alice, job, key)
+	started, release := make(chan struct{}), make(chan struct{})
+	storage.SetThumbMaker(h.store, func(ctx context.Context, _, thumb string) (int, int, int64, error) {
+		close(started)
+		<-release
+		h.bucket.Put(thumb, r2test.Object{Data: []byte("webp"), ContentType: "image/webp"})
+		return 320, 320, 4, nil
+	})
+	type result struct {
+		made int
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		made, err := h.store.FillThumbs(ctx, 1)
+		done <- result{made, err}
+	}()
+	<-started
+	deleted := make(chan error, 1)
+	go func() { deleted <- h.store.Delete(ctx, alice, id) }()
+	select {
+	case err := <-deleted:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		close(release)
+		t.Fatal("the delete waited for the thumbnail")
+	}
+	close(release)
+	if r := <-done; r.err != nil || r.made != 0 {
+		t.Fatalf("made %d: %v", r.made, r.err)
+	}
+	if keys := h.bucket.Keys(); len(keys) != 0 {
+		t.Errorf("left in the bucket: %v", keys)
+	}
+}
+
+// A thumbnail made while nothing deletes its result is on the row, and the
+// try counts once.
+func TestAThumbnailIsRecordedOnItsRow(t *testing.T) {
+	h := newHarness(t, storage.Config{})
+	ctx := context.Background()
+	job := doneJob(t, h, alice)
+	key := "u/3001/out/" + strconv.FormatInt(job, 10) + "-0.png"
+	id := resultOf(t, h, alice, job, key)
+	storage.SetThumbMaker(h.store, func(_ context.Context, _, thumb string) (int, int, int64, error) {
+		h.bucket.Put(thumb, r2test.Object{Data: []byte("webp"), ContentType: "image/webp"})
+		return 320, 160, 4, nil
+	})
+	if made, err := h.store.FillThumbs(ctx, 5); err != nil || made != 1 {
+		t.Fatalf("made %d: %v", made, err)
+	}
+	var thumb *string
+	var tries int
+	if err := h.pool.QueryRow(ctx, `SELECT thumb_key, thumb_tries FROM framy.asset WHERE id = $1`, id).Scan(&thumb, &tries); err != nil {
+		t.Fatal(err)
+	}
+	if want := strings.TrimSuffix(key, ".png") + ".thumb.webp"; thumb == nil || *thumb != want || tries != 1 {
+		t.Errorf("thumb %v, tries %d", thumb, tries)
+	}
+	if err := h.store.Delete(ctx, alice, id); err != nil {
+		t.Fatal(err)
+	}
+	if keys := h.bucket.Keys(); len(keys) != 0 {
+		t.Errorf("left in the bucket: %v", keys)
 	}
 }

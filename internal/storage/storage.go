@@ -136,6 +136,8 @@ type Store struct {
 	// thumbErr says why results get no thumbnails: an ffmpeg without WebP.
 	thumbOnce sync.Once
 	thumbErr  error
+	// thumb is makeThumb; tests stand in for it.
+	thumb func(ctx context.Context, a Asset, fill func(dst string) error) (*Thumb, error)
 }
 
 // New checks cfg and fills its defaults.
@@ -157,10 +159,12 @@ func New(cfg Config) (*Store, error) {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
-	return &Store{
+	s := &Store{
 		pool: cfg.Pool, bucket: cfg.Bucket, media: cfg.Media, work: cfg.Work, fetch: cfg.Fetch,
 		notify: cfg.Notify, log: cfg.Log, cfg: cfg,
-	}, nil
+	}
+	s.thumb = s.makeThumb
+	return s, nil
 }
 
 func setDefault[T int64 | time.Duration](v *T, d T) {
@@ -493,39 +497,50 @@ func (s *Store) FillThumbs(ctx context.Context, limit int) (int, error) {
 }
 
 // fillThumb makes the thumbnail of one result that lacks it, and reports
-// false when none does. The row is locked while the thumbnail is made, so a
-// delete of the result waits for it and then takes the thumbnail too.
+// false when none does. The try is counted on the row first, in a statement
+// of its own, and no lock is held while the file is read, encoded and put:
+// a person deleting the result does not wait for its thumbnail. A delete
+// that comes first leaves no row to name the thumbnail, which then goes
+// again; one that comes after finds it on the row and takes it.
 func (s *Store) fillThumb(ctx context.Context) (found, made bool, err error) {
-	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		var a Asset
-		err := tx.QueryRow(ctx, `
-			SELECT id, object_key, content_type FROM asset
+	var a Asset
+	err = s.pool.QueryRow(ctx, `
+		UPDATE asset SET thumb_tries = thumb_tries + 1
+		WHERE id = (
+			SELECT id FROM asset
 			WHERE kind IN ('result', 'joined') AND thumb_key IS NULL AND thumb_tries < $1
 			ORDER BY thumb_tries, id DESC
 			LIMIT 1
-			FOR UPDATE SKIP LOCKED`, maxThumbTries).Scan(&a.ID, &a.Key, &a.ContentType)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
+			FOR UPDATE SKIP LOCKED)
+		RETURNING id, object_key, content_type`, maxThumbTries).Scan(&a.ID, &a.Key, &a.ContentType)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, false, nil
+	}
+	if err != nil {
+		return false, false, err
+	}
+	t, err := s.thumb(ctx, a, func(dst string) error { return s.fetchObject(ctx, a.Key, dst, s.cfg.MaxResult) })
+	if err != nil {
+		if ctx.Err() != nil {
+			// A stop cut the try short: it is not counted.
+			_, _ = s.pool.Exec(context.WithoutCancel(ctx), `UPDATE asset SET thumb_tries = thumb_tries - 1 WHERE id = $1 AND thumb_tries > 0`, a.ID)
+			return true, false, ctx.Err()
 		}
-		if err != nil {
-			return err
-		}
-		found = true
-		t, err := s.makeThumb(ctx, a, func(dst string) error { return s.fetchObject(ctx, a.Key, dst, s.cfg.MaxResult) })
-		if err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			s.log.Warn("no thumbnail for a result", "asset", a.ID, "error", err)
-			_, err := tx.Exec(ctx, `UPDATE asset SET thumb_tries = thumb_tries + 1 WHERE id = $1`, a.ID)
-			return err
-		}
-		_, err = tx.Exec(ctx, `UPDATE asset SET thumb_key = $2, thumb_width = $3, thumb_height = $4, thumb_bytes = $5 WHERE id = $1`,
-			a.ID, t.Key, t.Width, t.Height, t.Bytes)
-		made = err == nil
-		return err
-	})
-	return found, made, err
+		s.log.Warn("no thumbnail for a result", "asset", a.ID, "error", err)
+		return true, false, nil
+	}
+	tag, err := s.pool.Exec(context.WithoutCancel(ctx), `
+		UPDATE asset SET thumb_key = $2, thumb_width = $3, thumb_height = $4, thumb_bytes = $5 WHERE id = $1`,
+		a.ID, t.Key, t.Width, t.Height, t.Bytes)
+	if err == nil && tag.RowsAffected() == 1 {
+		return true, true, nil
+	}
+	// The result went while its thumbnail was made, or the row could not be
+	// written: no row names the thumbnail, so it goes too.
+	if derr := s.bucket.Delete(context.WithoutCancel(ctx), t.Key); derr != nil {
+		s.log.Error("a thumbnail outlived its result", "key", t.Key, "error", derr)
+	}
+	return true, false, err
 }
 
 // download fetches a provider's link into dir under the result limit.
