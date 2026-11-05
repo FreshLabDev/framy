@@ -145,3 +145,39 @@ func TestBrowserPriceLine(t *testing.T) {
 	}
 	noErrors(t, ctx)
 }
+
+// TestBrowserAddTile checks the tile that adds files on a phone: its word
+// stays inside it in every language, and the empty slots of a video stay
+// squares of a thumbnail's size.
+func TestBrowserAddTile(t *testing.T) {
+	ts := fakeAPI(t)
+	for _, lang := range []string{"de", "ru", "en"} {
+		ctx := browserAs(t, ts.URL, 360, 780, opened{lang: lang, phone: true})
+		got := js[map[string]any](t, ctx, pageHelpers+`
+		const tile = () => {
+		  const b = document.querySelector("#files .addfile:not(.slotadd)"), r = b.getBoundingClientRect(), rg = document.createRange();
+		  rg.selectNodeContents(b);
+		  const w = rg.getBoundingClientRect();
+		  return { inside: w.left >= r.left && w.right <= r.right, w: Math.round(r.width), h: Math.round(r.height), onScreen: r.right <= innerWidth };
+		};
+		const image = tile();
+		document.querySelectorAll("#kind > button")[1].click();
+		await wait(700);
+		const slots = [...document.querySelectorAll("#files .slotadd")].map((b) => { const r = b.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; });
+		return { image, slots };`)
+		img := got["image"].(map[string]any)
+		if img["inside"] != true || img["onScreen"] != true || img["w"].(float64) < 52 || img["h"] != float64(52) {
+			t.Errorf("%s: the add tile: %v", lang, img)
+		}
+		slots := got["slots"].([]any)
+		if len(slots) == 0 {
+			t.Errorf("%s: a video shows no slot to add to", lang)
+		}
+		for _, s := range slots {
+			if fmt.Sprint(s) != "[52 52]" {
+				t.Errorf("%s: a slot's add tile is %v, want 52 by 52", lang, s)
+			}
+		}
+		noErrors(t, ctx)
+	}
+}

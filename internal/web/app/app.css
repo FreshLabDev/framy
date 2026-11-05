@@ -88,7 +88,8 @@ textarea#prompt::placeholder {color: var(--muted);}
 .thumb .tag .ic {width: 10px; height: 10px;}
 .thumb .rm {position: absolute; right: 0; top: 0; width: 22px; height: 22px; display: grid; place-items: center; background: var(--deep);}
 .thumb .rm .ic {width: 10px; height: 10px;}
-.addfile {width: 64px; height: 64px; background: var(--deep); font-size: 12px; color: var(--soft); display: grid; place-items: center; align-content: center; gap: 3px;}
+/* As wide as its word needs, never narrower than a thumbnail: "Hinzufügen" stays inside its tile. */
+.addfile {min-width: 64px; height: 64px; padding: 0 6px; background: var(--deep); font-size: 12px; color: var(--soft); display: grid; place-items: center; align-content: center; gap: 3px; white-space: nowrap;}
 .addfile .ic {width: 18px; height: 18px; color: var(--ink);}
 .files:has(> .fgroup) {align-items: flex-end; column-gap: 16px; row-gap: 10px;}
 .fgroup {display: flex; flex-direction: column; gap: 5px; min-width: 0;}
@@ -404,7 +405,8 @@ input.search::placeholder {color: var(--muted);}
   .composer textarea#prompt {min-height: 54px; max-height: 30vh; overflow: auto; padding: 12px 14px; font-size: 18px;}
   .composer .files {flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;}
   .composer .files.nofiles .fhint {display: none;}
-  .composer .thumb, .composer .addfile {flex: none; width: 52px; height: 52px;}
+  .composer .thumb {flex: none; width: 52px; height: 52px;}
+  .composer .addfile {flex: none; min-width: 52px; height: 52px;}
   .composer .fgroup {flex: none;}
   .composer .fgroup > .gt {flex-wrap: nowrap;}
   .composer .fhint, .composer .fhint.cut {flex: 1 0 200px; padding-left: 4px; font-size: 13px;}
