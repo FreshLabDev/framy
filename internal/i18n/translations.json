@@ -5921,6 +5921,24 @@
     "ja": "追加",
     "ar": "إضافة"
   },
+  "web.files.again": {
+    "en": "Add the files again: the browser did not keep them.",
+    "ru": "Добавь файлы ещё раз: браузер их не сохранил.",
+    "uk": "Додай файли ще раз: браузер їх не зберіг.",
+    "es": "Vuelve a añadir los archivos: el navegador no los ha guardado.",
+    "fr": "Ajoute à nouveau les fichiers : le navigateur ne les a pas gardés.",
+    "de": "Füge die Dateien noch einmal hinzu: Der Browser hat sie nicht behalten.",
+    "it": "Aggiungi di nuovo i file: il browser non li ha conservati.",
+    "pl": "Dodaj pliki jeszcze raz: przeglądarka ich nie zachowała.",
+    "cs": "Přidej soubory znovu: prohlížeč si je neuchoval.",
+    "tr": "Dosyaları yeniden ekle: tarayıcı onları saklamadı.",
+    "sv": "Lägg till filerna igen: webbläsaren sparade dem inte.",
+    "be": "Дадай файлы яшчэ раз: браўзер іх не захаваў.",
+    "ca": "Torna a afegir els fitxers: el navegador no els ha guardat.",
+    "zh": "请重新添加文件：浏览器没有保留它们。",
+    "ja": "ファイルをもう一度追加してください。ブラウザに残りませんでした。",
+    "ar": "أضف الملفات مرة أخرى: لم يحتفظ بها المتصفح."
+  },
   "web.files.clip_big": {
     "en": "A clip can be up to {n} MB.",
     "ru": "Ролик может весить до {n} МБ.",

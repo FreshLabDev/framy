@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1189,6 +1190,117 @@ func TestBrowserByKey(t *testing.T) {
 		if got := fmt.Sprint(s[k]); got != w {
 			t.Errorf("%s = %s, want %s", k, got, w)
 		}
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserDraftAcrossSignIn checks that signing in keeps what the person
+// put together: the kind, the model they picked, a setting, the photo and the
+// words come back after Telegram's page, while a model they never picked
+// gives way to their own default. A file the browser could not keep is said,
+// and a page the browser brings back from its cache drops what it kept.
+func TestBrowserDraftAcrossSignIn(t *testing.T) {
+	var signed atomic.Bool
+	ts := fakeSite(t, func(srv *Server) {
+		srv.HandleFunc("GET /api/me", func(w http.ResponseWriter, _ *http.Request) {
+			if !signed.Load() {
+				writeTestJSON(w, http.StatusUnauthorized, map[string]any{"error": "sign_in", "message": "sign in first"})
+				return
+			}
+			writeTestJSON(w, http.StatusOK, map[string]any{
+				"user_id": 1, "name": "Ada", "language": "en", "currency": "USD",
+				"default_models": map[string]any{"image": "google/gemini-nano-banana-2.1"},
+				"connections":    []map[string]any{{"id": "c1", "provider": "openrouter", "last4": "abcd", "status": "ok"}},
+				"free": map[string]any{
+					"images": map[string]any{"used": 0, "limit": 5, "left": 5, "window_seconds": 86400},
+					"videos": map[string]any{"used": 0, "limit": 1, "left": 1, "window_seconds": 604800},
+				},
+			})
+		})
+		// Telegram's page, signed in at once.
+		srv.HandleFunc("GET /auth/login", func(w http.ResponseWriter, r *http.Request) {
+			signed.Store(true)
+			http.Redirect(w, r, r.URL.Query().Get("return_to"), http.StatusFound)
+		})
+	})
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	look := `
+	const head = () => document.querySelector("#how .mhead")?.textContent || "";
+	const ratio = () => document.querySelector("#how .ratios .rt[aria-checked=true]")?.dataset.v || "";
+	const look = () => ({ kind: document.querySelector("#kind > button[aria-checked=true], #kind > button[aria-pressed=true], #kind > button.on")?.textContent.trim() || "",
+	  head: head(), ratio: ratio(), prompt: document.querySelector("#prompt").value,
+	  thumbs: [...document.querySelectorAll("#files .thumb img")].filter((i) => i.complete && i.naturalWidth > 0).length });
+	`
+	before := js[map[string]any](t, ctx, pageHelpers+look+`
+	const p = document.querySelector("#prompt");
+	p.value = "a red kite"; p.dispatchEvent(new Event("input"));
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(700);
+	document.querySelector("#how .mhead").click();
+	await wait(700);
+	const q = document.querySelector("#pksearch");
+	q.value = "Seedance"; q.dispatchEvent(new Event("input", { bubbles: true }));
+	await wait(800);
+	const row = document.querySelector("#pkrows .frow");
+	([...row.querySelectorAll(".pill:not(.old)")].find((b) => b.textContent.trim() === "2.0 Mini") || row.querySelector(".fhit")).click();
+	await wait(900);
+	[...document.querySelectorAll("#how .ratios .rt")].find((b) => b.getAttribute("aria-checked") !== "true" && !b.classList.contains("more") && !b.disabled).click();
+	await wait(500);
+	const cv = document.createElement("canvas"); cv.width = 64; cv.height = 36;
+	cv.getContext("2d").fillRect(0, 0, 64, 36);
+	const png = await new Promise((r) => cv.toBlob(r, "image/png"));
+	const dt = new DataTransfer(); dt.items.add(new File([png], "kite.png", { type: "image/png" }));
+	const inp = document.querySelector("#file"); inp.files = dt.files; inp.dispatchEvent(new Event("change", { bubbles: true }));
+	await wait(900);
+	return look();`)
+	js[bool](t, ctx, `document.querySelector("#top .signin").click(); return true;`)
+	time.Sleep(1500 * time.Millisecond)
+	ready(t, ctx)
+	after := js[map[string]any](t, ctx, pageHelpers+look+`
+	await wait(600);
+	const out = { ...look(), signed: !!document.querySelector("#meBtn"), toast: document.querySelector(".toast")?.textContent || "" };
+	document.querySelectorAll("#kind > button")[0].click();
+	await wait(700);
+	out.image = head();
+	return out;`)
+	if before["thumbs"] != 1.0 || !strings.Contains(fmt.Sprint(before["head"]), "Seedance") || before["ratio"] == "" || before["prompt"] != "a red kite" {
+		t.Fatalf("before signing in: %v", before)
+	}
+	for _, k := range []string{"kind", "head", "ratio", "prompt", "thumbs"} {
+		if fmt.Sprint(after[k]) != fmt.Sprint(before[k]) {
+			t.Errorf("%s after signing in = %v, before %v", k, after[k], before[k])
+		}
+	}
+	if after["signed"] != true || after["toast"] != "" || !strings.Contains(fmt.Sprint(after["image"]), "Nano Banana") {
+		t.Errorf("after signing in: %v", after)
+	}
+	// A file the load could not keep (its write did not end in time): the composer says so.
+	js[bool](t, ctx, `
+	const d = { v: 1, at: Date.now(), kind: "image", model: {}, pay: {}, wanted: {}, frames: {}, files: [{ kind: "image", name: "lost.png", w: 4, h: 4, blob: "none",
+	  meta: { content_type: "image/png", bytes: 10, width: 4, height: 4 }, upload: 0 }], lost: 0 };
+	sessionStorage.setItem("framy.compose", JSON.stringify(d));
+	location.reload();
+	return true;`)
+	time.Sleep(800 * time.Millisecond)
+	ready(t, ctx)
+	lost := js[map[string]any](t, ctx, `
+	await new Promise((r) => setTimeout(r, 400));
+	return { toast: document.querySelector(".toast")?.textContent || "", thumbs: document.querySelectorAll("#files .thumb").length };`)
+	if lost["toast"] != "Add the files again: the browser did not keep them." || lost["thumbs"] != 0.0 {
+		t.Errorf("a file not kept: %v", lost)
+	}
+	// Back from Telegram's page by the back button, out of the page cache: the
+	// load did not happen, and what was kept for it goes, file and all.
+	cached := js[map[string]any](t, ctx, `
+	const idb = (fn) => new Promise((ok, no) => { const r = indexedDB.open("framy-draft", 1); r.onupgradeneeded = () => r.result.createObjectStore("files");
+	  r.onsuccess = () => { const db = r.result, tx = db.transaction("files", "readwrite"), q = fn(tx.objectStore("files")); tx.oncomplete = () => { db.close(); ok(q?.result); }; tx.onerror = () => no(tx.error); }; r.onerror = () => no(r.error); });
+	await idb((st) => st.put({ at: Date.now(), file: new Blob(["x"]) }, "kept"));
+	sessionStorage.setItem("framy.compose", JSON.stringify({ v: 1, at: Date.now(), kind: "video", files: [{ kind: "image", blob: "kept" }], lost: 0 }));
+	dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+	await new Promise((r) => setTimeout(r, 300));
+	return { draft: sessionStorage.getItem("framy.compose"), file: !!(await idb((st) => st.get("kept"))) };`)
+	if cached["draft"] != nil || cached["file"] != false {
+		t.Errorf("back from the page cache: %v", cached)
 	}
 	noErrors(t, ctx)
 }

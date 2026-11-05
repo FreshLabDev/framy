@@ -14,11 +14,19 @@ import { takeClip, openCut } from "./clips.js";
 import { openPicker } from "./picker.js";
 import { refusal, failure, providerOf } from "./errors.js";
 import { toast, ask } from "./ui.js";
+import { keepDraft, dropDraft } from "./draft.js";
 
-export function signIn() {
+// The composer goes along: what the person put together is there after the load (draft.js).
+// Back from the browser's page cache, the page is as it was and the load did not happen.
+let leaving = false;
+addEventListener("pageshow", (e) => { leaving = false; if (e.persisted) dropDraft(); });
+export async function signIn() {
+  if (leaving) return;
+  leaving = true;
+  try { sessionStorage.setItem("framy.draft", $("#prompt").value); } catch {}
+  await keepDraft();
   // The Mini App signs in with its launch data, which a load trades again.
   if (S.mini) { location.reload(); return; }
-  try { sessionStorage.setItem("framy.draft", $("#prompt").value); } catch {}
   // Back where the person was: the composer, the library or one run of it.
   const back = /^\/(library|r\/\d+)$/.test(location.pathname) ? location.pathname : "/";
   location.assign("/auth/login?return_to=" + encodeURIComponent(back));

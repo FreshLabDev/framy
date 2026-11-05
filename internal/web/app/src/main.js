@@ -15,6 +15,7 @@ import { signIn, refreshMe, generate, netState } from "./run.js";
 import { mountCutter, openCut } from "./clips.js";
 import { mountPrefs, openPrefs, renderPrefs, prefsOpen, oauthResult, oauthBack } from "./prefs.js";
 import { mountLibrary, mountViewer, mountFull, fullOpen, closeFull, tabs, go, route, libMe } from "./library.js";
+import { takeDraft } from "./draft.js";
 import { MARK } from "assets:lists";
 
 const B = window.framy;
@@ -139,6 +140,8 @@ async function main() {
     try { setTexts(want, await fetch(B.langs[want]).then((r) => r.json())); } catch {}
   }
   try { localStorage.setItem("framy.lang", lang); } catch {}
+  // Back from a load the page made itself (signing in, OpenRouter, a language): the composer as it was.
+  const lost = await takeDraft();
   await B.css;
   mount();
   renderTop();
@@ -148,6 +151,7 @@ async function main() {
   addEventListener("framy:view", renderTop);
   route();
 
+  if (lost > 0) toast(t("files.again"), { ms: 8000 });
   const sp = new URLSearchParams(location.search), si = sp.get("sign_in");
   if (si) { toast(t("auth." + (["cancelled", "expired", "failed"].includes(si) ? si : "failed"))); history.replaceState(null, "", location.pathname + location.hash); }
   // Back from OpenRouter: the address says how the connect ended.
