@@ -1635,6 +1635,8 @@ func TestBrowserVideoMotion(t *testing.T) {
 	else await wait(900);
 	out.cells = vs().map((v) => [v.autoplay, v.muted, v.paused].join(",")).join(" ");
 	out.btns = bs().map((b) => b.getAttribute("aria-label") + (b.classList.contains("still") ? "*" : "")).join(",");
+	// Play stands beside the button that opens the clip, not inside it.
+	out.inside = bs().filter((b) => b.parentElement.closest("button, a[href], [role=button]")).length;
 	bs()[0].click();
 	await until(() => vs()[0].paused !== out.reduce);
 	out.pressed = [vs()[0].paused, bs()[0].getAttribute("aria-label"), document.querySelector("#full").hidden];
@@ -1647,7 +1649,7 @@ func TestBrowserVideoMotion(t *testing.T) {
 	await wait(600);
 	out.back = vs().map((v) => v.paused).join(",");
 
-	document.querySelectorAll("#stage .jbox.cell.done")[1].click();
+	document.querySelectorAll("#stage .jbox.cell.done > .fhit")[1].click();
 	await until(() => !document.querySelector("#full").hidden && document.querySelectorAll("#full video").length === 2);
 	await wait(600);
 	out.full = [vs().map((v) => v.paused).join(","), document.querySelectorAll("#full video")[1].paused];
@@ -1657,12 +1659,12 @@ func TestBrowserVideoMotion(t *testing.T) {
 	out.closed = vs().map((v) => v.paused).join(",");
 	return out;`)
 		want := map[string]string{
-			"one": "[true true false false Pause]", "cells": "true,true,false true,true,false", "btns": "Pause,Pause", "pressed": "[true Play true]",
+			"one": "[true true false false Pause]", "cells": "true,true,false true,true,false", "btns": "Pause,Pause", "inside": "0", "pressed": "[true Play true]",
 			"away": "true,true", "back": "true,false", "full": "[true,true false]", "closed": "true,false",
 		}
 		if reduce {
 			want = map[string]string{
-				"one": "[false true true false Play]", "cells": "false,true,true false,true,true", "btns": "Play*,Play*", "pressed": "[false Pause true]",
+				"one": "[false true true false Play]", "cells": "false,true,true false,true,true", "btns": "Play*,Play*", "inside": "0", "pressed": "[false Pause true]",
 				"away": "true,true", "back": "true,true", "full": "[true,true true]", "closed": "true,true",
 			}
 		}

@@ -166,10 +166,15 @@ function ghostCell(it, dims) {
   if (it.short) chips.push(h("span", { class: "chip warn" }, ic("ticket"), h("span", {}, t("fr.short"))));
   // A press sets up that frame: on a phone in the sheet, on a computer in the form beside it.
   const pick = () => (isPhone() ? openTune(fr.id) : setScope(on ? null : fr.id));
-  return h("div", { class: "ghost cell" + (on ? " on" : ""), role: "button", tabindex: 0, "aria-pressed": String(on), "aria-label": t("fr.n", { n: i + 1 }), "data-k": "pv-" + fr.id,
-    onclick: pick, onkeydown: (e) => { if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) { e.preventDefault(); pick(); } } },
+  /* The frame holds two buttons side by side, one that picks it and one that
+     removes it, and is no button itself: a button inside a button is lost to a
+     screen reader. The first fills the frame under what it says, and a press
+     anywhere on the frame but the cross picks it. */
+  const said = chips.length ? "pvo-" + fr.id : null;
+  return h("div", { class: "ghost cell" + (on ? " on" : ""), "data-k": "pv-" + fr.id, onclick: pick },
+    h("button", { type: "button", class: "fhit", "aria-pressed": String(on), "aria-label": t("fr.n", { n: i + 1 }), "aria-describedby": said }),
     h("i"), h("i"), h("i"), h("i"),
-    h("div", { class: "c" }, h("b", {}, ratioLabel(set)), h("small", {}, t("fr.n", { n: i + 1 })), chips.length ? h("span", { class: "fown" }, chips) : null),
+    h("div", { class: "c" }, h("b", {}, ratioLabel(set)), h("small", {}, t("fr.n", { n: i + 1 })), said ? h("span", { class: "fown", id: said }, chips) : null),
     h("button", { type: "button", class: "frm", "aria-label": t("fr.remove_n", { n: i + 1 }), title: t("fr.remove"), onclick: (e) => { e.stopPropagation(); removeFrame(fr); } }, ic("close")));
 }
 function boardOf(P, under) {
@@ -435,10 +440,10 @@ function runCell(run, c, mixed, items) {
   const dl = v.done && v.res.url ? download(j, v.res, sub.k) : null;
   if (dl) { dl.className = "sq tdl"; dl.setAttribute("aria-label", t("stage.download")); dl.title = t("stage.download"); dl.addEventListener("click", (e) => e.stopPropagation()); }
   const f = C.famOf[sub.model], m = C.byId[sub.model];
-  const cell = h("div", { class: "jbox cell" + (v.done ? " done" : ""), "data-k": "pc-" + i, role: v.done ? "button" : null, tabindex: v.done ? 0 : null,
-    "aria-label": v.done ? t("view.result", { n: fmtNum(i + 1) }) : null, onclick: v.done ? open : null,
-    onkeydown: v.done ? (e) => { if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) { e.preventDefault(); open(); } } : null },
+  // As a frame before the press: the button that opens the result lies over it, beside Download and Play, not around them.
+  const cell = h("div", { class: "jbox cell" + (v.done ? " done" : ""), "data-k": "pc-" + i, onclick: v.done ? open : null },
     v.done ? media : [h("i"), h("i"), h("i"), h("i")], v.done ? null : v.status || null,
+    v.done ? h("button", { type: "button", class: "fhit", "aria-label": t("view.result", { n: fmtNum(i + 1) }) }) : null,
     h("span", { class: "num" }, String(i + 1)), mixed && f && m ? h("span", { class: "chip tm" }, lg(famLogo(f), f.maker, "s"), h("span", {}, vname(m))) : null, dl, pp);
   if (v.ht) halftone(cell, v.ht.fig, { ...v.ht, n: run.n, id, lost: going && run.net === "lost" });
   else if (v.done) halftone(cell, "reveal", { n: run.n, id });
