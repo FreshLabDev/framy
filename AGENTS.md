@@ -290,11 +290,13 @@ FRAMY_TEST_DATABASE_URL=postgres://framy:framy@localhost:5432/framy_test?sslmode
   go test -tags=integration -p 1 ./...
 ```
 
-The media tests need FFmpeg 8.0 or newer and skip without it; CI runs them
-inside the image with `FRAMY_MEDIA_TESTS=1`, which makes a skip a failure.
-They are those of `internal/media`, `internal/storage`, `internal/anim` and
-`internal/api` (a photo brought over HTTP); a new package with one goes into
-that loop of `ci.yml`.
+The media tests need FFmpeg 8.0 or newer with the libx264 and libwebp
+encoders, as the image has, and skip a test whose encoder is missing:
+Homebrew's ffmpeg has no libwebp, so on a Mac the thumbnail tests skip and say
+so. CI runs them inside the image with `FRAMY_MEDIA_TESTS=1`, which makes a
+skip a failure. They are those of `internal/media`, `internal/storage`,
+`internal/anim` and `internal/api` (a photo brought over HTTP); a new package
+with one goes into that loop of `ci.yml`.
 `internal/media/testdata/make.swift` regenerates the iPhone fixtures on macOS.
 
 The live R2 check runs by hand against the real buckets, where the token is:
