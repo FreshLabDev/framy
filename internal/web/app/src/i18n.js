@@ -26,6 +26,15 @@ export const fmtSecs = (s) => t("unit.s", { n: fmtNum(+s || 0, { maximumFraction
 export const fmtTime = (ms) => new Date(ms).toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" });
 // "5 November, 14:30" in the browser's time zone: when a free run frees up.
 export const fmtAt = (ms) => made("a" + lang, () => new Intl.DateTimeFormat(lang, { day: "numeric", month: "long", hour: "numeric", minute: "2-digit" })).format(ms);
+// A day the catalog names ("2026-11-11", a model's shut-down day) as it is
+// written, the same day in every time zone, with the year when it is not this
+// one: read in the browser's zone, midnight UTC is the day before west of it.
+export function fmtDay(iso) {
+  const d = new Date(iso + "T00:00:00Z");
+  if (isNaN(d)) return iso;
+  const year = d.getUTCFullYear() !== new Date().getUTCFullYear();
+  return made("y" + lang + year, () => new Intl.DateTimeFormat(lang, { day: "numeric", month: "long", timeZone: "UTC", ...(year ? { year: "numeric" } : {}) })).format(d);
+}
 // "in 3 hours", "in 2 days": when something comes back.
 export function fmtIn(ms) {
   const sec = Math.max(60, (ms - Date.now()) / 1000), rtf = made("r" + lang, () => new Intl.RelativeTimeFormat(lang, { numeric: "auto" }));

@@ -2,7 +2,7 @@
 // families, the free plans by offer, what each model takes, and the settings
 // a person can change. Prices are not here: they come from POST /api/quote.
 import { h, ic } from "./dom.js";
-import { t, fmtNum } from "./i18n.js";
+import { t, fmtNum, fmtDay } from "./i18n.js";
 import LOGOS from "assets:logos";
 
 export const C = { models: [], byId: {}, FAM: [], famOf: {}, varOf: {}, plans: {}, free: {}, recommend: {} };
@@ -221,7 +221,7 @@ export function deprecation(m) {
   if (!m.deprecated) return null;
   const to = m.successor && C.byId[m.successor];
   const toName = to ? (C.famOf[to.id] === C.famOf[m.id] ? C.varOf[to.id].label : vname(to)) : "";
-  const when = m.shuts_down ? t("dep.shuts", { date: new Date(m.shuts_down + "T00:00:00Z").toLocaleDateString(document.documentElement.lang, { day: "numeric", month: "long" }) })
+  const when = m.shuts_down ? t("dep.shuts", { date: fmtDay(m.shuts_down) })
     : t("dep.closing", { maker: m.maker });
   return { to, toName, when, text: toName ? t("dep.with_successor", { when, name: toName }) : when };
 }
