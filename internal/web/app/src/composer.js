@@ -3,7 +3,7 @@
 // glide from where they stood to where they stand now.
 import { $, $$, h, ic, isPhone, MAC } from "./dom.js";
 import { anim, rise, spin, opt, placeSegs, placeSeg, fitSegs, snap, ticker, roll, follow, EASE, SPRING, OUT, motion } from "./motion.js";
-import { t, fmtNum, fmtIn, fmtSecs } from "./i18n.js";
+import { t, fmtNum, fmtIn, fmtSecs, spaced } from "./i18n.js";
 import { C, PNAME, vname, famLogo, lg, provMark, freePlan, pays, offerOf, facts, factEl, deprecation, fieldsOf, SECONDARY, SEARCH, SICON,
   label, show, ordered, ratioNum, ratioOfSize, sizeK, resScore, needsVideo } from "./catalog.js";
 import { S, M, images, clip, payOf, usable, keyOk, connection, freeLeft, freeLimit, freesAt, freePer, settings, route, runItem, altItem, next, sourceRatio, quoteNow,
@@ -399,8 +399,8 @@ function variantBlock(m) {
     : h("div", { class: "seg" + (cur.length > 3 ? " wrapping" : ""), role: "radiogroup", "aria-label": t("var.label"), "data-seg": "var", "data-dur": 420 },
       cur.map((x) => opt({ key: "var", v: x.id, on: x.id === m.id, title: x.note ? `${x.label}: ${x.note}` : x.label, pick: () => pickVar(x) }, x.label, h("small", {}, priceNow(x.m))))));
   const dep = deprecation(m);
-  if (dep) kids.push(h("p", { class: "mnote" }, ic("clock"), h("span", {}, dep.to ? [dep.when + ". ", h("button", { type: "button", onclick: () => pickVar(C.varOf[dep.to.id] || { id: dep.to.id }) }, t("var.take", { name: dep.toName }))] : dep.text + ".")));
-  else if (v.by) kids.push(h("p", { class: "mnote" }, ic("clock"), h("span", {}, t("var.outdated", { v: v.by.label }) + " ", h("button", { type: "button", onclick: () => pickVar(v.by) }, t("var.take", { name: v.by.label })))));
+  if (dep) kids.push(h("p", { class: "mnote" }, ic("clock"), h("span", {}, dep.to ? [spaced(dep.when), h("button", { type: "button", onclick: () => pickVar(C.varOf[dep.to.id] || { id: dep.to.id }) }, t("var.take", { name: dep.toName }))] : dep.text)));
+  else if (v.by) kids.push(h("p", { class: "mnote" }, ic("clock"), h("span", {}, spaced(t("var.outdated", { v: v.by.label })), h("button", { type: "button", onclick: () => pickVar(v.by) }, t("var.take", { name: v.by.label })))));
   else if (v.note) kids.push(h("p", { class: "mnote info" }, ic("info"), h("span", {}, f.axes ? h("b", {}, v.label + ": ") : null, v.note)));
   return kids.length ? h("div", { class: "mvars" }, kids) : null;
 }

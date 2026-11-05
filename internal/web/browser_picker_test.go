@@ -6,6 +6,7 @@ package web
 
 import (
 	"context"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -82,6 +83,55 @@ func TestBrowserShutDownDay(t *testing.T) {
 			want := strings.ReplaceAll(tc.want, "{Y+1}", strconv.Itoa(int(got["year"].(float64))+1))
 			if note, _ := got["note"].(string); !strings.HasPrefix(note, want) {
 				t.Errorf("the composer says %q, want it to start with %q", note, want)
+			}
+			noErrors(t, ctx)
+		})
+	}
+}
+
+// TestBrowserShutDownSentence checks the line of a model the maker closes
+// ends as its language ends a sentence: Chinese and Japanese with "。", which
+// the code once followed with a Latin full stop, and Russian with one full
+// stop when the date ends in its own ("2027 г."). In the composer it is the
+// sentence and the button to the successor, with no space after "。"; in the
+// picker the successor is named in it.
+func TestBrowserShutDownSentence(t *testing.T) {
+	ts := fakeAPI(t)
+	for _, tc := range []struct {
+		lang, day                  string
+		composer, picker, stranger string
+	}{
+		{"en", `new Date().getUTCFullYear() + "-11-11"`, `^Shuts down on November 11\.$`, `^Shuts down on November 11\. Gemini Omni 1\.1 Flash replaces it\.$`, ``},
+		{"en", `undefined`, `^Google is closing this model\.$`, `^Google is closing this model\. Gemini Omni 1\.1 Flash replaces it\.$`, ``},
+		{"zh", `new Date().getUTCFullYear() + "-11-11"`, `^将于 11月11日 停用。$`, `^将于 11月11日 停用，由 Gemini Omni 1\.1 Flash 取代。$`, `停用\.`},
+		{"ja", `undefined`, `^Google はこのモデルを終了します。$`, `^Google はこのモデルを終了します。Gemini Omni 1\.1 Flash に置き換わります。$`, `す\.`},
+		{"ru", `(new Date().getUTCFullYear() + 1) + "-02-01"`, `^Отключат 1 февраля \d{4} г\.$`, `^Отключат 1 февраля \d{4} г\., замена: Gemini Omni 1\.1 Flash\.$`, `\.\.`},
+	} {
+		t.Run(tc.lang+" "+map[bool]string{true: "day", false: "no day"}[tc.day != "undefined"], func(t *testing.T) {
+			ctx := browserInit(t, ts.URL, 1440, 900, false, catalogInit(tc.lang, `(c) => {
+			  for (const m of c.models) if (m.deprecated) m.shuts_down = `+tc.day+`;
+			  return c;
+			}`))
+			got := js[map[string]string](t, ctx, pageHelpers+pickerHelpers+`
+			await toVideo();
+			await chooseFam("Veo");
+			const note = document.querySelector("#how .mnote > span");
+			const raw = [...note.childNodes].filter((n) => n.nodeType === 3).map((n) => n.data).join(""), composer = raw.trim();
+			await openPicker();
+			return { raw, composer, button: note.querySelector("button")?.textContent || "", picker: document.querySelector("#pkd .dwarn")?.textContent || "" };`)
+			if strings.HasSuffix(got["raw"], "。 ") {
+				t.Errorf("the composer puts a space after %q, before the button", got["composer"])
+			}
+			for _, c := range []struct{ name, got, want string }{{"composer", got["composer"], tc.composer}, {"picker", got["picker"], tc.picker}} {
+				if !regexp.MustCompile(c.want).MatchString(c.got) {
+					t.Errorf("%s says %q, want %s", c.name, c.got, c.want)
+				}
+				if tc.stranger != "" && regexp.MustCompile(tc.stranger).MatchString(c.got) {
+					t.Errorf("%s ends a sentence with a stray full stop: %q", c.name, c.got)
+				}
+			}
+			if got["button"] == "" {
+				t.Errorf("the composer has no button to the successor")
 			}
 			noErrors(t, ctx)
 		})

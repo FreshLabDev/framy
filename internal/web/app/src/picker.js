@@ -3,7 +3,7 @@
 // shows its card on the right.
 import { $, $$, h, ic, isWide } from "./dom.js";
 import { anim, rise, morph, opt, placeSegs, placeSeg, fly, ticker, EASE, OUT, SPRING } from "./motion.js";
-import { t, fmtNum, byName } from "./i18n.js";
+import { t, fmtNum, byName, spaced } from "./i18n.js";
 import { C, PNAME, vname, famText, famLogo, lg, provMark, freePlan, facts, refsOf, framesOf, needsImage, needsVideo, resRangeOf, durRangeOf, union, hasAudio, deprecation, fieldsOf, label } from "./catalog.js";
 import { S, M, images, payOf, keyOk, settings, altItem, misfit, famMisfit, freePer, refuses } from "./state.js";
 import { minEl, lowest, need } from "./price.js";
@@ -217,8 +217,8 @@ function detail(f) {
   return h("div", { class: "det" },
     h("div", { class: "dhead" }, lg(famLogo(f), f.maker, "l"), h("div", {}, h("h4", {}, f.title), h("div", { class: "mk" }, sub))),
     vs.length > 1 ? vlist(f, sel, pickIt) : null,
-    dep ? h("p", { class: "dwarn" }, ic("clock"), h("span", {}, dep.text + "."))
-      : sel.by ? h("p", { class: "dwarn" }, ic("clock"), h("span", {}, t("var.outdated", { v: sel.by.label }) + " ", h("button", { type: "button", class: "link-t", onclick: () => pickIt(sel.by) }, t("pick.see", { v: sel.by.label })))) : null,
+    dep ? h("p", { class: "dwarn" }, ic("clock"), h("span", {}, dep.text))
+      : sel.by ? h("p", { class: "dwarn" }, ic("clock"), h("span", {}, spaced(t("var.outdated", { v: sel.by.label })), h("button", { type: "button", class: "link-t", onclick: () => pickIt(sel.by) }, t("pick.see", { v: sel.by.label })))) : null,
     m.description ? h("p", { class: "ddesc" }, m.description) : null,
     h("div", { class: "dl" }, rows.map(([i, k, v]) => h("div", {}, h("span", {}, ic(i), k), h("span", {}, v)))),
     f.old.length ? h("p", { class: "dold" }, t("pick.old") + " ", f.old.map((v, i) => [i ? ", " : "", h("button", { type: "button", "aria-pressed": String(v.id === sel.id), title: t("pick.newer", { v: v.by.label }), onclick: () => pickIt(v) }, v.label)])) : null,

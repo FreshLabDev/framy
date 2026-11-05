@@ -35,6 +35,9 @@ export function fmtDay(iso) {
   const year = d.getUTCFullYear() !== new Date().getUTCFullYear();
   return made("y" + lang + year, () => new Intl.DateTimeFormat(lang, { day: "numeric", month: "long", timeZone: "UTC", ...(year ? { year: "numeric" } : {}) })).format(d);
 }
+// A sentence with more after it on its line, a button to act on it: a space
+// between, but none after a full-width stop ("。"), which has its room in it.
+export const spaced = (s) => (/[。！？：]$/.test(s) ? s : s + " ");
 // "in 3 hours", "in 2 days": when something comes back.
 export function fmtIn(ms) {
   const sec = Math.max(60, (ms - Date.now()) / 1000), rtf = made("r" + lang, () => new Intl.RelativeTimeFormat(lang, { numeric: "auto" }));
