@@ -187,12 +187,16 @@ const (
 // TypicalSeconds is how long a run of each offer typically takes, from the
 // press of Generate to the result: the median of its runs that ended done in
 // TypicalWindow, for an offer with at least TypicalRuns of them, in whole
-// seconds rounded up. The site shows it beside the time a run has waited.
+// seconds rounded up. The site shows it beside the time a run has waited. A
+// row whose times are out of order (queued before it was made, or done
+// before it was queued, as a hand-edited row of a test can be) measures
+// nothing and is left out.
 func (s *Store) TypicalSeconds(ctx context.Context) (map[string]int, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT offer_id, ceil(percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM finished_at - queued_at)))::int
 		FROM job
-		WHERE status = 'done' AND queued_at IS NOT NULL AND finished_at > now() - make_interval(secs => $1)
+		WHERE status = 'done' AND queued_at >= created_at AND finished_at >= queued_at
+		  AND finished_at > now() - make_interval(secs => $1)
 		GROUP BY offer_id
 		HAVING count(*) >= $2`, TypicalWindow.Seconds(), TypicalRuns)
 	if err != nil {

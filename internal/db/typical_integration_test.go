@@ -35,7 +35,8 @@ func TestTheTypicalTimeOfARunIsTheMedianOfEnoughRuns(t *testing.T) {
 		t.Helper()
 		job := chatJob(t, store, 4701, "typical:"+strconv.FormatInt(time.Now().UnixNano(), 10)+":"+strconv.FormatInt(typicalJobs.Add(1), 10))
 		if _, err := store.pool.Exec(ctx, `
-			UPDATE job SET offer_id = $2, status = $3, queued_at = now() - make_interval(secs => $4::float8 + $5::float8),
+			UPDATE job SET offer_id = $2, status = $3, created_at = now() - make_interval(secs => $4::float8 + $5::float8),
+			       queued_at = now() - make_interval(secs => $4::float8 + $5::float8),
 			       finished_at = now() - make_interval(secs => $5::float8)
 			WHERE id = $1`, job, offer, status, took.Seconds(), ago.Seconds()); err != nil {
 			t.Fatal(err)
@@ -48,6 +49,18 @@ func TestTheTypicalTimeOfARunIsTheMedianOfEnoughRuns(t *testing.T) {
 	// A failed run and one from 31 days ago do not count.
 	run("openrouter:test/slow", "failed", time.Second, time.Hour)
 	run("openrouter:test/slow", "done", time.Second, 31*24*time.Hour)
+	// Nor do runs whose times are out of order, as a row moved back by hand
+	// to free a test's slot of the allowance: queued a day before it was
+	// made, they would say a run takes a day.
+	for range 3 {
+		job := chatJob(t, store, 4701, "typical:"+strconv.FormatInt(time.Now().UnixNano(), 10)+":"+strconv.FormatInt(typicalJobs.Add(1), 10))
+		if _, err := store.pool.Exec(ctx, `
+			UPDATE job SET offer_id = 'openrouter:test/slow', status = 'done', created_at = now() - interval '1 hour',
+			       queued_at = now() - interval '1 day', finished_at = now() - interval '59 minutes'
+			WHERE id = $1`, job); err != nil {
+			t.Fatal(err)
+		}
+	}
 	// Four runs are too few to say.
 	for range 4 {
 		run("openrouter:test/rare", "done", 10*time.Second, time.Hour)
