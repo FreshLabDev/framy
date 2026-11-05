@@ -617,8 +617,13 @@ const fakeTelegram = `(() => {
   } };
 })();`
 
+// telegramBridge is what a native Telegram client gives the page before any
+// of its scripts runs; the page believes the launch data only with it.
+const telegramBridge = `window.TelegramWebviewProxy = { postEvent() {} };`
+
 // miniBrowser opens the page as the Mini App on a phone: with Telegram's
-// launch data in the fragment, and fakeTelegram served for Telegram's script.
+// launch data in the fragment, Telegram's bridge, and fakeTelegram served for
+// Telegram's script.
 func miniBrowser(t *testing.T, url string) context.Context {
 	t.Helper()
 	opts := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.WindowSize(390, 844), chromedp.NoSandbox)
@@ -646,7 +651,7 @@ func miniBrowser(t *testing.T, url string) context.Context {
 	err := chromedp.Do(ctx,
 		chromedp.EmulateViewport(390, 844, chromedp.EmulateMobile, chromedp.EmulateTouch, chromedp.EmulateScale(2)),
 		chromedp.Func(func(ctx context.Context, tg *chromedp.Target) error {
-			_, err := cdp.Call(ctx, tg, page.AddScriptToEvaluateOnNewDocument, page.AddScriptToEvaluateOnNewDocumentParams{Source: watch})
+			_, err := cdp.Call(ctx, tg, page.AddScriptToEvaluateOnNewDocument, page.AddScriptToEvaluateOnNewDocumentParams{Source: watch + telegramBridge})
 			return err
 		}),
 		chromedp.Navigate(url+"/#tgWebAppData="+neturl.QueryEscape(init)+"&tgWebAppVersion=8.0&tgWebAppPlatform=ios"),
@@ -656,6 +661,45 @@ func miniBrowser(t *testing.T, url string) context.Context {
 	}
 	ready(t, ctx)
 	return ctx
+}
+
+// TestBrowserMiniOutsideTelegram opens a link with someone's Mini App launch
+// data in an ordinary browser: the page stays the site, signed out, and never
+// trades the data for a token, so nothing done in that tab lands in the
+// account the data belongs to.
+func TestBrowserMiniOutsideTelegram(t *testing.T) {
+	var mu sync.Mutex
+	trades := 0
+	ts := fakeSite(t, func(srv *Server) {
+		srv.HandleFunc("POST /auth/miniapp", func(w http.ResponseWriter, _ *http.Request) {
+			mu.Lock()
+			trades++
+			mu.Unlock()
+			writeTestJSON(w, http.StatusOK, map[string]any{"token": "test-token", "expires_in": 3600})
+		})
+		srv.HandleFunc("GET /api/me", func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("Authorization") == "" {
+				writeTestJSON(w, http.StatusUnauthorized, map[string]any{"error": "sign_in"})
+				return
+			}
+			writeTestJSON(w, http.StatusOK, map[string]any{"user_id": 1, "name": "Mallory", "language": "en", "currency": "USD"})
+		})
+	})
+	user := `{"id":1,"first_name":"Mallory","language_code":"en"}`
+	init := "auth_date=1&user=" + neturl.QueryEscape(user) + "&hash=test"
+	ctx := browser(t, ts.URL+"/#tgWebAppData="+neturl.QueryEscape(init)+"&tgWebAppVersion=9.0&tgWebAppPlatform=ios", 390, 844, true)
+	got := js[map[string]any](t, ctx, pageHelpers+`
+	await wait(300);
+	let kept = null;
+	try { kept = sessionStorage.getItem("framy.init"); } catch {}
+	return { mini: window.framy.mini, signin: vis(document.querySelector("#top .signin")), me: !!document.querySelector("#meBtn"), kept };`)
+	mu.Lock()
+	n := trades
+	mu.Unlock()
+	if got["mini"] != false || got["signin"] != true || got["me"] != false || got["kept"] != nil || n != 0 {
+		t.Errorf("launch data outside Telegram: %v, %d trades", got, n)
+	}
+	noErrors(t, ctx)
 }
 
 // TestBrowserMiniShare checks Share in the Mini App: a result goes to

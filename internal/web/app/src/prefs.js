@@ -416,6 +416,17 @@ function lost() {
   toast(t("err.sign_in"), { ms: 6000 });
 }
 
+// Whose account this is, by the name and picture of the Telegram sign-in:
+// a key saved here goes to this account. The site signs out here; the Mini
+// App is signed in by Telegram for as long as it is open.
+function whoRow() {
+  const me = S.me, name = (me.name || "").trim();
+  const av = me.photo_url ? h("img", { class: "av", src: me.photo_url, alt: "", referrerpolicy: "no-referrer" }) : h("span", { class: "av", "aria-hidden": "true" }, (name || "?").slice(0, 1).toUpperCase());
+  if (S.mini) return sheetRow("out", av, name || t("prefs.signed_tg"), name ? t("prefs.signed_tg") : "");
+  return sheetRow("out", av, name || t("prefs.signed_tg"), t("prefs.signed_sub"),
+    h("button", { type: "button", onclick: async () => { await signOut(); if (!S.signed) closeSheets(); } }, t("auth.signout")));
+}
+
 export function renderPrefs() {
   const body = $("#prefsBody");
   if (!body || !S.me) return;
@@ -446,8 +457,7 @@ export function renderPrefs() {
     sheetRow("lang", ic("info"), t("prefs.lang_row"), t("prefs.lang_sub"), sel),
     h("div", { class: "group", "data-k": "g-acc" }, t("prefs.account")),
     st ? sheetRow("store", ic("stack"), t("prefs.stored", { n: fmtNum(st.files) }), t("prefs.stored_sub", { size: size(st.bytes) })) : null,
-    S.mini ? null : sheetRow("out", ic("out"), t("prefs.signed_tg"), t("prefs.signed_sub"),
-      h("button", { type: "button", onclick: async () => { await signOut(); if (!S.signed) closeSheets(); } }, t("auth.signout"))),
+    whoRow(),
     sheetRow("del", ic("trash"), t("prefs.delete"), accSub,
       h("button", { type: "button", class: "danger", disabled: ACC === "busy", onclick: deleteAccount }, t(ACC === "busy" ? "prefs.deleting_btn" : ACC === "fail" ? "prefs.delete_again" : "prefs.delete_btn"))));
   placeSegs($("#prefs"));

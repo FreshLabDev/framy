@@ -561,6 +561,7 @@ input.search::placeholder {color: var(--muted);}
 #prefs .group:first-child {margin-top: 0;}
 .srow {display: flex; align-items: center; gap: 14px; min-height: 60px; padding: 10px 10px 10px 12px; background: var(--deep);}
 .srow > .ic, .srow > .lgi {flex: none; width: 20px; height: 20px; margin-inline: 8px; color: var(--soft);}
+.srow > .av {flex: none; width: 28px; height: 28px; margin-inline: 4px; display: grid; place-items: center; background: var(--ink); color: var(--field); font-weight: 700; object-fit: cover;}
 .srow .l {flex: 1; min-width: 0;}
 .srow .l b {display: block; font-weight: 700;}
 .srow .l > span {display: block; font-size: 14px; color: var(--muted); overflow-wrap: anywhere;}
