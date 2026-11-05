@@ -108,7 +108,18 @@ func TestEstimates(t *testing.T) {
 		{"nano banana on OpenRouter 4K", "openrouter:google/gemini-nano-banana-2.1", Request{Settings: set{"resolution": "4K"}}, 3780 * 3e-5, 0, About},
 		// Three upstreams; Vertex in the US asks $66 a million instead of $60.
 		{"nano banana 2 at three upstreams", "openrouter:google/gemini-3.1-flash-image", Request{Settings: set{"resolution": "1K"}}, 1120 * 6e-5, 1120 * 6.6e-5, About},
-		{"nano banana pro with a reference", "openrouter:google/gemini-3-pro-image", Request{Settings: set{"resolution": "2K"}, Images: images(1)}, 1120*1.2e-4 + 560*2e-6, 0, About},
+		// An input picture takes 1,120 tokens at Google's default Input
+		// detail on every Nano Banana, and OpenRouter bills the prompt at the
+		// rate of its /api/v1/models (price.unlisted).
+		{"nano banana pro with a reference", "openrouter:google/gemini-3-pro-image", Request{Settings: set{"resolution": "2K"}, Images: images(1)}, 1120*1.2e-4 + 1120*2e-6, 0, About},
+		{"nano banana pro at low detail", "gemini:gemini-3-pro-image", Request{Settings: set{"resolution": "2K", "media_resolution": "low"}, Images: images(2)}, 1120*1.2e-4 + 2*280*2e-6, 0, About},
+		{"nano banana direct with 14 references", "gemini:gemini-nano-banana-2.1", Request{Settings: set{"resolution": "1K"}, Images: images(14)}, 1120*3e-5 + 14*1120*1.5e-6, 0, About},
+		{"nano banana on OpenRouter with a reference", "openrouter:google/gemini-nano-banana-2.1", Request{Settings: set{"resolution": "1K"}, Prompt: "кот в шляпе", Images: images(1)}, 1120*3e-5 + 1120*1.5e-6 + 6*1.5e-6, 0, About},
+		{"nano banana 2 lite with frames", "openrouter:google/gemini-3.1-flash-lite-image", Request{Settings: set{"resolution": "1K"}, Images: images(3)}, 1120*3e-5 + 3*1120*2.5e-7, 0, About},
+		// A second of video is a frame and its sound: 70 + 32 tokens, 280 + 32
+		// at high detail; a clip is rounded up to whole seconds.
+		{"nano banana from a clip", "gemini:gemini-nano-banana-2.1", Request{Settings: set{"resolution": "1K"}, Video: &Video{Seconds: 5.3, Width: 1280, Height: 720}}, 1120*3e-5 + 6*102*1.5e-6, 0, About},
+		{"nano banana from a clip at high detail", "gemini:gemini-3.1-flash-image", Request{Settings: set{"resolution": "1K", "media_resolution": "high"}, Video: &Video{Seconds: 5, Width: 1280, Height: 720}}, 1120*6e-5 + 5*312*5e-7, 0, About},
 		{"mai flash with a prompt", "openrouter:microsoft/mai-image-2.6-flash", Request{Settings: set{"aspect_ratio": "1:1"}, Prompt: "кот в шляпе"}, 1024*1.9e-5 + 6*1.75e-6, 0, About},
 		// Measured live: a 1024x1024 photo took about 1,100 input tokens, a
 		// 2048x1152 one about 2,470; the overlay sets 1,100 a megapixel.

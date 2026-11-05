@@ -309,12 +309,19 @@ func checkPrice(model string, h PriceHints, offers []Offer, warn func(string, ..
 		})
 	}
 	for _, billable := range slices.Sorted(maps.Keys(h.Tokens)) {
-		if !bills(func(p Price) bool { return p.Billable == billable && p.Unit == "token" }) {
+		billed := func(p Price) bool { return p.Billable == billable && p.Unit == "token" }
+		if !bills(billed) && !slices.ContainsFunc(h.Unlisted, billed) {
 			warn("model %s: price.tokens.%s, but no offer bills %s in tokens", model, billable, billable)
 		}
-		for _, res := range slices.Sorted(maps.Keys(h.Tokens[billable])) {
-			if res != Any && !offered("resolution", res) {
-				warn("model %s: price.tokens.%s.%s, but no offer has that resolution", model, billable, res)
+		// An output is counted by the resolution it is made at, an input by
+		// the Input detail it is read at.
+		param, what := "resolution", "resolution"
+		if strings.HasPrefix(billable, "input_") {
+			param, what = "media_resolution", "Input detail"
+		}
+		for _, key := range slices.Sorted(maps.Keys(h.Tokens[billable])) {
+			if key != Any && !offered(param, key) {
+				warn("model %s: price.tokens.%s.%s, but no offer has that %s", model, billable, key, what)
 			}
 		}
 	}

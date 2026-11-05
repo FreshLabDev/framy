@@ -2,6 +2,7 @@
 package price
 
 import (
+	"maps"
 	"math"
 	"slices"
 	"strconv"
@@ -22,6 +23,10 @@ const (
 	inputVideo     = "input_video"
 	inputReference = "input_reference"
 	inputFont      = "input_font"
+
+	// mediaResolution is Gemini's Input detail, how finely it reads the
+	// attached pictures and videos.
+	mediaResolution = "media_resolution"
 
 	unitImage     = "image"
 	unitMegapixel = "megapixel"
@@ -202,13 +207,13 @@ func (c *calc) quantity(billable, unit string) (lo, hi float64, ok bool) {
 			c.about()
 			return t, t, true
 		}
-		per, ok := c.hints.Tokens[inputImage][catalog.Any]
+		per, ok := c.inputTokens(inputImage)
 		if !ok {
 			c.cannot("the tokens of the input images")
 			return 0, 0, false
 		}
 		c.about()
-		return images * float64(per), images * float64(per), true
+		return images * per, images * per, true
 	case inputFont + "/" + unitImage:
 		// framy sends no font files yet.
 		return 0, 0, true
@@ -224,10 +229,17 @@ func (c *calc) quantity(billable, unit string) (lo, hi float64, ok bool) {
 		c.cannot("the text and thinking tokens")
 		return 0, 0, false
 	case inputVideo + "/" + unitToken:
-		if c.req.Video != nil {
-			c.cannot("the tokens of the input video")
+		if c.req.Video == nil {
+			return 0, 0, true
 		}
-		return 0, 0, false
+		per, ok := c.inputTokens(inputVideo)
+		if !ok {
+			c.cannot("the tokens of the input video")
+			return 0, 0, false
+		}
+		c.about()
+		t := per * c.videoInSeconds()
+		return t, t, true
 	case outputVideo + "/" + unitToken:
 		per, ok := c.hints.Tokens[outputVideo][c.resolution()]
 		if !ok {
@@ -241,6 +253,39 @@ func (c *calc) quantity(billable, unit string) (lo, hi float64, ok bool) {
 		return float64(per) * sLo, float64(per) * sHi, true
 	}
 	return 0, 0, false
+}
+
+// inputTokens is how many tokens one input image, or one second of an input
+// video, takes at the Input detail level chosen (media_resolution), else at
+// the provider's default (Any). A level the overlay has no count for takes
+// the largest it has, so the estimate does not come out low.
+func (c *calc) inputTokens(billable string) (float64, bool) {
+	counts := c.hints.Tokens[billable]
+	if len(counts) == 0 {
+		return 0, false
+	}
+	if level := c.setting(mediaResolution); level != "" {
+		if n, ok := counts[level]; ok {
+			return float64(n), true
+		}
+		return float64(slices.Max(slices.Collect(maps.Values(counts)))), true
+	}
+	n, ok := counts[catalog.Any]
+	return float64(n), ok
+}
+
+// videoInSeconds is how long the input videos are together, each rounded
+// up to a whole second: Gemini reads a video a frame a second.
+func (c *calc) videoInSeconds() float64 {
+	clips := c.req.Clips
+	if len(clips) == 0 {
+		clips = []float64{c.req.Video.Seconds}
+	}
+	var sum float64
+	for _, s := range clips {
+		sum += math.Ceil(s - 1e-6)
+	}
+	return sum
 }
 
 // inputTokensBySize counts the input images' tokens from their sizes, when
