@@ -444,6 +444,36 @@ func TestAResultOutlivesItsProviderLink(t *testing.T) {
 	h.workIsEmpty(t)
 }
 
+// A picture's provider fetches the inputs during its call; a video's may
+// start the run when its own queue lets it, so the links to a video run's
+// inputs live as long as framy waits for the run.
+func TestAVideoRunsInputsLiveAsLongAsTheRun(t *testing.T) {
+	h := newHarness(t, storage.Config{})
+	ctx := context.Background()
+	in := upload(t, h, alice, "u/3001/in/frame.png", pngBytes(t, 8, 8, 255))
+	q, err := jobs.NewQueue(h.pool, jobs.Config{Providers: map[string]jobs.Provider{"openrouter": &provider{}}, Sink: h.store, Inputs: h.store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _, err := q.Draft(ctx, jobs.New{UserID: alice, Surface: jobs.Group, Offer: offer, Prompt: "x", Inputs: []int64{in}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for kind, want := range map[catalog.Kind]string{catalog.Image: "900", catalog.Video: "3900"} {
+		got, err := h.store.Inputs(ctx, jobs.Job{ID: id, UserID: alice, Kind: kind})
+		if err != nil || len(got) != 1 {
+			t.Fatalf("%s: %v %v", kind, got, err)
+		}
+		u, err := url.Parse(got[0].URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if exp := u.Query().Get("X-Amz-Expires"); exp != want {
+			t.Errorf("a %s run's input lives %s s, want %s", kind, exp, want)
+		}
+	}
+}
+
 func TestADeletedInputFailsTheJobBeforeItIsPaid(t *testing.T) {
 	h := newHarness(t, storage.Config{})
 	ctx := context.Background()

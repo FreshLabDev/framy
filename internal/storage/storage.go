@@ -35,6 +35,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/jobs"
 	"github.com/FreshLabDev/framy/internal/media"
 	"github.com/FreshLabDev/framy/internal/r2"
@@ -46,9 +47,15 @@ const (
 	DefaultMaxUpload = 50 << 20
 	// DefaultMaxResult bounds a result fetched from a provider's link.
 	DefaultMaxResult = 512 << 20
-	// DefaultInputTTL is how long a provider may fetch an input: one call,
-	// with room for a slow queue. Each submit presigns anew.
+	// DefaultInputTTL is how long a provider may fetch an input of a
+	// picture: during its one call, with room for a slow queue. Each submit
+	// presigns anew.
 	DefaultInputTTL = 15 * time.Minute
+	// DefaultVideoInputTTL is the same for a video run, which a provider
+	// takes and may start later, when its own queue lets it: as long as
+	// framy waits for the run (an hour, jobs' runDeadline), with a margin
+	// for the clocks, so a run is never lost to a link that died first.
+	DefaultVideoInputTTL = 65 * time.Minute
 	// DefaultLinkTTL is how long the owner's link to a file lives at the
 	// least: from the end of the window it was made in.
 	DefaultLinkTTL = 10 * time.Minute
@@ -115,7 +122,10 @@ type Config struct {
 	// put it.
 	MaxVideo    int64
 	IncomingTTL time.Duration
-	InputTTL    time.Duration
+	// InputTTL and VideoInputTTL are how long the links to a picture run's
+	// inputs and to a video run's live.
+	InputTTL      time.Duration
+	VideoInputTTL time.Duration
 	// LinkTTL and LinkWindow: a link to an owner's file is signed at the
 	// start of the LinkWindow it is made in and lives LinkWindow plus
 	// LinkTTL, so it has LinkTTL left at the least.
@@ -158,6 +168,7 @@ func New(cfg Config) (*Store, error) {
 	setDefault(&cfg.MaxVideo, DefaultMaxVideo)
 	setDefault(&cfg.IncomingTTL, DefaultIncomingTTL)
 	setDefault(&cfg.InputTTL, DefaultInputTTL)
+	setDefault(&cfg.VideoInputTTL, DefaultVideoInputTTL)
 	setDefault(&cfg.LinkTTL, DefaultLinkTTL)
 	setDefault(&cfg.LinkWindow, DefaultLinkWindow)
 	setDefault(&cfg.AlertStep, DefaultAlertStep)
@@ -293,8 +304,15 @@ func (s *Store) UploadCopy(ctx context.Context, userID int64, r io.Reader, copyT
 }
 
 // Inputs presigns a job's files for its provider: jobs.Inputs. A file the
-// person deleted fails the job before anything is paid.
+// person deleted fails the job before anything is paid. A picture's
+// provider fetches them during its call; a video's may fetch them when the
+// run starts, after its own queue, so their links live as long as framy
+// waits for the run.
 func (s *Store) Inputs(ctx context.Context, j jobs.Job) ([]jobs.Input, error) {
+	ttl := s.cfg.InputTTL
+	if j.Kind == catalog.Video {
+		ttl = s.cfg.VideoInputTTL
+	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT i.position, a.object_key, a.content_type
 		FROM job_input i LEFT JOIN asset a ON a.id = i.asset_id
@@ -319,7 +337,7 @@ func (s *Store) Inputs(ctx context.Context, j jobs.Job) ([]jobs.Input, error) {
 		if in.key == nil {
 			return nil, &jobs.Error{Class: jobs.Storage, Err: fmt.Errorf("input %d was deleted before the run", in.pos+1)}
 		}
-		link, err := s.bucket.PresignGet(*in.key, s.cfg.InputTTL, "")
+		link, err := s.bucket.PresignGet(*in.key, ttl, "")
 		if err != nil {
 			return nil, &jobs.Error{Class: jobs.Storage, Err: err}
 		}
