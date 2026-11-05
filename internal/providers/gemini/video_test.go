@@ -350,6 +350,9 @@ func TestAVideoThatEndsWithoutOneSaysWhy(t *testing.T) {
 		class  jobs.Class
 		reason string
 		text   string
+		// cost is what the run keeps: Google bills the usage of a run that
+		// ended without a video.
+		cost *float64
 	}{
 		"a blocked prompt": {
 			poll:  `{"id":"v1_x","status":"failed","errors":[{"code":"prohibited_content","message":"The prompt violates the usage policies."}]}`,
@@ -372,8 +375,12 @@ func TestAVideoThatEndsWithoutOneSaysWhy(t *testing.T) {
 			class: jobs.ProviderFailed,
 		},
 		"waiting for an action": {
-			poll:  `{"id":"v1_x","status":"requires_action"}`,
-			class: jobs.ProviderFailed,
+			poll:  `{"id":"v1_x","status":"requires_action","usage":` + omniUsage + `}`,
+			class: jobs.ProviderFailed, cost: ptr(omniCost),
+		},
+		"waiting to be continued": {
+			poll:  `{"id":"v1_x","status":"requires_continuation","usage":` + omniUsage + `}`,
+			class: jobs.ProviderFailed, cost: ptr(omniCost),
 		},
 		"a video with no data": {
 			poll:  finished(`{"type":"video","mime_type":"video/mp4"}`),
@@ -391,6 +398,9 @@ func TestAVideoThatEndsWithoutOneSaysWhy(t *testing.T) {
 			out := poll(t, p, j)
 			if out.Err == nil || out.Err.Class != c.class {
 				t.Fatalf("outcome %+v, want class %s", out, c.class)
+			}
+			if c.cost != nil && (out.CostUSD == nil || !near(*out.CostUSD, *c.cost)) {
+				t.Errorf("cost %v, want %v", out.CostUSD, *c.cost)
 			}
 			if c.reason == "" {
 				return

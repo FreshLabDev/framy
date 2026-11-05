@@ -108,6 +108,9 @@ func (p *Provider) videoOutcome(ctx context.Context, key string, of catalog.Offe
 		out.Err = noResult(r, raw, collect(r, "video").text, key, catalog.Video)
 		return out, nil
 	case statusRequiresAction, statusRequiresContinuation:
+		// The model ran until it stopped to wait, and Google bills what it
+		// used by then, as for a run that failed.
+		out.CostUSD = cost(pricesOf(of), r.Usage)
 		out.Err = &jobs.Error{Class: jobs.ProviderFailed, Err: fmt.Errorf("gemini stopped the video as %s, which framy cannot answer", r.Status)}
 		return out, nil
 	default:
