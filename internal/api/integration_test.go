@@ -287,8 +287,11 @@ func (n *notices) within(d time.Duration) []event {
 		if err := json.Unmarshal([]byte(note.Payload), &e); err != nil {
 			n.t.Fatalf("a notice that is not JSON: %q", note.Payload)
 		}
-		if len(note.Payload) > 200 {
-			n.t.Errorf("the payload is %d bytes; it should stay small", len(note.Payload))
+		// Any role of the shared database may listen: the notice names the
+		// job and its number, and nobody.
+		var fields map[string]any
+		if err := json.Unmarshal([]byte(note.Payload), &fields); err != nil || len(fields) != 2 || fields["job"] == nil || fields["seq"] == nil {
+			n.t.Errorf("the notice carries more than the job and its number: %s", note.Payload)
 		}
 		out = append(out, e)
 	}
@@ -319,7 +322,7 @@ func TestEveryVisibleChangeIsNumberedAndAnnounced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := n.within(300 * time.Millisecond); len(got) != 1 || got[0] != (event{Job: id, User: alice, Seq: 1, Status: "queued"}) {
+	if got := n.within(300 * time.Millisecond); len(got) != 1 || got[0] != (event{Job: id, Seq: 1}) {
 		t.Fatalf("a new job: %+v", got)
 	}
 
@@ -331,17 +334,17 @@ func TestEveryVisibleChangeIsNumberedAndAnnounced(t *testing.T) {
 	}
 
 	// Each thing a person sees is one.
-	for i, c := range []struct{ sql, status string }{
-		{`UPDATE job SET status='running', started_at=now() WHERE id=$1`, "running"},
-		{`UPDATE job SET error_class='unavailable', error='503' WHERE id=$1`, "running"},
-		{`UPDATE job SET results=1 WHERE id=$1`, "running"},
-		{`UPDATE job SET actual_usd=0.03 WHERE id=$1`, "running"},
-		{`UPDATE job SET status='done', finished_at=now() WHERE id=$1`, "done"},
+	for i, sql := range []string{
+		`UPDATE job SET status='running', started_at=now() WHERE id=$1`,
+		`UPDATE job SET error_class='unavailable', error='503' WHERE id=$1`,
+		`UPDATE job SET results=1 WHERE id=$1`,
+		`UPDATE job SET actual_usd=0.03 WHERE id=$1`,
+		`UPDATE job SET status='done', finished_at=now() WHERE id=$1`,
 	} {
-		exec(t, w.pool, c.sql, id)
+		exec(t, w.pool, sql, id)
 		got := n.within(300 * time.Millisecond)
-		if len(got) != 1 || got[0] != (event{Job: id, User: alice, Seq: int64(i + 2), Status: c.status}) {
-			t.Fatalf("%s: %+v", c.sql, got)
+		if len(got) != 1 || got[0] != (event{Job: id, Seq: int64(i + 2)}) {
+			t.Fatalf("%s: %+v", sql, got)
 		}
 	}
 }
@@ -366,16 +369,24 @@ func TestTheQueuesOwnTransitionsAreAnnounced(t *testing.T) {
 	if err := w.queue.Cancel(ctx, queued); err != nil {
 		t.Fatal(err)
 	}
+	// Each job is announced as drafted or queued, then as queued or
+	// cancelled.
 	var got []string
 	for _, e := range n.within(400 * time.Millisecond) {
-		got = append(got, fmt.Sprintf("%d:%d:%s", e.Job, e.Seq, e.Status))
+		got = append(got, fmt.Sprintf("%d:%d", e.Job, e.Seq))
 	}
 	want := []string{
-		fmt.Sprintf("%d:1:draft", draft), fmt.Sprintf("%d:2:queued", draft),
-		fmt.Sprintf("%d:1:queued", queued), fmt.Sprintf("%d:2:cancelled", queued),
+		fmt.Sprintf("%d:1", draft), fmt.Sprintf("%d:2", draft),
+		fmt.Sprintf("%d:1", queued), fmt.Sprintf("%d:2", queued),
 	}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Errorf("got %v, want %v", got, want)
+	}
+	for id, status := range map[int64]string{draft: "queued", queued: "cancelled"} {
+		var now string
+		if err := w.pool.QueryRow(ctx, `SELECT status FROM job WHERE id = $1`, id).Scan(&now); err != nil || now != status {
+			t.Errorf("job %d is %q, want %q: %v", id, now, status, err)
+		}
 	}
 }
 

@@ -111,12 +111,12 @@ func (h *hub) open() int {
 	return n
 }
 
-// event is the payload of a notice, as migration 009 writes it.
+// event is the payload of a notice, as migration 033 writes it: the job and
+// its number, and nothing of the person, since any role of the shared
+// database may LISTEN.
 type event struct {
-	Job    int64  `json:"job"`
-	User   int64  `json:"user"`
-	Seq    int64  `json:"seq"`
-	Status string `json:"status"`
+	Job int64 `json:"job"`
+	Seq int64 `json:"seq"`
 }
 
 // listener holds the process's one connection that LISTENs, outside the
