@@ -83,7 +83,9 @@ jobs:
   web:
     name: Site assets and browser tests
     runs-on: ubuntu-latest
-    # The browser tests have 20 minutes of their own, below.
+    # The browser tests have 20 minutes of their own, below: they take a little
+    # under seven (6 min 39 s on 5 November) and go test's default is ten, which
+    # a few more tests would pass. Watch the time in the log.
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

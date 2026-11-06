@@ -315,6 +315,17 @@ skip a failure. They are those of `internal/media`, `internal/storage`,
 with one goes into that loop of `ci.yml`.
 `internal/media/testdata/make.swift` regenerates the iPhone fixtures on macOS.
 
+The browser tests take about five minutes on a laptop and a little under
+seven in CI, and go test stops a package at ten minutes, so run them as CI
+does, with a timeout of their own (and Chrome at `CHROME_PATH`):
+
+```sh
+go test -tags=browser -run Browser -timeout 20m ./internal/web/
+```
+
+CI prints each test's time (`-v`); when a run nears 15 minutes, split the tests
+or speed them up before raising the limit again.
+
 The live R2 check runs by hand against the real buckets, where the token is:
 `go test -tags r2live -run Live ./internal/r2` with `R2_ACCOUNT_ID`,
 `R2_ACCESS_KEY_ID_FILE` and `R2_SECRET_ACCESS_KEY_FILE`. It writes a few bytes
