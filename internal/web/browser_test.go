@@ -654,7 +654,14 @@ const cpuRef = 6.5
 func slowCPU(t *testing.T, ctx context.Context) float64 {
 	t.Helper()
 	target := 4 * cpuRef
-	fast := js[float64](t, ctx, cpuWork)
+	// The best of three: the first run of the work also compiles it, and a
+	// shared runner has moments of another job's load. Either reads the
+	// machine as slower than it is and leaves it unslowed: on 6 November a
+	// runner did it in 25.0 ms, then in 11.8 ms once the page was reloaded.
+	fast := math.Inf(1)
+	for range 3 {
+		fast = min(fast, js[float64](t, ctx, cpuWork))
+	}
 	rate := max(1, target/fast)
 	err := chromedp.Do(ctx, chromedp.Func(func(ctx context.Context, tg *chromedp.Target) error {
 		_, err := cdp.Call(ctx, tg, emulation.SetCPUThrottlingRate, emulation.SetCPUThrottlingRateParams{Rate: rate})
