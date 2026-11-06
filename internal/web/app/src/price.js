@@ -71,9 +71,10 @@ export function priceText(e) {
   const p = e.label || usd(e.usd);
   return e.kind === "about" ? t("price.about", { p }) : e.kind === "up_to" ? t("price.up_to", { p }) : e.kind === "from" ? t("price.from", { p }) : p;
 }
-// Dollars, never rounded down (as fx.Format): the hint when the person's currency is another.
+// Dollars, never rounded down (as fx.Format, which browser_money_test.go holds this to): the hint
+// when the person's currency is another. Nothing, a negative, NaN and infinity are all "0".
 function num(a) {
-  if (!(a > 0)) return "0";
+  if (!(a > 0) || !Number.isFinite(a)) return "0";
   let d = 2;
   if (a < 1) d = Math.min(4, Math.max(2, 1 - Math.floor(Math.log10(a))));
   const p = 10 ** d;

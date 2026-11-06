@@ -285,6 +285,11 @@ under `incoming/` and removes them. Set `R2_FOREIGN_BUCKET` to a throwaway
 bucket of the same account to check the token is refused there. It prints no
 credential and no presigned URL; keep it that way.
 
+The few amounts the site writes itself (the dollars of a price hint, the sum of
+several runs in `price.js`) are checked against `fx.Format` string for string
+by `browser_money_test.go`, which bundles `price.js` on its own; change the
+rule in `internal/fx` and in `price.js` together, or that test fails.
+
 Verify the site and the Mini App in a browser at phone width (375×812 and
 320×568) and on a wide screen, with and without the Telegram emulation hash
 (`#tgWebAppData=…&tgWebAppVersion=9.0&tgWebAppPlatform=ios`), and check the
