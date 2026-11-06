@@ -242,8 +242,8 @@ input[type="range"]::-moz-range-thumb {width: 20px; height: 20px; background: va
 .ghost > i:nth-of-type(3), .jbox > i:nth-of-type(3) {left: 10px; bottom: 10px; border-width: 0 0 3px 3px;}
 .ghost > i:nth-of-type(4), .jbox > i:nth-of-type(4) {right: 10px; bottom: 10px; border-width: 0 3px 3px 0;}
 .ghost .c, .jbox .c {display: grid; justify-items: center; gap: 6px; padding: 0 10px; text-align: center;}
-.ghost .c b, .jbox .c b {font: 700 clamp(20px, 4vw, 42px)/1 var(--display); color: var(--muted);}
-.ghost .c small, .jbox .c small {font-size: 13px; color: var(--muted);}
+.ghost .c b, .jbox .c b, .c.under b {font: 700 clamp(20px, 4vw, 42px)/1 var(--display); color: var(--muted);}
+.ghost .c small, .jbox .c small, .c.under small {font-size: 13px; color: var(--muted);}
 .ghost .c > .ic, .jbox .c > .ic {width: 34px; height: 34px; color: var(--muted);}
 @media (min-width: 960px) {
   .stage {position: sticky; top: 12px;}
@@ -477,6 +477,9 @@ input.search::placeholder {color: var(--muted);}
 /* The halftone of the run fills the frame (halftone.js); what the run is at stands under the figure. */
 .jbox > canvas.ht {position: absolute; inset: 0; display: block; width: 100%; height: 100%;}
 .jbox.ht .c {position: absolute; left: 0; right: 0; bottom: 0; gap: 4px; padding: 0 24px 22px;}
+/* A frame too small for its words and its figure has the words under it, on the field (stage.js, caption). */
+.preview > .c.under {display: grid; justify-items: center; gap: 4px; min-width: 0; max-width: 100%; text-align: center;}
+@media (min-width: 960px) { .preview > .c.under {justify-items: start; text-align: start;} }
 
 /* The player (player.js): the picture, and over its foot a bar of the deep
    colour. A joined clip's bar is cut into its parts, 4 px apart, and the part
@@ -499,12 +502,12 @@ input.search::placeholder {color: var(--muted);}
 /* A narrow clip, as a tall one on a phone, keeps the bar to what fits. */
 @container (max-width: 279.98px) { .pbar .ptime {display: none;} }
 @container (max-width: 199.98px) { .pbar .pfull {display: none;} }
-.jbox .c b {color: var(--soft);}
-.jbox.ht .c b {font-size: clamp(18px, 2.4vw, 28px);}
-.jbox .c small.lost {color: var(--soft);}
-.jbox .c small.took {font-variant-numeric: tabular-nums;}
-.jbox .c small.said {max-width: 52ch; line-height: 1.35; color: var(--soft); cursor: pointer; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere;}
-.jbox .c small.said.open {-webkit-line-clamp: 8;}
+.jbox .c b, .c.under b {color: var(--soft);}
+.jbox.ht .c b, .c.under b {font-size: clamp(18px, 2.4vw, 28px);}
+.jbox .c small.lost, .c.under small.lost {color: var(--soft);}
+.jbox .c small.took, .c.under small.took {font-variant-numeric: tabular-nums;}
+.jbox .c small.said, .c.under small.said {max-width: 52ch; line-height: 1.35; color: var(--soft); cursor: pointer; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere;}
+.jbox .c small.said.open, .c.under small.said.open {-webkit-line-clamp: 8;}
 .jfoot {display: grid; gap: 12px; min-width: 0;}
 .jline {display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 14px; color: var(--soft); min-height: 1.45em;}
 .jtag {padding: 0 6px; background: var(--deep); font-size: 12px; color: var(--muted); cursor: help;}

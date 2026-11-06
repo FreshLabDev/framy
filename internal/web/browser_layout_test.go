@@ -427,7 +427,7 @@ func TestBrowserLowWindow(t *testing.T) {
 	const s = await press("fail:money", (s) => s.failed);
 	await wait(900);
 	if (s.label !== "No money on the key") bad.push("the run: " + s.label);
-	for (const q of ["#stage [data-k=pv]", "#stage .jbox .c b", "#stage .jacts"]) if (!inView(document.querySelector(q))) bad.push(q + " out of sight: " + JSON.stringify(spot(document.querySelector(q))));
+	for (const q of ["#stage [data-k=pv]", "#stage .c b", "#stage .jacts"]) if (!inView(document.querySelector(q))) bad.push(q + " out of sight: " + JSON.stringify(spot(document.querySelector(q))));
 	[...document.querySelectorAll("#stage .jacts button")].find((b) => b.textContent.trim() === "Edit the prompt").click();
 	await wait(900);
 	if (document.activeElement !== document.querySelector("#prompt") || !inView(document.querySelector("#prompt"))) bad.push("Edit the prompt leaves the prompt out of sight");
@@ -463,7 +463,7 @@ func TestBrowserLowWindow(t *testing.T) {
 	if (spot(document.querySelector("#composer")).abs < 0) bad.push("the composer starts over the page");
 	const s = await press("fail:money", (s) => s.failed);
 	await wait(900);
-	if (!inView(document.querySelector("#stage .jbox .c b"))) bad.push("the reason is out of sight");
+	if (!inView(document.querySelector("#stage .c b"))) bad.push("the reason is out of sight");
 	const end = document.documentElement.scrollHeight;
 	for (const b of document.querySelectorAll("#stage .jacts button")) if (spot(b).abs + b.offsetHeight > end) bad.push(b.textContent.trim() + " cannot be reached");
 	return { bad, page: document.documentElement.scrollWidth - innerWidth };`)

@@ -279,7 +279,18 @@ export function view(run, o = {}) {
 }
 // The provider's own words stand small under the label, two lines of them; a press shows the rest.
 export const failEl = (label, said) => h("div", { class: "c fail" }, h("b", {}, label),
-  said ? h("small", { class: "said", title: said, onclick: (e) => e.currentTarget.classList.toggle("open") }, said) : null);
+  said ? h("small", { class: "said", title: said, onclick: (e) => { e.currentTarget.classList.toggle("open"); caption(e.currentTarget.parentElement._box); } }, said) : null);
+// The words of a frame stand under its figure, in it, while the dots keep at least half of the frame
+// above them (halftone.js leaves 22 px over the dots and 4 px under them). A frame too small for both,
+// as on a short phone or one on its side, has its words under it instead, clear of the dots.
+function caption(box) {
+  const c = box?._c;
+  if (!c || !box.isConnected) return;
+  if (c.parentElement !== box) { c.classList.remove("under"); box.append(c); }
+  if (c.offsetHeight + 26 <= box.clientHeight / 2) return;
+  c.classList.add("under");
+  box.after(c);
+}
 // A price of 0 in the person's currency, from a label of the run's own price.
 const zeroOf = (label) => (label || "$0").replace(/\d[\d.,]*/, "0");
 // The figure of each reason a run gave nothing; the rest show a cross.
@@ -464,6 +475,7 @@ function renderRun(st, run) {
   const box = h("div", { class: "jbox" + (v.done ? " done" : "") + (v.fail ? " failed" : ""), "data-k": "pv", style: { width: b.w + "px", height: b.h + "px" } },
     v.done ? media : [h("i"), h("i"), h("i"), h("i")], v.status || null);
   box._r = r; box._under = v.fail ? 150 : 70;
+  if (v.status) { box._c = v.status; v.status._box = box; }
   // The dots: a figure for the state, or the result showing through them as it arrives.
   if (v.ht) halftone(box, v.ht.fig, { ...v.ht, n: run.n, lost: going && run.net === "lost" });
   else if (v.done) halftone(box, "reveal", { n: run.n });
@@ -480,6 +492,7 @@ function renderRun(st, run) {
   const acts = h("div", { class: "jacts acts", "data-k": "j-acts" }, actRow([...v.acts,
     runOver(run) ? h("button", { type: "button", class: "sq", "aria-label": t("stage.next"), title: t("stage.next"), onclick: () => drop() }, ic("plus"), h("span", { class: "t" }, t("stage.next"))) : null]));
   st.replaceChildren(h("div", { class: "preview", "data-k": "pvbox" }, box), h("div", { class: "jfoot", "data-k": "j-foot" }, line, why, acts, prompt));
+  caption(box);
 }
 
 // The composer holds the run's prompt still: the stage does not say it twice.
@@ -524,7 +537,7 @@ export function runChanged() {
   renderStage();
   d();
   if (fresh && S.showJob) anim($("#stage [data-k=pv]"), [{ transform: "scale(.96)", opacity: 0.6 }, { transform: "none", opacity: 1 }], { duration: 420, easing: EASE });
-  else if (motion() && (run.multi ? !runOver(run) : run.phase !== "job" || !isFinal(run.job?.status))) rise($$("#stage .jbox .c"), { y: 6 });
+  else if (motion() && (run.multi ? !runOver(run) : run.phase !== "job" || !isFinal(run.job?.status))) rise($$("#stage .jbox .c, #stage .c.under"), { y: 6 });
 }
 
 // The countdowns on the stage and in the viewer, once a second while there are any.
@@ -559,5 +572,6 @@ export function refit() {
   const f = fit(b._r, b._under || 0);
   b.style.width = f.w + "px";
   b.style.height = f.h + "px";
+  caption(b);
 }
 addEventListener("resize", refit);
