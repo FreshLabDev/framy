@@ -6353,6 +6353,24 @@
     "ja": "追加",
     "ar": "إضافة"
   },
+  "web.files.add_named": {
+    "en": "Add files",
+    "ru": "Добавить файлы",
+    "uk": "Додати файли",
+    "es": "Añadir archivos",
+    "fr": "Ajouter des fichiers",
+    "de": "Dateien hinzufügen",
+    "it": "Aggiungi file",
+    "pl": "Dodaj pliki",
+    "cs": "Přidat soubory",
+    "tr": "Dosya ekle",
+    "sv": "Lägg till filer",
+    "be": "Дадаць файлы",
+    "ca": "Afegeix fitxers",
+    "zh": "添加文件",
+    "ja": "ファイルを追加",
+    "ar": "إضافة ملفات"
+  },
   "web.files.again": {
     "en": "Add the files again: the browser did not keep them.",
     "ru": "Добавь файлы ещё раз: браузер их не сохранил.",

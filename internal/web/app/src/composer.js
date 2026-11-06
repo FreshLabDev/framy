@@ -265,7 +265,7 @@ function renderFiles(m, pay) {
       if (go.length) tiles.append(h("div", { class: "fgroup", "data-k": "g-go" }, h("span", { class: "gl" }, t("files.going", { n: max })), h("div", { class: "gt" }, go)));
       tiles.append(h("div", { class: "fgroup out", "data-k": "g-off" }, h("span", { class: "gl" }, t("files.off")), h("div", { class: "gt" }, off)));
     }
-    tiles.append(h("button", { type: "button", class: "addfile", "data-k": "f-add", onclick: () => $("#file").click() }, ic("plus"), t("files.add")));
+    tiles.append(h("button", { type: "button", class: "addfile", "data-k": "f-add", "aria-label": t("files.add_named"), onclick: () => $("#file").click() }, ic("plus"), t("files.add")));
   }
   box.append(tiles);
   const why = [...new Set(R.filter((r) => !r.go).map((r) => r.why))];
@@ -285,7 +285,7 @@ function renderFiles(m, pay) {
   const none = !S.files.length && !cont && !slots;
   box.classList.toggle("nofiles", none);
   $("#pwrap").classList.toggle("tools", none);
-  $("#ptools").replaceChildren(...(none ? [h("button", { type: "button", class: "pattach", onclick: () => $("#file").click() }, ic("plus"), t("files.add")), h("span", {}, t("files.or_drop"))] : []));
+  $("#ptools").replaceChildren(...(none ? [h("button", { type: "button", class: "pattach", "aria-label": t("files.add_named"), onclick: () => $("#file").click() }, ic("plus"), t("files.add")), h("span", {}, t("files.or_drop"))] : []));
   fitPrompt();
 }
 // A video is made from what is in its slots: Start, then End, or References.
