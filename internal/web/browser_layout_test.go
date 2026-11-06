@@ -362,6 +362,29 @@ func axNames(t *testing.T, ctx context.Context, role string) []string {
 
 // TestBrowserTabNames checks that the tabs of a phone, icons only, keep
 // their words as their names, as they have them on a wide screen.
+// TestBrowserSkeletonPhone checks that on a phone, upright and held sideways,
+// the first paint has the bar, the dock, the prompt, Create and the frame
+// where the app puts them, so nothing jumps when the app takes over.
+func TestBrowserSkeletonPhone(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	for _, w := range [][2]int64{{390, 844}, {375, 667}, {320, 568}, {844, 390}} {
+		ctx := browserAs(t, ts.URL, w[0], w[1], opened{phone: true})
+		got := js[map[string]any](t, ctx, pageHelpers+`
+		await wait(800);
+		const r = (q) => { const b = document.querySelector(q).getBoundingClientRect(); return [b.top, b.height, b.left, b.width]; };
+		const app = { top: r(".top"), dock: r("#composer"), prompt: r("#pwrap"), go: r("#go"), frame: r("#stage .ghost") };
+		document.querySelector("#app").hidden = true; document.querySelector("#skel").hidden = false;
+		const sk = { top: r(".sk-top"), dock: r(".sk-col"), prompt: r(".sk-col .p"), go: r(".sk-col .b"), frame: r(".sk-stage i") };
+		const bad = [];
+		for (const k of Object.keys(app)) if (app[k].some((v, i) => Math.abs(v - sk[k][i]) > 2)) bad.push(k + ": app " + app[k].map(Math.round) + ", first paint " + sk[k].map(Math.round));
+		return { bad };`)
+		if bad, _ := got["bad"].([]any); len(bad) > 0 {
+			t.Errorf("at %dx%d the first paint moves: %v", w[0], w[1], bad)
+		}
+	}
+}
+
 func TestBrowserTabNames(t *testing.T) {
 	runs := &fakeRuns{}
 	ts := fakeSite(t, runs.mount)
