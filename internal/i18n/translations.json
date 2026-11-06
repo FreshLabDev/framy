@@ -537,7 +537,7 @@
     "ca": "Aquesta generació admet com a màxim {max} s: s’editen els primers {max} s de {n}.",
     "zh": "本次最多处理 {max} 秒：只修改 {n} 秒中的前 {max} 秒。",
     "ja": "今回の処理は最大 {max} 秒です。{n} 秒のうち最初の {max} 秒を編集します。",
-    "ar": "يأخذ هذا التشغيل {max} ث على الأكثر: تُعدَّل أول {max} ث من {n}."
+    "ar": "تقبل هذه العملية {max} ث على الأكثر: تُعدَّل أول {max} ث من {n}."
   },
   "edit.empty": {
     "en": "Write what to change after <code>/edit</code>, in reply to a video, for example <code>/edit make it night</code>.",
@@ -2481,7 +2481,7 @@
     "ca": "Una generació de franc té ajustos fixos. Amb la teva clau els pots canviar.",
     "zh": "免费生成的设置是固定的。使用你自己的密钥即可更改。",
     "ja": "無料の生成は設定が固定です。自分のキーなら変更できます。",
-    "ar": "إعدادات التشغيل المجاني ثابتة. يمكنك تغييرها بمفتاحك الخاص."
+    "ar": "إعدادات عملية التوليد المجانية ثابتة. يمكنك تغييرها بمفتاحك الخاص."
   },
   "panel.key_needed": {
     "en": "This model runs on your own key. Connect one on the site.",
@@ -2553,7 +2553,7 @@
     "ca": "S’ha eliminat un fitxer d’aquesta generació, així que no es pot repetir.",
     "zh": "这次生成的一个文件已被删除，无法再次生成。",
     "ja": "この生成のファイルが削除されたため、もう一度実行できません。",
-    "ar": "حُذف ملف من هذا التشغيل، لذا لا يمكن تكراره."
+    "ar": "حُذف ملف من هذه العملية، لذا لا يمكن تكرارها."
   },
   "result.original": {
     "en": "Original",
@@ -3111,7 +3111,7 @@
     "ca": "El model ja havia començat, així que la generació continua i compta com una de les teves imatges de franc. El resultat va a la teva biblioteca del web, no al xat.",
     "zh": "模型已经开始运行，所以这次生成会继续，并计入你的免费图片。结果会进入你在网站上的作品库，不会发到聊天里。",
     "ja": "モデルはすでに動き出していたため、生成は続き、無料の画像として数えられます。結果はチャットではなく、サイトのライブラリに入ります。",
-    "ar": "كان النموذج قد بدأ بالفعل، لذا يستمر التشغيل ويُحتسب من صورك المجانية. ستذهب النتيجة إلى مكتبتك على الموقع، لا إلى الدردشة."
+    "ar": "كان النموذج قد بدأ بالفعل، لذا تستمر العملية وتُحتسب من صورك المجانية. ستذهب النتيجة إلى مكتبتك على الموقع، لا إلى الدردشة."
   },
   "run.stopped_key": {
     "en": "The model had already started, so the run goes on and your {provider} key pays for it. The result goes to your library on the site, not to the chat.",
@@ -3129,7 +3129,7 @@
     "ca": "El model ja havia començat, així que la generació continua i la paga la teva clau de {provider}. El resultat va a la teva biblioteca del web, no al xat.",
     "zh": "模型已经开始运行，所以这次生成会继续，费用由你的 {provider} 密钥支付。结果会进入你在网站上的作品库，不会发到聊天里。",
     "ja": "モデルはすでに動き出していたため、生成は続き、料金はあなたの {provider} キーに請求されます。結果はチャットではなく、サイトのライブラリに入ります。",
-    "ar": "كان النموذج قد بدأ بالفعل، لذا يستمر التشغيل ويدفع ثمنه مفتاح {provider} الخاص بك. ستذهب النتيجة إلى مكتبتك على الموقع، لا إلى الدردشة."
+    "ar": "كان النموذج قد بدأ بالفعل، لذا تستمر العملية ويدفع ثمنها مفتاح {provider} الخاص بك. ستذهب النتيجة إلى مكتبتك على الموقع، لا إلى الدردشة."
   },
   "run.stopped_video": {
     "en": "The model had already started, so the run goes on and counts toward your free videos. The result goes to your library on the site, not to the chat.",
@@ -3147,7 +3147,7 @@
     "ca": "El model ja havia començat, així que la generació continua i compta com un dels teus vídeos de franc. El resultat va a la teva biblioteca del web, no al xat.",
     "zh": "模型已经开始运行，所以这次生成会继续，并计入你的免费视频。结果会进入你在网站上的作品库，不会发到聊天里。",
     "ja": "モデルはすでに動き出していたため、生成は続き、無料の動画として数えられます。結果はチャットではなく、サイトのライブラリに入ります。",
-    "ar": "كان النموذج قد بدأ بالفعل، لذا يستمر التشغيل ويُحتسب من مقاطع الفيديو المجانية لديك. ستذهب النتيجة إلى مكتبتك على الموقع، لا إلى الدردشة."
+    "ar": "كان النموذج قد بدأ بالفعل، لذا تستمر العملية وتُحتسب من مقاطع الفيديو المجانية لديك. ستذهب النتيجة إلى مكتبتك على الموقع، لا إلى الدردشة."
   },
   "run.too_big": {
     "en": "This file is too big.",
@@ -4263,7 +4263,7 @@
     "ca": "Propera generació de franc: {at}",
     "zh": "下次免费：{at}",
     "ja": "次の無料枠：{at}",
-    "ar": "التشغيل المجاني التالي: {at}"
+    "ar": "عملية التوليد المجانية التالية: {at}"
   },
   "web.bar.free_left": {
     "en": "Free left: {left} of {limit}",
@@ -4299,7 +4299,7 @@
     "ca": "El preu es coneixerà després de la generació",
     "zh": "价格在生成后才能确定",
     "ja": "価格は生成後にわかります",
-    "ar": "يُعرف السعر بعد التشغيل"
+    "ar": "يُعرف السعر بعد التوليد"
   },
   "web.cancel": {
     "en": "Cancel",
@@ -5235,7 +5235,7 @@
     "ca": "Les generacions de franc s’han acabat.",
     "zh": "免费次数已用完。",
     "ja": "無料の生成を使い切りました。",
-    "ar": "انتهت التشغيلات المجانية."
+    "ar": "انتهت الحصة المجانية."
   },
   "web.err.generic": {
     "en": "Something went wrong ({code}). Try again.",
@@ -5307,7 +5307,7 @@
     "ca": "Aquesta generació no és de franc. Tria un ajust de franc o fes servir una clau.",
     "zh": "这次生成不是免费的。请选择免费的设置，或使用密钥。",
     "ja": "この生成は無料ではありません。無料の設定を選ぶか、キーを使ってください。",
-    "ar": "هذا التشغيل ليس مجانيًا. اختر إعدادًا مجانيًا أو استخدم مفتاحًا."
+    "ar": "هذه العملية ليست مجانية. اختر إعدادًا مجانيًا أو استخدم مفتاحًا."
   },
   "web.err.sign_in": {
     "en": "Sign in again to continue.",
@@ -5739,7 +5739,7 @@
     "ca": "La generació de franc ha tornat.",
     "zh": "已返还一次免费次数。",
     "ja": "無料の生成が戻りました。",
-    "ar": "عاد التشغيل المجاني."
+    "ar": "عادت الحصة المجانية."
   },
   "web.fail.free_closed_l": {
     "en": "Free runs paused",
@@ -5757,7 +5757,7 @@
     "ca": "De franc en pausa",
     "zh": "免费已暂停",
     "ja": "無料は一時停止中",
-    "ar": "المجاني متوقف مؤقتًا"
+    "ar": "التوليد المجاني متوقف مؤقتًا"
   },
   "web.fail.free_kept": {
     "en": "The free run is not spent.",
@@ -5775,7 +5775,7 @@
     "ca": "La generació de franc no s’ha gastat.",
     "zh": "没有扣除免费次数。",
     "ja": "無料の生成は消費されていません。",
-    "ar": "لم يُستهلك التشغيل المجاني."
+    "ar": "لم تُستهلك الحصة المجانية."
   },
   "web.fail.free_key": {
     "en": "Free runs do not work right now: the provider did not accept framy’s key.",
@@ -5793,7 +5793,7 @@
     "ca": "Les generacions de franc no funcionen ara mateix: el proveïdor no ha acceptat la clau de framy.",
     "zh": "免费生成暂时不可用：服务商没有接受 framy 的密钥。",
     "ja": "無料の生成は現在使えません。プロバイダーが framy のキーを受け付けませんでした。",
-    "ar": "التشغيلات المجانية لا تعمل الآن: لم يقبل المزوّد مفتاح framy."
+    "ar": "التوليد المجاني لا يعمل الآن: لم يقبل المزوّد مفتاح framy."
   },
   "web.fail.free_money": {
     "en": "Free runs are paused for {pause}: framy’s key is out of credits.",
@@ -5811,7 +5811,7 @@
     "ca": "Les generacions de franc estan en pausa durant {pause}: la clau de framy s’ha quedat sense crèdit.",
     "zh": "免费生成暂停 {pause}：framy 的密钥余额已用完。",
     "ja": "無料の生成は {pause}間停止しています。framy のキーの残高がなくなりました。",
-    "ar": "التشغيلات المجانية متوقفة {pause}: نفد رصيد مفتاح framy."
+    "ar": "التوليد المجاني متوقف {pause}: نفد رصيد مفتاح framy."
   },
   "web.fail.free_off_l": {
     "en": "Free runs are down",
@@ -5829,7 +5829,7 @@
     "ca": "De franc no funciona",
     "zh": "免费暂不可用",
     "ja": "無料は使えません",
-    "ar": "المجاني لا يعمل"
+    "ar": "التوليد المجاني لا يعمل"
   },
   "web.fail.free_spent": {
     "en": "The free run is spent: such a refusal counts.",
@@ -5847,7 +5847,7 @@
     "ca": "La generació de franc s’ha gastat: un rebuig així compta.",
     "zh": "免费次数已用掉：这类拒绝也会计入。",
     "ja": "無料の生成は消費されました。このような拒否も回数に含まれます。",
-    "ar": "استُهلك التشغيل المجاني: مثل هذا الرفض يُحتسب."
+    "ar": "استُهلكت الحصة المجانية: مثل هذا الرفض يُحتسب."
   },
   "web.fail.interrupted": {
     "en": "framy restarted while the request was with the provider. It was not sent again, so that nothing is charged twice.",
@@ -5883,7 +5883,7 @@
     "ca": "Generació interrompuda",
     "zh": "生成被中断",
     "ja": "生成が中断されました",
-    "ar": "انقطع التشغيل"
+    "ar": "انقطعت العملية"
   },
   "web.fail.invalid": {
     "en": "The model does not take one of these settings. Reload the page and try again.",
@@ -6567,7 +6567,7 @@
     "ca": "Els fitxers es queden en aquest dispositiu fins que comenci la generació.",
     "zh": "文件在开始生成前只保留在本设备上。",
     "ja": "ファイルは、生成を始めるまでこの端末に残ります。",
-    "ar": "تبقى الملفات على هذا الجهاز حتى يبدأ التشغيل."
+    "ar": "تبقى الملفات على هذا الجهاز حتى تبدأ العملية."
   },
   "web.files.off": {
     "en": "Not used",
@@ -7179,7 +7179,7 @@
     "ca": "de franc esgotades",
     "zh": "免费次数不足",
     "ja": "無料枠なし",
-    "ar": "لا مجانية متبقية"
+    "ar": "لا حصة مجانية متبقية"
   },
   "web.fr.to_all": {
     "en": "Back to all frames",
@@ -7287,7 +7287,7 @@
     "ca": "Generació de franc: {what}.",
     "zh": "免费生成：{what}。",
     "ja": "無料の生成：{what}。",
-    "ar": "التشغيل المجاني: {what}."
+    "ar": "التوليد المجاني: {what}."
   },
   "web.free.model_picks": {
     "en": "the shape the model picks",
@@ -7449,7 +7449,7 @@
     "ca": "No es pot generar",
     "zh": "无法生成",
     "ja": "実行できません",
-    "ar": "لا يمكن التشغيل"
+    "ar": "لا يمكن التوليد"
   },
   "web.go.close": {
     "en": "Close framy",
@@ -7575,7 +7575,7 @@
     "ca": "De franc esgotades",
     "zh": "免费次数已用完",
     "ja": "無料枠は終了",
-    "ar": "انتهت المجانية"
+    "ar": "انتهت الحصة المجانية"
   },
   "web.go.need_clip": {
     "en": "Needs a clip",
@@ -8529,7 +8529,7 @@
     "ca": "Vols eliminar les generacions fallides?",
     "zh": "删除失败的生成记录？",
     "ja": "失敗した生成履歴を削除しますか？",
-    "ar": "حذف التشغيلات الفاشلة؟"
+    "ar": "حذف العمليات الفاشلة؟"
   },
   "web.lib.delete_text": {
     "en": "Runs to delete: {n}. They and the files they took go from framy for good. What the bot already sent to chats stays there.",
@@ -8547,7 +8547,7 @@
     "ca": "Generacions que s’eliminaran: {n}. S’eliminen de framy per sempre, amb els seus fitxers. El que el bot ja ha enviat als xats s’hi queda.",
     "zh": "将删除的生成记录：{n} 条。它们及其文件会从 framy 中永久删除。机器人已经发到聊天里的内容会留在原处。",
     "ja": "削除する生成履歴：{n} 件。ファイルとともに framy から完全に削除されます。ボットがすでにチャットへ送信した内容は、そのまま残ります。",
-    "ar": "التشغيلات التي ستُحذف: {n}. ستُحذف مع ملفاتها من framy نهائيًا. ما أرسله البوت إلى الدردشات من قبل يبقى هناك."
+    "ar": "العمليات التي ستُحذف: {n}. ستُحذف مع ملفاتها من framy نهائيًا. ما أرسله البوت إلى الدردشات من قبل يبقى هناك."
   },
   "web.lib.deleted_n": {
     "en": "Deleted: {n}",
@@ -8619,7 +8619,7 @@
     "ca": "Aquestes són totes les generacions",
     "zh": "这就是全部生成记录",
     "ja": "以上がすべての生成履歴です",
-    "ar": "هذه كل التشغيلات"
+    "ar": "هذه كل العمليات"
   },
   "web.lib.failed": {
     "en": "The library did not load.",
@@ -8745,7 +8745,7 @@
     "ca": "Les generacions següents no s’han carregat.",
     "zh": "后面的生成记录没有加载出来。",
     "ja": "次の生成履歴を読み込めませんでした。",
-    "ar": "لم تُحمَّل التشغيلات التالية."
+    "ar": "لم تُحمَّل العمليات التالية."
   },
   "web.lib.none_failed": {
     "en": "No failed runs.",
@@ -8763,7 +8763,7 @@
     "ca": "No hi ha generacions fallides.",
     "zh": "没有失败的生成记录。",
     "ja": "失敗した生成はありません。",
-    "ar": "لا توجد تشغيلات فاشلة."
+    "ar": "لا توجد عمليات فاشلة."
   },
   "web.lib.none_images": {
     "en": "No images yet.",
@@ -9087,7 +9087,7 @@
     "ca": "Sense connexió amb framy. Les generacions continuen al servidor i els resultats arribaran quan torni.",
     "zh": "与 framy 的连接已断开。生成仍在服务器上进行，连接恢复后结果就会显示。",
     "ja": "framy に接続できません。生成はサーバー上で続いており、接続が戻ると結果が届きます。",
-    "ar": "لا يوجد اتصال بـ framy. تستمر التشغيلات على الخادم، وستصل النتائج عند عودة الاتصال."
+    "ar": "لا يوجد اتصال بـ framy. تستمر العمليات على الخادم، وستصل النتائج عند عودة الاتصال."
   },
   "web.net.lost_line": {
     "en": "No connection: the run keeps going on the server",
@@ -9105,7 +9105,7 @@
     "ca": "Sense connexió: la generació continua al servidor",
     "zh": "没有连接：生成仍在服务器上进行",
     "ja": "接続なし：生成はサーバー上で続いています",
-    "ar": "لا يوجد اتصال: يستمر التشغيل على الخادم"
+    "ar": "لا يوجد اتصال: تستمر العملية على الخادم"
   },
   "web.net.poll": {
     "en": "checked every {every}",
@@ -9159,7 +9159,7 @@
     "ca": "Torna a obrir framy: la generació continua al servidor",
     "zh": "请重新打开 framy：生成仍在服务器上进行",
     "ja": "framy をもう一度開いてください：生成はサーバー上で続いています",
-    "ar": "افتح framy من جديد: يستمر التشغيل على الخادم"
+    "ar": "افتح framy من جديد: تستمر العملية على الخادم"
   },
   "web.net.signin_line": {
     "en": "Sign in again: the run goes on on the server",
@@ -9177,7 +9177,7 @@
     "ca": "Torna a iniciar la sessió: la generació continua al servidor",
     "zh": "请重新登录：生成仍在服务器上进行",
     "ja": "もう一度ログインしてください：生成はサーバー上で続いています",
-    "ar": "سجّل الدخول مرة أخرى: يستمر التشغيل على الخادم"
+    "ar": "سجّل الدخول مرة أخرى: تستمر العملية على الخادم"
   },
   "web.oauth.cancelled": {
     "en": "The OpenRouter sign-in was canceled. No key is connected.",
@@ -9699,7 +9699,7 @@
     "ca": "preu després de la generació",
     "zh": "价格在生成后确定",
     "ja": "価格は生成後に確定",
-    "ar": "السعر بعد التشغيل"
+    "ar": "السعر بعد التوليد"
   },
   "web.pick.nothing": {
     "en": "Nothing found for “{q}”.",
@@ -10401,7 +10401,7 @@
     "ca": "Generacions, fitxers i claus, al web i a Telegram",
     "zh": "网站和 Telegram 上的生成记录、文件和密钥",
     "ja": "サイトと Telegram の生成履歴、ファイル、キー",
-    "ar": "التشغيلات والملفات والمفاتيح، على الموقع وفي Telegram"
+    "ar": "العمليات والملفات والمفاتيح، على الموقع وفي Telegram"
   },
   "web.prefs.delete_text": {
     "en": "Every run with its prompt, every image, video and uploaded file, and your keys go, on the site and in Telegram. What the bot already sent to chats stays there, and the free runs already used do not come back. The keys still work at the provider: revoke them there too. This cannot be undone.",
@@ -10419,7 +10419,7 @@
     "ca": "S’esborraran totes les generacions amb els seus prompts, totes les imatges, clips i fitxers pujats, i les teves claus, al web i a Telegram. El que el bot ja ha enviat als xats s’hi queda, i les generacions de franc ja fetes no tornen. Al proveïdor les claus continuen funcionant: revoca-les també allà. No es pot desfer.",
     "zh": "所有生成记录及其提示词、所有图片、片段、上传的文件和你的密钥都会被删除，网站和 Telegram 上的都一样。机器人已经发到聊天里的内容会留在原处，已用掉的免费次数也不会返还。这些密钥在服务商那里仍然有效，请也在那里撤销。此操作无法撤销。",
     "ja": "すべての生成履歴とそのプロンプト、画像、クリップ、アップロードしたファイル、そしてキーが、サイトと Telegram の両方から削除されます。ボットがすでにチャットへ送信した内容はそのまま残り、使った無料の生成も戻りません。キーはプロバイダー側ではまだ有効なので、そちらでも無効にしてください。この操作は元に戻せません。",
-    "ar": "ستُحذف كل التشغيلات مع طلباتها، وكل الصور والمقاطع والملفات المرفوعة، ومفاتيحك، على الموقع وفي Telegram. ما أرسله البوت إلى الدردشات من قبل يبقى هناك، والتشغيلات المجانية المستخدمة لا تعود. تبقى المفاتيح صالحة لدى المزوّد: ألغِها هناك أيضًا. لا يمكن التراجع عن ذلك."
+    "ar": "ستُحذف كل العمليات مع طلباتها، وكل الصور والمقاطع والملفات المرفوعة، ومفاتيحك، على الموقع وفي Telegram. ما أرسله البوت إلى الدردشات من قبل يبقى هناك، وما استُهلك من الحصة المجانية لا يعود. تبقى المفاتيح صالحة لدى المزوّد: ألغِها هناك أيضًا. لا يمكن التراجع عن ذلك."
   },
   "web.prefs.deleted": {
     "en": "The account is deleted, and every session is closed.",
@@ -10995,7 +10995,7 @@
     "ca": "Primer han d’acabar les generacions",
     "zh": "请先等生成结束",
     "ja": "先に生成の完了が必要です",
-    "ar": "يجب أن تنتهي التشغيلات أولًا"
+    "ar": "يجب أن تنتهي العمليات أولًا"
   },
   "web.prefs.wait_queued": {
     "en": "Some runs have not started yet and can be canceled.",
@@ -11013,7 +11013,7 @@
     "ca": "Algunes generacions encara no han començat i es poden cancel·lar.",
     "zh": "有些生成还没开始，可以取消。",
     "ja": "まだ始まっていない生成があり、キャンセルできます。",
-    "ar": "بعض التشغيلات لم تبدأ بعد ويمكن إلغاؤها."
+    "ar": "بعض العمليات لم تبدأ بعد ويمكن إلغاؤها."
   },
   "web.prefs.wait_then": {
     "en": "Then the account can be deleted.",
@@ -11391,7 +11391,7 @@
     "ca": "Les generacions de franc estan en pausa fins a les {time}. Amb la teva clau funciona ara mateix.",
     "zh": "免费生成暂停到 {time}。用你自己的密钥现在就可以。",
     "ja": "無料の生成は {time} まで停止しています。自分のキーなら今すぐ使えます。",
-    "ar": "التشغيلات المجانية متوقفة حتى {time}. أما بمفتاحك الخاص فيعمل الآن."
+    "ar": "التوليد المجاني متوقف حتى {time}. أما بمفتاحك الخاص فيعمل الآن."
   },
   "web.ref.free_closed_l": {
     "en": "Free runs paused",
@@ -11409,7 +11409,7 @@
     "ca": "De franc en pausa",
     "zh": "免费已暂停",
     "ja": "無料は一時停止中",
-    "ar": "المجاني متوقف مؤقتًا"
+    "ar": "التوليد المجاني متوقف مؤقتًا"
   },
   "web.ref.free_out_l": {
     "en": "Free runs used up",
@@ -11427,7 +11427,7 @@
     "ca": "De franc esgotades",
     "zh": "免费次数已用完",
     "ja": "無料枠は終了",
-    "ar": "انتهت المجانية"
+    "ar": "انتهت الحصة المجانية"
   },
   "web.ref.free_taken": {
     "en": "The free images are used up. The next free one: {at}.",
@@ -11571,7 +11571,7 @@
     "ca": "«{name}» per dins no és una imatge, tot i que pel nom ho sembli. Treu-lo i torna a generar.",
     "zh": "“{name}”的内容并不是图片，尽管名称看起来像。请移除它，然后重新生成。",
     "ja": "「{name}」は名前こそ画像のようですが、中身は画像ではありません。削除してからもう一度実行してください。",
-    "ar": "الملف «{name}» ليس صورة في داخله رغم أن اسمه يوحي بذلك. أزله وشغّل مرة أخرى."
+    "ar": "الملف «{name}» ليس صورة في داخله رغم أن اسمه يوحي بذلك. أزله وحاول مرة أخرى."
   },
   "web.ref.not_a_video": {
     "en": "There is no video inside the file, though it is named like a clip. Take another file.",
@@ -11697,7 +11697,7 @@
     "ca": "El preu ara és {p} en lloc de {was}. No s’ha cobrat res i la generació espera que premis.",
     "zh": "价格现在是 {p}，原来是 {was}。没有扣费，生成在等你点击。",
     "ja": "価格は {was} から {p} になりました。料金は請求されておらず、生成はあなたが押すのを待っています。",
-    "ar": "السعر الآن {p} بدلًا من {was}. لم يُخصم شيء، والتشغيل ينتظر ضغطك."
+    "ar": "السعر الآن {p} بدلًا من {was}. لم يُخصم شيء، والعملية تنتظر ضغطك."
   },
   "web.ref.price_l": {
     "en": "The price went up",
@@ -12651,7 +12651,7 @@
     "ca": "Torna a la generació actual",
     "zh": "回到当前的生成",
     "ja": "現在の生成に戻る",
-    "ar": "العودة إلى التشغيل الحالي"
+    "ar": "العودة إلى العملية الحالية"
   },
   "web.stage.done": {
     "en": "Ready",
@@ -13119,7 +13119,7 @@
     "ca": "Ajustos de la generació",
     "zh": "生成设置",
     "ja": "生成の設定",
-    "ar": "إعدادات التشغيل"
+    "ar": "إعدادات التوليد"
   },
   "web.unit.gb": {
     "en": "{n} GB",
@@ -13623,7 +13623,7 @@
     "ca": "Aquesta generació encara està en curs. Podràs eliminar-la quan acabi.",
     "zh": "这次生成还在进行中。结束后才能删除。",
     "ja": "この生成はまだ実行中です。終了後に削除できます。",
-    "ar": "هذا التشغيل لا يزال جاريًا. يمكنك حذفه بعد أن ينتهي."
+    "ar": "هذه العملية لا تزال جارية. يمكنك حذفها بعد أن تنتهي."
   },
   "web.view.del_failed": {
     "en": "It was not deleted. Try again in a minute.",
@@ -13659,7 +13659,7 @@
     "ca": "La generació de franc no torna.",
     "zh": "免费次数不会返还。",
     "ja": "無料の生成は戻りません。",
-    "ar": "لن يعود التشغيل المجاني."
+    "ar": "لن تعود الحصة المجانية."
   },
   "web.view.del_q": {
     "en": "Delete this run?",
@@ -13677,7 +13677,7 @@
     "ca": "Vols eliminar aquesta generació?",
     "zh": "删除这条生成记录？",
     "ja": "この生成履歴を削除しますか？",
-    "ar": "حذف هذا التشغيل؟"
+    "ar": "حذف هذه العملية؟"
   },
   "web.view.del_storage": {
     "en": "The files were not deleted, so the run is still here. Try again.",
@@ -13695,7 +13695,7 @@
     "ca": "No s’han pogut eliminar els fitxers. La generació continua aquí, torna-ho a provar.",
     "zh": "文件没能删除。这次生成还在，请再试一次。",
     "ja": "ファイルを削除できませんでした。生成は残っているので、もう一度お試しください。",
-    "ar": "لم تُحذف الملفات. التشغيل ما زال موجودًا، حاول مرة أخرى."
+    "ar": "لم تُحذف الملفات. العملية ما زالت موجودة، حاول مرة أخرى."
   },
   "web.view.del_text": {
     "en": "The result and its files go from framy for good, on the site and in Telegram. What the bot already sent to chats stays there.",
@@ -13803,7 +13803,7 @@
     "ca": "No hi ha cap generació així a la teva biblioteca.",
     "zh": "你的作品库里没有这条生成记录。",
     "ja": "ライブラリにそのような生成履歴はありません。",
-    "ar": "لا يوجد تشغيل كهذا في مكتبتك."
+    "ar": "لا توجد عملية كهذه في مكتبتك."
   },
   "web.view.of": {
     "en": "{i} of {n}",
@@ -14055,7 +14055,7 @@
     "ca": "De franc no admet clips; amb una clau, sí",
     "zh": "免费生成不能用片段；使用密钥则可以",
     "ja": "無料ではクリップは使えません。キーがあれば使えます",
-    "ar": "المجاني لا يقبل مقاطع، ومع المفتاح يقبلها"
+    "ar": "التوليد المجاني لا يقبل مقاطع، ومع المفتاح يقبلها"
   },
   "web.why.free_no_photos": {
     "en": "Free runs take no photos; with a key they do",
@@ -14073,7 +14073,7 @@
     "ca": "De franc no admet fotos; amb una clau, sí",
     "zh": "免费生成不能用照片；使用密钥则可以",
     "ja": "無料では写真は使えません。キーがあれば使えます",
-    "ar": "المجاني لا يقبل صورًا، ومع المفتاح يقبلها"
+    "ar": "التوليد المجاني لا يقبل صورًا، ومع المفتاح يقبلها"
   },
   "web.why.free_no_sounds": {
     "en": "Free runs take no sounds; with a key they do",
@@ -14091,7 +14091,7 @@
     "ca": "De franc no admet àudios; amb una clau, sí",
     "zh": "免费生成不能用声音；使用密钥则可以",
     "ja": "無料では音声は使えません。キーがあれば使えます",
-    "ar": "المجاني لا يقبل أصواتًا، ومع المفتاح يقبلها"
+    "ar": "التوليد المجاني لا يقبل أصواتًا، ومع المفتاح يقبلها"
   },
   "web.why.free_start": {
     "en": "Free runs take only a start photo; with a key, references too",
@@ -14109,7 +14109,7 @@
     "ca": "De franc només admet el primer fotograma; amb una clau, també referències",
     "zh": "免费生成只能用首帧；使用密钥还可以用参考",
     "ja": "無料では最初のフレームのみ。キーがあれば参照も使えます",
-    "ar": "المجاني يقبل صورة البداية فقط، ومع المفتاح يقبل المراجع أيضًا"
+    "ar": "التوليد المجاني يقبل صورة البداية فقط، ومع المفتاح يقبل المراجع أيضًا"
   },
   "web.why.max_clips": {
     "en": "No more than {n} clips",
