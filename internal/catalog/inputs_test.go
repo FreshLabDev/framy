@@ -83,6 +83,11 @@ func TestInputsCheck(t *testing.T) {
 	frameOnly := Inputs{Images: &ImageInputs{Max: 1, Frames: 1}}
 	styles := Inputs{Images: &ImageInputs{Min: 1, Max: 10, Refs: 10}}
 	veo := Inputs{Images: &ImageInputs{Max: 3, Refs: 3, Frames: 2, RefDurations: []float64{8}}}
+	short := []float64{3, 4, 5, 6, 7, 8, 9, 10}
+	omni := Inputs{
+		Images: &ImageInputs{Max: 6, Refs: 6, Frames: 2, FrameDurations: short},
+		Videos: &ClipInputs{Max: 1, Role: RoleSource, Secs: &Span{Max: 15}, MaxBytes: 48 << 20, Durations: short},
+	}
 	for _, tc := range []struct {
 		name string
 		in   Inputs
@@ -116,11 +121,22 @@ func TestInputsCheck(t *testing.T) {
 		// Veo makes a video from references at 8 s only, from frames or words
 		// at any length it lists.
 		{"references at 8 s", veo, Video, Count{Images: 2, Duration: 8}, ""},
-		{"references at 6 s", veo, Video, Count{Images: 2, Duration: 6}, "from reference images is 8 s long, and 6 s is set"},
+		{"references at 6 s", veo, Video, Count{Images: 2, Duration: 6}, "from these files is 8 s long, and 6 s is set"},
 		{"references with no length set", veo, Video, Count{Images: 2}, ""},
 		{"frames at 6 s", veo, Video, Count{Images: 2, Frames: 2, Duration: 6}, ""},
 		{"words at 4 s", veo, Video, Count{Duration: 4}, ""},
 		{"references at 6 s where two lengths go", Inputs{Images: &ImageInputs{Max: 3, Refs: 3, RefDurations: []float64{8, 10}}}, Video, Count{Images: 1, Duration: 6}, "is 8 or 10 s long"},
+		// Omni 1.2 makes 3 to 15 s from words and pictures, and 3 to 10 s
+		// from frames, on a clip and going on from its own video.
+		{"omni from words at 15 s", omni, Video, Count{Duration: 15}, ""},
+		{"omni from references at 15 s", omni, Video, Count{Images: 4, Duration: 15}, ""},
+		{"omni from frames at 10 s", omni, Video, Count{Images: 2, Frames: 2, Duration: 10}, ""},
+		{"omni from frames at 15 s", omni, Video, Count{Images: 2, Frames: 2, Duration: 15}, "is 3 to 10 s long, and 15 s is set"},
+		{"omni on a clip at 12 s", omni, Video, Count{Videos: 1, VideoSecs: []float64{8}, Duration: 12}, "is 3 to 10 s long"},
+		{"omni on a clip at 6 s", omni, Video, Count{Videos: 1, VideoSecs: []float64{8}, Duration: 6}, ""},
+		{"omni going on at 12 s", omni, Video, Count{Continues: true, Duration: 12}, "is 3 to 10 s long"},
+		{"omni going on at 10 s", omni, Video, Count{Continues: true, Duration: 10}, ""},
+		{"omni on a clip of 16 s", omni, Video, Count{Videos: 1, VideoSecs: []float64{16}}, "at most 15 s"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.in.Check(tc.kind, tc.c)
@@ -131,5 +147,33 @@ func TestInputsCheck(t *testing.T) {
 				t.Errorf("err = %v, want one with %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestDefaultDuration(t *testing.T) {
+	for _, tc := range []struct {
+		d    []float64
+		want float64
+	}{
+		{[]float64{8}, 8},
+		{[]float64{3, 4, 5, 6, 7, 8, 9, 10}, 5},
+		{[]float64{10, 6, 8}, 6},
+		{[]float64{2, 3, 4}, 4},
+		{nil, 0},
+	} {
+		if got := DefaultDuration(tc.d); got != tc.want {
+			t.Errorf("DefaultDuration(%v) = %g, want %g", tc.d, got, tc.want)
+		}
+	}
+}
+
+func TestSecondsReadsARunAsARange(t *testing.T) {
+	for d, want := range map[string]string{
+		"8": seconds([]float64{8}), "8 or 10": seconds([]float64{8, 10}), "4, 6 or 8": seconds([]float64{4, 6, 8}),
+		"3 to 10": seconds([]float64{3, 4, 5, 6, 7, 8, 9, 10}), "3, 4 or 6": seconds([]float64{3, 4, 6}),
+	} {
+		if d != want {
+			t.Errorf("seconds = %q, want %q", want, d)
+		}
 	}
 }

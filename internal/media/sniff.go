@@ -17,6 +17,11 @@ const (
 	WebP Format = "webp"
 	HEIF Format = "heif"
 	AVIF Format = "avif"
+	// GIF is known for the animations GPT Image makes: framy keeps one,
+	// measures it and draws its thumbnail from its first frame, but takes
+	// none as an upload (Normalize), as the browser sends a GIF's first
+	// frame as a PNG.
+	GIF Format = "gif"
 )
 
 // demuxer is the ffmpeg input format for each, so ffmpeg never guesses one
@@ -27,6 +32,7 @@ var demuxer = map[Format]string{
 	WebP: "webp_pipe",
 	HEIF: "mov",
 	AVIF: "mov",
+	GIF:  "gif",
 }
 
 // heifBrands and avifBrands are the ftyp brands of still images. A video's
@@ -45,6 +51,8 @@ func Sniff(head []byte) Format {
 		return PNG
 	case len(head) >= 12 && string(head[:4]) == "RIFF" && string(head[8:12]) == "WEBP":
 		return WebP
+	case bytes.HasPrefix(head, []byte("GIF87a")) || bytes.HasPrefix(head, []byte("GIF89a")):
+		return GIF
 	case len(head) >= 12 && string(head[4:8]) == "ftyp":
 		return isobmff(head)
 	}

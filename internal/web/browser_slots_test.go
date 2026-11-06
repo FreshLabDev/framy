@@ -404,6 +404,82 @@ func TestBrowserReferencesSetTheLength(t *testing.T) {
 	noErrors(t, ctx)
 }
 
+// TestBrowserFramesSetTheLength checks a model that makes a video from
+// frames at fewer lengths than from words, as Gemini Omni 1.2 makes 3 to
+// 10 s from frames and 15 from words: here Veo 3.1 given frame_durations of
+// 4 and 6 s. With a start frame only those are offered, a length chosen
+// above them goes as the nearest, 6 s, and the choice comes back with the
+// frame gone.
+func TestBrowserFramesSetTheLength(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSiteWith(t, func(srv *Server) {
+		runs.mount(srv)
+		srv.HandleFunc("POST /api/uploads", func(w http.ResponseWriter, r *http.Request) {
+			c, _, err := image.DecodeConfig(r.Body)
+			if err != nil {
+				writeTestJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": "unreadable"})
+				return
+			}
+			writeTestJSON(w, http.StatusCreated, map[string]any{"id": c.Width, "content_type": "image/png", "bytes": 100, "width": c.Width, "height": c.Height})
+		})
+	}, func(cat map[string]any) {
+		for _, m := range cat["models"].([]any) {
+			if m := m.(map[string]any); m["id"] == "google/veo-3.1" {
+				for _, of := range m["offers"].([]any) {
+					if img, ok := of.(map[string]any)["inputs"].(map[string]any)["images"].(map[string]any); ok {
+						img["frame_durations"] = []any{4, 6}
+					}
+				}
+			}
+		}
+	})
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+slotHelpers+`
+	window.__quotes = [];
+	const fetch0 = window.fetch;
+	window.fetch = (u, o) => {
+	  if (String(u).endsWith("/api/quote")) __quotes.push(JSON.parse(o.body));
+	  return fetch0(u, o);
+	};
+	const out = {};
+	const lengths = () => [...document.querySelectorAll("#how [data-seg='set-duration'] > button")].map((b) => b.firstChild.textContent + (b.getAttribute("aria-checked") === "true" ? "*" : ""));
+	const veo = (from) => __quotes.slice(from).flatMap((q) => q.items).filter((it) => it.offer === "openrouter:google/veo-3.1" && it.pay);
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(800);
+	document.querySelector("#how .mhead").click();
+	await wait(700);
+	const q = document.querySelector("#pksearch");
+	q.value = "Veo"; q.dispatchEvent(new Event("input", { bubbles: true }));
+	await wait(800);
+	document.querySelector("#pkrows .frow .fhit").click();
+	await wait(900);
+	out.model = model();
+	[...document.querySelectorAll("#how [data-seg='set-duration'] > button")].find((b) => b.textContent.startsWith("8"))?.click();
+	await wait(900);
+	out.words = lengths();
+	const from = __quotes.length;
+	await dropOn("start", [await png(64, 36)]);
+	out.groups = groups(); out.withFrame = lengths();
+	out.asked = [...new Set(veo(from).map((it) => it.settings?.duration))];
+	for (const b of [...document.querySelectorAll("#files .thumb .rm")]) { b.click(); await wait(300); }
+	await wait(900);
+	out.after = lengths();
+	return out;`)
+	if s["model"] != "Veo 3.1" || s["groups"] != "start:1 end:0+" {
+		t.Fatalf("model %v, groups %v", s["model"], s["groups"])
+	}
+	if fmt.Sprint(s["words"]) != "[4 s 6 s 8 s*]" {
+		t.Errorf("lengths from words: %v", s["words"])
+	}
+	if fmt.Sprint(s["withFrame"]) != "[4 s 6 s*]" || fmt.Sprint(s["asked"]) != "[6]" {
+		t.Errorf("lengths with a frame: %v, quoted at %v", s["withFrame"], s["asked"])
+	}
+	if fmt.Sprint(s["after"]) != "[4 s 6 s 8 s*]" {
+		t.Errorf("lengths with the frame gone: %v", s["after"])
+	}
+	noErrors(t, ctx)
+}
+
 // TestBrowserSeedAndLeaveOut checks the two settings a person types: a seed
 // takes only digits, what to leave out keeps its words, typing them asks for
 // no price, and the next run carries both. Left empty, neither is sent.

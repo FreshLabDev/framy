@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -103,7 +104,7 @@ func TestCatalogSaveShowsNanoBananaWithTwoOffers(t *testing.T) {
 	if got := models[1].Offers[0].ExpiresOn; got == nil || !got.Equal(expires) {
 		t.Fatalf("expires_on = %v", got)
 	}
-	if got := models[1].Traits.SourceVideo; got == nil || *got != (catalog.SourceVideo{MaxSeconds: 15, KeepsLength: true}) {
+	if got := models[1].Traits.SourceVideo; got == nil || !reflect.DeepEqual(*got, catalog.SourceVideo{MaxSeconds: 15, KeepsLength: true}) {
 		t.Fatalf("source_video did not survive the round trip: %+v", got)
 	}
 	if at, err := store.CatalogSyncedAt(ctx); err != nil || !at.Equal(now) {

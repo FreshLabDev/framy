@@ -5,17 +5,27 @@
 # enum, range or boolean, and pricing as billable, unit and cost_usd.
 # overlay.yaml joins each one to its model.
 #
-# Sources, read on 26 October 2026, and for GPT Image 2.6 on 5 November 2026
-# (docs/research/providers.md, section 1; docs/research/images.md, section 3):
+# Sources, read on 26 October 2026, for GPT Image 2.6 on 5 November 2026 and
+# for its GIF on 6 November 2026 (docs/research/providers.md, section 1;
+# docs/research/images.md, section 3):
 #   https://developers.openai.com/api/docs/guides/image-generation
 #   https://developers.openai.com/api/docs/pricing
 #   https://developers.openai.com/api/docs/deprecations
+#   https://developers.openai.com/api/reference/resources/images/methods/generate
+#
+# GPT Image 2.6 makes an animated GIF on both endpoints: output_format gif,
+# frame_count 2 to 16 (9 by default) and frame_duration_ms from 20, rounded
+# to 10 ms (200 by default); size is each frame's, and n counts animations.
+# A GIF takes no transparent background, no output_compression and no mask,
+# and needs the GIF preview on the key's account. OpenAI publishes no price
+# of its own for it: framy estimates a GIF as one still of its quality and
+# size a frame, and bills it by the usage OpenAI reports.
 #
 # Left out on purpose:
 #   - quality=auto and size=auto: their price cannot be known before the run;
-#   - GPT Image 2.6's GIF and SVG output: what a GIF's frames or an SVG's
-#     authoring model cost is not published, SVG needs access OpenAI grants
-#     apart, and framy keeps and shows neither yet;
+#   - GPT Image 2.6's SVG output: what its authoring model costs is not
+#     published, it needs access OpenAI grants apart, and framy keeps and
+#     shows none yet;
 #   - gpt-image-1 (shut down on 23 October 2026), gpt-image-1-mini and
 #     gpt-image-1.5 (closing on 1 December 2026).
 #
@@ -42,14 +52,18 @@ models:
         type: enum
         values: [1024x1024, 1536x1024, 1024x1536, 2048x2048, 2048x1152, 1152x2048, 3840x2160, 2160x3840]
       quality: {type: enum, values: [low, medium, high, xhigh, max]}
-      background: {type: enum, values: [auto, transparent, opaque]}
-      output_format: {type: enum, values: [png, jpeg, webp]}
+      # A GIF goes without one: OpenAI takes none with it.
+      background: {type: enum, values: [auto, transparent, opaque], only: {output_format: [png, jpeg, webp]}}
+      output_format: {type: enum, values: [png, jpeg, webp, gif], default: png}
       output_compression: {type: range, min: 0, max: 100}
       n: {type: range, min: 1, max: 10}
       input_references: {type: range, min: 0, max: 16}
       # How much the model plans before it renders: low for a focused
       # edit, high (OpenAI's default) for dense text and layouts. No fee.
       complexity: {type: enum, values: [low, medium, high]}
+      # An animation's frames and how long each shows: only on a GIF.
+      frame_count: {type: range, min: 2, max: 16, default: 9, only: {output_format: [gif]}}
+      frame_duration_ms: {type: range, min: 20, max: 2000, default: 200, only: {output_format: [gif]}}
     pricing:
       - {billable: input_text, unit: token, cost_usd: 0.000005}
       - {billable: input_image, unit: token, cost_usd: 0.000008}
@@ -64,14 +78,18 @@ models:
         type: enum
         values: [1024x1024, 1536x1024, 1024x1536, 2048x2048, 2048x1152, 1152x2048, 3840x2160, 2160x3840]
       quality: {type: enum, values: [low, medium, high, xhigh, max]}
-      background: {type: enum, values: [auto, transparent, opaque]}
-      output_format: {type: enum, values: [png, jpeg, webp]}
+      # A GIF goes without one: OpenAI takes none with it.
+      background: {type: enum, values: [auto, transparent, opaque], only: {output_format: [png, jpeg, webp]}}
+      output_format: {type: enum, values: [png, jpeg, webp, gif], default: png}
       output_compression: {type: range, min: 0, max: 100}
       n: {type: range, min: 1, max: 10}
       input_references: {type: range, min: 0, max: 16}
       # How much the model plans before it renders: low for a focused
       # edit, high (OpenAI's default) for dense text and layouts. No fee.
       complexity: {type: enum, values: [low, medium, high]}
+      # An animation's frames and how long each shows: only on a GIF.
+      frame_count: {type: range, min: 2, max: 16, default: 9, only: {output_format: [gif]}}
+      frame_duration_ms: {type: range, min: 20, max: 2000, default: 200, only: {output_format: [gif]}}
     pricing:
       - {billable: input_text, unit: token, cost_usd: 0.000005}
       - {billable: input_image, unit: token, cost_usd: 0.000008}

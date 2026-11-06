@@ -70,17 +70,22 @@ type HideRule struct {
 // be known before the run, on every GPT Image OpenRouter adds.
 type ExcludeRule struct {
 	// Match is a path.Match pattern over model ids, as a HideRule's.
-	Match  string           `yaml:"match"`
-	Values map[string][]any `yaml:"values"`
-	Why    string           `yaml:"why"`
+	Match string `yaml:"match"`
+	// Provider, when set, keeps the rule to that provider's offers: GPT
+	// Image's GIF goes on OpenAI's own port, where the frames are set, and
+	// not through OpenRouter, which takes no frame settings.
+	Provider string           `yaml:"provider"`
+	Values   map[string][]any `yaml:"values"`
+	Why      string           `yaml:"why"`
 }
 
-// excludeOf is what the settings of a model leave out: its own exclude and
-// that of every rule matching its id.
-func (o Overlay) excludeOf(id string) map[string][]any {
+// excludeOf is what the settings of a model's offer from provider leave
+// out: the model's own exclude and that of every rule matching its id and
+// the provider.
+func (o Overlay) excludeOf(id, provider string) map[string][]any {
 	out := o.Models[id].Exclude
 	for _, r := range o.Exclude {
-		if ok, _ := path.Match(r.Match, id); !ok {
+		if ok, _ := path.Match(r.Match, id); !ok || (r.Provider != "" && r.Provider != provider) {
 			continue
 		}
 		merged := maps.Clone(out)
@@ -228,6 +233,9 @@ func (d descriptorFile) offers(file string) ([]Offer, error) {
 			if err := p.validate(name, false); err != nil {
 				return nil, fmt.Errorf("%s: model %s: %w", file, m.ID, err)
 			}
+			if err := checkOnly(name, p, m.SupportedParameters); err != nil {
+				return nil, fmt.Errorf("%s: model %s: %w", file, m.ID, err)
+			}
 		}
 		if len(m.Pricing) == 0 {
 			return nil, fmt.Errorf("%s: model %s has no pricing", file, m.ID)
@@ -279,6 +287,9 @@ func (f Files) validate() error {
 		if len(r.Values) == 0 {
 			return fmt.Errorf("overlay: exclude rule %q lists no values", r.Match)
 		}
+		if r.Provider != "" && r.Provider != OpenRouter && r.Provider != OpenAI && r.Provider != Gemini {
+			return fmt.Errorf("overlay: exclude rule %q: provider %q is not %s, %s or %s", r.Match, r.Provider, OpenRouter, OpenAI, Gemini)
+		}
 		for name, values := range r.Values {
 			if len(values) == 0 {
 				return fmt.Errorf("overlay: exclude rule %q: %s lists no values", r.Match, name)
@@ -327,8 +338,11 @@ func (f Files) validate() error {
 			return fmt.Errorf("overlay: model %s: faces must be %s or %s", id, FacesRejected, FacesAdults)
 		}
 		if s := m.SourceVideo; s != nil {
-			if *s == (SourceVideo{}) {
+			if s.empty() {
 				return fmt.Errorf("overlay: model %s: source_video says nothing", id)
+			}
+			if !positive(s.Durations) {
+				return fmt.Errorf("overlay: model %s: source_video.durations are seconds above 0", id)
 			}
 			if s.MinSeconds < 0 || s.MaxSeconds < 0 || s.MaxMiB < 0 {
 				return fmt.Errorf("overlay: model %s: source_video limits cannot be negative", id)
@@ -474,16 +488,17 @@ func (r *References) validate() error {
 		return nil
 	}
 	if r.Image == 0 && r.Video == 0 && r.Audio == 0 && r.Files == 0 && r.VideoClip == nil && r.AudioClip == nil &&
-		!r.FrameRequired && len(r.ImageDurations) == 0 {
+		!r.FrameRequired && len(r.ImageDurations) == 0 && len(r.FrameDurations) == 0 {
 		return errors.New("references says nothing")
 	}
 	if r.Image < 0 || r.Video < 0 || r.Audio < 0 || r.Files < 0 {
 		return errors.New("references cannot be negative")
 	}
-	for _, d := range r.ImageDurations {
-		if d <= 0 {
-			return errors.New("references.image_durations are seconds above 0")
-		}
+	if !positive(r.ImageDurations) {
+		return errors.New("references.image_durations are seconds above 0")
+	}
+	if !positive(r.FrameDurations) {
+		return errors.New("references.frame_durations are seconds above 0")
 	}
 	if len(r.ImageDurations) > 0 && r.Image == 0 {
 		return errors.New("references.image_durations without references.image")
@@ -594,4 +609,9 @@ func (h *PriceHints) validate() error {
 		}
 	}
 	return nil
+}
+
+// positive reports whether every length is above zero.
+func positive(secs []float64) bool {
+	return !slices.ContainsFunc(secs, func(d float64) bool { return d <= 0 })
 }

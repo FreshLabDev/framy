@@ -14,6 +14,7 @@ import { openFull } from "./library.js";
 import { halftone } from "./halftone.js";
 import { grounding, groundRoom } from "./ground.js";
 import { player, fmtClock } from "./player.js";
+import { isGif, gifView, gifButton } from "./gif.js";
 import { openPrefs } from "./prefs.js";
 import { again, quiet, editPrompt, otherModel, cancel, byKey, keyFor, takePrice, drop, pickPart, copyPrompt, continueFrom, fromLastFrame, changePicture, animate, canShare, share, jobsOf, frameRun } from "./run.js";
 
@@ -418,7 +419,8 @@ function refusalActs(run, acts) {
   return out.filter(Boolean);
 }
 function doneActs(run, j, res, o = {}) {
-  const vid = res.content_type?.startsWith("video/");
+  // A GIF goes on as nothing: no model takes one as a photo or a frame.
+  const vid = res.content_type?.startsWith("video/"), still = !vid && !isGif(res);
   let sb = null;
   if (canShare(res)) { sb = B("send", t("act.share"), () => share(res, sb), "sq"); sb.title = t("act.share_tip"); }
   // The joined clip shows; the part this run made saves on its own too.
@@ -428,8 +430,8 @@ function doneActs(run, j, res, o = {}) {
     againBtn(run, o, t("act.again"), "sq2"),
     B("edit", t("act.edit"), () => editPrompt(run), "sq"),
     // A picture goes on as the photo of the next run or the first frame of a video; a clip goes on from its end.
-    !vid && res.url ? B("image", t("act.change"), () => changePicture(run, res), "sq") : null,
-    !vid && res.url ? B("video", t("act.animate"), () => animate(run, res), "sq") : null,
+    still && res.url ? B("image", t("act.change"), () => changePicture(run, res), "sq") : null,
+    still && res.url ? B("video", t("act.animate"), () => animate(run, res), "sq") : null,
     vid && res.url ? B("next", t("act.continue"), () => continueFrom(run, res), "sq") : null, sb];
 }
 
@@ -476,9 +478,10 @@ function runCell(run, c, mixed, items) {
   const { v, sub, i } = c, j = sub.job, going = sub.phase === "job" && !isFinal(j.status), id = `p${run.n}-${i}`;
   let media = null, pp = null;
   if (v.done) {
-    const res = v.res, vid = res.content_type?.startsWith("video/"), key = `p${run.n}-${i}-${res.id}`;
-    media = keepMedia(key, () => (vid ? cellVideo(res) : h("img", { src: res.url, alt: run.prompt || "", decoding: "async" })));
+    const res = v.res, vid = res.content_type?.startsWith("video/"), gif = isGif(res), key = `p${run.n}-${i}-${res.id}`;
+    media = keepMedia(key, () => (vid ? cellVideo(res) : gif ? gifView(res, run.prompt || "") : h("img", { src: res.url, alt: run.prompt || "", decoding: "async" })));
     if (vid) pp = keepMedia(key + "-pp", () => playBtn(media));
+    else if (gif) pp = keepMedia(key + "-pp", () => gifButton(media));
   }
   if (going && NETLINE[run.net] && v.status) {
     const lost = h("small", { class: "lost" }, t(NETLINE[run.net])), sub2 = v.status.querySelector("small");
@@ -587,15 +590,16 @@ function roomUnder(st, size, under = UNDER) {
 
 function renderRun(st, run) {
   const j = run.job, v = view(run), r = runRatio(run), under = UNDER + groundRoom([j]), b = fit(r, under), m = C.byId[run.model];
-  let media = null;
+  let media = null, pp = null;
   if (v.done) {
     const res = v.res;
     media = keepMedia(`r${run.n}-${res.id}`, () => {
-      const el = res.content_type?.startsWith("video/") ? player(res) : h("img", { src: res.url, alt: run.prompt || "", decoding: "async" });
-      const pic = el.tagName === "IMG" ? el : el.querySelector("video");
-      pic.addEventListener(el === pic ? "load" : "loadeddata", () => anim(pic, [{ opacity: 0 }, { opacity: 1 }], { duration: DUR.l }), { once: true });
+      const el = res.content_type?.startsWith("video/") ? player(res) : isGif(res) ? gifView(res, run.prompt || "") : h("img", { src: res.url, alt: run.prompt || "", decoding: "async" });
+      const pic = el.tagName === "IMG" ? el : el.querySelector("img, video"), fade = el.classList.contains("gifv") ? el : pic;
+      pic.addEventListener(pic.tagName === "IMG" ? "load" : "loadeddata", () => anim(fade, [{ opacity: 0 }, { opacity: 1 }], { duration: DUR.l }), { once: true });
       return el;
     });
+    if (isGif(res)) pp = keepMedia(`r${run.n}-${res.id}-pp`, () => gifButton(media));
   }
   // While the page cannot follow the run, the frame says why; it hears again by itself once it can.
   const going = run.phase === "job" && !isFinal(j.status);
@@ -604,7 +608,7 @@ function renderRun(st, run) {
     if (sub) sub.replaceWith(lost); else v.status.append(lost);
   }
   const box = h("div", { class: "jbox" + (v.done ? " done" : "") + (v.fail ? " failed" : ""), "data-k": "pv", style: { width: b.w + "px", height: b.h + "px" } },
-    v.done ? media : [h("i"), h("i"), h("i"), h("i")], v.status || null);
+    v.done ? media : [h("i"), h("i"), h("i"), h("i")], v.status || null, pp);
   if (v.status) { box._c = v.status; v.status._box = box; }
   // The dots: a figure for the state, or the result showing through them as it arrives.
   if (v.ht) halftone(box, v.ht.fig, { ...v.ht, n: run.n, lost: going && !!NETLINE[run.net] });

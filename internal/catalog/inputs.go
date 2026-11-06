@@ -3,6 +3,7 @@ package catalog
 
 import (
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -34,6 +35,8 @@ type ImageInputs struct {
 	// reference images, where the model makes those at fewer lengths than
 	// it lists; nil when it makes them at any.
 	RefDurations []float64 `json:"ref_durations,omitempty"`
+	// FrameDurations are the same for a video made from frames.
+	FrameDurations []float64 `json:"frame_durations,omitempty"`
 }
 
 // ClipInputs are the attached videos or sounds of a run.
@@ -46,6 +49,9 @@ type ClipInputs struct {
 	Secs      *Span   `json:"secs,omitempty"`
 	TotalSecs float64 `json:"total_secs,omitempty"`
 	MaxBytes  int64   `json:"max_bytes,omitempty"`
+	// Durations are the only lengths the model adds to a source, or to a
+	// video of its own it continues; nil when it adds any it lists.
+	Durations []float64 `json:"durations,omitempty"`
 }
 
 // Span is a range of seconds; 0 is no bound.
@@ -91,6 +97,9 @@ func InputsOf(m Model, of Offer) Inputs {
 		if p, ok := of.Params[framesParam]; ok {
 			img.Frames = len(p.Values)
 		}
+		if img.Frames > 0 {
+			img.FrameDurations = refs.FrameDurations
+		}
 		if refs.FrameRequired && img.Frames > 0 {
 			img.Min = 1
 		}
@@ -115,6 +124,7 @@ func InputsOf(m Model, of Offer) Inputs {
 			v.Secs = &Span{Min: s.MinSeconds, Max: float64(s.MaxSeconds)}
 		}
 		v.MaxBytes = int64(s.MaxMiB) << 20
+		v.Durations = s.Durations
 		in.Videos = v
 	}
 	if refs.Audio > 0 && takes("audio") {
@@ -148,17 +158,51 @@ type Count struct {
 	// Duration is the length the run asks for, in seconds; 0 when it sets
 	// none.
 	Duration float64
+	// Continues: the run goes on from a video the model made, which is a
+	// source as an attached one is.
+	Continues bool
 }
 
 // Durations are the only lengths a video of these files can have, nil when
 // it can have any the offer lists: a model that makes a video from
-// reference images at fewer lengths (RefDurations) has those when the run
-// has a reference.
+// reference images (RefDurations), from frames (FrameDurations) or on a
+// source (the source's Durations) at fewer lengths has those when the run
+// has such a file, and the lengths all of its files allow when it has
+// several.
 func (in Inputs) Durations(c Count) []float64 {
-	if in.Images == nil || c.Images-c.Frames <= 0 {
-		return nil
+	var out []float64
+	limit := func(d []float64) {
+		switch {
+		case len(d) == 0:
+		case out == nil:
+			out = slices.Clone(d)
+		default:
+			out = slices.DeleteFunc(out, func(x float64) bool { return !slices.Contains(d, x) })
+		}
 	}
-	return in.Images.RefDurations
+	if in.Images != nil && c.Images-c.Frames > 0 {
+		limit(in.Images.RefDurations)
+	}
+	if in.Images != nil && c.Frames > 0 {
+		limit(in.Images.FrameDurations)
+	}
+	if in.Videos != nil && in.Videos.Role == RoleSource && (c.Videos > 0 || c.Continues) {
+		limit(in.Videos.Durations)
+	}
+	return out
+}
+
+// DefaultDuration is the length a run that sets none goes at, of the ones
+// its files allow: the shortest of at least 5 seconds, else the longest, as
+// the composer's default picks one.
+func DefaultDuration(d []float64) float64 {
+	if long := slices.DeleteFunc(slices.Clone(d), func(x float64) bool { return x < videoLength }); len(long) > 0 {
+		return slices.Min(long)
+	}
+	if len(d) == 0 {
+		return 0
+	}
+	return slices.Max(d)
 }
 
 // Check says what the run's files break of the offer's limits, nil when
@@ -188,8 +232,10 @@ func (in Inputs) Check(kind Kind, c Count) error {
 	case in.Files > 0 && c.Images+c.Videos+c.Audio > in.Files:
 		return fmt.Errorf("at most %d files in all, and %d are attached", in.Files, c.Images+c.Videos+c.Audio)
 	}
-	if d := in.Durations(c); kind == Video && len(d) > 0 && c.Duration > 0 && !slices.Contains(d, c.Duration) {
-		return fmt.Errorf("a video from reference images is %s s long, and %g s is set", seconds(d), c.Duration)
+	if d := in.Durations(c); kind == Video && d != nil && len(d) == 0 {
+		return fmt.Errorf("these files together leave no length the model makes")
+	} else if kind == Video && d != nil && c.Duration > 0 && !slices.Contains(d, c.Duration) {
+		return fmt.Errorf("a video from these files is %s s long, and %g s is set", seconds(d), c.Duration)
 	}
 	if err := in.Videos.check("videos", c.Videos, c.VideoSecs, c.VideoBytes); err != nil {
 		return err
@@ -205,6 +251,10 @@ func seconds(d []float64) string {
 	}
 	if len(words) < 2 {
 		return strings.Join(words, "")
+	}
+	// A run of whole seconds reads as a range: "3 to 10".
+	if len(d) > 2 && slices.IsSorted(d) && d[len(d)-1]-d[0] == float64(len(d)-1) && d[0] == math.Trunc(d[0]) {
+		return words[0] + " to " + words[len(words)-1]
 	}
 	return strings.Join(words[:len(words)-1], ", ") + " or " + words[len(words)-1]
 }

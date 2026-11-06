@@ -37,7 +37,8 @@ type fakeLibrary struct {
 	lists   []string         // the query of every GET /api/jobs
 	created []map[string]any // the bodies of POST /api/jobs
 	deleted []int64
-	lang    string // the person's language, English when empty
+	lang    string        // the person's language, English when empty
+	slow    time.Duration // how long a page of GET /api/jobs takes, as on a phone's network
 }
 
 const libTotal = 70
@@ -132,6 +133,7 @@ func (f *fakeLibrary) mount(srv *Server) {
 		})
 	})
 	srv.HandleFunc("GET /api/jobs", func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(f.slow)
 		q := r.URL.Query()
 		f.mu.Lock()
 		defer f.mu.Unlock()
@@ -344,6 +346,53 @@ func TestBrowserLibrary(t *testing.T) {
 	return { ...there, backPath: location.pathname, backLib: vis(document.querySelector("#library")) };`)
 	if got["path"] != "/" || got["create"] != true || got["lib"] != false || got["backPath"] != "/library" || got["backLib"] != true {
 		t.Errorf("tabs: %v", got)
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserLibraryQuiet checks that the page writes no "null" where a part
+// is left out (the failed filter turned off, the settings before the files
+// stored are known), and that a page on its way after another kind is chosen
+// shows no loading word: a list shows what is read of it already, and an empty
+// one waits longer than this answer takes before it says it is loading.
+func TestBrowserLibraryQuiet(t *testing.T) {
+	f := newFakeLibrary()
+	f.slow = 250 * time.Millisecond
+	ts := fakeSite(t, f.mount)
+	ctx := browser(t, ts.URL+"/library", 1440, 900, false)
+	got := js[map[string]any](t, ctx, libHelpers+`
+	const nulls = (root) => {
+	  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT), out = [];
+	  for (let n; (n = w.nextNode());) if (/^\s*(null|undefined)\s*$/.test(n.data)) out.push(n.parentElement?.className || n.parentElement?.id || "?");
+	  return out;
+	};
+	// How much of an element shows: its opacity and its parents'.
+	const shows = (el) => { let o = 1; for (let e = el; e && e.id !== "library"; e = e.parentElement) o *= +getComputedStyle(e).opacity; return o; };
+	await settled();
+	const fail = () => document.querySelector("#library .lfail");
+	fail().click(); await wait(900); await settled();
+	fail().click(); await wait(900); await settled();
+	const failed = nulls(document.querySelector("#library"));
+	const words = new Set(), seen = [];
+	const watch = async (k) => {
+	  document.querySelector("#library [data-seg=lib] [data-v=" + k + "]").click();
+	  for (const end = performance.now() + 900; performance.now() < end;) {
+	    await new Promise((r) => requestAnimationFrame(r));
+	    for (const m of document.querySelectorAll("#library .libmore")) if (m.textContent.trim() && shows(m.querySelector(".w") || m) > 0.02) words.add(k + ": " + m.textContent.trim());
+	  }
+	  await settled();
+	  seen.push(k + " " + tiles().length);
+	};
+	await watch("video"); await watch("image"); await watch("all");
+	const kinds = nulls(document.querySelector("#library"));
+	document.querySelector("#meBtn").click();
+	await until(() => !document.querySelector("#prefs").hidden && document.querySelector('#prefsBody [data-k="p-out"]'));
+	return { failed, kinds, prefs: nulls(document.querySelector("#prefsBody")), words: [...words], seen };`)
+	if fmt.Sprint(got["failed"], got["kinds"], got["prefs"]) != "[] [] []" {
+		t.Errorf(`"null" written: %v`, got)
+	}
+	if fmt.Sprint(got["words"]) != "[]" || fmt.Sprint(got["seen"]) != "[video 23 image 30 all 30]" {
+		t.Errorf("a loading word showed while a kind was read: %v", got)
 	}
 	noErrors(t, ctx)
 }

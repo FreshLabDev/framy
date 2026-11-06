@@ -341,22 +341,30 @@ function withFrames(m, pay, set) {
   return list.length ? { ...set, frame_images: list } : set;
 }
 
-// The lengths a video can have when reference images go into it, where the
-// model makes those at fewer than it lists (Veo 3.1 at 8 s only); null when
-// any listed length goes. A free run goes as its plan says.
+// The lengths a video can have with the files going into it, where the
+// model makes fewer with them than it lists: Veo 3.1 from reference images
+// at 8 s only, Omni 1.2 from frames, on a clip or going on from its own
+// video at 3 to 10 s. null when any listed length goes. A free run goes as
+// its plan says.
 export function refLengths(m, pay) {
-  const d = inputsOf(m, pay).images?.ref_durations;
-  if (!d?.length || pay === "free" || m.kind !== "video" || S.kind !== "video") return null;
-  const r = route(m, pay);
-  return S.files.some((f, i) => r[i]?.go && f.kind === "image" && slotOf(f) === "ref") ? d : null;
+  if (pay === "free" || m.kind !== "video" || S.kind !== "video") return null;
+  const ins = inputsOf(m, pay), r = route(m, pay), has = new Set();
+  S.files.forEach((f, i) => { if (r[i]?.go) has.add(f.kind + ":" + slotOf(f)); });
+  const lists = [];
+  if (has.has("image:ref")) lists.push(ins.images?.ref_durations);
+  if (has.has("image:start") || has.has("image:end")) lists.push(ins.images?.frame_durations);
+  if ((has.has("video:source") || contFits(m, pay)) && ins.videos?.role === "source") lists.push(ins.videos?.durations);
+  const all = lists.filter((d) => d?.length);
+  return all.length ? all.reduce((a, d) => a.filter((x) => d.some((y) => +y === +x))) : null;
 }
-// The length goes as chosen while the references allow it, else as the
-// first they do; the choice is kept for when they are gone.
+// The length goes as chosen while the files allow it, else as the nearest
+// they do; the choice is kept for when they are gone.
 function withRefLengths(m, pay, set) {
   const d = "duration" in set ? refLengths(m, pay) : null;
-  if (!d || d.some((x) => +x === +set.duration)) return set;
-  const v = offerOf(m, pay)?.params?.duration?.values?.find((x) => +x === +d[0]);
-  return { ...set, duration: v ?? d[0] };
+  if (!d?.length || d.some((x) => +x === +set.duration)) return set;
+  const near = d.reduce((a, x) => (Math.abs(x - set.duration) < Math.abs(a - set.duration) ? x : a));
+  const v = offerOf(m, pay)?.params?.duration?.values?.find((x) => +x === +near);
+  return { ...set, duration: v ?? near };
 }
 
 // A continuation fits the model that made the video, through the same provider, on a key.

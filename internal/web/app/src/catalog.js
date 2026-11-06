@@ -100,7 +100,7 @@ export function photoLimit(m, pay) {
 }
 
 /* Settings. Only the ones a person decides go on the form; the rest keep the offer's default. */
-export const SHOWN = ["aspect_ratio", "size", "resolution", "quality", "duration", "generate_audio", "thinking_level", "complexity", "background", "google_search", "image_search", "creativity", "upscale_factor",
+export const SHOWN = ["output_format", "frame_count", "frame_duration_ms", "aspect_ratio", "size", "resolution", "quality", "duration", "generate_audio", "thinking_level", "complexity", "background", "google_search", "image_search", "creativity", "upscale_factor",
   "negative_prompt", "negativePrompt", "seed"];
 export const SECONDARY = new Set(["background", "thinking_level", "complexity", "google_search", "image_search", "creativity", "negative_prompt", "negativePrompt", "seed"]);
 // Set by the person or not at all, with nothing to choose from: what a video should leave out, in
@@ -111,7 +111,7 @@ export const SEED_MAX = 2147483647;
 const openVal = (name, v) => (name === "seed" ? (Number.isInteger(v) && v >= 0 && v <= SEED_MAX ? v : undefined) : typeof v === "string" && v.trim() ? v : undefined);
 const NEG = (name) => (name === "negativePrompt" ? "negative_prompt" : name);
 export const SEARCH = ["google_search", "image_search"];
-export const SICON = { aspect_ratio: "ratio", size: "ratio", resolution: "res", quality: "bars", thinking_level: "bars", background: "checker", duration: "clock",
+export const SICON = { output_format: "loop", frame_count: "frames", frame_duration_ms: "clock", aspect_ratio: "ratio", size: "ratio", resolution: "res", quality: "bars", thinking_level: "bars", background: "checker", duration: "clock",
   generate_audio: "audio", fast: "bolt", google_search: "search", image_search: "image", upscale_factor: "res", creativity: "spark", complexity: "layers",
   negative_prompt: "without", negativePrompt: "without", seed: "dice" };
 // The fields of an offer in the form's order. "size" is a choice only where
@@ -119,7 +119,17 @@ export const SICON = { aspect_ratio: "ratio", size: "ratio", resolution: "res", 
 // video model lists it beside its own aspect_ratio and resolution, and a
 // boolean "size" is a switch of the provider's.
 const sizeOnly = (o) => o.params.size.type === "enum" && !o.params.aspect_ratio && !o.params.resolution;
-export const fieldsOf = (o) => SHOWN.filter((n) => o.params[n] && (n !== "size" || sizeOnly(o)));
+// The format is a choice of a picture or a GIF, on a model that makes GIFs (GPT Image 2.6);
+// elsewhere it stays the provider's.
+export const GIF = "gif";
+export const makesGif = (o) => o?.params.output_format?.type === "enum" && o.params.output_format.values.includes(GIF);
+export const fieldsOf = (o) => SHOWN.filter((n) => o.params[n] && (n !== "size" || sizeOnly(o)) && (n !== "output_format" || makesGif(o)));
+// A setting that goes only with another (catalog.Param.Only): a GIF's frames with a GIF, a
+// background with a picture. The other's value is the one chosen, else its default.
+export const applies = (o, name, s) => Object.entries(o.params[name]?.only || {})
+  .every(([k, vals]) => vals.some((x) => String(x) === String(s[k] ?? defOf(o, k))));
+// The picture a GIF switch goes back to: the format a picture has without a choice.
+export const stillOf = (o) => { const p = o.params.output_format; return p.default !== undefined && p.default !== GIF ? p.default : p.values.find((x) => x !== GIF); };
 
 export const gcd = (a, b) => (b ? gcd(b, a % b) : a);
 export const ratioOfSize = (s) => { const [w, hh] = String(s).split("x").map(Number); const g = gcd(w, hh) || 1; return `${w / g}:${hh / g}`; };
@@ -145,6 +155,9 @@ export function show(name, v) {
   if (name === "upscale_factor") return "×" + fmtNum(+v);
   if (name === "creativity") return t(+v ? "val.creative" : "val.faithful");
   if (name === "size") return ratioOfSize(v) + " · " + sizeK(v);
+  if (name === "output_format") return v === GIF ? t("val.gif") : t("val.image");
+  if (name === "frame_count") return t("unit.frames", { n: fmtNum(+v) });
+  if (name === "frame_duration_ms") return t("unit.ms", { n: fmtNum(+v, { useGrouping: false }) });
   if (name === "resolution" || name === "aspect_ratio") return v === "auto" ? t("val.auto") : String(v);
   const k = "val." + v, s = t(k);
   return s === k ? String(v) : s;
@@ -171,7 +184,7 @@ export function defOf(o, name, src) {
   if (d !== undefined) return d;
   if (p.type === "enum") return p.values[0];
   if (p.type === "boolean") return false;
-  if (p.type === "range") return p.min;
+  if (p.type === "range") return typeof p.default === "number" && p.default >= p.min && p.default <= p.max ? p.default : p.min;
 }
 // The settings a run goes with: what the person chose where the offer has it, else the default.
 // Free runs go as the plan fixes them, the rest at the default.
@@ -184,6 +197,8 @@ export function settings(m, pay, wanted, src) {
     const w = pickVal(o.params[name], wanted[name]);
     out[name] = w !== undefined ? w : defOf(o, name, src);
   }
+  // What goes only with another goes while it does: a GIF has no background, a picture no frames.
+  if (!plan) for (const name of Object.keys(out)) if (!applies(o, name, out)) delete out[name];
   if (plan) Object.assign(out, plan.settings || {});
   else if (m.fast && C.byId[m.fast]?.offers.some((x) => x.provider === pay)) out.fast = wanted.fast === true;
   return out;

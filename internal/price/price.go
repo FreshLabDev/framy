@@ -267,6 +267,23 @@ func (c *calc) count() float64 {
 	return 1
 }
 
+// gifFrames is OpenAI's frame_count when none is set.
+const gifFrames = 9
+
+// frames is how many pictures one output is: a GIF's frames, each drawn
+// and billed as a still of its size and quality would be (owner, 6
+// November 2026: as many frames, as many pictures), and 1 for anything
+// else.
+func (c *calc) frames() float64 {
+	if c.setting("output_format") != catalog.GIF {
+		return 1
+	}
+	if n, ok := c.number("frame_count"); ok && n >= 1 {
+		return math.Ceil(n)
+	}
+	return gifFrames
+}
+
 // resolution is the chosen resolution, or the only one the offer has.
 func (c *calc) resolution() string {
 	if r := c.setting("resolution"); r != "" {
@@ -298,10 +315,16 @@ func (c *calc) enumHas(value string) (has, other bool) {
 
 // seconds is the length of the output video, as a range.
 func (c *calc) seconds() (lo, hi float64, ok bool) {
+	v := c.req.Video
 	if d, ok := c.number("duration"); ok && d > 0 {
+		if s := c.m.Traits.SourceVideo; v != nil && s != nil && len(s.Durations) > 0 {
+			// A model that adds d seconds to a clip, as Omni 1.2 extends
+			// one, may bring back and bill the whole clip, as picks_length
+			// below counts it.
+			return d, d + v.Seconds, true
+		}
 		return d, d, true
 	}
-	v := c.req.Video
 	if s := c.m.Traits.SourceVideo; s != nil && s.KeepsLength && v != nil {
 		return v.Seconds, v.Seconds, true
 	}

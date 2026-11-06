@@ -241,6 +241,7 @@ func (a *API) prepare(r *http.Request, user int64, req createRequest, conns *con
 		return prepared{}, aerr, nil
 	}
 	files := countOf(settings, inputs, nil)
+	files.Continues = source != nil
 	fillFrames(settings, m, offer, files.Images)
 	files.Frames = frameCount(settings)
 	fitDuration(settings, m, offer, &files)
@@ -331,14 +332,11 @@ func fillFree(settings map[string]any, plan free.Plan, inputs int) {
 }
 
 // fillDefaults gives a run on the person's key framy's value of every
-// setting it leaves out (catalog.Defaults), so the run is what was priced.
-// A free run takes its plan's settings and nothing else.
+// setting it leaves out (catalog.Fill), so the run is what was priced: a
+// GIF gets its frames, and a still goes without them. A free run takes its
+// plan's settings and nothing else.
 func fillDefaults(settings map[string]any, offer catalog.Offer, shape float64) {
-	for name, v := range catalog.Defaults(offer, shape) {
-		if cur, set := settings[name]; !set || cur == nil {
-			settings[name] = v
-		}
-	}
+	catalog.Fill(offer, settings, shape)
 }
 
 // shapeOf is the width over the height of the first file that has both,
@@ -535,14 +533,15 @@ func fillFrames(settings map[string]any, m catalog.Model, offer catalog.Offer, i
 // durationSetting is a video's length in seconds.
 const durationSetting = "duration"
 
-// fitDuration gives a video from reference images the length its model
-// makes those at, where the run sets none: framy's default length would be
-// refused, as Veo 3.1 makes them at 8 s only. It puts the length the run
-// asks for in c, which checkInputs holds against the files.
+// fitDuration gives a video from reference images, frames or a source a
+// length its model makes those at, where the run sets none: framy's default
+// length would be refused, as Veo 3.1 makes a video from references at 8 s
+// only. It puts the length the run asks for in c, which checkInputs holds
+// against the files.
 func fitDuration(settings map[string]any, m catalog.Model, offer catalog.Offer, c *catalog.Count) {
 	if v, set := settings[durationSetting]; !set || v == nil {
 		if d := catalog.InputsOf(m, offer).Durations(*c); len(d) > 0 {
-			settings[durationSetting] = durationValue(offer, d[0])
+			settings[durationSetting] = durationValue(offer, catalog.DefaultDuration(d))
 		}
 	}
 	c.Duration = secondsOf(settings[durationSetting])

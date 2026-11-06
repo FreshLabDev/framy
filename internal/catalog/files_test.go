@@ -88,6 +88,8 @@ func TestLoadFilesRejects(t *testing.T) {
 		{"unlisted variant", map[string]string{"overlay.yaml": "models:\n  a/b:\n    price: {unlisted: [{billable: input_image, unit: megapixel, cost_usd: 0.01, variant: hd}]}\n"}, "no variant"},
 		{"reference length without references", map[string]string{"overlay.yaml": "models:\n  a/b:\n    references: {image_durations: [8]}\n"}, "image_durations without references.image"},
 		{"reference length of nothing", map[string]string{"overlay.yaml": "models:\n  a/b:\n    references: {image: 3, image_durations: [0]}\n"}, "seconds above 0"},
+		{"frame length of nothing", map[string]string{"overlay.yaml": "models:\n  a/b:\n    references: {frame_durations: [-1]}\n"}, "frame_durations are seconds above 0"},
+		{"source length of nothing", map[string]string{"overlay.yaml": "models:\n  a/b:\n    source_video: {durations: [0]}\n"}, "source_video.durations are seconds above 0"},
 		{"clip without count", map[string]string{"overlay.yaml": "models:\n  a/b:\n    references: {image: 2, video_clip: {max_seconds: 5}}\n"}, "video_clip without references.video"},
 		{"inverted clip", map[string]string{"overlay.yaml": "models:\n  a/b:\n    references: {audio: 2, audio_clip: {min_seconds: 9, max_seconds: 5}}\n"}, "min_seconds <= max_seconds"},
 		{"bad shutdown day", map[string]string{"overlay.yaml": "models:\n  a/b:\n    deprecated: {shuts_down: 2 November 2026}\n"}, "not a day"},

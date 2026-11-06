@@ -86,8 +86,8 @@ func TestFetchReadsEveryCatalog(t *testing.T) {
 	for _, of := range up.Offers {
 		kinds[of.Kind]++
 	}
-	if kinds[Image] != 64 || kinds[Video] != 31 {
-		t.Fatalf("offers by kind = %v, want 64 images and 31 videos", kinds)
+	if kinds[Image] != 64 || kinds[Video] != 33 {
+		t.Fatalf("offers by kind = %v, want 64 images and 33 videos", kinds)
 	}
 
 	nb := offerByID(t, up.Offers, "openrouter:google/gemini-nano-banana-2.1")
@@ -230,8 +230,8 @@ func TestFetchKeepsAModelWhoseEntryDoesNotDecode(t *testing.T) {
 					t.Fatal("an offer that did not decode was passed on")
 				}
 			}
-			if len(up.Offers) != 94 {
-				t.Errorf("%d offers, want the other 94", len(up.Offers))
+			if len(up.Offers) != 96 {
+				t.Errorf("%d offers, want the other 96", len(up.Offers))
 			}
 		})
 	}
@@ -246,7 +246,7 @@ func TestFetchSkipsAnEntryWithNoID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(up.Partial) != 0 || len(up.Unreadable) != 1 || !strings.Contains(up.Unreadable[0], "entry 31") {
+	if len(up.Partial) != 0 || len(up.Unreadable) != 1 || !strings.Contains(up.Unreadable[0], "entry 33") {
 		t.Fatalf("partial %v, unreadable %q", up.Partial, up.Unreadable)
 	}
 }
@@ -261,7 +261,7 @@ func TestFetchFailsWhenMostEntriesDoNotDecode(t *testing.T) {
 			}
 			return entries
 		})})
-	if _, err := source(srv).Fetch(context.Background()); err == nil || !strings.Contains(err.Error(), "31 of 31 entries") {
+	if _, err := source(srv).Fetch(context.Background()); err == nil || !strings.Contains(err.Error(), "33 of 33 entries") {
 		t.Fatalf("err = %v", err)
 	}
 }

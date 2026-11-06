@@ -101,6 +101,13 @@ func (e *APIError) NeedsVerification() bool {
 	return e.Status == http.StatusForbidden && strings.Contains(strings.ToLower(e.Message), "verif")
 }
 
+// gifAccess: OpenAI refused a GIF, most likely for the GIF preview the key's
+// account does not have. It speaks of the GIF or of its frames.
+func (e *APIError) gifAccess() bool {
+	m := strings.ToLower(e.Message)
+	return strings.Contains(m, "gif") || strings.Contains(m, "frame_count") || strings.Contains(m, "frame_duration")
+}
+
 // moneyCodes are the codes (or types) that mean credit or a spending limit,
 // not a rate: the credit is gone, or the organization's or project's limit
 // is reached. Waiting does not help, so they are not retried.
@@ -140,6 +147,10 @@ func (e *APIError) class() jobs.Class {
 		return jobs.Money
 	case s == http.StatusUnauthorized:
 		return jobs.Key
+	case s >= 400 && s < 500 && e.gifAccess():
+		// OpenAI's GIF is a preview its account grants apart: the key is
+		// fine, and OpenAI's words say what is missing.
+		return jobs.Refused
 	case s == http.StatusForbidden && e.Code == "unsupported_country_region_territory":
 		// The request came from framy's server, so the person's key is not
 		// what is wrong, and OpenAI refused it before running anything.

@@ -66,8 +66,14 @@ type Param struct {
 	// Default is what the provider does when the field is left out, where a
 	// hand-written descriptor says so. A setting that no rule of Defaults
 	// decides starts on it, so a run nobody set it for is no worse than the
-	// provider's own. It is one of Values.
+	// provider's own. It is one of Values, or within a range.
 	Default any `json:"default,omitempty" yaml:"default,omitempty"`
+	// Only, where a hand-written descriptor says so, is when the setting
+	// goes at all: while every setting it names has one of the values
+	// listed, as set or as its default. GPT Image 2.6's frame_count goes
+	// only with output_format gif. A setting it leaves out gets no default
+	// and is not sent (Applies, Fill).
+	Only map[string][]any `json:"only,omitempty" yaml:"only,omitempty"`
 	// Passthrough marks a setting the provider takes among its own options
 	// rather than as a field of the request. The overlay supplies its values,
 	// since OpenRouter lists only the names.
@@ -95,6 +101,11 @@ func (p Param) validate(name string, allowText bool) error {
 	case Range:
 		if p.Min == nil || p.Max == nil || *p.Min > *p.Max {
 			return fmt.Errorf("parameter %s: a range needs min <= max", name)
+		}
+		if p.Default != nil {
+			if d, ok := number(p.Default); !ok || d < *p.Min || d > *p.Max {
+				return fmt.Errorf("parameter %s: the default %v is not within %v to %v", name, p.Default, *p.Min, *p.Max)
+			}
 		}
 	case Boolean:
 	case Text:
@@ -220,6 +231,10 @@ type References struct {
 	// reference images, where the maker makes those at fewer lengths than
 	// from words or frames: Veo 3.1 at 8 s only.
 	ImageDurations []float64 `json:"image_durations,omitempty" yaml:"image_durations,omitempty"`
+	// FrameDurations are the only lengths of a video made from frames, where
+	// the maker makes those at fewer lengths than from words: Gemini Omni 1.2
+	// at 3 to 10 s, where words go to 15.
+	FrameDurations []float64 `json:"frame_durations,omitempty" yaml:"frame_durations,omitempty"`
 }
 
 // Clip bounds the attached videos or sounds of one run: the seconds and the
@@ -264,6 +279,14 @@ type SourceVideo struct {
 	// KeepsLength: the result is as long as the source, so the source's
 	// length sets the price.
 	KeepsLength bool `json:"keeps_length,omitempty" yaml:"keeps_length,omitempty"`
+	// Durations are the only lengths the model adds to a source, or to a
+	// video of its own it continues, where those are fewer than it lists:
+	// Gemini Omni 1.2 extends a clip by 3 to 10 s.
+	Durations []float64 `json:"durations,omitempty" yaml:"durations,omitempty"`
+}
+
+func (s SourceVideo) empty() bool {
+	return !s.Required && s.MinSeconds == 0 && s.MaxSeconds == 0 && s.MaxMiB == 0 && !s.KeepsLength && len(s.Durations) == 0
 }
 
 // Length is a range of seconds.

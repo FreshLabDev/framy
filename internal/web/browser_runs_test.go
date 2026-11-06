@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/gif"
 	"image/png"
 	"io"
 	"math"
@@ -103,6 +104,8 @@ type fakeRuns struct {
 	// keyless: no key is connected, and a free picture is left by the meter,
 	// as when the bot took the last one since the page read it.
 	keyless bool
+	// openai: an OpenAI key is connected too, as a GIF of GPT Image needs.
+	openai bool
 }
 
 // signOutElsewhere is "Sign out everywhere" pressed on another device.
@@ -146,6 +149,9 @@ func (f *fakeRuns) mount(srv *Server) {
 		images := map[string]any{"used": 5, "limit": 5, "left": 0, "window_seconds": 86400, "frees_at": time.Now().Add(3 * time.Hour).UTC()}
 		if keyless {
 			conns, images = []map[string]any{}, map[string]any{"used": 4, "limit": 5, "left": 1, "window_seconds": 86400}
+		}
+		if f.openai {
+			conns = append(conns, map[string]any{"id": "c2", "provider": "openai", "last4": "efgh", "status": "ok"})
 		}
 		writeTestJSON(w, http.StatusOK, map[string]any{
 			"user_id": 1, "name": "Ada", "language": lang, "currency": "USD", "deliver_to_telegram": !f.offDM, "connections": conns,
@@ -237,6 +243,22 @@ func (f *fakeRuns) mount(srv *Server) {
 		var b bytes.Buffer
 		_ = png.Encode(&b, img)
 		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(b.Bytes())
+	})
+	srv.HandleFunc("GET /test/result.gif", func(w http.ResponseWriter, _ *http.Request) {
+		// Two frames, dark then light, as GPT Image 2.6 animates one.
+		pal := color.Palette{color.Black, color.White}
+		a := &gif.GIF{LoopCount: 0}
+		for i := range 2 {
+			f := image.NewPaletted(image.Rect(0, 0, 64, 64), pal)
+			for j := range f.Pix {
+				f.Pix[j] = uint8(i)
+			}
+			a.Image, a.Delay = append(a.Image, f), append(a.Delay, 20)
+		}
+		var b bytes.Buffer
+		_ = gif.EncodeAll(&b, a)
+		w.Header().Set("Content-Type", "image/gif")
 		_, _ = w.Write(b.Bytes())
 	})
 	srv.HandleFunc("GET /test/result.svg", func(w http.ResponseWriter, _ *http.Request) {
@@ -361,6 +383,11 @@ func (f *fakeRuns) create(w http.ResponseWriter, r *http.Request) {
 			"results": []map[string]any{{"id": 9, "content_type": "video/mp4", "url": url, "download": url + "?download=1", "width": 832, "height": 480, "seconds": 5}},
 			"joined": map[string]any{"id": 10, "content_type": "video/mp4", "url": joined, "download": joined + "?download=1", "width": 832, "height": 480, "seconds": 9.96,
 				"segments": []float64{0, 5}}}))
+	case p == "done:gif":
+		// An animated GIF, as GPT Image 2.6 makes one.
+		url := "http://" + r.Host + "/test/result.gif"
+		steps = append(steps, at("running", nil), at("done", map[string]any{"cost": map[string]any{"usd": 0.36, "amount": 0.36, "currency": "USD", "label": "$0.360"},
+			"results": []map[string]any{{"id": 12, "content_type": "image/gif", "url": url, "download": url + "?download=1", "width": 1024, "height": 1024}}}))
 	case p == "done:svg":
 		// A vector picture, as Recraft's vector models draw one.
 		url := "http://" + r.Host + "/test/result.svg"

@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"html"
 	"math"
 	"slices"
@@ -293,8 +294,13 @@ func (f *Flow) sendSiteResult(ctx context.Context, r db.SiteResult) {
 		msg, err = f.postImage(ctx, r.UserID, assets[0], opts)
 	default:
 		var msgs []tg.Message
-		if msgs, err = f.postAlbum(ctx, r.UserID, assets, opts.Caption); err == nil {
-			msg = msgs[0]
+		msgs, err = f.postAlbum(ctx, r.UserID, assets, opts.Caption)
+		if len(msgs) > 0 {
+			if err != nil {
+				// GIFs go one by one, and some went: the result is sent.
+				f.log.Error("site result sent in part", "job", r.JobID, "error", err)
+			}
+			msg, err = msgs[0], nil
 		}
 	}
 	if err != nil {
@@ -409,18 +415,23 @@ func (f *Flow) sendSiteAlbum(ctx context.Context, press []db.SiteResult) {
 		// Telegram answered, so the album may be in the DM: the answer is
 		// the call's, and the press is not sent again.
 		err = callFailure{errors.New("sendMediaGroup returned fewer messages than it was sent")}
+		msgs = nil
 	}
-	if err != nil {
-		if ctx.Err() == nil {
-			f.notSent(ctx, err, sending...)
-		}
-		return
-	}
+	// Pictures with a GIF go one by one (postEach): the jobs whose first
+	// frame went are sent, whatever came after.
+	var unsentJobs []db.SiteResult
 	for _, r := range sending {
 		i := first[r.JobID]
+		if i >= len(msgs) {
+			unsentJobs = append(unsentJobs, r)
+			continue
+		}
 		res := resultOf(msgs[i])
 		res.AssetID = frames[i].joined
 		f.sentSite(ctx, r, lang, res)
+	}
+	if err != nil && ctx.Err() == nil && len(unsentJobs) > 0 {
+		f.notSent(ctx, err, unsentJobs...)
 	}
 }
 
@@ -526,9 +537,13 @@ func (f *Flow) notSent(ctx context.Context, err error, rs ...db.SiteResult) {
 // postAlbum sends pictures as one album, the caption on the first, and
 // returns its messages, one per picture: as photos, or all as documents
 // when one would not go as a photo, since Telegram does not mix the two. An
-// album takes no keyboard, so it has no Animate.
+// album takes no keyboard, so it has no Animate. With a GIF among them they
+// go one by one instead (postEach).
 func (f *Flow) postAlbum(ctx context.Context, chatID int64, assets []storage.Asset, caption string) ([]tg.Message, error) {
 	assets = assets[:min(len(assets), albumItems)]
+	if slices.ContainsFunc(assets, func(a storage.Asset) bool { return storage.Animated(a.ContentType) }) {
+		return f.postEach(ctx, chatID, assets, caption)
+	}
 	photos := true
 	for _, a := range assets {
 		photos = photos && photoFits(a)
@@ -556,6 +571,33 @@ func (f *Flow) postAlbum(ctx context.Context, chatID int64, assets []storage.Ass
 		}
 		return f.sendGroup(ctx, chatID, items)
 	})
+}
+
+// postEach sends pictures one after another, in their order, the caption on
+// the first, and returns their messages. It is how pictures with a GIF
+// among them go: an album takes no animation, and a GIF in one as a
+// document would not move. When one fails after others went, the messages
+// that went come back with an error no send repeats (unsent is false for
+// it), since sending them all again would repeat those.
+func (f *Flow) postEach(ctx context.Context, chatID int64, assets []storage.Asset, caption string) ([]tg.Message, error) {
+	msgs := make([]tg.Message, 0, len(assets))
+	for i, a := range assets {
+		var opts tg.CaptionOptions
+		if i == 0 {
+			opts.Caption = caption
+		}
+		msg, err := f.postImage(ctx, chatID, a, opts)
+		if err != nil {
+			if len(msgs) > 0 {
+				// %s, not %w: no failure under it, a wait Telegram asks for
+				// included, makes it one to send again.
+				err = callFailure{fmt.Errorf("%d of %d sent, then: %s", len(msgs), len(assets), err)}
+			}
+			return msgs, err
+		}
+		msgs = append(msgs, msg)
+	}
+	return msgs, nil
 }
 
 // sendGroup sends an album and returns its messages.

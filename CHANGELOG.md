@@ -11,6 +11,57 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+## v0.1.0-alpha.6 - 2026-11-06
+
+Animated GIFs from GPT Image 2.6 on the site, the Mini App and Telegram,
+Gemini Omni 1.2 Flash in place of 1.1, GPT Image 2.6 Flare as the suggested
+GPT model, and fixes to the library and to video lengths. No migrations and
+no changes on the host.
+
+### Added
+
+- Gemini Omni 1.2 Flash, out on 5 November, on a Gemini key and through
+  OpenRouter: videos of 3 to 15 s at a length you choose, so the price is
+  exact rather than "up to", 30% below 1.1, and a clip to edit or extend of
+  up to 15 s. It takes 1.1's place in the picker; 1.1 is marked as closing
+  on 3 December, when Google moves its requests to 1.2.
+- Animated GIFs from GPT Image 2.6 on an OpenAI key. GIF under Format
+  turns the form into frames (2 to 16, 9 by default) and frame length
+  (50 ms to 1 s, 200 ms by default) and shows how long the loop runs,
+  with a strip that lights a cell per frame at its pace. With a photo
+  attached, one tap animates it. OpenAI publishes no price for a GIF, so the estimate counts
+  one still of the same quality and size per frame and says it is an
+  estimate; the cost is the usage OpenAI reports. The key's account needs
+  OpenAI's GIF preview. OpenRouter takes no frame settings, so there is no
+  GIF through it.
+- A GIF plays on the stage, in the library and on the whole screen, and a
+  button stops it on its first frame. In Telegram it comes as an animation
+  in a direct chat, a group, a guest answer and inline mode, several of
+  them one by one, and `/img` asks for one under Settings.
+
+### Changed
+
+- GPT Image 2.6 Flare is suggested for an image and for many photos in
+  place of 2.5 Flare, and the GPT Image row opens on 2.6. 2.5 stays in the
+  row: at low and medium quality it costs a quarter to a third of 2.6.
+
+### Fixed
+
+- The library wrote "null" under its heading once the failed filter was
+  turned off, and the settings wrote it in place of the stored files until
+  they were known.
+- Choosing another kind, the failed filter or a search no longer shows a
+  loading line that jumps: the list keeps what is read of it while the
+  page comes, and an empty one says it is loading only when the wait is
+  long enough to see.
+- A model that makes fewer lengths from frames, on a clip or when it goes
+  on from its own video offers only those then, and a run that asks for
+  another is refused before it starts: Omni 1.2 makes 3 to 10 s in those
+  cases, where words go to 15 s. Extending a clip by a set length is priced
+  up to the whole clip, which Google may bill.
+- The estimate of a video priced in tokens by resolution found no count
+  for 4K, written in capitals in the catalog.
+
 ## v0.1.0-alpha.5 - 2026-11-06
 
 The review of 5 November, worked through: about 490 findings across the

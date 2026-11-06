@@ -1294,18 +1294,26 @@ func resultKey(prefix string, j jobs.Job, i int, contentType string) string {
 
 var exts = map[string]string{
 	"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/avif": ".avif", "image/heif": ".heic",
-	"image/gif": ".gif", svgType: ".svg", "video/mp4": ".mp4", "video/webm": ".webm", "video/quicktime": ".mov",
+	gifType: ".gif", svgType: ".svg", "video/mp4": ".mp4", "video/webm": ".webm", "video/quicktime": ".mov",
 	"audio/mpeg": ".mp3", "audio/wav": ".wav",
 }
 
 // svgType is a vector picture: Recraft's vector models draw one.
 const svgType = "image/svg+xml"
 
-// Raster tells a picture made of pixels: any image but an SVG, which
-// Telegram shows only as a file and no video model takes as a frame.
+// Raster tells a still picture made of pixels: any image but an SVG, which
+// Telegram shows only as a file and no video model takes as a frame, and a
+// GIF, which moves (Animated).
 func Raster(contentType string) bool {
-	return strings.HasPrefix(contentType, "image/") && contentType != svgType
+	return strings.HasPrefix(contentType, "image/") && contentType != svgType && !Animated(contentType)
 }
+
+// gifType is an animation: GPT Image 2.6 makes one.
+const gifType = "image/gif"
+
+// Animated tells a picture that moves: a GIF, which Telegram takes as an
+// animation and a model takes none of as a frame or a reference.
+func Animated(contentType string) bool { return contentType == gifType }
 
 // measure reads the size of the picture of size bytes in r: from its
 // header, or from the root of an SVG. Zero when it tells none.

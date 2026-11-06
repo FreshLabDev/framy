@@ -1008,3 +1008,89 @@ func TestTheDefaultBaseIsOpenAIs(t *testing.T) {
 		t.Errorf("base %q", got)
 	}
 }
+
+// gif is the smallest file http.DetectContentType calls a GIF.
+var gif = []byte("GIF89a\x01\x00\x01\x00\x00\x00\x00;")
+
+// A GIF goes on either endpoint with its frames and their length as whole
+// numbers, comes back as a GIF whatever the answer says, and costs the
+// tokens OpenAI reports, its frames' among them.
+func TestAGIFGoesWithItsFramesOnBothEndpoints(t *testing.T) {
+	link := "https://acct.r2.cloudflarestorage.com/framy/in/a.jpg?X-Amz-Signature=abc"
+	for _, tc := range []struct {
+		name   string
+		inputs []jobs.Input
+		path   string
+	}{
+		{"from a prompt", nil, "/v1/images/generations"},
+		{"from a photo", []jobs.Input{{ContentType: "image/jpeg", URL: link}}, "/v1/images/edits"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// 9 frames of 2.6's 1,449 tokens at low quality, 1024x1024.
+			p, u := serve(t, reply(200, images(12, 0, 9*1449, gif)))
+			settings := map[string]any{"size": "1024x1024", "quality": "low", "output_format": "gif", "frame_count": 9.0, "frame_duration_ms": 200.0}
+			sub, err := p.Submit(context.Background(), jobOf(t, "openai:gpt-image-2.6-flare", settings, tc.inputs...))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if u.path != tc.path {
+				t.Errorf("path %s, want %s", u.path, tc.path)
+			}
+			for _, want := range []string{`"frame_count":9`, `"frame_duration_ms":200`, `"output_format":"gif"`} {
+				if !strings.Contains(u.raw, want) {
+					t.Errorf("%s is not in %s", want, u.raw)
+				}
+			}
+			if strings.Contains(u.raw, "background") {
+				t.Errorf("a GIF went with a background: %s", u.raw)
+			}
+			res := sub.Outcome.Results
+			if len(res) != 1 || res[0].ContentType != "image/gif" {
+				t.Fatalf("results %v, want one image/gif", res)
+			}
+			if want := 12*5e-6 + 9*1449*30e-6; !near(*sub.Outcome.CostUSD, want) {
+				t.Errorf("cost %v, want %v", *sub.Outcome.CostUSD, want)
+			}
+		})
+	}
+}
+
+// The frames of a GIF go with nothing else, and a GIF takes no transparent
+// background or compression: each is refused before anything is paid.
+func TestAGIFsRulesAreKeptBeforeTheCall(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		settings map[string]any
+	}{
+		{"frames of a PNG", map[string]any{"size": "1024x1024", "quality": "low", "output_format": "png", "frame_count": 4.0}},
+		{"a length of a still", map[string]any{"size": "1024x1024", "quality": "low", "frame_duration_ms": 100.0}},
+		{"too many frames", map[string]any{"size": "1024x1024", "quality": "low", "output_format": "gif", "frame_count": 17.0}},
+		{"half a frame", map[string]any{"size": "1024x1024", "quality": "low", "output_format": "gif", "frame_count": 2.5}},
+		{"too short a frame", map[string]any{"size": "1024x1024", "quality": "low", "output_format": "gif", "frame_duration_ms": 10.0}},
+		{"a clear GIF", map[string]any{"size": "1024x1024", "quality": "low", "output_format": "gif", "background": "transparent"}},
+		{"a compressed GIF", map[string]any{"size": "1024x1024", "quality": "low", "output_format": "gif", "output_compression": 50.0}},
+	} {
+		p, u := serve(t, reply(200, images(12, 0, 1449, gif)))
+		_, err := p.Submit(context.Background(), jobOf(t, "openai:gpt-image-2.6-sunburst", tc.settings))
+		if pe := classOf(t, err); pe.Class != jobs.Invalid {
+			t.Errorf("%s: class %s, want invalid", tc.name, pe.Class)
+		}
+		if u.calls != 0 {
+			t.Errorf("%s: OpenAI was called", tc.name)
+		}
+	}
+}
+
+// A GIF the key's account has no access to is OpenAI's refusal of the run,
+// with OpenAI's words, not a key to replace.
+func TestNoGIFPreviewIsARefusalNotAKey(t *testing.T) {
+	for _, status := range []int{http.StatusBadRequest, http.StatusForbidden} {
+		p, _ := serve(t, reply(status, `{"error":{"message":"GIF output is not available for this organization.","type":"invalid_request_error","param":"output_format","code":null}}`))
+		_, err := p.Submit(context.Background(), jobOf(t, "openai:gpt-image-2.6-flare", map[string]any{"size": "1024x1024", "quality": "low", "output_format": "gif"}))
+		pe := classOf(t, err)
+		var api *APIError
+		if pe.Class != jobs.Refused || !errors.As(err, &api) || !strings.Contains(api.Said(), "GIF output") || api.KeyStatus() != "" {
+			t.Errorf("%d: class %s, %v", status, pe.Class, err)
+		}
+	}
+}

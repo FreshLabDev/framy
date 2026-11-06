@@ -194,6 +194,10 @@ textarea#prompt::placeholder {color: var(--muted);}
 .rline input[type="range"] {flex: 1; min-width: 0; height: 44px;}
 .rline b {min-width: 48px; text-align: end; font-size: 16px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums;}
 .rends {display: flex; justify-content: space-between; margin-top: -8px; padding-inline-end: 62px; font-size: 12px; color: var(--muted);}
+/* A GIF's loop under its frames: a cell a frame, lit in turn for as long as a frame shows
+   (src/composer.js); with reduced motion they stand at half. */
+.gloop {display: flex; gap: 3px; margin-top: 10px; padding-inline-end: 62px;}
+.gloop > i {flex: 1 1 0; max-width: 28px; height: 8px; background: var(--ink); opacity: .5;}
 @media (min-width: 960px) {
   .sec.row {grid-template-columns: 112px minmax(0, 1fr); align-items: start; column-gap: 12px;}
   .sec.row > .lab {flex-wrap: wrap; align-items: center; align-content: center; min-height: 44px; row-gap: 2px;}
@@ -803,6 +807,7 @@ main.library {display: grid; gap: 18px; padding: 6px 0 calc(48px + env(safe-area
 .lday + .lday {margin-top: 10px;}
 .lday > h2 {margin: 0; font-size: 17px; font-weight: 700;}
 .libmore {min-height: 56px; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--muted); font-size: 14px;}
+.libmore > .w {display: inline-flex; align-items: center; gap: 10px;}
 .libmore .x {height: 36px; padding: 0 12px; display: inline-flex; align-items: center; gap: 6px; background: var(--deep); color: var(--ink); font-weight: 600;}
 .lspin {width: 14px; height: 14px; border: 2px solid var(--line); border-top-color: var(--ink);}
 .lempty {display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 28px; padding: 32px; background: var(--deep);}
@@ -899,6 +904,12 @@ main.library {display: grid; gap: 18px; padding: 6px 0 calc(48px + env(safe-area
   #viewBody :is(.jacts, .sqs) > .sq2 > .t, #full :is(.jacts, .sqs) > .sq2 > .t {display: inline;}
 }
 .vbox.zoom > img {cursor: zoom-in;}
+/* A GIF result: the animation, and its first frame over it while it stands still (src/gif.js). */
+.gifv {position: relative; display: block; width: 100%; height: 100%;}
+.gifv > img, .gifv > canvas {position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain;}
+.vbox > .gifv, .full .fimg > .gifv {position: absolute; inset: 0;}
+.vbox.zoom > .gifv {cursor: zoom-in;}
+:is(.jbox:not(.cell), .vbox, .full .fimg) > .tpp {position: absolute; inset-inline-end: 8px; bottom: 8px; z-index: 1; width: 44px; height: 44px; display: grid; place-items: center; background: rgba(0, 69, 79, .85); color: var(--ink);}
 .vexp {position: absolute; inset-inline-end: 0; top: 0; z-index: 1; width: 44px; height: 44px; display: grid; place-items: center; background: rgba(0, 69, 79, .85);}
 .vexp .ic {width: 16px; height: 16px;}
 /* The whole screen for a run's results. */

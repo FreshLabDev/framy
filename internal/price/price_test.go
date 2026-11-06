@@ -226,6 +226,14 @@ func TestEstimates(t *testing.T) {
 		{"omni at 720p", "gemini:gemini-omni-1.1-flash", Request{Settings: set{"resolution": "720p"}}, 5792 * 3 * 1.75e-5, 5792 * 10 * 1.75e-5, UpTo},
 		// Extending a 5 s clip may come back, and be billed, as 15 s.
 		{"omni extending a clip", "gemini:gemini-omni-1.1-flash", Request{Settings: set{"resolution": "720p"}, Video: clip}, 5792 * 3 * 1.75e-5, 5792 * 15 * 1.75e-5, UpTo},
+		// Omni 1.2 makes the length asked for, at Google's count for each
+		// resolution and $12 a million tokens.
+		{"omni 1.2 at 720p for 8 s", "gemini:gemini-omni-1.2-flash", Request{Settings: set{"resolution": "720p", "duration": 8}}, 5792 * 8 * 1.2e-5, 0, About},
+		{"omni 1.2 at 4K for 15 s", "gemini:gemini-omni-1.2-flash", Request{Settings: set{"resolution": "4K", "duration": 15}}, 17376 * 15 * 1.2e-5, 0, About},
+		// Extending a 5 s clip by 6 s may come back, and be billed, as 11 s.
+		{"omni 1.2 extending a clip", "gemini:gemini-omni-1.2-flash", Request{Settings: set{"resolution": "360p", "duration": 6}, Video: clip}, 1931 * 6 * 1.2e-5, 1931 * 11 * 1.2e-5, UpTo},
+		// Through OpenRouter, at its listed rate a second.
+		{"omni 1.2 through openrouter", "openrouter:google/gemini-omni-1.2-flash", Request{Settings: set{"resolution": "720p", "duration": 10}}, 0.069504 * 10, 0, Exact},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m, of := offer(t, tc.offer)
@@ -651,5 +659,41 @@ func TestMegapixelsFollowTheChosenSize(t *testing.T) {
 		if want := rate * c.pixels / 1e6; !near(e.USD, want) {
 			t.Errorf("%v: $%.6f, want $%.6f (%.2f MP)", c.settings, e.USD, want, c.pixels/1e6)
 		}
+	}
+}
+
+// A GIF costs as many pictures as it has frames (owner, 6 November 2026):
+// each frame is a still of its size and quality, the prompt counts once,
+// and the 9 frames OpenAI makes when none are set count when none are.
+func TestAGIFIsItsFramesInStills(t *testing.T) {
+	m, of := offer(t, "openai:gpt-image-2.6-flare")
+	still := Of(m, of, Request{Settings: set{"size": "1024x1024", "quality": "low"}})
+	frame := func(s set) float64 {
+		var out float64
+		for _, l := range Of(m, of, Request{Settings: s}).Lines {
+			if l.Billable == outputImage {
+				out += l.USD
+			}
+		}
+		return out
+	}
+	one := frame(set{"size": "1024x1024", "quality": "low"})
+	for _, tc := range []struct {
+		name   string
+		set    set
+		frames float64
+	}{
+		{"none set", set{"size": "1024x1024", "quality": "low", "output_format": "gif"}, 9},
+		{"two", set{"size": "1024x1024", "quality": "low", "output_format": "gif", "frame_count": 2}, 2},
+		{"sixteen, as JSON has them", set{"size": "1024x1024", "quality": "low", "output_format": "gif", "frame_count": 16.0}, 16},
+		{"frames of a PNG count nothing", set{"size": "1024x1024", "quality": "low", "output_format": "png", "frame_count": 16}, 1},
+	} {
+		if got := frame(tc.set); !near(got, tc.frames*one) {
+			t.Errorf("%s: the frames cost $%.5f, want %g × $%.5f", tc.name, got, tc.frames, one)
+		}
+	}
+	gif := Of(m, of, Request{Settings: set{"size": "1024x1024", "quality": "low", "output_format": "gif", "frame_count": 4, "n": 2}, Prompt: "a fox"})
+	if gif.Kind != About || gif.USD < 8*one || gif.USD < 8*still.USD-1e-9 {
+		t.Errorf("two GIFs of 4 frames = $%.5f (%s), want about 8 stills of $%.5f", gif.USD, gif.Kind, still.USD)
 	}
 }

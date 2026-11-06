@@ -80,6 +80,8 @@ func readHeader(f io.ReaderAt, size int64) (header, error) {
 	case WebP:
 		h.width, h.height = webpSize(head)
 		h.p3 = iccIsP3(webpChunk(head, "ICCP"))
+	case GIF:
+		h.width, h.height = gifSize(head)
 	case HEIF, AVIF:
 		meta, err := heifMeta(f, size)
 		if err != nil {
@@ -382,4 +384,12 @@ func boxes(b []byte) []box {
 		b = b[size:]
 	}
 	return out
+}
+
+// gifSize reads the logical screen of a GIF, which every frame lies within.
+func gifSize(head []byte) (width, height int) {
+	if len(head) < 10 {
+		return 0, 0
+	}
+	return int(binary.LittleEndian.Uint16(head[6:8])), int(binary.LittleEndian.Uint16(head[8:10]))
 }

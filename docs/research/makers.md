@@ -80,12 +80,12 @@ Two paid runs on 31 October settled how OpenRouter bills a Seedance reference cl
 | Veo reference images | 3 asset images or 1 style image (confirmed at Google) | unverified | |
 | Veo extension | +7 s, up to 37 s | no field, though the description says "20 chained clips" | |
 | Veo `sampleCount` 1 to 4, `resizeMode`, `compressionQuality` | yes | no | |
-| Omni | Gemini API only | not on OpenRouter | the direct port runs it: frames, 6 reference images, a source of up to 10 s, `previous_interaction_id` |
-| Omni duration | `response_format.duration`, "3s" to "10s" on Vertex (likely) | not on OpenRouter | an exact price instead of "up to"; the direct port sends it, the catalog lists it after a run |
-| Omni reference video | 3 clips of up to 3 s, sound in them ignored (confirmed) | not on OpenRouter | likeness of a person or object; not offered yet, since the catalog has one video role per model and Omni's is the source |
+| Omni | Gemini API (1.1 and 1.2) | 1.1 and 1.2 since 4 and 5 November 2026, on Google AI Studio: words, frames, 3 to 15 s (1.2), sound, no video input listed | the direct port runs it: frames, 6 reference images, a source of up to 15 s (10 s on 1.1), `previous_interaction_id`; whether OpenRouter takes `previous_job_id` for Omni is unverified |
+| Omni duration | 1.2: `response_format.duration`, "3s" to "15s", 10 s when absent; from frames, on a source and extending 3 to 10 s, up to 30 s in all (Google's Omni page, 6 November) | `supported_durations` 3 to 15 | an exact price; 1.1 still picks its own length on the direct port |
+| Omni reference video | 3 clips of up to 3 s for a video of up to 10 s, 1 for a longer one, sound in them ignored (confirmed) | no | likeness of a person or object; not offered yet, since the catalog has one video role per model and Omni's is the source |
 | search query billing | 5,000 queries a month, then $14 per 1,000 on Gemini 3 | no | not in framy's estimate or cost: framy cannot see the person's allowance |
 
-Dates: Veo 3.1 preview ids closed on the Gemini API on 22 October 2026, with Omni named in their place. OpenRouter runs Veo on Vertex (provider `google-vertex`, no `expiration_date`), where `veo-3.1-generate-001` and `veo-3.1-fast-generate-001` are GA and retire "May 4, 2027 or later", and `veo-3.1-lite-generate-001` is a Preview with no date (Vertex model page, updated 5 November 2026). Google says such dates may move later but never earlier, so framy does not mark them deprecated. Gemini 3.1 Flash Image was deprecated on 6 October 2026 with no shutdown day; Gemini 2.5 Flash Image shuts on 15 March 2027. Veo with references runs 8 s only (Vertex for 3.1, the Gemini API for 3.1 and Fast), and framy sends 8 s then; the Gemini API docs say the same of 1080p and 4K, which Vertex's page does not. Omni spells 4K as `4k`.
+Dates: Veo 3.1 preview ids closed on the Gemini API on 22 October 2026, with Omni named in their place. OpenRouter runs Veo on Vertex (provider `google-vertex`, no `expiration_date`), where `veo-3.1-generate-001` and `veo-3.1-fast-generate-001` are GA and retire "May 4, 2027 or later", and `veo-3.1-lite-generate-001` is a Preview with no date (Vertex model page, updated 5 November 2026). Google says such dates may move later but never earlier, so framy does not mark them deprecated. Gemini 3.1 Flash Image was deprecated on 6 October 2026 with no shutdown day; Gemini 2.5 Flash Image shuts on 15 March 2027. Veo with references runs 8 s only (Vertex for 3.1, the Gemini API for 3.1 and Fast), and framy sends 8 s then; the Gemini API docs say the same of 1080p and 4K, which Vertex's page does not. Omni spells 4K as `4k`. Gemini Omni 1.2 Flash came out on 5 November 2026 at $12 a million output video tokens against 1.1's $17.50, with Google's count for every resolution: 1,931 tokens a second at 360p, 5,792 at 720p, 8,688 at 1080p and 17,376 at 4K, the counts the gateways listed for 1.1. From 3 December 2026 the Gemini API runs requests for `gemini-omni-1.1-flash` on 1.2, at 1.2's rates.
 
 ## HeyGen
 
@@ -159,12 +159,12 @@ The first five reference images are free at MiniMax and on OpenRouter's page; fr
 | Capability | At the maker | Through OpenRouter | Why framy wants it |
 |:--|:--|:--|:--|
 | any size up to 3840 px and 8.29 MP | yes | 8 aspect ratios and `auto` | 2K and 4K, on the direct port only |
-| `output_format` | yes | on 2.6 only: PNG, JPEG, WebP and GIF, of which framy offers the first three; PNG on the others, where `output_compression` probably does nothing | |
+| `output_format` | yes | on 2.6 only: PNG, JPEG, WebP and GIF, of which framy offers the first three there; PNG on the others, where `output_compression` probably does nothing | GIF, on the direct port |
 | mask | yes, on the first image, with alpha, up to 50 MB | no | the stage 3 mask editor |
 | `partial_images`, `safety_identifier`, Batch at half price | yes | no | progress previews; cheaper bulk runs |
 | `moderation` | a field | only `provider.options.openai.moderation` | |
 | transparent background on GPT Image 2 | preview since 20 August 2026 | auto and opaque only | |
-| GIF output on 2.6 | `output_format: gif` on generations, 2 to 16 frames (9 by default), 20 to 2000 ms each | `gif` in `output_format` | an animation; left out while a GIF's frames have no published price |
+| GIF output on 2.6 | `output_format: gif` on generations, 2 to 16 frames (9 by default), 20 to 2000 ms each, no transparent background; needs the GIF preview on the account | `gif` in `output_format`, but no `frame_count` or `frame_duration_ms` (6 November 2026) | an animation; offered on the direct port since 6 November 2026, estimated as a still of its quality and size a frame (no price is published) and billed by usage |
 | SVG output on 2.6 | `output_format: svg` on generations, n = 1, billed as a reference image plus the authoring model's tokens; the `svg` field picking the authoring model needs access OpenAI grants apart | no | vector art; the authoring model's tokens are not published |
 | `complexity` on 2.6 | low, medium, high (the default), no fee | a pass-through | a lighter edit; offered on the direct port as "Planning", high by default |
 
@@ -272,8 +272,7 @@ The audit priced each. The one on Seedance's reference clip was run on 31 Octobe
 | Is Kling 3.0 Pro 720p or 1080p? | 3 s | $0.34 |
 | Does HY Image use more than 5 references, and what does 1.5K cost? | three runs | $0.08 |
 | Does Omni run through framy's adapter from words and from a start frame, and is a refusal read right? (`TestLiveOmni`, issue #33) | two 720p videos and a refused prompt | $0.60 to $2.02 |
-| Does Omni keep to `response_format.duration`? | one 3 s video at 720p | about $0.30 |
-| How many tokens a second does Omni bill at 360p and 1080p? Gateways list 1,931 and 8,688 (17,376 at 4K); Google publishes only 720p | one video at each, the model picks 3 to 10 s | $0.56 to $1.86 |
+| Does Omni 1.1 keep to `response_format.duration`? 1.2 documents it | one 3 s video at 720p | about $0.30 |
 | Does Image Search bring Search Suggestions, and in what shape? (`TestLiveProbes`) | one image on Nano Banana 2.1 at 1K | about $0.034 |
 | Do the Nano Banana models take `media_resolution`, and does the input token count drop? | two runs with one reference, `low` and `high` | about $0.07 |
 | Does mischief 1 rewrite the prompt through OpenRouter, and how is a portrait photo cropped? | 3 s at 480p from a portrait photo | $0.015 |

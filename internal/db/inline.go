@@ -7,7 +7,7 @@ import (
 )
 
 // InlineResult is a result a person can send again from inline mode: a
-// photo or a video Telegram keeps, by its file_id. Model is the model's
+// photo, a video or a GIF's animation Telegram keeps, by its file_id. Model is the model's
 // name, as ChatRun has it.
 type InlineResult struct {
 	JobID    int64
@@ -18,7 +18,7 @@ type InlineResult struct {
 }
 
 // InlineResults are person user's results that went out from this stack's
-// bot as a photo or a video, newest first: at most limit of them, older than job before when it
+// bot as a photo, a video or an animation (a GIF), newest first: at most limit of them, older than job before when it
 // is not zero, and with search in the prompt, case aside, when it is not
 // empty. A deleted job is left out.
 func (s *Store) InlineResults(ctx context.Context, user int64, search string, before int64, limit int) ([]InlineResult, error) {
@@ -31,7 +31,7 @@ func (s *Store) InlineResults(ctx context.Context, user int64, search string, be
 		WHERE j.user_id = $1 AND j.deleted_at IS NULL AND j.queued_at IS NOT NULL
 		  AND ($3::bigint = 0 OR j.id < $3)
 		  AND ($2::text = '' OR strpos(lower(j.prompt), lower($2)) > 0)
-		  AND r.stage = 'done' AND r.result_file_id IS NOT NULL AND r.result_file_type IN ('photo', 'video') AND r.stack = $5
+		  AND r.stage = 'done' AND r.result_file_id IS NOT NULL AND r.result_file_type IN ('photo', 'video', 'animation') AND r.stack = $5
 		ORDER BY j.id DESC
 		LIMIT $4`, user, search, before, limit, s.stack)
 	if err != nil {

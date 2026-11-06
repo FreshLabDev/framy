@@ -14,6 +14,7 @@ import { failure } from "./errors.js";
 import { known, priceEl, priceText, onPrices, sumOf, knownTotal, needTotal } from "./price.js";
 import { thumbMedia } from "./clips.js";
 import { player } from "./player.js";
+import { isGif, gifView, gifButton } from "./gif.js";
 import { grounding } from "./ground.js";
 import { openSheet, closeSheets, toast, ask, layer, goBack, inHistory, takeEntry } from "./ui.js";
 import { view, B, actRow, ticking, renderStage, refit } from "./stage.js";
@@ -156,7 +157,11 @@ async function refresh() {
 
 const LIBMORPH = { dur: DUR.m,
   enter: (el, i, wait) => anim(el, [{ opacity: 0, transform: "translateY(10px)" }, { opacity: 1, transform: "none" }], { duration: DUR.m, delay: wait + Math.min(i, 12) * 24, fill: "backwards" }),
-  leave: (g) => anim(g, [{ opacity: 1 }, { opacity: 0 }], { duration: DUR.xs, easing: OUT, fill: "forwards" }) };
+  leave: (g) => {
+    // A loading word still waiting to show stays as it is while it goes, never showing on the way out.
+    for (const w of g.querySelectorAll(".libmore > .w")) w.getAnimations().forEach((a) => a.pause());
+    return anim(g, [{ opacity: 1 }, { opacity: 0 }], { duration: DUR.xs, easing: OUT, fill: "forwards" });
+  } };
 // A change of the list: shown at once where the library is in view, else when it is next.
 function swap(fn) {
   if (libOn() && !$("#library").hidden) morph($("#library"), () => { fn(); renderLibrary(); }, LIBMORPH);
@@ -202,8 +207,9 @@ function drawLibrary() {
   const tools = S.signed && L.loaded && (L.any || L.kind !== "all" || !!L.q || L.failed);
   // The runs that did not work can all go at once, from the list of just those.
   const bulk = tools && L.failed && list.length ? h("div", { class: "lbulk", "data-k": "lbulk" }, clearBtn()) : null;
+  // replaceChildren, unlike h, would write a null as the text "null".
   root.replaceChildren(h("div", { class: "libhead", "data-k": "lhead" }, h("h1", {}, t("tab.library")), tools ? kinds() : null,
-    tools ? h("div", { class: "lfind" }, searchBox(), failedBtn()) : null), bulk, ...body);
+    tools ? h("div", { class: "lfind" }, searchBox(), failedBtn()) : null), ...[bulk, ...body].filter(Boolean));
   placeSegs(root);
   watchFoot();
   if (focused) Q.input.focus({ preventScroll: true });
@@ -380,6 +386,8 @@ function cover(j) {
       kids.push(im);
     } else kids.push(h("span", { class: "c" }, ic(vid ? "film" : "image"), res.url ? null : h("small", {}, t("lib.gone"))));
     if (vid && res.seconds) kids.push(h("span", { class: "badge" }, ic("play"), fmtSecs(res.seconds)));
+    // A GIF's tile is its first frame, and says it moves.
+    else if (isGif(res)) kids.push(h("span", { class: "badge" }, ic("loop"), "GIF"));
     if (outsOf(j).length > 1) kids.push(h("span", { class: "badge n" }, "×" + fmtNum(outsOf(j).length)));
     return h("span", { class: "cover" }, kids);
   }
@@ -466,11 +474,20 @@ function spinner() {
   anim(s, [{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }], { duration: LOOP, iterations: Infinity, easing: "linear" });
   return s;
 }
-const loading = () => h("div", { class: "libmore", "data-k": "lload", role: "status" }, spinner(), t("lib.loading"));
+// The word shows only when the wait is long enough to see: an answer that comes
+// sooner goes straight to the tiles, with no word flashing in their place.
+function loading() {
+  const w = h("span", { class: "w" }, spinner(), t("lib.loading"));
+  anim(w, [{ opacity: 0 }, { opacity: 1 }], { duration: DUR.s, delay: DUR.l, fill: "backwards" });
+  return h("div", { class: "libmore", "data-k": "lload", role: "status" }, w);
+}
 // The end of the list: where the next page loads, or a word that there is no more.
+// While another kind, filter or search is read, the list already shows what was
+// read of it, and its end keeps its room with no word, so nothing jumps.
 function foot(list) {
   const el = (...kids) => h("div", { class: "libmore", "data-k": "lmore", role: "status" }, ...kids);
-  if (L.busy) return el(spinner(), t(L.busy === "more" ? "lib.more" : "lib.loading"));
+  if (L.busy === "more") return el(spinner(), t("lib.more"));
+  if (L.busy) return el();
   if (L.more) return el(t("lib.more_failed"), h("button", { type: "button", class: "x", onclick: () => load(true) }, ic("again"), t("act.retry")));
   if (L.next) return el();
   return list.length > PAGE ? el(t("lib.end")) : null;
@@ -676,13 +693,13 @@ function mediaOf(j, v) {
   if (v.done && res.url) {
     // A video has its own player, with its own whole screen.
     if (res.content_type?.startsWith("video/")) return h("div", { class: "vbox vfit" }, player(res));
-    const el = h("img", { src: res.url, alt: j.prompt || "", decoding: "async" });
+    const gif = isGif(res) ? gifView(res, j.prompt || "") : null, el = gif ? gif._img : h("img", { src: res.url, alt: j.prompt || "", decoding: "async" });
     // The thumbnail stands in while the original loads.
     const ph = res.thumb?.url ? h("img", { class: "ph", src: res.thumb.url, alt: "" }) : null;
     if (ph) el.addEventListener("load", () => ph.remove(), { once: true });
-    el.addEventListener("click", () => openFull(fullStart()));
+    (gif || el).addEventListener("click", () => openFull(fullStart()));
     const big = h("button", { type: "button", class: "vexp", "aria-label": t("full.open"), title: t("full.open"), onclick: () => openFull(fullStart()) }, ic("expand"));
-    return h("div", { class: "vbox vfit zoom" }, ph, el, big);
+    return h("div", { class: "vbox vfit zoom" }, ph, gif || el, big, gif ? gifButton(gif) : null);
   }
   const st = v.status || h("div", { class: "c" }, ic(j.kind), h("b", {}, t("lib.gone")));
   return h("div", { class: "jbox vfit" + (v.fail ? " failed" : "") }, h("i"), h("i"), h("i"), h("i"), st);
@@ -847,8 +864,9 @@ export function openFull(at = 0, items = null) {
   const box = $("#full"), n = items.length, kind = items[0].j.kind;
   const cells = items.map(({ j, res: r }) => {
     const vid = r.content_type?.startsWith("video/"), ratio = r.width && r.height ? r.width / r.height : ratioOf(j);
-    const m = vid ? player(r, { autoplay: false }) : h("img", { src: r.url, alt: j.prompt || "", decoding: "async" });
-    return h("div", { class: "fcell" }, h("div", { class: "fimg", style: { "--r": String(ratio) } }, m));
+    const gif = isGif(r) ? gifView(r, j.prompt || "") : null;
+    const m = vid ? player(r, { autoplay: false }) : gif || h("img", { src: r.url, alt: j.prompt || "", decoding: "async" });
+    return h("div", { class: "fcell" }, h("div", { class: "fimg", style: { "--r": String(ratio) } }, m, gif ? gifButton(gif) : null));
   });
   const strip = h("div", { class: "fstrip" }, cells), cnt = h("span", { class: "cnt", "aria-live": "polite" });
   const nav = n > 1 ? [h("button", { type: "button", class: "fnav s", "aria-label": t("view.prev"), title: t("view.prev"), onclick: () => fullGo(-1) }, ic("chevl")),

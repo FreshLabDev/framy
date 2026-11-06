@@ -530,6 +530,9 @@ func (f *Flow) pickSetting(ctx context.Context, cq *tg.CallbackQuery, run db.Cha
 		return answer("")
 	}
 	settings[name] = v
+	// A GIF takes its frames and leaves the background; a picture the other
+	// way round.
+	catalog.Fill(offer, settings, 0)
 	return f.revise(ctx, cq, run, on, model, offer, settings, false, false, viewSettings)
 }
 

@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	_ "image/gif" // a GIF's thumbnail is its first frame
 	"image/jpeg"
 	_ "image/png" // results come as PNG, JPEG or WebP
 	"io"
@@ -39,7 +40,9 @@ import (
 // its id to shareMessage, and the person picks the chat. A result that went
 // out in a chat goes by its file_id, as in inline mode. Any other goes by
 // URL, which Telegram fetches from framy: a photo has to be a JPEG of at most
-// 5 MB with a JPEG thumbnail, a video an MP4 with a JPEG cover. The links are
+// 5 MB with a JPEG thumbnail, a video an MP4 with a JPEG cover, and a GIF the
+// silent MP4 Telegram would make of it, with its first frame as the
+// thumbnail. The links are
 // signed with a key made at start and live an hour, so a share does not
 // outlive a restart of the process.
 
@@ -74,6 +77,9 @@ const (
 	shareThumb byte = 't'
 	shareVideo byte = 'v'
 	shareCover byte = 'c'
+	// shareGIF is a GIF as the MP4 Telegram plays an animation as: a link
+	// to an animation has to be one.
+	shareGIF byte = 'g'
 )
 
 // Shared is a prepared message: the id the Mini App passes to
@@ -117,6 +123,12 @@ func (f *Flow) shareResult(userID int64, src db.ShareSource) (tg.InlineQueryResu
 		return tg.InlineQueryResultCachedMpeg4Gif{ID: id, Mpeg4FileID: src.FileID, Caption: caption}, nil
 	case f.cfg.AppURL == "":
 		return nil, fmt.Errorf("%w: no https site for Telegram to fetch it from", ErrNotShareable)
+	case storage.Animated(src.ContentType):
+		w, h := fit(src.Width, src.Height, 0)
+		return tg.InlineQueryResultMpeg4Gif{
+			ID: id, Mpeg4URL: f.shareURL(userID, src.AssetID, shareGIF), ThumbnailURL: f.shareURL(userID, src.AssetID, shareThumb),
+			Mpeg4Width: w, Mpeg4Height: h, Title: title, Caption: caption,
+		}, nil
 	case video && src.ContentType == "video/mp4":
 		if src.Bytes > shareVideoBytes {
 			return nil, fmt.Errorf("%w: a video of %d bytes", ErrNotShareable, src.Bytes)
@@ -170,7 +182,7 @@ func (f *Flow) shareURL(userID, assetID int64, part byte) string {
 	b = binary.BigEndian.AppendUint64(b, uint64(f.now().Add(shareTTL).Unix()))
 	b = append(b, f.shareMAC(b)...)
 	ext := ".jpg"
-	if part == shareVideo || part == shareLoop {
+	if part == shareVideo || part == shareLoop || part == shareGIF {
 		ext = ".mp4"
 	}
 	return strings.TrimRight(f.cfg.AppURL, "/") + SharePath + base64.RawURLEncoding.EncodeToString(b) + ext
@@ -210,8 +222,9 @@ func (f *Flow) openShareToken(token string) (userID, assetID int64, part byte, o
 const SharePath = "/share/"
 
 // ServeShare answers Telegram's fetch of a shared result's part: the JPEG
-// of a picture or its thumbnail, a video or its cover. A link framy did not
-// sign, one that ended, and a result deleted since are 404.
+// of a picture or its thumbnail, a video or its cover, a GIF as an MP4 or
+// its first frame. A link framy did not sign, one that ended, a part the
+// result has not, and a result deleted since are 404.
 func (f *Flow) ServeShare(w http.ResponseWriter, r *http.Request) {
 	token := r.PathValue("token")
 	token = strings.TrimSuffix(strings.TrimSuffix(token, ".jpg"), ".mp4")
@@ -235,8 +248,7 @@ func (f *Flow) ServeShare(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "storage unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	video := strings.HasPrefix(src.ContentType, "video/")
-	if video != (part == shareVideo || part == shareCover) {
+	if !hasPart(src.ContentType, part) {
 		http.NotFound(w, r)
 		return
 	}
@@ -249,6 +261,10 @@ func (f *Flow) ServeShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { <-f.shareSlots }()
+	if part == shareGIF {
+		f.serveSharedGIF(w, r, asset)
+		return
+	}
 	var out []byte
 	switch part {
 	case sharePhoto:
@@ -271,6 +287,18 @@ func (f *Flow) ServeShare(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/jpeg")
 	w.Header().Set("Content-Length", strconv.Itoa(len(out)))
 	_, _ = w.Write(out)
+}
+
+// hasPart: a result of contentType has the link's part: a video and its
+// cover, a GIF as a clip and its first frame, a picture and its thumbnail.
+func hasPart(contentType string, part byte) bool {
+	switch {
+	case strings.HasPrefix(contentType, "video/"):
+		return part == shareVideo || part == shareCover
+	case storage.Animated(contentType):
+		return part == shareGIF || part == shareThumb
+	}
+	return part == sharePhoto || part == shareThumb
 }
 
 // takeShareSlot waits for a turn to make a picture, at most shareWait, and
@@ -310,8 +338,57 @@ func (f *Flow) serveSharedVideo(w http.ResponseWriter, r *http.Request, a storag
 	}
 }
 
+// serveSharedGIF makes the GIF a the clip Telegram plays an animation as,
+// and serves it: of at most the 20 MB Telegram fetches.
+func (f *Flow) serveSharedGIF(w http.ResponseWriter, r *http.Request, a storage.Asset) {
+	ctx := r.Context()
+	fail := func(err error) {
+		if ctx.Err() == nil {
+			f.log.Warn("shared GIF not made", "asset", a.ID, "error", err)
+			http.Error(w, "not made", http.StatusUnprocessableEntity)
+		}
+	}
+	dir, done, err := f.cfg.Work.Dir("share")
+	if err != nil {
+		fail(err)
+		return
+	}
+	defer done()
+	body, err := f.cfg.Files.Open(ctx, a)
+	if err != nil {
+		fail(err)
+		return
+	}
+	err = writeFile(filepath.Join(dir, media.In), body)
+	body.Close()
+	if err != nil {
+		fail(err)
+		return
+	}
+	v, err := f.cfg.Clips.GIFVideo(ctx, dir)
+	if err == nil && v.Bytes > shareVideoBytes {
+		err = fmt.Errorf("a clip of %d bytes", v.Bytes)
+	}
+	if err != nil {
+		fail(err)
+		return
+	}
+	clip, err := os.Open(v.Path)
+	if err != nil {
+		fail(err)
+		return
+	}
+	defer clip.Close()
+	w.Header().Set("Content-Type", "video/mp4")
+	w.Header().Set("Content-Length", strconv.FormatInt(v.Bytes, 10))
+	if _, err := io.Copy(w, clip); err != nil && ctx.Err() == nil {
+		f.log.Debug("shared GIF cut short", "asset", a.ID, "error", err)
+	}
+}
+
 // sharedPicture is the picture a as a JPEG with a long side of at most
-// side, its transparency on white, under Telegram's 5 MB.
+// side, its transparency on white, under Telegram's 5 MB: a GIF's first
+// frame for a GIF.
 func (f *Flow) sharedPicture(ctx context.Context, a storage.Asset, side int) ([]byte, error) {
 	body, err := f.cfg.Files.Open(ctx, a)
 	if err != nil {

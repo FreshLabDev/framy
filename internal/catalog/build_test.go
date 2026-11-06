@@ -4,6 +4,7 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -109,7 +110,7 @@ func TestBuildJoinsNanoBanana(t *testing.T) {
 	}
 
 	omni := modelByID(t, snap, "google/gemini-omni-1.1-flash")
-	if got := offerIDs(omni); !slices.Equal(got, []string{"gemini:gemini-omni-1.1-flash"}) || omni.Kind != Video || !omni.Traits.Continue {
+	if got := offerIDs(omni); !slices.Equal(got, []string{"gemini:gemini-omni-1.1-flash", "openrouter:google/gemini-omni-1.1-flash"}) || omni.Kind != Video || !omni.Traits.Continue {
 		t.Fatalf("omni = %+v", omni)
 	}
 	pro := modelByID(t, snap, "google/gemini-3-pro-image")
@@ -195,8 +196,15 @@ func TestBuildAppliesExclusionsAndPassthrough(t *testing.T) {
 				t.Fatalf("%s: quality = %v", id, params["quality"].Values)
 			}
 			if slices.Contains(params["output_format"].Values, any("gif")) {
-				t.Fatalf("%s: a GIF, of no published price, is offered", id)
+				t.Fatalf("%s: a GIF goes through OpenRouter, which takes none of its frame settings", id)
 			}
+		}
+		// The direct port of 2.6 makes the GIF, with its frames.
+		direct := m.Offers[0]
+		gif := slices.Contains(direct.Params["output_format"].Values, any("gif"))
+		_, frames := direct.Params["frame_count"]
+		if want := strings.HasPrefix(id, "openai/gpt-image-2.6"); gif != want || frames != want {
+			t.Fatalf("%s: %s offers a GIF %v and its frames %v, want %v", id, direct.ID, gif, frames, want)
 		}
 		if e := m.Traits.Effort; id != "openai/gpt-image-2" && (e == nil || e.Parameter != "quality") {
 			t.Fatalf("%s: effort = %+v", id, e)
@@ -309,12 +317,25 @@ func TestBuildListsVideoEditors(t *testing.T) {
 		t.Error("flux video edit is the free video edit (owner, 27 October)")
 	}
 	edit := modelByID(t, snap, "black-forest-labs/flux-video-edit").Traits.SourceVideo
-	if *edit != (SourceVideo{Required: true, MinSeconds: 0.7, MaxSeconds: 15, MaxMiB: 50, KeepsLength: true}) {
+	if !reflect.DeepEqual(*edit, SourceVideo{Required: true, MinSeconds: 0.7, MaxSeconds: 15, MaxMiB: 50, KeepsLength: true}) {
 		t.Errorf("flux video edit source = %+v", *edit)
 	}
 	omni := modelByID(t, snap, "google/gemini-omni-1.1-flash").Traits.SourceVideo
 	if omni == nil || omni.Required || omni.MaxSeconds != 10 {
 		t.Errorf("omni source = %+v; it takes a video of up to 10 s but does not need one", omni)
+	}
+	// Omni 1.2 takes a clip of up to 15 s and adds 3 to 10 s to it, and
+	// makes a video from frames at 3 to 10 s too, where words go to 15.
+	short := []float64{3, 4, 5, 6, 7, 8, 9, 10}
+	o12 := modelByID(t, snap, "google/gemini-omni-1.2-flash")
+	if s := o12.Traits.SourceVideo; s == nil || s.Required || s.MaxSeconds != 15 || !slices.Equal(s.Durations, short) {
+		t.Errorf("omni 1.2 source = %+v", s)
+	}
+	if r := o12.Traits.References; r == nil || r.Image != 6 || !slices.Equal(r.FrameDurations, short) {
+		t.Errorf("omni 1.2 references = %+v", r)
+	}
+	if f := modelByID(t, snap, "google/gemini-omni-1.1-flash").Traits.Family; f == nil || f.OutdatedBy != "google/gemini-omni-1.2-flash" {
+		t.Errorf("omni 1.1 family = %+v; 1.2 takes its place", f)
 	}
 	// A model that takes video among other inputs needs no entry.
 	if m := modelByID(t, snap, "bytedance/seedance-2.5"); m.Traits.SourceVideo != nil || !slices.Contains(m.Offers[0].InputModalities, "video") {
