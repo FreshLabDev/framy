@@ -365,7 +365,7 @@ func TestBrowserPrefs(t *testing.T) {
 		fmt.Sprint(s["ge"]) != "map[bad:false btns:[Key] sub:Needs a project with billing]" ||
 		fmt.Sprint(s["groups"]) != "[Model keys Free Default models Telegram Currency Language Account]" ||
 		s["out"] != true || s["who"] != "AAdaA sign-in lasts 30 days after your last visitSign outSign out everywhere" ||
-		s["store"] != "Files stored: 1230 MB · images, videos and uploads" || !strings.HasPrefix(s["free"].(string), "Images0 of 5 left in any 24 hours · next one in 3 hours") {
+		s["store"] != "Files stored: 1230 MB · images, videos and uploads" || !strings.HasPrefix(s["free"].(string), "Images0 of 5 left in any 24 hours · next free one in 3 hours") {
 		t.Errorf("settings: %v", s)
 	}
 

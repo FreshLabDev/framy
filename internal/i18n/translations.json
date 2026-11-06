@@ -522,7 +522,7 @@
     "ar": "الفيديوهات المجانية متوقفة مؤقتًا. مفتاح OpenRouter الخاص بك يعمل: اربطه على الموقع."
   },
   "edit.cut": {
-    "en": "This run takes at most {max} s: the first {max} s of {n} are edited.",
+    "en": "This run takes at most {max} s: the first {max} s of {n} s are edited.",
     "ru": "Этот запуск принимает не больше {max} с: меняются первые {max} с из {n}.",
     "uk": "Цей запуск приймає не більше {max} с: змінюються перші {max} с із {n}.",
     "es": "Esta generación admite como máximo {max} s: se editan los primeros {max} s de {n}.",
@@ -6480,7 +6480,7 @@
     "ar": "أفلت للإضافة"
   },
   "web.files.faces_adults": {
-    "en": "Does not take children in photos or clips.",
+    "en": "Takes no photos or clips with children.",
     "ru": "Не принимает фото и ролики с детьми.",
     "uk": "Не приймає фото й кліпи з дітьми.",
     "es": "No admite niños en fotos ni clips.",
@@ -10782,7 +10782,7 @@
     "ar": "يفتح «إنشاء» و framy في Telegram على هذه النماذج. إذا خرج نموذج من الكتالوج، يحلّ محلّه اختيار framy."
   },
   "web.prefs.next": {
-    "en": "next one {when}",
+    "en": "next free one {when}",
     "ru": "следующий запуск {when}",
     "uk": "наступний запуск {when}",
     "es": "vuelve a ser gratis {when}",
