@@ -376,7 +376,8 @@ export function next(prompt) {
   if (!M()) return { label: t("go.create"), on: false };
   const items = plan(), cont = items.some((it) => contFits(it.m, it.pay)), empty = !prompt.trim() && !S.files.length && !cont;
   if (!S.signed && S.mini && S.expired) return { label: t("go.close"), act: "close", on: true, why: reopenText() };
-  if (!S.signed) return { label: t(S.mini ? "go.create" : "go.signin"), act: "signin", on: !empty || S.mini };
+  // Signing in needs no prompt: the button goes at once, and what is typed meanwhile waits for the return.
+  if (!S.signed) return { label: t(S.mini ? "go.create" : "go.signin"), act: "signin", on: true };
   if (!S.online) return { label: t("go.offline"), on: false };
   if (S.busy) return { label: t("go.starting"), on: false };
   // A free frame is there only while free can pay (holds, basePay); one past what is left is short.

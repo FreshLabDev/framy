@@ -363,6 +363,12 @@ func TestBrowserDesktop(t *testing.T) {
 	if got["overflow"].(float64) > 0 || got["side"].(float64) < 24 || got["fits"] != true || got["how"] != true || got["chip"] != false || got["font"] != true {
 		t.Errorf("desktop layout: %v", got)
 	}
+	// Nobody signed in and nothing typed: the button signs in at once, and the line under the price says what that gives.
+	bar := js[map[string]any](t, ctx, `const go = document.querySelector("#go");
+	return { go: go.textContent, on: !go.disabled, cap: document.querySelector("#pcap").textContent, prompt: document.querySelector("#prompt").value };`)
+	if bar["prompt"] != "" || bar["on"] != true || !strings.HasPrefix(bar["go"].(string), "Sign in to create") || bar["cap"] != "Sign in for 5 free a day" {
+		t.Errorf("signed out, nothing typed: %v", bar)
+	}
 	res := js[map[string]any](t, ctx, pageHelpers+`return await steady();`)
 	if res["groups"].(float64) == 0 || len(res["bad"].([]any)) > 0 {
 		t.Errorf("choosing moved controls: %v", res)
