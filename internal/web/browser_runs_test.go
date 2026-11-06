@@ -901,6 +901,28 @@ func TestBrowserRunsNoKey(t *testing.T) {
 // TestBrowserRunsSaid checks what a screen reader hears of a run: a status
 // region beside the stage says each phase once as it comes, never the
 // clock, and why a run gave nothing.
+// TestBrowserCreateKeepsWidth checks Create says "Starting…" while a run is
+// sent in the width it had, and has its own width back after.
+func TestBrowserCreateKeepsWidth(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browserAs(t, ts.URL, 1440, 900, opened{})
+	got := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const go = document.querySelector("#go"), p = document.querySelector("#prompt"), seen = [];
+	p.value = "a fox in the snow"; p.dispatchEvent(new Event("input"));
+	await wait(600);
+	new ResizeObserver(() => seen.push(go.getBoundingClientRect().width)).observe(go);
+	const words = new Set();
+	new MutationObserver(() => words.add(go.firstChild?.nextSibling?.textContent || go.textContent)).observe(go, { childList: true, subtree: true });
+	go.click();
+	await wait(2500);
+	return { seen: [...new Set(seen)], words: [...words], style: go.style.minWidth };`)
+	if seen, _ := got["seen"].([]any); len(seen) != 1 || got["style"] != "" || !strings.Contains(fmt.Sprint(got["words"]), "Starting…") {
+		t.Errorf("Create while a run is sent: %v", got)
+	}
+	noErrors(t, ctx)
+}
+
 func TestBrowserRunsSaid(t *testing.T) {
 	runs := &fakeRuns{}
 	ts := fakeSite(t, runs.mount)

@@ -725,6 +725,9 @@ export function renderBar() {
   btn.parentElement.classList.toggle("says", !!nx.why);
   // The keys that press it, as the keyboard prints them (Strg on a German one); a screen reader hears them as the shortcut.
   const keys = MAC ? "⌘↵" : t("kbd.ctrl") + " ↵";
+  // The moment a run is being sent the button says so in the width it had, rather than narrow to
+  // "Starting…" and widen again when the word comes back.
+  btn.style.minWidth = nx.busy ? getComputedStyle(btn).width : "";
   btn.replaceChildren(nx.icon ? ic(nx.icon) : "", nx.label, nx.on ? h("small", { class: "kbd", "aria-hidden": "true" }, keys) : "");
   btn.disabled = !nx.on;
   if (nx.on) btn.setAttribute("aria-keyshortcuts", MAC ? "Meta+Enter" : "Control+Enter"); else btn.removeAttribute("aria-keyshortcuts");

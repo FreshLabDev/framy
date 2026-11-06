@@ -452,7 +452,7 @@ export function next(prompt) {
   // Signing in needs no prompt: the button goes at once, and what is typed meanwhile waits for the return.
   if (!S.signed) return { label: t(S.mini ? "go.create" : "go.signin"), act: "signin", on: true };
   if (!S.online) return { label: t("go.offline"), on: false };
-  if (S.busy) return { label: t("go.starting"), on: false };
+  if (S.busy) return { label: t("go.starting"), on: false, busy: true };
   // A free frame is there only while free can pay (holds, basePay); one past what is left is short.
   const fi = items.find((it) => it.pay === "free"), k = fi?.m.kind;
   if (fi && items.some((it) => it.short)) return { label: t("go.free_only", { n: freeLeft(k) }), on: false, why: freesAt(k) ? t("bar.free_back", { at: fmtAt(freesAt(k)) }) : "" };
