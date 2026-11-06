@@ -119,6 +119,14 @@ textarea#prompt::placeholder {color: var(--muted);}
 /* A video's slots: Start, End, References. A slot under a dragged file is outlined. */
 .fgroup.slot.over > .gt {outline: 2px solid var(--ink); outline-offset: 2px;}
 .sec .picks {font-size: 14px; color: var(--soft);}
+/* A seed and what to leave out: typed, on the ground of the prompt. */
+.ofield {display: grid; gap: 6px;}
+.ofield :is(input, textarea) {width: 100%; min-width: 0; padding: 10px 12px; background: var(--deep); color: var(--ink); line-height: 1.35;}
+.ofield input {height: 40px; padding-block: 0; font-variant-numeric: tabular-nums;}
+.ofield.seed input {max-width: 16ch;}
+.ofield textarea {resize: vertical; min-height: 64px;}
+.ofield :is(input, textarea)::placeholder {color: var(--muted);}
+.ofield small {font-size: 13px; color: var(--muted); line-height: 1.35;}
 .fhint {flex: 1 1 180px; min-width: 0; padding-inline-start: 8px; font-size: 14px; color: var(--muted); line-height: 1.35;}
 .fhint b {color: var(--ink); font-weight: 600;}
 .how {position: relative; display: grid; align-content: start; gap: 22px; padding-top: 14px;}
@@ -1022,7 +1030,7 @@ html.tgfull .full .fbot {padding-bottom: calc(12px + var(--tg-safe-area-inset-bo
   .libhead .seg > button {min-height: 44px;}
   .lsearch input {height: 44px; padding-inline-end: 44px;}
   .lsearch .clr {inset-inline-end: 0; width: 44px; height: 44px;}
-  .srow > button, .srow select.pick, .kform input, .kform button {height: 44px;}
+  .srow > button, .srow select.pick, .kform input, .kform button, .ofield input {height: 44px;}
   .kform {grid-template-columns: minmax(0, 1fr) auto 44px;}
   .pbar .ib {width: 44px; height: 44px; min-height: 44px;}
   .ptrack {height: 44px;}

@@ -5,7 +5,7 @@ import { $, $$, h, ic, isPhone, inFlow, MAC, keepFocus } from "./dom.js";
 import { anim, rise, spin, opt, placeSegs, placeSeg, fitSegs, snap, ticker, roll, follow, EASE, SPRING, OUT, motion, DUR } from "./motion.js";
 import { t, fmtNum, fmtIn, fmtSecs, spaced } from "./i18n.js";
 import { C, PNAME, vname, famLogo, lg, provMark, freePlan, pays, offerOf, facts, factEl, deprecation, fieldsOf, SECONDARY, SEARCH, SICON,
-  label, show, ordered, ratioNum, ratioOfSize, sizeK, resScore, needsVideo } from "./catalog.js";
+  label, show, ordered, ratioNum, ratioOfSize, sizeK, resScore, needsVideo, OPEN, SEED_MAX } from "./catalog.js";
 import { S, M, images, clip, payOf, usable, keyOk, connection, freeLeft, freeLimit, freesAt, freePer, settings, route, runItem, altItem, next, sourceRatio, quoteNow,
   maxSecs, needsCut, contFits, slotOf, sources, inputsOf, placeFiles, refuses, refLengths,
   FR, MAXFR, scopeFr, newFrame, common, wanted, setModelHere, setPayHere, setWantedHere, tidy, ownBits, hasOwn, plan, paidItems, cutLimits, cutNeeded, renewFiles, renewRefused } from "./state.js";
@@ -537,6 +537,7 @@ function toggleMore() {
 const setWanted = setWantedHere;
 function settingField(m, pay, o, s, name) {
   if (name === "size") return sizeFields(m, pay, o, s);
+  if (OPEN.has(name)) return openField(name, s[name]);
   // With reference images some models make fewer lengths: only those are offered.
   const all = o.params[name] || { type: "boolean" }, lens = name === "duration" ? refLengths(m, pay) : null;
   const fit = lens && all.type === "enum" ? all.values.filter((x) => lens.some((y) => +y === +x)) : lens;
@@ -563,6 +564,25 @@ function settingField(m, pay, o, s, name) {
   if (SEARCH.includes(name) && name === fieldsOf(o).filter((x) => SEARCH.includes(x)).at(-1) && SEARCH.some((x) => s[x]))
     return [sec, h("p", { class: "snote", "data-k": "h-snote" }, t("set.search_note"))];
   return sec;
+}
+// A seed or what to leave out: typed, kept as it is typed, and the page drawn again only when
+// the field is left, so the field keeps the caret. Neither changes the price.
+let openN = 0;
+function openField(name, v) {
+  const seed = name === "seed", hint = "ohint" + ++openN;
+  const el = seed
+    ? h("input", { type: "text", inputmode: "numeric", autocomplete: "off", maxlength: 10, value: v ?? "", placeholder: t("set.seed_any"), "aria-label": label(name), "aria-describedby": hint })
+    : h("textarea", { rows: 2, maxlength: 330, value: v ?? "", placeholder: t("set.leave_out_hint"), "aria-label": label(name), spellcheck: "true" });
+  if (!seed) el.value = v ?? "";
+  el.addEventListener("input", () => {
+    if (seed) { const d = el.value.replace(/\D+/g, ""); if (d !== el.value) el.value = d; }
+    const x = seed ? (el.value === "" ? null : Math.min(+el.value, SEED_MAX)) : el.value.trim() ? el.value : null;
+    setWanted(name, x);
+  });
+  el.addEventListener("change", () => act(() => render()));
+  const kids = [el];
+  if (seed) kids.push(h("small", { id: hint }, t("set.seed_hint")));
+  return fieldSec(name, label(name), SICON[name], [], h("div", { class: "ofield" + (seed ? " seed" : "") }, ...kids));
 }
 // Once the prices of every value are known and all are the same, the setting stops showing them.
 function learnPriced(m, pay, o, s, name, values) {

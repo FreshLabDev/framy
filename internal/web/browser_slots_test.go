@@ -404,6 +404,83 @@ func TestBrowserReferencesSetTheLength(t *testing.T) {
 	noErrors(t, ctx)
 }
 
+// TestBrowserSeedAndLeaveOut checks the two settings a person types: a seed
+// takes only digits, what to leave out keeps its words, typing them asks for
+// no price, and the next run carries both. Left empty, neither is sent.
+func TestBrowserSeedAndLeaveOut(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+slotHelpers+`
+	window.__quotes = []; window.__sent = [];
+	const fetch0 = window.fetch;
+	window.fetch = (u, o) => {
+	  const s = String(u);
+	  if (s.endsWith("/api/quote")) __quotes.push(JSON.parse(o.body));
+	  if (s.endsWith("/api/jobs") && o?.method === "POST") __sent.push(JSON.parse(o.body));
+	  return fetch0(u, o);
+	};
+	const out = {};
+	const open = (it) => JSON.stringify([it?.settings?.seed ?? null, it?.settings?.negativePrompt ?? null]);
+	const type = async (el, v) => { el.value = v; el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true })); await wait(400); };
+	const seed = () => document.querySelector("#how .ofield.seed input"), avoid = () => document.querySelector("#how .ofield textarea");
+	const run = async () => {
+	  const n = __sent.length, p = document.querySelector("#prompt");
+	  p.value = "done"; p.dispatchEvent(new Event("input"));
+	  await wait(300);
+	  document.querySelector("#go").click();
+	  for (let i = 0; i < 60 && __sent.length === n; i++) await wait(100);
+	  await wait(600);
+	  return open(__sent[n]);
+	};
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(800);
+	document.querySelector("#how .mhead").click();
+	await wait(700);
+	const q = document.querySelector("#pksearch");
+	q.value = "Veo"; q.dispatchEvent(new Event("input", { bubbles: true }));
+	await wait(800);
+	document.querySelector("#pkrows .frow .fhit").click();
+	await wait(1200);
+	out.model = model();
+	out.labels = [...document.querySelectorAll("#how .ofield")].map((f) => f.closest(".sec").querySelector(".lt").textContent);
+	out.empty = await run();
+	const from = __quotes.length;
+	seed().value = "12a 3"; seed().dispatchEvent(new Event("input", { bubbles: true }));
+	out.typed = seed().value;
+	seed().dispatchEvent(new Event("change", { bubbles: true }));
+	await wait(400);
+	await type(avoid(), "text, blur");
+	await wait(800);
+	out.asked = __quotes.length - from;
+	out.kept = [seed().value, avoid().value];
+	out.run = await run();
+	// Emptied again, they go no more.
+	await type(seed(), "");
+	await type(avoid(), "  ");
+	out.cleared = await run();
+	return out;`)
+	if s["model"] != "Veo 3.1" {
+		t.Fatalf("model %v", s["model"])
+	}
+	if fmt.Sprint(s["labels"]) != "[Leave out Seed]" {
+		t.Errorf("the typed settings: %v", s["labels"])
+	}
+	if s["empty"] != "[null,null]" || s["cleared"] != "[null,null]" {
+		t.Errorf("empty, the run carried %v, and emptied again %v", s["empty"], s["cleared"])
+	}
+	if s["typed"] != "123" || fmt.Sprint(s["kept"]) != "[123 text, blur]" {
+		t.Errorf("typed %q, kept %v", s["typed"], s["kept"])
+	}
+	if s["asked"] != float64(0) {
+		t.Errorf("typing them asked for %v prices", s["asked"])
+	}
+	if s["run"] != `[123,"text, blur"]` {
+		t.Errorf("the run carries %v", s["run"])
+	}
+	noErrors(t, ctx)
+}
+
 // soundHelpers make a WAV of a few seconds of silence.
 const soundHelpers = `
 const wav = (secs) => {

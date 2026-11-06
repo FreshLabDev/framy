@@ -5,7 +5,7 @@
 // provider's own reason, as the server marks it (error.from_provider):
 // framy's own line is never shown as what the provider said.
 import { t, fmtTime, fmtAt, fmtSecs, fmtNum, fmtUnit } from "./i18n.js";
-import { C, PNAME, vname, hasAudio } from "./catalog.js";
+import { C, PNAME, vname, hasAudio, label } from "./catalog.js";
 import { priceText } from "./price.js";
 import { S, reopenText } from "./state.js";
 
@@ -148,7 +148,12 @@ export function refusal(err, ctx = {}) {
       return R(t("ref.files_l"), t("ref.wrong_inputs"));
     }
     // A key pasted into the prompt: nothing ran, and the settings take it.
-    case "key_in_prompt": return R(t("ref.key_prompt_l"), t("ref.key_prompt"), PNAME[b.provider] ? ["key"] : [], { provider: b.provider });
+    case "key_in_prompt": {
+      const k = PNAME[b.provider] ? ["key"] : [], set = /(?:^|\.)settings\.(.+)$/.exec(b.field || "")?.[1];
+      // In what to leave out, not the prompt: that field is the one named.
+      if (set) return R(t("ref.key_prompt_l"), t("ref.key_setting", { setting: label(set) }), k, { provider: b.provider });
+      return R(t("ref.key_prompt_l"), t("ref.key_prompt"), k, { provider: b.provider });
+    }
     case "unknown_offer": return R(t("ref.model_l"), t("err.unknown_offer"));
     case "unknown_setting": return R(t("fail.invalid_l"), t("fail.invalid"));
     case "cannot_continue": return R(t("ref.cont_l"), t("ref.cannot_continue"), ctx.lastFrame ? ["lastframe"] : []);

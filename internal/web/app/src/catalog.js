@@ -100,11 +100,20 @@ export function photoLimit(m, pay) {
 }
 
 /* Settings. Only the ones a person decides go on the form; the rest keep the offer's default. */
-export const SHOWN = ["aspect_ratio", "size", "resolution", "quality", "duration", "generate_audio", "thinking_level", "complexity", "background", "google_search", "image_search", "creativity", "upscale_factor"];
-export const SECONDARY = new Set(["background", "thinking_level", "complexity", "google_search", "image_search", "creativity"]);
+export const SHOWN = ["aspect_ratio", "size", "resolution", "quality", "duration", "generate_audio", "thinking_level", "complexity", "background", "google_search", "image_search", "creativity", "upscale_factor",
+  "negative_prompt", "negativePrompt", "seed"];
+export const SECONDARY = new Set(["background", "thinking_level", "complexity", "google_search", "image_search", "creativity", "negative_prompt", "negativePrompt", "seed"]);
+// Set by the person or not at all, with nothing to choose from: what a video should leave out, in
+// words (Veo calls it negativePrompt, Kling and Wan negative_prompt), and a seed, a whole number.
+// Left empty they are not sent, and the model goes as it would.
+export const OPEN = new Set(["negative_prompt", "negativePrompt", "seed"]);
+export const SEED_MAX = 2147483647;
+const openVal = (name, v) => (name === "seed" ? (Number.isInteger(v) && v >= 0 && v <= SEED_MAX ? v : undefined) : typeof v === "string" && v.trim() ? v : undefined);
+const NEG = (name) => (name === "negativePrompt" ? "negative_prompt" : name);
 export const SEARCH = ["google_search", "image_search"];
 export const SICON = { aspect_ratio: "ratio", size: "ratio", resolution: "res", quality: "bars", thinking_level: "bars", background: "checker", duration: "clock",
-  generate_audio: "audio", fast: "bolt", google_search: "search", image_search: "image", upscale_factor: "res", creativity: "spark", complexity: "layers" };
+  generate_audio: "audio", fast: "bolt", google_search: "search", image_search: "image", upscale_factor: "res", creativity: "spark", complexity: "layers",
+  negative_prompt: "without", negativePrompt: "without", seed: "dice" };
 // The fields of an offer in the form's order. "size" is a choice only where
 // it is the one way to set the shape and the resolution, as on GPT Image: a
 // video model lists it beside its own aspect_ratio and resolution, and a
@@ -124,8 +133,11 @@ const rankOf = (x) => { const s = String(x), i = STEP_ORDER.indexOf(s); return i
 // The smaller, weaker or shorter on the left; a list with no such order keeps the model's.
 export const ordered = (v) => (v.some((x) => isNaN(rankOf(x))) ? v.slice() : v.slice().sort((a, b) => rankOf(a) - rankOf(b)));
 
-export function label(name) { return t("set." + name); }
+export function label(name) { return t("set." + NEG(name)); }
 export function show(name, v) {
+  if (name === "seed") return t("val.seed", { n: String(v) });
+  // What to leave out, as far as a line of the summary holds it.
+  if (OPEN.has(name)) { const x = String(v).trim().replace(/\s+/g, " "); return t("val.leave_out", { text: x.length > 40 ? x.slice(0, 39).trimEnd() + "…" : x }); }
   if (name === "duration") return t("unit.s", { n: fmtNum(+v) });
   if (name === "generate_audio") return t(v ? "val.with_sound" : "val.no_sound");
   if (name === "fast") return t(v ? "val.on" : "val.off");
@@ -168,6 +180,7 @@ export function settings(m, pay, wanted, src) {
   if (!o) return out;
   for (const name of fieldsOf(o)) {
     if (plan) { if (name in (plan.settings || {})) out[name] = plan.settings[name]; continue; }
+    if (OPEN.has(name)) { const v = openVal(name, wanted[name]); if (v !== undefined) out[name] = v; continue; }
     const w = pickVal(o.params[name], wanted[name]);
     out[name] = w !== undefined ? w : defOf(o, name, src);
   }

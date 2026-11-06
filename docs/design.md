@@ -266,8 +266,9 @@ The other controls:
 - **Duration.** Chips for discrete sets such as Veo's 4, 6 and 8 s (8 s alone while References hold a picture), a slider for ranges such as Wan's 2–30 s.
 - **Resolution and aspect ratio.**
 - **Sound,** with the price difference next to the toggle where it changes the price: Veo, Kling, Seedance 1.5.
-- **Seed,** where the model lists one: Veo, Seedance, Wan, HappyHorse, HeyGen, Runway and mischief 1 on 5 November. The API takes it as a whole number and the adapter sends it; the composer does not draw it yet.
-- **Negative prompt,** where the model takes it as a pass-through: Veo, Kling, Wan 2.6 and 2.7. The API takes it and the adapter sends it under `provider.options` (OpenRouter video, below); the composer does not draw it yet.
+- **Seed,** where the model lists one: Veo, Seedance, Wan, HappyHorse, HeyGen, Runway and mischief 1 on 5 November, and image models such as FLUX.2, Qwen Image and Seedream. The API takes it as a whole number and the adapter sends it. The composer draws it among the secondary settings as a field that takes digits only, 0 to 2147483647, with a line on what it is for; left empty it is not sent and every run is new.
+- **Negative prompt,** where the model takes it as a pass-through: Veo, Kling, Wan 2.6 and 2.7. The API takes it and the adapter sends it under `provider.options` (OpenRouter video, below). The composer draws it as "Leave out", a two-line field among the secondary settings; blank, it is not sent. A key typed there is refused as one in the prompt is (`key_in_prompt`, with `field` naming the setting), since the text goes to the provider and into the job.
+- Neither changes the price, so typing them asks for no new quote, and a free run goes without them, as its plan fixes it.
 
 Omni has no duration control. It says "length chosen by the model, 3 to 10 s", and its price is "up to"; extending a clip may bill the whole result, so the most is the source's length plus 10 s. The adapter can send `response_format.duration` ("6s"), but the catalog lists no `duration` until a run shows that Google keeps to it, since an ignored length would make an exact price wrong.
 

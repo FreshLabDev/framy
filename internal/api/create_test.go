@@ -129,6 +129,12 @@ func TestAKeyInThePromptIsRefused(t *testing.T) {
 	if m := jsonOf(t, resp); resp.StatusCode != http.StatusUnprocessableEntity || m["error"] != "key_in_prompt" {
 		t.Errorf("a press: %d %v", resp.StatusCode, m)
 	}
+	// What a video should leave out goes to the provider just as the prompt
+	// does: a key there is refused, and the answer names that setting.
+	resp = r.post(alice, "/api/jobs", nextKey(), fmt.Sprintf(`{"offer":%q,"pay":"key","prompt":"a fox","settings":{"negative_prompt":%q}}`, testOffer, "blur, "+openRouter))
+	if m := jsonOf(t, resp); resp.StatusCode != http.StatusUnprocessableEntity || m["error"] != "key_in_prompt" || m["field"] != "settings.negative_prompt" || m["provider"] != "openrouter" {
+		t.Errorf("a key in a setting: %d %v", resp.StatusCode, m)
+	}
 	// Prose that only looks like one at a glance runs.
 	if resp := r.post(alice, "/api/jobs", nextKey(), body(testOffer, "key")); resp.StatusCode != http.StatusAccepted {
 		t.Errorf("a plain prompt: %d %v", resp.StatusCode, jsonOf(t, resp))

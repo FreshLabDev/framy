@@ -693,13 +693,26 @@ func checkCreate(prefix string, req createRequest) *apiError {
 	// A quote is not refused: it reaches no provider, and the price shows
 	// while the person types.
 	if provider, ok := keys.KeyIn(req.Prompt); ok {
-		e := newError(http.StatusUnprocessableEntity, codeKeyInPrompt, "the prompt holds what looks like a provider key: keys go in the settings").with("field", prefix+"prompt")
-		if provider != "" {
-			e.with("provider", provider)
+		return keyIn(prefix+"prompt", "the prompt", provider)
+	}
+	// The same for a setting typed in words, such as what a video should
+	// leave out: it goes to the provider and into the job just as the prompt.
+	for _, name := range slices.Sorted(maps.Keys(req.Settings)) {
+		if v, ok := req.Settings[name].(string); ok {
+			if provider, ok := keys.KeyIn(v); ok {
+				return keyIn(prefix+"settings."+name, "a setting", provider)
+			}
 		}
-		return e
 	}
 	return nil
+}
+
+func keyIn(field, where, provider string) *apiError {
+	e := newError(http.StatusUnprocessableEntity, codeKeyInPrompt, where+" holds what looks like a provider key: keys go in the settings").with("field", field)
+	if provider != "" {
+		e.with("provider", provider)
+	}
+	return e
 }
 
 // checkRun checks the prompt, the settings and the inputs of a run, for a

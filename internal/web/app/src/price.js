@@ -5,6 +5,7 @@
 import { h } from "./dom.js";
 import { t, fmtNum } from "./i18n.js";
 import { api } from "./api.js";
+import { OPEN } from "./catalog.js";
 
 const cache = new Map(); // key -> {estimate, refusal, settings}
 const waiting = new Map(); // key -> item
@@ -22,7 +23,9 @@ const recall = (map, k) => { const v = map.get(k); if (v !== undefined) { map.de
 
 // Everything the server prices by is in the key: a price for a run without its
 // files must not stand for one with them (files framy keeps go as inputs).
-export const keyOf = (it) => JSON.stringify([it.offer, it.pay || "", it.settings || {}, it.files || [], it.inputs || [], it.continues || 0, it.prompt ? it.prompt.length : 0]);
+// A seed or what to leave out changes nothing in the price, so typing them asks for none.
+const priceSettings = (s = {}) => Object.fromEntries(Object.entries(s).filter(([k]) => !OPEN.has(k)));
+export const keyOf = (it) => JSON.stringify([it.offer, it.pay || "", priceSettings(it.settings), it.files || [], it.inputs || [], it.continues || 0, it.prompt ? it.prompt.length : 0]);
 export const known = (it) => recall(cache, keyOf(it));
 // What a run on a key costs: its own answer, else that of the same run with no
 // payer named, which the prices beside a choice ask for. The server prices the
