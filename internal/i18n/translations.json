@@ -11647,8 +11647,8 @@
   },
   "web.ref.part_long": {
     "en": "The part is {len} long, and the model takes up to {max}. Pick one a little shorter.",
-    "ru": "Отрезок вышел {len}, а модель берёт до {max}. Выбери чуть короче.",
-    "uk": "Відрізок вийшов {len}, а модель приймає до {max}. Обери трохи коротший.",
+    "ru": "Отрезок вышел {len}, а модель принимает до {max}. Выбери чуть короче.",
+    "uk": "Фрагмент вийшов {len}, а модель приймає до {max}. Обери трохи коротший.",
     "es": "El fragmento dura {len}, y el modelo admite hasta {max}. Elige uno un poco más corto.",
     "fr": "L’extrait fait {len}, et le modèle accepte jusqu’à {max}. Choisis un passage un peu plus court.",
     "de": "Der Ausschnitt ist {len} lang, das Modell akzeptiert aber bis zu {max}. Wähle einen etwas kürzeren.",
@@ -11665,8 +11665,8 @@
   },
   "web.ref.part_long_l": {
     "en": "The part is too long",
-    "ru": "Отрезок длиннее",
-    "uk": "Відрізок задовгий",
+    "ru": "Отрезок слишком длинный",
+    "uk": "Фрагмент задовгий",
     "es": "Fragmento demasiado largo",
     "fr": "Extrait trop long",
     "de": "Ausschnitt zu lang",
