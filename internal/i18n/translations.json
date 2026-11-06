@@ -5725,7 +5725,7 @@
   },
   "web.fail.free_back": {
     "en": "The free run is back.",
-    "ru": "Бесплатная попытка вернулась.",
+    "ru": "Бесплатный запуск вернулся.",
     "uk": "Безкоштовний запуск повернувся.",
     "es": "La ejecución gratis ha vuelto.",
     "fr": "La génération gratuite est de retour.",
@@ -5743,7 +5743,7 @@
   },
   "web.fail.free_closed_l": {
     "en": "Free runs paused",
-    "ru": "Бесплатно закрыто",
+    "ru": "Бесплатные на паузе",
     "uk": "Безкоштовні на паузі",
     "es": "Gratis en pausa",
     "fr": "Gratuit en pause",
@@ -5761,7 +5761,7 @@
   },
   "web.fail.free_kept": {
     "en": "The free run is not spent.",
-    "ru": "Попытка не потрачена.",
+    "ru": "Бесплатный запуск не потрачен.",
     "uk": "Безкоштовний запуск не витрачено.",
     "es": "La ejecución gratis no se ha gastado.",
     "fr": "La génération gratuite n’est pas consommée.",
@@ -5797,7 +5797,7 @@
   },
   "web.fail.free_money": {
     "en": "Free runs are paused for {pause}: framy’s key is out of credits.",
-    "ru": "Бесплатные запуски закрыты на {pause}: на ключе framy закончились средства.",
+    "ru": "Бесплатные запуски приостановлены на {pause}: на ключе framy закончились средства.",
     "uk": "Безкоштовні запуски призупинено на {pause}: на ключі framy закінчилися кошти.",
     "es": "Las ejecuciones gratis están en pausa durante {pause}: la clave de framy se ha quedado sin crédito.",
     "fr": "Les générations gratuites sont en pause pendant {pause} : la clé de framy n’a plus de crédit.",
@@ -5815,7 +5815,7 @@
   },
   "web.fail.free_off_l": {
     "en": "Free runs are down",
-    "ru": "Бесплатно не работает",
+    "ru": "Бесплатные не работают",
     "uk": "Безкоштовні не працюють",
     "es": "Gratis no funciona",
     "fr": "Gratuit en panne",
@@ -5833,7 +5833,7 @@
   },
   "web.fail.free_spent": {
     "en": "The free run is spent: such a refusal counts.",
-    "ru": "Бесплатная попытка потрачена: такой отказ засчитывается.",
+    "ru": "Бесплатный запуск потрачен: такой отказ засчитывается.",
     "uk": "Безкоштовний запуск витрачено: така відмова зараховується.",
     "es": "La ejecución gratis se ha gastado: un rechazo así cuenta.",
     "fr": "La génération gratuite est consommée : un tel refus compte.",
@@ -6517,7 +6517,7 @@
   },
   "web.files.going": {
     "en": "Used: {n}",
-    "ru": "В работу: {n}",
+    "ru": "Пойдут в запуск: {n}",
     "uk": "Використано: {n}",
     "es": "Se usan: {n}",
     "fr": "Utilisées : {n}",
@@ -10405,7 +10405,7 @@
   },
   "web.prefs.delete_text": {
     "en": "Every run with its prompt, every image, video and uploaded file, and your keys go, on the site and in Telegram. What the bot already sent to chats stays there, and the free runs already used do not come back. The keys still work at the provider: revoke them there too. This cannot be undone.",
-    "ru": "Пропадут все запуски с запросами, картинки, ролики, загруженные файлы и ключи, на сайте и в Telegram. Что бот уже отправил в чаты, там и останется, а потраченные бесплатные попытки не вернутся. У провайдера ключи продолжат работать: отзови их и там. Отменить удаление нельзя.",
+    "ru": "Пропадут все запуски с запросами, картинки, ролики, загруженные файлы и ключи, на сайте и в Telegram. Что бот уже отправил в чаты, там и останется, а потраченные бесплатные запуски не вернутся. У провайдера ключи продолжат работать: отзови их и там. Отменить удаление нельзя.",
     "uk": "Зникнуть усі запуски з запитами, зображення, кліпи, завантажені файли та твої ключі, на сайті й у Telegram. Те, що бот уже надіслав у чати, там і залишиться, а використані безкоштовні запуски не повернуться. У провайдера ключі й далі працюватимуть: відклич їх і там. Скасувати видалення не вдасться.",
     "es": "Se borrarán todas las ejecuciones con sus prompts, todas las imágenes, clips y archivos subidos, y tus claves, en el sitio y en Telegram. Lo que el bot ya envió a los chats se queda allí, y las ejecuciones gratis ya usadas no vuelven. En el proveedor las claves siguen funcionando: revócalas también allí. No se puede deshacer.",
     "fr": "Toutes les générations avec leurs prompts, toutes les images, tous les clips et fichiers importés, ainsi que tes clés, disparaîtront, sur le site et dans Telegram. Ce que le bot a déjà envoyé dans les chats y reste, et les générations gratuites déjà utilisées ne reviennent pas. Chez le fournisseur, les clés restent valides : révoque-les aussi là-bas. C’est irréversible.",
@@ -10783,8 +10783,8 @@
   },
   "web.prefs.next": {
     "en": "next one {when}",
-    "ru": "следующая попытка {when}",
-    "uk": "наступна спроба {when}",
+    "ru": "следующий запуск {when}",
+    "uk": "наступний запуск {when}",
     "es": "siguiente intento {when}",
     "fr": "prochain essai {when}",
     "de": "nächster Versuch {when}",
@@ -10793,7 +10793,7 @@
     "cs": "další pokus {when}",
     "tr": "sonraki deneme {when}",
     "sv": "nästa försök {when}",
-    "be": "наступная спроба {when}",
+    "be": "наступны запуск {when}",
     "ca": "proper intent {when}",
     "zh": "{when}可再来一次",
     "ja": "次は {when}",
@@ -11395,7 +11395,7 @@
   },
   "web.ref.free_closed_l": {
     "en": "Free runs paused",
-    "ru": "Бесплатно закрыто",
+    "ru": "Бесплатные на паузе",
     "uk": "Безкоштовні на паузі",
     "es": "Gratis en pausa",
     "fr": "Gratuit en pause",
@@ -13645,7 +13645,7 @@
   },
   "web.view.del_free": {
     "en": "The free run does not come back.",
-    "ru": "Бесплатная попытка не вернётся.",
+    "ru": "Бесплатный запуск не вернётся.",
     "uk": "Безкоштовний запуск не повернеться.",
     "es": "La ejecución gratis no vuelve.",
     "fr": "La génération gratuite ne revient pas.",
