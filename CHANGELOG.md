@@ -11,10 +11,12 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+## v0.1.0-alpha.5 - 2026-11-06
+
 The review of 5 November, worked through: about 490 findings across the
 bot, the site, the Mini App, jobs, prices, storage and deployment. Six
-migrations, and two changes on the host before this image runs on either
-stack.
+migrations, and changes on the host, below, before this image runs on
+either stack.
 
 ### Before you deploy
 
