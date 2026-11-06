@@ -20,6 +20,7 @@ const PROVIDERS = ["openrouter", "openai", "gemini"];
 const KEYS_AT = { openrouter: "https://openrouter.ai/settings/keys", openai: "https://platform.openai.com/api-keys", gemini: "https://aistudio.google.com/apikey" };
 const LOOK = { openrouter: "sk-or-v1-…", openai: "sk-…", gemini: "AIza…" };
 export const OAUTH_START = "/oauth/openrouter/start";
+const OAUTH_TICKET = "/oauth/openrouter/ticket";
 // How a connect through OpenRouter ended (internal/oauth, Result).
 const OAUTH = new Set(["connected", "cancelled", "expired", "refused", "unavailable", "signin"]);
 // What a run showed about a key; Check asks the provider again once it is fixed.
@@ -196,10 +197,23 @@ function edit(p) {
 /* OpenRouter by OAuth. The site leaves for openrouter.ai and comes back to
    /?connect=openrouter&result=…; the Mini App opens it in the browser and
    reads /api/me again when the person is back. */
+// The Mini App's link carries a ticket of five minutes, which stands in for
+// a second sign-in in the browser (oauth.Connector.Ticket). It is asked for
+// as soon as Connect shows: Telegram opens a link only straight from a tap,
+// not after a request. Without one the browser asks to sign in, as before.
+const TICKET_FRESH = 4 * 60e3;
+let ticket = null, ticketing = false;
+function askTicket() {
+  if (!S.mini || !S.signed || ticketing || (ticket && Date.now() - ticket.at < TICKET_FRESH)) return;
+  ticketing = true;
+  api(OAUTH_TICKET, { method: "POST" }).then((r) => { if (r?.url) ticket = { url: r.url, at: Date.now() }; })
+    .catch(() => {}).finally(() => { ticketing = false; });
+}
 async function oauthStart() {
   const k = ks("openrouter");
   if (S.mini) {
-    const url = location.origin + OAUTH_START;
+    const url = ticket && Date.now() - ticket.at < TICKET_FRESH ? ticket.url : location.origin + OAUTH_START;
+    ticket = null;
     if (S.tg?.openLink) S.tg.openLink(url); else open(url, "_blank", "noopener");
     update(() => { Object.assign(k, { away: true, said: null }); });
     return;
@@ -209,9 +223,11 @@ async function oauthStart() {
   await keepDraft();
   location.assign(OAUTH_START);
 }
-// The site, back with the result in its address.
-export function oauthResult(res) {
+// The site, back with the result in its address. A connect the Mini App
+// started ends in a browser that may know nobody: its framy is in Telegram.
+export function oauthResult(res, tg = false) {
   res = OAUTH.has(res) ? res : "unavailable";
+  if (tg) { toast(t("oauth." + res) + " " + t("oauth.tg_back"), { ms: 12000 }); if (S.signed && res === "connected") openPrefs(); return; }
   if (res === "signin" || !S.signed) { toast(t("oauth.signin"), { ms: 8000 }); return; }
   if (res === "connected") { toast(t("oauth.connected")); openPrefs(); return; }
   ks("openrouter").said = t("oauth." + res);
@@ -245,6 +261,7 @@ function keyRows(p) {
       h("button", { type: "button", disabled: !!k.busy, onclick: () => disconnect(p) }, t("key.disconnect")));
     if (problem || (k.err && !k.edit)) r.classList.add("bad");
   } else if (p === "openrouter") {
+    askTicket();
     const paste = h("button", { type: "button", class: "link-t", onclick: () => edit(p) }, t("key.paste_link"));
     r = row(k.away ? t("key.away") : [t(S.mini ? "key.or_sub_mini" : "key.or_sub") + " ", paste],
       k.away ? h("button", { type: "button", class: "fixw", onclick: oauthStart }, t("key.open_again"))

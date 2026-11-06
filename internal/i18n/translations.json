@@ -9287,6 +9287,24 @@
     "ja": "OpenRouter の接続中に framy のログインが切れました。ログインし直して、もう一度接続してください。",
     "ar": "انتهت جلسة تسجيل الدخول إلى framy أثناء ربط OpenRouter. سجّل الدخول واربطه مرة أخرى."
   },
+  "web.oauth.tg_back": {
+    "en": "You can close this tab and go back to Telegram.",
+    "ru": "Эту вкладку можно закрыть и вернуться в Telegram.",
+    "uk": "Цю вкладку можна закрити й повернутися в Telegram.",
+    "es": "Puedes cerrar esta pestaña y volver a Telegram.",
+    "fr": "Tu peux fermer cet onglet et revenir sur Telegram.",
+    "de": "Du kannst diesen Tab schließen und zu Telegram zurückkehren.",
+    "it": "Puoi chiudere questa scheda e tornare su Telegram.",
+    "pl": "Możesz zamknąć tę kartę i wrócić do Telegrama.",
+    "cs": "Tuto kartu můžeš zavřít a vrátit se do Telegramu.",
+    "tr": "Bu sekmeyi kapatıp Telegram’a dönebilirsin.",
+    "sv": "Du kan stänga den här fliken och gå tillbaka till Telegram.",
+    "be": "Гэту ўкладку можна закрыць і вярнуцца ў Telegram.",
+    "ca": "Pots tancar aquesta pestanya i tornar a Telegram.",
+    "zh": "可以关闭此标签页，回到 Telegram。",
+    "ja": "このタブを閉じて Telegram に戻ってください。",
+    "ar": "يمكنك إغلاق هذا التبويب والعودة إلى Telegram."
+  },
   "web.oauth.unavailable": {
     "en": "OpenRouter cannot be connected right now. Try again in a few minutes.",
     "ru": "Сейчас не получается подключить OpenRouter. Попробуй через несколько минут.",

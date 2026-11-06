@@ -228,7 +228,7 @@ async function main() {
   const sp = new URLSearchParams(location.search), si = sp.get("sign_in");
   if (si) { toast(t("auth." + (["cancelled", "expired", "failed", "unavailable"].includes(si) ? si : "failed"))); history.replaceState(null, "", location.pathname + location.hash); }
   // Back from OpenRouter: the address says how the connect ended.
-  if (sp.get("connect") === "openrouter") { history.replaceState(null, "", location.pathname + location.hash); oauthResult(sp.get("result") || ""); }
+  if (sp.get("connect") === "openrouter") { history.replaceState(null, "", location.pathname + location.hash); oauthResult(sp.get("result") || "", sp.get("from") === "telegram"); }
   // From a refusal or an error card in Telegram: the settings open at the key that fixes it.
   const at = sp.has("settings") ? sp.get("settings") : null;
   if (at !== null) { history.replaceState(null, "", location.pathname + location.hash); if (S.signed) openPrefs(PNAME[at] ? at : undefined); }

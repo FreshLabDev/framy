@@ -12,6 +12,7 @@ import (
 	"maps"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -58,6 +59,8 @@ type fakePrefs struct {
 	// launchOld: the Mini App's launch data is past its hour. Its token is
 	// refused, and POST /auth/miniapp answers init_data_expired.
 	launchOld bool
+	// tickets counts the Mini App's tickets for the connect.
+	tickets int
 	// patchLate: PATCH /api/me answers this late; patching counts the ones
 	// being answered at once, mostPatching the most there were.
 	patchLate              time.Duration
@@ -258,6 +261,16 @@ func (f *fakePrefs) mount(srv *Server) {
 	// Any run is refused for a key the person does not have.
 	srv.HandleFunc("POST /api/jobs", func(w http.ResponseWriter, _ *http.Request) {
 		writeTestJSON(w, http.StatusPaymentRequired, map[string]any{"error": "no_connection", "provider": "openai"})
+	})
+	// The Mini App's ticket for the start in the browser.
+	srv.HandleFunc("POST /oauth/openrouter/ticket", func(w http.ResponseWriter, r *http.Request) {
+		if signIn(w) {
+			f.mu.Lock()
+			f.tickets++
+			n := f.tickets
+			f.mu.Unlock()
+			writeTestJSON(w, http.StatusOK, map[string]any{"url": "http://" + r.Host + "/oauth/openrouter/start?ticket=t-" + strconv.Itoa(n)})
+		}
 	})
 	// OpenRouter's consent is given at once: the callback saved a key.
 	srv.HandleFunc("GET /oauth/openrouter/start", func(w http.ResponseWriter, r *http.Request) {
@@ -509,6 +522,21 @@ func TestBrowserPrefs(t *testing.T) {
 	if s["url"] != "" || s["said"] != "This attempt to connect expired: more than 10 minutes passed, or a newer one was started. Press Connect once more." {
 		t.Errorf("expired: %v", s)
 	}
+
+	// A connect the Mini App started ends in a browser nobody is signed in on:
+	// it says so, and where framy is.
+	f.with(func() { f.out = true })
+	if err := chromedp.Do(ctx, chromedp.Navigate(ts.URL+"/?connect=openrouter&result=connected&from=telegram")); err != nil {
+		t.Fatal(err)
+	}
+	ready(t, ctx)
+	s = prefs(t, ctx, `
+	await until(() => toastText());
+	return { url: location.search, toast: toastText() };`)
+	if s["url"] != "" || s["toast"] != "OpenRouter is connected. You can close this tab and go back to Telegram." {
+		t.Errorf("from telegram: %v", s)
+	}
+	f.with(func() { f.out = false })
 
 	// A refusal in Telegram opens the Mini App with ?settings=<provider>: the
 	// settings open at that key, and the address forgets it. A provider the
@@ -1067,15 +1095,19 @@ func TestBrowserPrefsPhone(t *testing.T) {
 	const shown = window.__tg.settingsShown;
 	window.__tg.settings();
 	await until(() => !sheet().hidden && rowOf("openrouter"));
+	// The ticket of the link is asked for as Connect shows, and is in before a person presses it.
+	await wait(300);
 	const before = rowText("openrouter"), out = !!btn(sheet(), "Sign out"), who = note("p-out");
 	btn(rowOf("openrouter"), "Connect").click();
 	await until(() => rowText("openrouter").btns[0] === "Open again");
-	return { shown, before, out, who, away: rowText("openrouter"), links: window.__tg.links.map((u) => new URL(u).pathname) };`)
+	await wait(300);
+	btn(rowOf("openrouter"), "Open again").click();
+	return { shown, before, out, who, away: rowText("openrouter"), links: window.__tg.links.map((u) => new URL(u).pathname + new URL(u).search) };`)
 	// Whose account a key goes to shows in the Mini App too, with no Sign out.
 	if s["shown"] != true || s["out"] != false || s["who"] != "AAdaSigned in with Telegram" ||
 		fmt.Sprint(s["before"]) != "map[bad:false btns:[Connect] sub:Opens in the browser. Pay with OpenRouter credits. Have a key? Paste it]" ||
 		fmt.Sprint(s["away"]) != "map[bad:false btns:[Open again] sub:OpenRouter is open in the browser. Sign in there, allow access and come back here.]" ||
-		fmt.Sprint(s["links"]) != "[/oauth/openrouter/start]" {
+		fmt.Sprint(s["links"]) != "[/oauth/openrouter/start?ticket=t-1 /oauth/openrouter/start?ticket=t-2]" {
 		t.Errorf("mini app connect: %v", s)
 	}
 	// Back in Telegram with the key made in the browser.

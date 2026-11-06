@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -128,7 +129,7 @@ func (d *dbHarness) verifierOf(state string) string {
 func TestPGStoreKeepsTheStoreContract(t *testing.T) {
 	pool := testPool(t)
 	testStoreContract(t, func(t *testing.T) Store {
-		if _, err := pool.Exec(context.Background(), `TRUNCATE framy.oauth_state`); err != nil {
+		if _, err := pool.Exec(context.Background(), `TRUNCATE framy.oauth_state, framy.oauth_ticket`); err != nil {
 			t.Fatal(err)
 		}
 		return NewPGStore(pool)
@@ -351,5 +352,34 @@ func TestTheTableRefusesWhatTheCodeNeverWrites(t *testing.T) {
 		if _, err := pool.Exec(ctx, stmt); err == nil {
 			t.Errorf("%s was accepted", name)
 		}
+	}
+}
+
+func TestTheTicketTableRefusesWhatTheCodeNeverWritesAndGoesWithThePerson(t *testing.T) {
+	d := newDBHarness(t)
+	ctx := context.Background()
+	for name, stmt := range map[string]string{
+		"a ticket hash of the wrong size": `INSERT INTO oauth_ticket VALUES ('\x00', 5001, 'openrouter', now())`,
+		"an unknown provider":             `INSERT INTO oauth_ticket VALUES (decode(repeat('00', 32), 'hex'), 5001, 'github', now())`,
+		"a person nobody knows":           `INSERT INTO oauth_ticket VALUES (decode(repeat('00', 32), 'hex'), 4242, 'openrouter', now())`,
+	} {
+		if _, err := d.pool.Exec(ctx, stmt); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+	if _, err := d.pool.Exec(ctx, `INSERT INTO core.person (telegram_user_id) VALUES (5009) ON CONFLICT DO NOTHING`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = d.pool.Exec(ctx, `DELETE FROM core.person WHERE telegram_user_id = 5009`) })
+	now := time.Now()
+	if err := NewPGStore(d.pool).PutTicket(ctx, Ticket{Hash: hashState("ticket-5009"), UserID: 5009, Provider: Provider, ExpiresAt: now.Add(TicketLifetime)}, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.pool.Exec(ctx, `DELETE FROM core.person WHERE telegram_user_id = 5009`); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := d.pool.QueryRow(ctx, `SELECT count(*) FROM oauth_ticket WHERE user_id = 5009`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("%d tickets left, %v", n, err)
 	}
 }

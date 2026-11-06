@@ -307,6 +307,9 @@ func run(log *slog.Logger, level *slog.LevelVar) error {
 		// The callback exchanges the code and checks the key, two calls to
 		// OpenRouter: more than the server's ten seconds to answer.
 		site.HandleFunc("GET "+oauth.CallbackPath, connect.Callback, busy, web.Deadlines(10*time.Second, 45*time.Second))
+		// The Mini App's ticket for the start in the browser (#489): a fetch
+		// of its own script, so over the limit it gets a plain 429.
+		site.HandleFunc("POST "+oauth.TicketPath, connect.Ticket)
 	} else {
 		log.Warn("connecting OpenRouter is off: it needs SITE_URL and FRAMY_KEK_FILE")
 	}

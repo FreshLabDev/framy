@@ -72,13 +72,43 @@ func (s *syncBuffer) String() string {
 // so that the logic of the handlers is tested without a database. The same
 // contract test (testStoreContract) runs against it and against PGStore.
 type memStore struct {
-	mu    sync.Mutex
-	flows map[[sha256.Size]byte]Flow
-	// failPut makes Put fail, for the path where a flow cannot be kept.
+	mu      sync.Mutex
+	flows   map[[sha256.Size]byte]Flow
+	tickets map[[sha256.Size]byte]Ticket
+	// failPut makes Put and PutTicket fail, for the path where a flow or a
+	// ticket cannot be kept.
 	failPut bool
 }
 
-func newMemStore() *memStore { return &memStore{flows: map[[sha256.Size]byte]Flow{}} }
+func newMemStore() *memStore {
+	return &memStore{flows: map[[sha256.Size]byte]Flow{}, tickets: map[[sha256.Size]byte]Ticket{}}
+}
+
+func (m *memStore) PutTicket(_ context.Context, t Ticket, now time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.failPut {
+		return fmt.Errorf("store is down")
+	}
+	for h, old := range m.tickets {
+		if !old.ExpiresAt.After(now) || (old.UserID == t.UserID && old.Provider == t.Provider) {
+			delete(m.tickets, h)
+		}
+	}
+	m.tickets[t.Hash] = t
+	return nil
+}
+
+func (m *memStore) TakeTicket(_ context.Context, hash [sha256.Size]byte) (Ticket, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.tickets[hash]
+	if !ok {
+		return Ticket{}, ErrNoTicket
+	}
+	delete(m.tickets, hash)
+	return t, nil
+}
 
 func (m *memStore) Put(_ context.Context, f Flow, now time.Time) error {
 	m.mu.Lock()
@@ -370,6 +400,7 @@ func (h *harness) newConnector(over Config) *Connector {
 	}
 	srv.HandleFunc("GET "+StartPath, conn.Start)
 	srv.HandleFunc("GET "+CallbackPath, conn.Callback, web.Deadlines(10*time.Second, 45*time.Second))
+	srv.HandleFunc("POST "+TicketPath, conn.Ticket)
 	h.web = srv
 	h.conn = conn
 	return conn
