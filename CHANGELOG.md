@@ -77,6 +77,8 @@ them.
 
 ### Changed
 
+- The bot's button under a preview is Create, as on the site, in every
+  language; it was Generate.
 - A sign-in lasts 30 days after the last visit, not from the sign-in, and
   signing in again ends the browser's earlier session.
 - The Mini App uses Telegram's own feedback: haptics when a run ends, a

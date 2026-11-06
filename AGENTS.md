@@ -130,7 +130,7 @@ screen, a command or a table, check how the siblings do it.
   to a photo it edits that photo; in reply to a photo of an album it takes
   every photo of the album with one instruction. `/edit` does the same for a
   video. In a DM a plain message is enough: framy asks whether it is for an
-  image or a video. Allowed on anyone's photo **(owner)**. Nothing is generated until the requester presses Generate, and
+  image or a video. Allowed on anyone's photo **(owner)**. Nothing is generated until the requester presses Create, and
   only the requester can press the buttons of a preview.
 - The catalog is data: synced from OpenRouter every hour, plus hand-written
   descriptors for OpenAI and Gemini in `catalog/`, joined and annotated by

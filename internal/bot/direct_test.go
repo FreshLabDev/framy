@@ -98,7 +98,7 @@ func TestDirectHomeSaysWhatIsLeftWhatIsConnectedAndWhatPricesAreIn(t *testing.T)
 		"Your keys · OpenRouter, OpenAI (out of credits), AI Studio\n" +
 		"Language · English\n" +
 		"Currency · USD\n" +
-		"Send a description for a new image or video. To change a photo or a video, send it with a caption. Nothing runs until you press Generate.</blockquote>"
+		"Send a description for a new image or video. To change a photo or a video, send it with a caption. Nothing runs until you press Create.</blockquote>"
 	if got.method != "sendMessage" || got.chatID != 7 || got.text != want {
 		t.Fatalf("sent %s to %d:\n%s\nwant\n%s", got.method, got.chatID, got.text, want)
 	}

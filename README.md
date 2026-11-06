@@ -80,8 +80,8 @@ to results. Work is tracked on the
 | Inline mode | `@framyin_bot` in any chat lists your past results, to send one again |
 | Guest mode | `@framyin_bot a prompt` in reply to a photo, in a chat where framy is not a member |
 
-In a group, framy first shows which photos it took and asks "Generate?". Only
-after Yes does the message turn into a progress loop and then into the result.
+In a group, framy first shows which photos it took and waits for Create. Only
+after that does the message turn into a progress loop and then into the result.
 
 ---
 
