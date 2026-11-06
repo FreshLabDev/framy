@@ -559,13 +559,13 @@ func TestBrowserPrefsLanguage(t *testing.T) {
 	await until(() => !sheet().hidden);
 	await wait(300);
 	return { lang: document.documentElement.lang, title: sheet().querySelector("h3").textContent, sel: sheet().querySelector("select.pick").value,
-	  prompt: document.querySelector("#prompt").value, opts: sheet().querySelector("select.pick").options.length };`)
+	  prompt: document.querySelector("#prompt").value, opts: sheet().querySelector("select.pick").options.length, kept: localStorage.getItem("framy.language") };`)
 	f.with(func() {
 		if len(f.patches) != 1 || f.patches[0]["language"] != "ru" {
 			t.Errorf("language sent: %v", f.patches)
 		}
 	})
-	if s["lang"] != "ru" || s["title"] != "Настройки" || s["sel"] != "ru" || s["prompt"] != "a fox" || s["opts"] != float64(17) {
+	if s["lang"] != "ru" || s["title"] != "Настройки" || s["sel"] != "ru" || s["prompt"] != "a fox" || s["opts"] != float64(17) || s["kept"] != "ru" {
 		t.Errorf("language: %v", s)
 	}
 	// Automatic again: the language core resolves, and the list says Automatic.
@@ -577,8 +577,9 @@ func TestBrowserPrefsLanguage(t *testing.T) {
 	ready(t, ctx)
 	s = prefs(t, ctx, `
 	await until(() => !sheet().hidden);
-	return { lang: document.documentElement.lang, sel: sheet().querySelector("select.pick").value, shown: sheet().querySelector("select.pick").selectedOptions[0].textContent };`)
-	if s["lang"] != "en" || s["sel"] != "" || s["shown"] != "Automatic" {
+	return { lang: document.documentElement.lang, sel: sheet().querySelector("select.pick").value, shown: sheet().querySelector("select.pick").selectedOptions[0].textContent,
+	  kept: localStorage.getItem("framy.language") };`)
+	if s["lang"] != "en" || s["sel"] != "" || s["shown"] != "Automatic" || s["kept"] != "en" {
 		t.Errorf("automatic: %v", s)
 	}
 	noErrors(t, ctx)

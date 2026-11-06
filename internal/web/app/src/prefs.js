@@ -365,7 +365,7 @@ async function setLanguage(code) {
   const to = me.language || code || lang;
   if (to === lang) { meChanged(); update(); return; }
   try {
-    localStorage.setItem("framy.lang", to);
+    localStorage.setItem("framy.language", to);
     sessionStorage.setItem("framy.prefs", "1");
     sessionStorage.setItem("framy.draft", $("#prompt").value);
   } catch {}

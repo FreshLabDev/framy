@@ -24,10 +24,13 @@
   let tgUser = null;
   try { tgUser = JSON.parse(new URLSearchParams(initData).get("user") || "null"); } catch {}
 
-  // The language: the one the person chose here, else Telegram's, else the browser's.
+  // The language: the account's, as framy said it the last time someone was
+  // signed in here, else Telegram's, else the browser's. A guess is never
+  // kept, so it follows a browser or a Telegram set to another language.
+  // (framy.lang, which kept the guesses too, is no longer read.)
   const pick = (code) => { code = String(code || "").toLowerCase().split(/[-_]/)[0]; return langs[code] ? code : ""; };
   let saved = "";
-  try { saved = localStorage.getItem("framy.lang") || ""; } catch {}
+  try { saved = localStorage.getItem("framy.language") || ""; } catch {}
   const lang = pick(saved) || (tgUser && pick(tgUser.language_code)) || (navigator.languages || [navigator.language]).map(pick).find(Boolean) || "en";
   document.documentElement.lang = lang;
   if (lang === "ar") document.documentElement.dir = "rtl";

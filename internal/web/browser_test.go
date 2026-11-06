@@ -182,7 +182,7 @@ func browser(t *testing.T, url string, w, h int64, phone bool) context.Context {
 func TestBrowserNotesInPageLanguage(t *testing.T) {
 	ts := fakeSite(t, nil)
 	ctx := browser(t, ts.URL, 1440, 900, false)
-	js[bool](t, ctx, `localStorage.setItem("framy.lang", "ru"); return true;`)
+	js[bool](t, ctx, `localStorage.setItem("framy.language", "ru"); return true;`)
 	if _, err := chromedp.Run(ctx, chromedp.Reload()); err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +202,7 @@ func TestBrowserNotesInPageLanguage(t *testing.T) {
 func TestBrowserFatalInPageLanguage(t *testing.T) {
 	ts := fakeSite(t, nil)
 	ctx := browser(t, ts.URL, 1440, 900, false)
-	js[bool](t, ctx, `localStorage.setItem("framy.lang", "de"); return true;`)
+	js[bool](t, ctx, `localStorage.setItem("framy.language", "de"); return true;`)
 	if _, err := chromedp.Call(ctx, fetch.Enable, fetch.EnableParams{Patterns: []*fetch.RequestPattern{{URLPattern: "*/api/catalog*"}, {URLPattern: "*/texts-*"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +254,7 @@ func TestBrowserFatalInPageLanguage(t *testing.T) {
 func TestBrowserCyrillicForms(t *testing.T) {
 	ts := fakeSite(t, nil)
 	ctx := browser(t, ts.URL, 1440, 900, false)
-	js[bool](t, ctx, `localStorage.setItem("framy.lang", "uk"); return true;`)
+	js[bool](t, ctx, `localStorage.setItem("framy.language", "uk"); return true;`)
 	if _, err := chromedp.Run(ctx, chromedp.Reload()); err != nil {
 		t.Fatal(err)
 	}
@@ -418,9 +418,11 @@ func TestBrowserDesktop(t *testing.T) {
 		t.Errorf("desktop layout: %v", got)
 	}
 	// Nobody signed in and nothing typed: the button signs in at once, and the line under the price says what that gives.
+	// The language is guessed from the browser, and a guess is not kept.
 	bar := js[map[string]any](t, ctx, `const go = document.querySelector("#go");
-	return { go: go.textContent, on: !go.disabled, cap: document.querySelector("#pcap").textContent, prompt: document.querySelector("#prompt").value };`)
-	if bar["prompt"] != "" || bar["on"] != true || !strings.HasPrefix(bar["go"].(string), "Sign in to create") || bar["cap"] != "Sign in for 5 free a day" {
+	return { go: go.textContent, on: !go.disabled, cap: document.querySelector("#pcap").textContent, prompt: document.querySelector("#prompt").value,
+	  kept: localStorage.getItem("framy.language") };`)
+	if bar["prompt"] != "" || bar["on"] != true || !strings.HasPrefix(bar["go"].(string), "Sign in to create") || bar["cap"] != "Sign in for 5 free a day" || bar["kept"] != nil {
 		t.Errorf("signed out, nothing typed: %v", bar)
 	}
 	res := js[map[string]any](t, ctx, pageHelpers+`return await steady();`)

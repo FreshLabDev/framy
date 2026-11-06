@@ -148,7 +148,8 @@ async function main() {
   if (want && want !== B.lang && B.langs[want]) {
     try { setTexts(want, await fetch(B.langs[want]).then((r) => r.json())); } catch {}
   }
-  try { localStorage.setItem("framy.lang", lang); } catch {}
+  // Kept for the first paint of the next load: the account's language only, never a guess.
+  if (S.me) try { localStorage.setItem("framy.language", lang); } catch {}
   await B.css;
   mount();
   renderTop();
