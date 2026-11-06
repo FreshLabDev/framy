@@ -408,7 +408,7 @@ func TestBrowserForcedColors(t *testing.T) {
 	for (const [k, q] of Object.entries(groups)) {
 	  const g = document.querySelector(q);
 	  if (!g) { bad.push(k + ": no group"); continue; }
-	  const on = g.querySelector(':scope > [aria-checked="true"], :scope > [aria-current="page"]'), off = g.querySelector(':scope > [aria-checked="false"]:not(:disabled), :scope > a:not([aria-current])');
+	  const on = g.querySelector(':scope > [aria-checked="true"], :scope > [aria-current="page"]'), off = g.querySelector(':scope > [aria-checked="false"]:not(:disabled), :scope > a:not([aria-current])') || g.querySelector(':scope > [aria-checked="false"]');
 	  if (cs(on).backgroundColor !== hi) bad.push(k + ": chosen on " + cs(on).backgroundColor);
 	  if (off && cs(off).backgroundColor === hi) bad.push(k + ": not chosen on the selection colour");
 	  const ws = [cs(on).color, ...words(on)].filter((c) => c !== hiText);

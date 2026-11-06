@@ -1029,7 +1029,7 @@ html.full-on {overflow: hidden;}
    fills of a hover and of a variant row, and the system draws no page colour behind its words. */
 @media (forced-colors: active) {
   .ind {display: none;}
-  :where(button, textarea, select, input:not([type="range"], [type="file"], [type="checkbox"], [type="radio"]), .tab, .jacts a):not(.link-t, .mnote button, .dold button, .morebtn, .tog, .gap, .old, [tabindex="-1"]) {border: 1px solid;}
+  :where(button, textarea, select, input:not([type="range"], [type="file"], [type="checkbox"], [type="radio"]), .tab, .jacts a):not(.link-t, .mnote button, .dold button, .morebtn, .tog, .gap, .old, [tabindex="-1"]:not([role="radio"])) {border: 1px solid;}
   :is([role="radio"][aria-checked="true"], .tab[aria-current="page"], .rcard[aria-current="true"], .pill[aria-pressed="true"]) {forced-color-adjust: none; background-color: Highlight !important; color: HighlightText !important; border-color: Highlight !important;}
   :is([role="radio"][aria-checked="true"], .tab[aria-current="page"], .rcard[aria-current="true"], .pill[aria-pressed="true"]):focus-visible {outline-color: CanvasText;}
   :is([role="radio"][aria-checked="true"], .tab[aria-current="page"], .rcard[aria-current="true"], .pill[aria-pressed="true"]) * {color: inherit !important;}
