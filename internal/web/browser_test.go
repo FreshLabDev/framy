@@ -42,6 +42,12 @@ func fakeAPI(t *testing.T) *httptest.Server { t.Helper(); return fakeSite(t, nil
 // one, registers who is signed in and the routes of their runs.
 func fakeSite(t *testing.T, signed func(*Server)) *httptest.Server {
 	t.Helper()
+	return fakeSiteWith(t, signed, nil)
+}
+
+// fakeSiteWith is fakeSite with the catalog changed by edit first.
+func fakeSiteWith(t *testing.T, signed func(*Server), edit func(cat map[string]any)) *httptest.Server {
+	t.Helper()
 	app, err := NewApp()
 	if err != nil {
 		t.Fatal(err)
@@ -54,6 +60,16 @@ func fakeSite(t *testing.T, signed func(*Server)) *httptest.Server {
 	cat, err := os.ReadFile("testdata/catalog.json")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if edit != nil {
+		var c map[string]any
+		if err := json.Unmarshal(cat, &c); err != nil {
+			t.Fatal(err)
+		}
+		edit(c)
+		if cat, err = json.Marshal(c); err != nil {
+			t.Fatal(err)
+		}
 	}
 	srv.HandleFunc("GET /api/catalog", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

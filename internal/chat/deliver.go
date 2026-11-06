@@ -738,11 +738,20 @@ func reason(run db.ChatRun) string {
 		return "err.faces"
 	case jobs.Sound:
 		return "err.sound"
+	case jobs.Region:
+		return "err.region"
 	case jobs.Timeout:
 		return "err.timeout"
-	case jobs.Internal, jobs.Storage, jobs.NoAdapter:
-		// framy could not keep the result or has no way to run the model.
+	case jobs.Internal, jobs.NoAdapter:
+		// framy has no way to run the model, or failed on its own side.
 		return "run.failed"
+	case jobs.Storage:
+		// The provider made it and framy could not keep it: not the model's
+		// fault, and the provider may have charged.
+		if run.Kind == string(catalog.Video) {
+			return "web.fail.storage_video"
+		}
+		return "web.fail.storage"
 	}
 	return "err.failed"
 }

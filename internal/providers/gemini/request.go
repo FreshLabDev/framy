@@ -33,11 +33,6 @@ const (
 	previousSetting = "previous_interaction_id"
 )
 
-// imageSizes are the values of image_size the API takes where the catalog's
-// resolution differs: the 512 option is written "512px", and the K is always
-// upper case.
-var imageSizes = map[string]string{"512": "512px"}
-
 // videoResolutions are the values of a video's resolution the API takes where
 // the catalog's differ: the Interactions API writes 4K "4k".
 var videoResolutions = map[string]string{"4K": "4k"}
@@ -210,7 +205,9 @@ func planFor(j jobs.Job) (plan, error) {
 			if video {
 				format.Resolution = cmp.Or(videoResolutions[s], s)
 			} else {
-				format.ImageSize = cmp.Or(imageSizes[s], s)
+				// The catalog writes image_size as the API reference
+				// lists it: 512, 1K, 2K, 4K. The guide's "512px" is prose.
+				format.ImageSize = s
 			}
 		case "aspect_ratio":
 			format.AspectRatio = s
@@ -379,6 +376,16 @@ func same(a, b any) bool {
 	return errA == nil && errB == nil && string(ja) == string(jb)
 }
 
+// videoDetail is the media_resolution a video part goes with: ultra_high
+// exists for pictures only (Google's media resolution page: 2,240 tokens for
+// an image, none for a video frame), so a video takes high, its finest.
+func videoDetail(level string) string {
+	if level == "ultra_high" {
+		return "high"
+	}
+	return level
+}
+
 // body builds the request once the files are fetched. An image's prompt goes
 // first and the pictures after it, as Google's editing example does; a
 // video's files go first and the words after them, as every Omni example
@@ -389,6 +396,7 @@ func (p plan) body(files []file) ([]byte, error) {
 		b := inputBlock{Type: "image", MimeType: f.contentType, Data: base64.StdEncoding.EncodeToString(f.data), Resolution: p.detail}
 		if name, isVideo := videoTypes[f.contentType]; isVideo {
 			b.Type, b.MimeType = "video", name
+			b.Resolution = videoDetail(p.detail)
 		}
 		media = append(media, b)
 	}

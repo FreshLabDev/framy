@@ -77,6 +77,9 @@ func main() {
 }
 
 func run(log *slog.Logger, level *slog.LevelVar) error {
+	if limit := limitMemoryHere(); limit > 0 {
+		log.Info("memory limit", "go_mib", limit>>20)
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		return err
@@ -156,7 +159,10 @@ func run(log *slog.Logger, level *slog.LevelVar) error {
 	// People's own keys (#13). Without a KEK file there are none, and a run
 	// that needs one fails as key. Track writes what each run shows about its
 	// key as the connection's status.
-	people, err := openKeys(ctx, cfg, store, userAgent, log)
+	// What a key check shows of OpenAI's list of models goes to the same
+	// operator chat as the rest, from production alone.
+	models := &modelWatch{files: catalogFiles, log: log.With("component", "models"), notify: operator}
+	people, err := openKeys(ctx, cfg, store, userAgent, models.listed, log)
 	if err != nil {
 		return err
 	}
@@ -164,11 +170,12 @@ func run(log *slog.Logger, level *slog.LevelVar) error {
 		Stack: cfg.Stack,
 		Providers: map[string]jobs.Provider{
 			catalog.OpenRouter: people.Track(openrouter.New(openrouter.Config{
-				Base:      cfg.OpenRouterAPIBase,
-				UserAgent: userAgent,
-				Referer:   openrouter.AppURL,
-				Title:     openrouter.AppTitle,
-				Key:       openRouterKey(cfg.OpenRouterKey, people.JobKey),
+				Base:       cfg.OpenRouterAPIBase,
+				UserAgent:  userAgent,
+				Referer:    openrouter.AppURL,
+				Title:      openrouter.AppTitle,
+				Categories: openrouter.AppCategories,
+				Key:        openRouterKey(cfg.OpenRouterKey, people.JobKey),
 				// A finished video may be redirected to a link OpenRouter
 				// signed: the client refuses private addresses.
 				Fetch:     safehttp.Client(storage.DefaultFetchTimeout),
@@ -183,6 +190,9 @@ func run(log *slog.Logger, level *slog.LevelVar) error {
 			catalog.Gemini: people.Track(gemini.New(gemini.Config{
 				UserAgent: userAgent,
 				Key:       people.JobKey,
+				// Results taken as inputs are made upload-sized when a
+				// run's files would not fit inline.
+				Shrink: shrinker(files),
 			})),
 		},
 		Log:       log.With("component", "jobs"),
@@ -583,6 +593,16 @@ func connect(ctx context.Context, url, stack string, log *slog.Logger) (*db.Stor
 	return nil, lastErr
 }
 
+// shrinker is the bucket's way of making a picture upload-sized, for an
+// adapter that carries files inline; none without a bucket, when every job
+// ends as storage before it is sent anyway.
+func shrinker(files *storage.Store) func(context.Context, []byte) ([]byte, string, error) {
+	if files == nil {
+		return nil
+	}
+	return files.Shrink
+}
+
 // openStorage connects the bucket and checks ffmpeg. Without an R2 token it
 // returns no store, and the service runs without one.
 func openStorage(ctx context.Context, cfg config.Config, store *db.Store, notify func(context.Context, string) error, log *slog.Logger) (*storage.Store, media.Work, error) {
@@ -866,7 +886,7 @@ func operatorNotify(cfg config.Config, send func(ctx context.Context, chat int64
 // is a framy that keeps no keys. A KEK file that cannot be read stops the
 // start: it is the operator's mistake, and running without it would look
 // like every stored key being gone.
-func openKeys(ctx context.Context, cfg config.Config, store *db.Store, userAgent string, log *slog.Logger) (*keys.Service, error) {
+func openKeys(ctx context.Context, cfg config.Config, store *db.Store, userAgent string, listed func(string, []catalog.Listed), log *slog.Logger) (*keys.Service, error) {
 	if cfg.KEKFile == "" {
 		log.Warn("no FRAMY_KEK_FILE: people cannot connect keys of their own, and a run on one fails as key")
 		return nil, nil
@@ -884,6 +904,7 @@ func openKeys(ctx context.Context, cfg config.Config, store *db.Store, userAgent
 		KEK:            kek,
 		UserAgent:      userAgent,
 		OpenRouterBase: cfg.OpenRouterAPIBase,
+		Listed:         listed,
 		Log:            log,
 	})
 	if err != nil {

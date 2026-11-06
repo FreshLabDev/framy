@@ -4,7 +4,6 @@ package gemini
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -109,6 +108,9 @@ func (p *Provider) videoOutcome(ctx context.Context, key string, of catalog.Offe
 		out.Err = noResult(r, raw, collect(r, "video").text, key, catalog.Video)
 		return out, nil
 	case statusRequiresAction, statusRequiresContinuation:
+		// The model ran until it stopped to wait, and Google bills what it
+		// used by then, as for a run that failed.
+		out.CostUSD = cost(pricesOf(of), r.Usage)
 		out.Err = &jobs.Error{Class: jobs.ProviderFailed, Err: fmt.Errorf("gemini stopped the video as %s, which framy cannot answer", r.Status)}
 		return out, nil
 	default:
@@ -133,12 +135,17 @@ func (p *Provider) videoOutcome(ctx context.Context, key string, of catalog.Offe
 			out.Results = nil
 			out.Err = &jobs.Error{Class: jobs.Storage, Err: fmt.Errorf("video %d of the answer: %w", i+1, err)}
 			return out, nil
-		case errors.As(err, &pe):
+		case errors.As(err, &pe) && final(pe.Class):
 			out.Results = nil
 			out.Err = pe
 			return out, nil
 		case err != nil:
-			return jobs.Outcome{}, err
+			// The run is paid and its video is at Google: a download that
+			// was throttled, timed out or found Google down is asked for
+			// again, with Google's wait, until the hour's deadline. The cost
+			// goes beside the error, so a run whose video never comes keeps
+			// it and ends as made but not kept.
+			return jobs.Outcome{CostUSD: out.CostUSD, Ready: true}, err
 		}
 		out.Results = append(out.Results, res)
 	}
@@ -146,24 +153,28 @@ func (p *Provider) videoOutcome(ctx context.Context, key string, of catalog.Offe
 	return out, nil
 }
 
-// video decodes one video of the answer, or downloads it when Google gave a
-// link instead.
+// final says whether an error fetching a finished video is a verdict that
+// asking again cannot change: a video framy cannot read, a key that stopped
+// working, money or a filter. A wait, a timeout or Google being down is not.
+func final(c jobs.Class) bool {
+	switch c {
+	case jobs.RateLimited, jobs.Unavailable, jobs.Timeout:
+		return false
+	}
+	return true
+}
+
+// video is one video of the answer, decoded as the answer was read, or
+// downloaded when Google gave a link instead.
 func (p *Provider) video(ctx context.Context, key string, b block) (jobs.Result, error) {
-	if b.Data == "" {
-		if b.URI == "" {
-			return jobs.Result{}, &jobs.Error{Class: jobs.ProviderFailed, Err: errors.New("a video with no data")}
-		}
-		return p.download(ctx, key, b.URI)
-	}
-	if int64(base64.StdEncoding.DecodedLen(len(b.Data))) > p.cfg.MaxVideo+2 {
-		return jobs.Result{}, &tooLargeError{what: "the video", limit: p.cfg.MaxVideo}
-	}
-	data, err := base64.StdEncoding.DecodeString(b.Data)
+	data := b.Data.Data
 	switch {
-	case err != nil:
-		return jobs.Result{}, &jobs.Error{Class: jobs.ProviderFailed, Err: fmt.Errorf("decode base64: %w", err)}
+	case b.Data.Err != nil:
+		return jobs.Result{}, &jobs.Error{Class: jobs.ProviderFailed, Err: b.Data.Err}
+	case len(data) == 0 && b.URI != "":
+		return p.download(ctx, key, b.URI)
 	case len(data) == 0:
-		return jobs.Result{}, &jobs.Error{Class: jobs.ProviderFailed, Err: errors.New("an empty video")}
+		return jobs.Result{}, &jobs.Error{Class: jobs.ProviderFailed, Err: errors.New("a video with no data")}
 	case int64(len(data)) > p.cfg.MaxVideo:
 		return jobs.Result{}, &tooLargeError{what: "the video", limit: p.cfg.MaxVideo}
 	}

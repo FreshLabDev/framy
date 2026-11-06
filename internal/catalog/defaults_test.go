@@ -15,6 +15,7 @@ func TestDefaultsFollowOneRule(t *testing.T) {
 		"aspect_ratio":  enumOf("21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "auto"),
 		"resolution":    enumOf("768", "1K", "1.5K", "2K", "4K"),
 		"quality":       enumOf("low", "medium", "high"),
+		"complexity":    enumOf("low", "medium", "high"),
 		"background":    enumOf("transparent", "auto", "opaque"),
 		"n":             rangeOf(1, 10),
 		"seed":          {Type: Boolean},
@@ -39,11 +40,13 @@ func TestDefaultsFollowOneRule(t *testing.T) {
 		shape float64
 		want  map[string]any
 	}{
+		// complexity is OpenAI's own default, high: a run nobody set it
+		// for goes as it would without framy.
 		{"an image from text", image, 0, map[string]any{
-			"aspect_ratio": "1:1", "resolution": "1K", "quality": "medium", "background": "auto", "n": 1.0, "google_search": false,
+			"aspect_ratio": "1:1", "resolution": "1K", "quality": "medium", "complexity": "high", "background": "auto", "n": 1.0, "google_search": false,
 		}},
 		{"an image from a photo keeps its shape", image, 4.0 / 3, map[string]any{
-			"aspect_ratio": "auto", "resolution": "1K", "quality": "medium", "background": "auto", "n": 1.0, "google_search": false,
+			"aspect_ratio": "auto", "resolution": "1K", "quality": "medium", "complexity": "high", "background": "auto", "n": 1.0, "google_search": false,
 		}},
 		{"a video from text", video, 0, map[string]any{
 			"aspect_ratio": "16:9", "resolution": "768p", "duration": 6.0, "generate_audio": true,
@@ -156,4 +159,28 @@ func everyRouteHas(of Offer, name string) bool {
 		}
 	}
 	return true
+}
+
+// A setting no rule decides starts on what the provider does without it,
+// where the descriptor says: Nano Banana 2.1 thinks at medium by itself, so a
+// run nobody set it for is no worse than one in AI Studio. A provider default
+// the offer no longer lists (an exclude took it) falls back to the old rule.
+func TestDefaultsFollowTheProvidersOwn(t *testing.T) {
+	level := func(own any, values ...any) Offer {
+		return Offer{Kind: Image, Params: map[string]Param{"thinking_level": {Type: Enum, Values: values, Default: own}}}
+	}
+	for _, tc := range []struct {
+		name string
+		of   Offer
+		want any
+	}{
+		{"the middle level", level("medium", "minimal", "medium", "high"), "medium"},
+		{"the least, said so", level("minimal", "minimal", "high"), "minimal"},
+		{"none said", level(nil, "minimal", "medium", "high"), "minimal"},
+		{"the default was excluded", level("medium", "minimal", "high"), "minimal"},
+	} {
+		if got := Defaults(tc.of, 0)["thinking_level"]; got != tc.want {
+			t.Errorf("%s: thinking_level = %v, want %v", tc.name, got, tc.want)
+		}
+	}
 }

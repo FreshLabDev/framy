@@ -46,7 +46,7 @@ func Defaults(of Offer, shape float64) map[string]any {
 var drawn = map[string]bool{
 	"aspect_ratio": true, "size": true, "resolution": true, "quality": true, "background": true,
 	"thinking_level": true, "n": true, "duration": true, "generate_audio": true, "google_search": true,
-	"image_search": true, "upscale_factor": true, "creativity": true,
+	"image_search": true, "upscale_factor": true, "creativity": true, "complexity": true,
 }
 
 // Standard sizes: the side of an image and the height of a video that a
@@ -62,7 +62,7 @@ const (
 func defaultOf(kind Kind, name string, p Param, shape float64) (any, bool) {
 	switch p.Type {
 	case Enum:
-		return enumDefault(kind, name, p.Values, shape)
+		return enumDefault(kind, name, p.Values, p.Default, shape)
 	case Range:
 		if p.Min == nil || p.Max == nil {
 			return nil, false
@@ -90,9 +90,12 @@ func defaultOf(kind Kind, name string, p Param, shape float64) (any, bool) {
 //     video, else the largest;
 //   - duration: the shortest of at least 5 seconds, else the longest;
 //   - quality: medium, else standard; background: auto;
-//   - anything else: auto, else the first, which for an effort is the
-//     least.
-func enumDefault(kind Kind, name string, values []any, shape float64) (any, bool) {
+//   - complexity: high, what OpenAI does without one, so a run that
+//     nobody set it for goes as it would without framy;
+//   - anything else: what the provider does without the field when the
+//     descriptor says (own), else auto, else the first, which for an effort
+//     is the least.
+func enumDefault(kind Kind, name string, values []any, own any, shape float64) (any, bool) {
 	if len(values) == 0 || name == "frame_images" {
 		return nil, false
 	}
@@ -144,6 +147,15 @@ func enumDefault(kind Kind, name string, values []any, shape float64) (any, bool
 			if v, ok := find(values, want); ok {
 				return v, true
 			}
+		}
+	case "complexity":
+		if v, ok := find(values, "high"); ok {
+			return v, true
+		}
+	}
+	if own != nil {
+		if i := slices.IndexFunc(values, func(v any) bool { return sameValue(v, own) }); i >= 0 {
+			return values[i], true
 		}
 	}
 	if v, ok := find(values, "auto"); ok {

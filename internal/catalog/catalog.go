@@ -47,6 +47,11 @@ type Param struct {
 	Values []any    `json:"values,omitempty" yaml:"values,omitempty"`
 	Min    *float64 `json:"min,omitempty" yaml:"min,omitempty"`
 	Max    *float64 `json:"max,omitempty" yaml:"max,omitempty"`
+	// Default is what the provider does when the field is left out, where a
+	// hand-written descriptor says so. A setting that no rule of Defaults
+	// decides starts on it, so a run nobody set it for is no worse than the
+	// provider's own. It is one of Values.
+	Default any `json:"default,omitempty" yaml:"default,omitempty"`
 	// Passthrough marks a setting the provider takes among its own options
 	// rather than as a field of the request. The overlay supplies its values,
 	// since OpenRouter lists only the names.
@@ -67,6 +72,9 @@ func (p Param) validate(name string, allowText bool) error {
 	case Enum:
 		if len(p.Values) == 0 {
 			return fmt.Errorf("parameter %s: an enum needs values", name)
+		}
+		if p.Default != nil && !slices.ContainsFunc(p.Values, func(v any) bool { return sameValue(v, p.Default) }) {
+			return fmt.Errorf("parameter %s: the default %v is not one of the values", name, p.Default)
 		}
 	case Range:
 		if p.Min == nil || p.Max == nil || *p.Min > *p.Max {
@@ -121,7 +129,12 @@ type Price struct {
 type Route struct {
 	// Provider is OpenRouter's slug of the upstream, such as
 	// "google-ai-studio"; empty for a direct provider and for video.
-	Provider    string           `json:"provider,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	// Upstream is the tag of a video model's one upstream at OpenRouter,
+	// such as "google-vertex": the key its own options go under
+	// (provider.options.<tag>). Empty when it has several or they were not
+	// read, and for an image route, whose Provider is that key.
+	Upstream    string           `json:"upstream,omitempty"`
 	Params      map[string]Param `json:"params,omitempty"`
 	Passthrough []string         `json:"passthrough,omitempty"`
 	Prices      []Price          `json:"prices,omitempty"`
@@ -187,6 +200,10 @@ type References struct {
 	// frame, so a run needs a picture. OpenRouter's frame_images says only
 	// that one is taken.
 	FrameRequired bool `json:"frame_required,omitempty" yaml:"frame_required,omitempty"`
+	// ImageDurations are the only lengths, in seconds, of a video made from
+	// reference images, where the maker makes those at fewer lengths than
+	// from words or frames: Veo 3.1 at 8 s only.
+	ImageDurations []float64 `json:"image_durations,omitempty" yaml:"image_durations,omitempty"`
 }
 
 // Clip bounds the attached videos or sounds of one run: the seconds and the
@@ -251,6 +268,11 @@ type PriceHints struct {
 	// OpenAITokens is the base of OpenAI's image token formula by quality,
 	// from the official calculator.
 	OpenAITokens map[string]int `json:"openai_tokens,omitempty" yaml:"openai_tokens"`
+	// OpenAITokenFactor multiplies the formula's tokens by quality, rounded
+	// to the nearest, as the calculator does for GPT Image 2.6: the same
+	// base as 2.5, times 4.2 at low and 3.3 at medium. A quality it does not
+	// name keeps the formula's count.
+	OpenAITokenFactor map[string]float64 `json:"openai_token_factor,omitempty" yaml:"openai_token_factor"`
 	// OpenAIInputPatches is the most 32 px patches an input image of GPT
 	// Image 2 and 2.5 takes, one token each, as counted on OpenAI's forum
 	// (internal/price, openAIInputTokens). It wins over InputTokensPerMP.

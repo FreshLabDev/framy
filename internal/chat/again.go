@@ -231,7 +231,7 @@ func failureKeyboard(run db.ChatRun) *tg.InlineKeyboardMarkup {
 		if run.Free {
 			row = append(row, retry)
 		}
-	case jobs.Moderation, jobs.Refused, jobs.Faces, jobs.Invalid, jobs.NoAdapter:
+	case jobs.Moderation, jobs.Refused, jobs.Faces, jobs.Invalid, jobs.NoAdapter, jobs.Region:
 		row = append(row, other)
 	case jobs.Sound:
 		if on, _ := run.Settings[soundSetting].(bool); on {

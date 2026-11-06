@@ -43,6 +43,7 @@ type fakeOR struct {
 	status      string          // the job's status; pending until a test says otherwise
 	errorJSON   json.RawMessage // the job's "error", raw
 	cost        *float64
+	usage       map[string]any // the job's whole usage, in place of cost's
 	urls        int
 	urlHost     string // where the job's unsigned_urls point; the fake itself when empty
 	video       []byte
@@ -135,6 +136,9 @@ func (f *fakeOR) jobObject(id string) []byte {
 	if f.cost != nil {
 		job["usage"] = map[string]any{"cost": *f.cost, "is_byok": false}
 	}
+	if f.usage != nil {
+		job["usage"] = f.usage
+	}
 	b, _ := json.Marshal(job)
 	return b
 }
@@ -215,11 +219,13 @@ func videoJobOf(settings map[string]any, inputs ...jobs.Input) jobs.Job {
 // fakeProvider is the adapter pointed at the fake; tweak changes its Config.
 func fakeProvider(f *fakeOR, cb Callbacks, tweak ...func(*Config)) *Provider {
 	cfg := Config{
-		Base:      f.base(),
-		HTTP:      f.srv.Client(),
-		Title:     "framy",
-		Callbacks: cb,
-		Key:       func(context.Context, jobs.Job) (string, error) { return fakeKey, nil },
+		Base:       f.base(),
+		HTTP:       f.srv.Client(),
+		Referer:    AppURL,
+		Title:      "framy",
+		Categories: AppCategories,
+		Callbacks:  cb,
+		Key:        func(context.Context, jobs.Job) (string, error) { return fakeKey, nil },
 	}
 	for _, t := range tweak {
 		t(&cfg)

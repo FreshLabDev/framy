@@ -222,6 +222,7 @@ func (a *API) quoteRoute(w http.ResponseWriter, r *http.Request) {
 		count := countOf(settings, inputs, it.Files)
 		fillFrames(settings, m, offer, count.Images)
 		count.Frames = frameCount(settings)
+		fitDuration(settings, m, offer, &count)
 		if !isFree {
 			// The kept files come first, then those still in the browser.
 			sizes := assetSizes(inputs)

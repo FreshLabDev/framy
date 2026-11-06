@@ -104,6 +104,7 @@ func TestCheckVerdicts(t *testing.T) {
 		{"OpenAI errs", catalog.OpenAI, 500, openAIUnauthorized, ErrUnavailable},
 		{"OpenAI is not found", catalog.OpenAI, 404, ``, ErrUnavailable},
 		{"OpenAI redirects", catalog.OpenAI, 302, ``, ErrUnavailable},
+		{"OpenAI does not serve the server's country", catalog.OpenAI, 403, `{"error":{"code":"unsupported_country_region_territory","message":"Country, region, or territory not supported","param":null,"type":"request_forbidden"}}`, ErrRegion},
 
 		{"Gemini accepts", catalog.Gemini, 200, `{}`, nil},
 		{"Gemini says the key is invalid", catalog.Gemini, 400, geminiBadKey, ErrRejected},
@@ -114,6 +115,8 @@ func TestCheckVerdicts(t *testing.T) {
 		{"Gemini 401", catalog.Gemini, 401, `{"error":{"status":"UNAUTHENTICATED"}}`, ErrRejected},
 		{"Gemini 403", catalog.Gemini, 403, `{"error":{"status":"PERMISSION_DENIED"}}`, ErrForbidden},
 		{"Gemini 429", catalog.Gemini, 429, `{"error":{"status":"RESOURCE_EXHAUSTED"}}`, ErrUnavailable},
+		{"Gemini does not serve the server's country", catalog.Gemini, 400, `{"error":{"code":400,"message":"User location is not supported for the API use.","status":"FAILED_PRECONDITION"}}`, ErrRegion},
+		{"Gemini's words on another provider", catalog.OpenAI, 400, `{"error":{"message":"User location is not supported for the API use."}}`, ErrUnavailable},
 
 		{"OpenRouter accepts", catalog.OpenRouter, 200, `{"data":{}}`, nil},
 		{"OpenRouter does not know the key", catalog.OpenRouter, 401, `{"error":{"message":"User not found.","code":401}}`, ErrRejected},
@@ -191,5 +194,54 @@ func TestCheckStopsWithItsContext(t *testing.T) {
 	defer cancel()
 	if err := c.check(ctx, catalog.OpenAI, checkedKey); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// A passed check of an OpenAI key hands on the models the list named, with
+// the day OpenAI gives for a shutdown, so the operator hears of a new GPT
+// Image or a closing one without reading the deprecation page.
+func TestCheckHandsOnTheListedModels(t *testing.T) {
+	const list = `{"object":"list","data":[
+		{"id":"gpt-image-2.6-flare","object":"model","shutdown_date":null},
+		{"id":"gpt-image-1.5","object":"model","shutdown_date":"2026-12-01"},
+		{"id":"has space","object":"model"},
+		{"id":"","object":"model"}]}`
+	var heard []catalog.Listed
+	hear := func(provider string, models []catalog.Listed) {
+		if provider != catalog.OpenAI {
+			t.Errorf("provider = %q", provider)
+		}
+		heard = append(heard, models...)
+	}
+	check := func(provider string, status int, body string) {
+		heard = nil
+		p := newProvider(t, status, body)
+		c := p.checker()
+		c.listed = hear
+		_ = c.check(context.Background(), provider, checkedKey)
+	}
+
+	check(catalog.OpenAI, 200, list)
+	want := []catalog.Listed{{ID: "gpt-image-2.6-flare"}, {ID: "gpt-image-1.5", ShutsDown: "2026-12-01"}}
+	if len(heard) != len(want) || heard[0] != want[0] || heard[1] != want[1] {
+		t.Errorf("heard = %+v, want %+v", heard, want)
+	}
+	// Nothing for a key that did not pass, for another provider, or for an
+	// answer that is not a list.
+	for name, tc := range map[string]struct {
+		provider string
+		status   int
+		body     string
+	}{
+		"rejected":       {catalog.OpenAI, 401, list},
+		"gemini":         {catalog.Gemini, 200, list},
+		"not a list":     {catalog.OpenAI, 200, `<html>`},
+		"empty list":     {catalog.OpenAI, 200, `{"data":[]}`},
+		"a server error": {catalog.OpenAI, 500, list},
+	} {
+		check(tc.provider, tc.status, tc.body)
+		if len(heard) != 0 {
+			t.Errorf("%s: heard %+v", name, heard)
+		}
 	}
 }

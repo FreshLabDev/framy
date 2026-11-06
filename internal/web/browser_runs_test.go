@@ -509,6 +509,7 @@ func TestBrowserRuns(t *testing.T) {
 		"money":           {"The key is out of credits", "", "Top up OpenRouter", false, true},
 		"key":             {"The key does not work", "no longer accepts the key", "Replace the OpenRouter key", false, true},
 		"refused":         {"Not accepted", "did not accept the request", "Edit the prompt", true, true},
+		"region":          {"Region not served", "does not serve the country framy's server is in", "Another model", false, true},
 		"rate_limited":    {"No answer", "Try again in a few minutes", "Try again", false, true},
 		"unavailable":     {"No answer", "Try again in a few minutes", "Try again", false, true},
 		"timeout":         {"Over an hour", "may have charged up to $0.040", "Try again", false, false},
@@ -1038,6 +1039,63 @@ func TestBrowserVideoSettings(t *testing.T) {
 	}
 	if offer, set := body(2); offer != "openrouter:alibaba/wan-3.0" || set["fast"] != nil {
 		t.Errorf("Wan 3.0 with Fast off: %s %v", offer, set)
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserPlanning checks GPT Image 2.6's complexity, "Planning", on a
+// direct OpenAI offer: a row of its own with OpenAI's high picked and no
+// prices, since it has no fee, what is picked going with the quote, and no
+// such row on OpenRouter, which has no complexity.
+func TestBrowserPlanning(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSiteWith(t, runs.mount, func(cat map[string]any) {
+		// The fixture has GPT Image 2.5: its direct offers get 2.6's complexity.
+		for _, m := range cat["models"].([]any) {
+			for _, o := range m.(map[string]any)["offers"].([]any) {
+				if o := o.(map[string]any); o["provider"] == "openai" {
+					o["params"].(map[string]any)["complexity"] = map[string]any{"type": "enum", "values": []any{"low", "medium", "high"}}
+					o["defaults"].(map[string]any)["complexity"] = "high"
+				}
+			}
+		}
+	})
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+`
+	const quotes = [], fetch0 = window.fetch;
+	window.fetch = (u, o) => { if (String(u).endsWith("/api/quote")) quotes.push(JSON.parse(o.body)); return fetch0(u, o); };
+	const rows = () => [...document.querySelectorAll("#how [data-k^='h-f-']")].filter(vis).map((r) => r.querySelector(".lt").textContent);
+	const sent = () => quotes.flatMap((q) => q.items).filter((i) => i.offer.startsWith("openai:")).map((i) => i.settings.complexity);
+	document.querySelector("#how .mhead").click();
+	await wait(700);
+	const q = document.querySelector("#pksearch");
+	q.value = "GPT Image";
+	q.dispatchEvent(new Event("input", { bubbles: true }));
+	await wait(800);
+	const row = document.querySelector("#pkrows .frow");
+	([...row.querySelectorAll(".pill:not(.old)")].find((b) => b.textContent.trim() === "2.5 Flare") || row.querySelector(".fhit")).click();
+	await wait(900);
+	document.querySelector('#how [data-seg="pay"] [data-v="openrouter"]').click();
+	await wait(700);
+	const openrouter = rows();
+	document.querySelector('#how [data-seg="pay"] [data-v="openai"]').click();
+	await wait(900);
+	const openai = rows();
+	const seg = () => document.querySelector('#how [data-seg="set-complexity"]');
+	const values = [...seg().querySelectorAll(":scope > button")].map((b) => b.textContent + (b.getAttribute("aria-checked") === "true" ? "*" : ""));
+	const prices = seg().querySelectorAll("small").length;
+	const first = sent().at(-1);
+	seg().querySelector('[data-v="low"]').click();
+	await wait(900);
+	return { openrouter, openai, values, prices, first, low: sent().at(-1), now: seg().querySelector('[aria-checked="true"]')?.dataset.v };`)
+	if fmt.Sprint(s["openrouter"]) == "" || strings.Contains(fmt.Sprint(s["openrouter"]), "Planning") {
+		t.Errorf("OpenRouter's offer: rows %v, want no Planning", s["openrouter"])
+	}
+	if !strings.Contains(fmt.Sprint(s["openai"]), "Planning") || fmt.Sprint(s["values"]) != "[Low Medium High*]" || s["prices"] != float64(0) {
+		t.Errorf("OpenAI's offer: rows %v, values %v, %v prices", s["openai"], s["values"], s["prices"])
+	}
+	if s["first"] != "high" || s["low"] != "low" || s["now"] != "low" {
+		t.Errorf("quoted %v, then %v after Low, picked %v", s["first"], s["low"], s["now"])
 	}
 	noErrors(t, ctx)
 }

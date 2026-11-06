@@ -112,6 +112,37 @@ func TestTheVideoRequestCarriesTheSettingsAndTheFiles(t *testing.T) {
 	}
 }
 
+// A model's own setting goes under its one upstream, which the catalog
+// names: Veo's one level down, in parameters, as OpenRouter documents for
+// Veo alone; another model on the same upstream takes it directly.
+func TestAVideoPassThroughGoesUnderItsUpstream(t *testing.T) {
+	for _, tc := range []struct {
+		model, upstream string
+		settings        map[string]any
+		want            string
+	}{
+		{"test/video", "atlas-cloud", map[string]any{"negative_prompt": "blur, text", "seed": 42.0},
+			`{"model":"test/video","prompt":"a fox in the snow","provider":{"options":{"atlas-cloud":{"negative_prompt":"blur, text"}}},"seed":42}`},
+		{"google/veo-3.1", "google-vertex", map[string]any{"negative_prompt": "watermark"},
+			`{"model":"google/veo-3.1","prompt":"a fox in the snow","provider":{"options":{"google-vertex":{"parameters":{"negative_prompt":"watermark"}}}}}`},
+		{"google/gemini-omni-1.2-flash", "google-vertex", map[string]any{"negative_prompt": "watermark"},
+			`{"model":"google/gemini-omni-1.2-flash","prompt":"a fox in the snow","provider":{"options":{"google-vertex":{"negative_prompt":"watermark"}}}}`},
+		// A blank negative prompt says nothing and is not sent.
+		{"test/video", "atlas-cloud", map[string]any{"negative_prompt": "  "}, `{"model":"test/video","prompt":"a fox in the snow"}`},
+	} {
+		j := videoJobOf(tc.settings)
+		j.Offer.ProviderModelID = tc.model
+		j.Offer.Routes[0].Upstream = tc.upstream
+		body, err := videoRequest(j, "")
+		if err != nil {
+			t.Fatalf("%s: %v", tc.model, err)
+		}
+		if got := bodyJSON(t, body); got != tc.want {
+			t.Errorf("%s\n got %s\nwant %s", tc.model, got, tc.want)
+		}
+	}
+}
+
 // A person's id never leaves framy in a video request: the Videos API
 // documents no user field.
 func TestAVideoRequestHasNoUserAndNoProviderPreferences(t *testing.T) {
@@ -210,9 +241,7 @@ func TestSubmitSendsTheVideoRequestAndReturnsTheJobId(t *testing.T) {
 	if got := h.Get("Content-Type"); got != "application/json" {
 		t.Errorf("content type %q", got)
 	}
-	if got := h.Get("X-Title"); got != "framy" {
-		t.Errorf("X-Title %q", got)
-	}
+	attributed(t, h)
 	body := f.lastSubmit()
 	if body["model"] != "test/video" || body["resolution"] != "768p" {
 		t.Errorf("body %v", body)
@@ -257,6 +286,7 @@ func TestSubmitFailuresAreClassified(t *testing.T) {
 		{"no credit", 402, `{"error":{"code":402,"message":"Insufficient credits"}}`, nil, jobs.Money},
 		{"too many requests", 429, `{"error":{"code":429,"message":"slow down"}}`, []string{"Retry-After", "7"}, jobs.RateLimited},
 		{"a provider that is down", 503, `{"error":{"code":503,"message":"no provider"}}`, nil, jobs.Unavailable},
+		{"a provider that answered badly", 502, `{"error":{"code":502,"message":"Provider returned error","metadata":{"error_type":"provider_unavailable"}}}`, nil, jobs.Unavailable},
 		{"a request OpenRouter turns away", 400, `{"error":{"code":400,"message":"bad request"}}`, nil, jobs.Refused},
 		{"a content filter", 400, `{"error":{"code":400,"message":"blocked","metadata":{"error_type":"content_policy_violation"}}}`, nil, jobs.Moderation},
 		{"an error nobody can read", 500, `<html>oops</html>`, nil, jobs.ProviderFailed},
@@ -278,6 +308,10 @@ func TestSubmitFailuresAreClassified(t *testing.T) {
 			}
 			if tc.want == jobs.RateLimited && pe.RetryAfter != 7*time.Second {
 				t.Errorf("retry after %s", pe.RetryAfter)
+			}
+			// Only an image that was not made is asked fewer times.
+			if pe.Tries != 0 {
+				t.Errorf("a video's %d is capped at %d tries", tc.status, pe.Tries)
 			}
 			noSecrets(t, err)
 		})
@@ -433,6 +467,21 @@ func TestACompletedVideoIsDownloadedWithTheKeyAndPriced(t *testing.T) {
 	}
 	if f.queries[0] != "index=0" {
 		t.Errorf("download query %q", f.queries[0])
+	}
+}
+
+// With the account's own key of the provider (BYOK), usage.cost is only
+// OpenRouter's fee: the video is priced by the provider's bill beside it.
+func TestABYOKVideoIsPricedByTheProvidersBill(t *testing.T) {
+	f := newFakeOR(t)
+	f.complete(0)
+	f.usage = map[string]any{"cost": 0.025, "is_byok": true, "cost_details": map[string]any{"upstream_inference_cost": 0.5}}
+	out, err := fakeProvider(f, testCallbacks()).Poll(context.Background(), pollJob())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Results) != 1 || out.CostUSD == nil || *out.CostUSD != 0.525 {
+		t.Errorf("outcome %+v, cost %v: want the fee and the provider's bill, 0.525", out, out.CostUSD)
 	}
 }
 
@@ -609,6 +658,9 @@ func TestAJobWithNoUsableIdIsNotPolled(t *testing.T) {
 	}
 }
 
+// A finished video is paid: a download that goes wrong is asked for again
+// with the cost and Ready beside the error, so a run whose video never comes
+// ends as made but not kept, with its cost.
 func TestADownloadThatGoesWrongIsAskedAgainWithTheJobsCostKept(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -628,18 +680,19 @@ func TestADownloadThatGoesWrongIsAskedAgainWithTheJobsCostKept(t *testing.T) {
 			_, _ = io.WriteString(w, `{"error":"x"}`)
 		}, ""},
 		{"an empty file", func(w http.ResponseWriter, _ *http.Request) { w.Header().Set("Content-Type", "video/mp4") }, ""},
-		{"a key that stopped working", func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(401)
-			_, _ = io.WriteString(w, `{"error":{"code":401,"message":"No auth","metadata":{"error_type":"authentication"}}}`)
-		}, jobs.Key},
+		{"Cloudflare not reaching OpenRouter", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(522) }, jobs.Unavailable},
+		{"a gateway timeout", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(504) }, jobs.Timeout},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFakeOR(t)
 			f.complete(0.036)
 			f.contentFunc = tc.content
-			_, err := fakeProvider(f, testCallbacks()).Poll(context.Background(), pollJob())
+			out, err := fakeProvider(f, testCallbacks()).Poll(context.Background(), pollJob())
 			if err == nil {
 				t.Fatal("no error")
+			}
+			if !out.Ready || out.CostUSD == nil || *out.CostUSD != 0.036 || len(out.Results) != 0 {
+				t.Errorf("outcome %+v, cost %v: want Ready with the job's cost", out, out.CostUSD)
 			}
 			var pe *jobs.Error
 			switch {
@@ -651,6 +704,25 @@ func TestADownloadThatGoesWrongIsAskedAgainWithTheJobsCostKept(t *testing.T) {
 			noSecrets(t, err)
 		})
 	}
+}
+
+// A key that stopped working cannot fetch the video however often it asks:
+// the run ends at once, with the cost of the video it paid for.
+func TestADownloadRefusedForTheKeyEndsTheRunWithItsCost(t *testing.T) {
+	f := newFakeOR(t)
+	f.complete(0.036)
+	f.contentFunc = func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(401)
+		_, _ = io.WriteString(w, `{"error":{"code":401,"message":"No auth","metadata":{"error_type":"authentication"}}}`)
+	}
+	out, err := fakeProvider(f, testCallbacks()).Poll(context.Background(), pollJob())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Err == nil || out.Err.Class != jobs.Key || out.Ready || len(out.Results) != 0 || out.CostUSD == nil || *out.CostUSD != 0.036 {
+		t.Fatalf("outcome %+v, cost %v: want a key error with the job's cost", out, out.CostUSD)
+	}
+	noSecrets(t, out.Err)
 }
 
 func TestAVideoAboveTheLimitEndsTheRunWithItsCost(t *testing.T) {

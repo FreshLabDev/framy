@@ -2,6 +2,7 @@
 package gemini
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -240,7 +241,8 @@ func TestSettingsGoWhereGoogleTakesThem(t *testing.T) {
 		t.Errorf("n sent: Gemini has no such field")
 	}
 
-	// Search off sends no tool; the 512 option has its own spelling.
+	// Search off sends no tool; 512 goes as the API reference spells it,
+	// not as the guide's prose writes it ("512px").
 	p, u = serve(t, reply(200, answerOK()))
 	if _, err := p.Submit(context.Background(), jobOf(t, flash31, map[string]any{"google_search": false, "resolution": "512"})); err != nil {
 		t.Fatal(err)
@@ -249,8 +251,8 @@ func TestSettingsGoWhereGoogleTakesThem(t *testing.T) {
 		t.Errorf("tools %v with google_search off", u.body["tools"])
 	}
 	rf, _ = u.body["response_format"].(map[string]any)
-	if rf["image_size"] != "512px" {
-		t.Errorf("image_size %v, want 512px", rf["image_size"])
+	if rf["image_size"] != "512" {
+		t.Errorf("image_size %v, want 512", rf["image_size"])
 	}
 	if _, ok := u.body["generation_config"]; ok {
 		t.Errorf("generation_config %v: no thinking_level was chosen", u.body["generation_config"])
@@ -317,6 +319,67 @@ func TestAnEditSendsItsReferencesInline(t *testing.T) {
 	}
 	if strings.Contains(fmt.Sprint(u.body), "X-Amz-Signature") {
 		t.Errorf("the presigned link reached Google")
+	}
+}
+
+// Results taken as inputs come as their models made them. When a few 4K
+// PNGs would not fit in the request, the largest are made upload-sized, and
+// a run whose files fit goes as it came.
+func TestPicturesOverTheTotalAreShrunk(t *testing.T) {
+	pic := func(mime string, size int) jobs.Input {
+		data := bytes.Repeat([]byte{byte(size)}, size)
+		return jobs.Input{ContentType: mime, URL: "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data)}
+	}
+	small := []byte("\xff\xd8\xff\xe0small")
+	var shrunk []int
+	shrink := func(_ context.Context, data []byte) ([]byte, string, error) {
+		shrunk = append(shrunk, len(data))
+		return small, "image/jpeg", nil
+	}
+	p, u := serve(t, reply(200, answerOK()))
+	p.cfg.MaxInput, p.cfg.MaxInputs, p.cfg.Shrink = 4<<10, 4<<10, shrink
+	_, err := p.Submit(context.Background(), job(t, nil, pic("image/jpeg", 2<<10), pic("image/png", 3<<10), pic("image/jpeg", 1<<10)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The second file took the three past 4 KiB: the largest, itself, was
+	// shrunk, and the third then fitted.
+	if fmt.Sprint(shrunk) != "[3072]" {
+		t.Errorf("shrunk %v, want the 3 KiB PNG alone", shrunk)
+	}
+	input, _ := u.body["input"].([]any)
+	if len(input) != 4 {
+		t.Fatalf("input %v", u.body["input"])
+	}
+	if b := input[2].(map[string]any); b["mime_type"] != "image/jpeg" || b["data"] != base64.StdEncoding.EncodeToString(small) {
+		t.Errorf("the shrunk picture went as %v %v", b["mime_type"], b["data"])
+	}
+	if b := input[1].(map[string]any); b["data"] != base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0}, 2<<10)) {
+		t.Errorf("a picture that fitted was changed")
+	}
+
+	shrunk = nil
+	p.cfg.MaxInputs = 8 << 10
+	if _, err := p.Submit(context.Background(), job(t, nil, pic("image/jpeg", 2<<10), pic("image/png", 3<<10))); err != nil || len(shrunk) != 0 {
+		t.Errorf("files that fit: %v, shrunk %v", err, shrunk)
+	}
+
+	// Nothing to shrink with, or nothing it can make smaller: refused before
+	// anything is paid, saying why.
+	calls := u.calls
+	for name, shrink := range map[string]func(context.Context, []byte) ([]byte, string, error){
+		"no shrink":      nil,
+		"no smaller":     func(_ context.Context, data []byte) ([]byte, string, error) { return data, "image/png", nil },
+		"cannot be read": func(context.Context, []byte) ([]byte, string, error) { return nil, "", errors.New("unreadable") },
+	} {
+		p.cfg.MaxInputs, p.cfg.Shrink = 4<<10, shrink
+		_, err := p.Submit(context.Background(), job(t, nil, pic("image/jpeg", 2<<10), pic("image/png", 3<<10)))
+		if pe := classOf(t, err); pe.Class != jobs.Invalid || !strings.Contains(err.Error(), "together") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if u.calls != calls {
+		t.Errorf("%d paid calls for runs that were refused", u.calls-calls)
 	}
 }
 
@@ -507,7 +570,10 @@ func TestErrorsAreToldApart(t *testing.T) {
 		{"a malformed request", 400, `{"error":{"code":"invalid_request","message":"Invalid value at 'response_format.image_size'"}}`, nil, jobs.Refused, "", 0},
 		{"no billing, in a precondition", 400, `{"error":{"code":"failed_precondition","message":"Gemini API free tier is not available in your country. Please enable billing on your project in Google AI Studio."}}`, nil, jobs.Key, "needs_billing", 0},
 		{"no billing, in the RPC form", 400, `{"error":{"code":400,"status":"FAILED_PRECONDITION","message":"Please enable billing on your project."}}`, nil, jobs.Key, "needs_billing", 0},
-		{"a precondition that is not billing", 400, `{"error":{"code":"failed_precondition","message":"User location is not supported for the API use."}}`, nil, jobs.Refused, "", 0},
+		// framy's server is where Google does not serve: not the key's fault.
+		{"a region Google does not serve", 400, `{"error":{"code":400,"status":"FAILED_PRECONDITION","message":"User location is not supported for the API use."}}`, nil, jobs.Region, "", 0},
+		{"a region, in the Interactions form", 400, `{"error":{"code":"failed_precondition","message":"User location is not supported for the API use."}}`, nil, jobs.Region, "", 0},
+		{"a precondition that is not billing", 400, `{"error":{"code":"failed_precondition","message":"Precondition check failed."}}`, nil, jobs.Refused, "", 0},
 		{"a wrong key, in the RPC form", 400, `{"error":{"code":400,"status":"INVALID_ARGUMENT","message":"API key not valid. Please pass a valid API key.","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"API_KEY_INVALID","domain":"googleapis.com"}]}}`, nil, jobs.Key, "invalid", 0},
 		{"an expired key", 400, `{"error":{"code":"invalid_request","message":"API key expired. Please renew the API key."}}`, nil, jobs.Key, "invalid", 0},
 		{"a missing or revoked key", 401, `{"error":{"code":"authentication","message":"The API key is missing, invalid, or expired."}}`, nil, jobs.Key, "invalid", 0},
@@ -715,6 +781,22 @@ func TestWhatIsNotARefusalFails(t *testing.T) {
 		})
 	}
 
+	// The run is billed in full: a broken picture does not take the good
+	// ones with it.
+	t.Run("one broken picture of two", func(t *testing.T) {
+		p, _ := serve(t, reply(200, answerWith(usage1K, `{"type":"image","mime_type":"image/png","data":"%%%"}`, imageBlock(png, "image/png"))))
+		sub, err := p.Submit(context.Background(), job(t, nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := sub.Outcome
+		if out.Err != nil || len(out.Results) != 1 || out.CostUSD == nil || !near(*out.CostUSD, cost1K) {
+			t.Fatalf("outcome %+v: want the good picture and the cost", out)
+		}
+		if out.Lost == nil || !strings.Contains(out.Lost.Error(), "image 1") {
+			t.Errorf("lost %v, want what happened to image 1", out.Lost)
+		}
+	})
 	t.Run("a paid run with a broken image keeps its cost", func(t *testing.T) {
 		p, _ := serve(t, reply(200, answerWith(usage1K, `{"type":"image","mime_type":"image/png","data":"%%%"}`)))
 		sub, _ := p.Submit(context.Background(), job(t, nil))

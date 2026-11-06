@@ -76,6 +76,10 @@ func (a *API) keyError(w http.ResponseWriter, r *http.Request, provider string, 
 		e = newError(http.StatusUnprocessableEntity, codeKeyRejected, "the provider does not accept this key")
 	case errors.Is(err, keys.ErrForbidden):
 		e = newError(http.StatusUnprocessableEntity, codeKeyForbidden, "the provider accepts the key but refuses it the list of models; give the key that permission")
+	case errors.Is(err, keys.ErrRegion):
+		// framy's server, not the key: no Retry-After, since waiting does
+		// not change where the server is.
+		e = newError(http.StatusServiceUnavailable, codeKeyRegion, "the provider does not serve the country framy's server is in, so framy cannot check or use the key")
 	case errors.Is(err, keys.ErrUnavailable):
 		e = newError(http.StatusServiceUnavailable, codeCheckUnavailable, "the provider did not answer the check; try again")
 		e.retryAfter = 10 * time.Second

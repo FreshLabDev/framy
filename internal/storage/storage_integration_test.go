@@ -263,6 +263,51 @@ func (w *watchedReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
+// A 4K result taken as an input comes out upload-sized: the long side at
+// 2048 px, JPEG, or PNG when it has alpha; and nothing is left in work.
+func TestShrinkMakesAPictureUploadSized(t *testing.T) {
+	c := converter(t)
+	h := newHarness(t, storage.Config{Media: c})
+	ctx := context.Background()
+	for _, tc := range []struct {
+		alpha uint8
+		want  string
+	}{{255, "image/jpeg"}, {100, "image/png"}} {
+		big := noisyPNG(t, 4096, 2304, tc.alpha)
+		data, contentType, err := h.store.Shrink(ctx, big)
+		if err != nil || contentType != tc.want || len(data) >= len(big) {
+			t.Fatalf("alpha %d: %s, %d bytes from %d, %v", tc.alpha, contentType, len(data), len(big), err)
+		}
+		info, err := media.Inspect(bytes.NewReader(data), int64(len(data)))
+		if err != nil || info.Width != 2048 || info.Height != 1152 {
+			t.Errorf("alpha %d: %+v %v", tc.alpha, info, err)
+		}
+	}
+	if _, _, err := h.store.Shrink(ctx, []byte("<html>not a picture</html>")); err == nil {
+		t.Error("html shrunk")
+	}
+	h.workIsEmpty(t)
+}
+
+// noisyPNG is a picture as large as a model's: noise, which PNG cannot
+// squeeze as it does a gradient.
+func noisyPNG(t *testing.T, w, h int, alpha uint8) []byte {
+	t.Helper()
+	img := image.NewNRGBA(image.Rect(0, 0, w, h))
+	x := uint32(1)
+	for i := 0; i < len(img.Pix); i += 4 {
+		x ^= x << 13
+		x ^= x >> 17
+		x ^= x << 5
+		img.Pix[i], img.Pix[i+1], img.Pix[i+2], img.Pix[i+3] = uint8(x), uint8(x>>8), uint8(x>>16), alpha
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
 func TestWhatIsNotAPhotoIsNotKept(t *testing.T) {
 	c := converter(t)
 	h := newHarness(t, storage.Config{Media: c, MaxUpload: 1 << 20})

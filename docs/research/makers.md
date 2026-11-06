@@ -1,6 +1,6 @@
 # What the makers' own APIs offer beyond framy's ports
 
-A snapshot of 28 October 2026, from one audit per maker against the maker's documentation and OpenRouter's public JSON (`/api/v1/images/models`, `/api/v1/videos/models`, `/api/v1/models/{id}/endpoints`). framy reaches every model through OpenRouter, GPT Image also through OpenAI, the Gemini models and Omni also through the Gemini API. This file lists what a model can do at its maker and framy cannot ask for today, so a future direct port knows what it would gain.
+A snapshot of 28 October 2026, with HeyGen, GPT Image and FLUX 3 Video checked again on 5 November 2026, from one audit per maker against the maker's documentation and OpenRouter's public JSON (`/api/v1/images/models`, `/api/v1/videos/models`, `/api/v1/models/{id}/endpoints`). framy reaches every model through OpenRouter, GPT Image also through OpenAI, the Gemini models and Omni also through the Gemini API. This file lists what a model can do at its maker and framy cannot ask for today, so a future direct port knows what it would gain.
 
 Each item says whether OpenRouter passes it: **no** (no field, no pass-through), **unverified** (OpenRouter lists the input or the name but documents nothing, so only a paid run settles it) or **partly**. Facts are marked as the audit found them: *confirmed* by the maker's own page, *likely* from strong indirect evidence, *unverified* otherwise. Nothing here was run for money, except the check of Seedance's reference clip under ByteDance.
 
@@ -12,7 +12,7 @@ The catalog follows one rule meanwhile: a count of reference images, videos or s
 2. **Kling.** OpenRouter runs Kling through AtlasCloud's narrower schema: no reference images, no reference video, no multi-shot, no Elements, no 1080p or 4K. Kling 4.0 came out on 28 October 2026 and is not on OpenRouter.
 3. **xAI.** Grok Imagine Video 1.5 takes 14 reference images, a last frame, 4 keyframes and 3 preset voices at xAI, and only a first frame through OpenRouter. Video 1.0 edits and extends one uploaded clip at xAI.
 4. **OpenAI and Gemini, the ports framy has.** They send what OpenRouter does not: GPT Image's sizes up to 3840 px and its format; Gemini's thinking level, Search and Image Search grounding, input detail, JPEG output, video input and Omni. Left: GPT Image's mask (stage 3) and Omni's reference clips.
-5. **HeyGen and MiniMax.** HeyGen Video makes 16 to 30 s and 1080p at HeyGen; MiniMax's Hailuo 3 runs at 768P for $0.08 a second against $0.13 at 2K, the only resolution OpenRouter offers.
+5. **MiniMax.** Hailuo 3 runs at 768P for $0.08 a second against $0.13 at 2K, the only resolution OpenRouter offers. HeyGen's 16 to 30 s and 1080p, once only at HeyGen, came to OpenRouter by 5 November 2026.
 
 ## Alibaba (Wan, HappyHorse)
 
@@ -22,7 +22,7 @@ The catalog follows one rule meanwhile: a count of reference images, videos or s
 | Wan 3.0 document and web link inputs | one file and one link per run (confirmed) | no | product videos from a page or a brief |
 | Wan 3.0 21:9, `adaptive` ratio, `duration: -1` | yes (confirmed) | no | cinematic format; output that follows the input clip |
 | Wan 3.0 `prompt_extend`, `watermark` | yes | no (pass-through list empty) | turn prompt rewriting off for exact prompts |
-| Wan 3.0 billing of input video | input seconds plus output seconds (confirmed) | the same: job 44 on the test bot, a 14.948 s clip and 5 s of 480p, cost (5 + 14.95) × $0.05 less 15% (confirmed 30 October 2026) | the estimate with a video attached; a 15 s reference leaves 15 s of output, since input plus output is at most 30 s |
+| Wan 3.0 billing of input video | input seconds plus output seconds (confirmed) | the same: job 47 of the shared schema, a run of the test bot, a 14.948 s clip and 5 s of 480p, cost (5 + 14.95) × $0.05 less 15% (confirmed 30 October 2026) | the estimate with a video attached; a 15 s reference leaves 15 s of output, since input plus output is at most 30 s |
 | Wan 2.7 duration | up to 15 s for text and image to video | 10 s; routed through Atlas Cloud | longer clips |
 | Wan 2.7 reference video, continuation clip, driving audio | yes | unverified: only through Atlas pass-through names (`videos`, `video`, `audio`) with no documented shape | |
 | `wan2.7-videoedit` | yes | not offered | a second editor |
@@ -42,8 +42,9 @@ Wan 3.0 is "preview" at Alibaba, which means 14 days' notice before it retires. 
 | FLUX.2 `disable_pup`, webp, free size | yes | no | |
 | FLUX.2 Flex `steps` (1 to 50), `guidance` (1.5 to 10) | Flex only (confirmed); Max, Pro and Klein 4B have neither | pass-through under `provider.options['black-forest-labs/us-3']` | the only FLUX.2 with them; offer them on Flex alone |
 | FLUX 3 Video keyframes | up to 10 timed keyframes | first and last frame only | |
-| FLUX 3 Video 2:1, 9:21, `auto` ratio and length, draft mode | yes | no | a cheap draft before the real run |
-| FLUX 3 Video clip to continue | `v2v`, up to 15 s | unverified: OpenRouter prices a continuation SKU but documents no field | "Continue" on FLUX |
+| FLUX 3 Video 2:1, 9:21, `auto` ratio and length | yes | no | |
+| FLUX 3 Video draft mode | yes | unverified: `draft` is a pass-through name, with no documented shape or price | a cheap draft before the real run |
+| FLUX 3 Video clip to continue | `v2v`, up to 15 s | unverified: OpenRouter prices a continuation SKU but documents no field, and its rates run backwards: 41 cents a second at 720p, 53 at 1080p, 31 at 2K, against 17, 29 and 28 for the output | "Continue" on FLUX; framy does not offer it until a run shows the field and the rate |
 | FLUX 3 Video reference images and video | only in BFL's cookbook (`flux-3-preview-high`), "soon" in the public API | unverified | |
 
 FLUX Video Edit and Upscale lose nothing through OpenRouter. Upscale's `creativity` is 0 or 1 at BFL, and 0.5 is refused; framy now reads it as those two values. OpenRouter's upscale prices (3.5 and 5 cents a megapixel-second) are half of BFL's own.
@@ -84,19 +85,20 @@ Two paid runs on 31 October settled how OpenRouter bills a Seedance reference cl
 | Omni reference video | 3 clips of up to 3 s, sound in them ignored (confirmed) | not on OpenRouter | likeness of a person or object; not offered yet, since the catalog has one video role per model and Omni's is the source |
 | search query billing | 5,000 queries a month, then $14 per 1,000 on Gemini 3 | no | not in framy's estimate or cost: framy cannot see the person's allowance |
 
-Dates: Veo 3.1 preview ids closed on the Gemini API on 22 October 2026, with Omni named in their place; the Vertex ids OpenRouter runs retire "17 November 2026 or later". Gemini 3.1 Flash Image was deprecated on 6 October 2026 with no shutdown day; Gemini 2.5 Flash Image shuts on 15 March 2027. Veo with references runs 8 s only; the Gemini API docs say the same of 1080p and 4K. Omni spells 4K as `4k`.
+Dates: Veo 3.1 preview ids closed on the Gemini API on 22 October 2026, with Omni named in their place. OpenRouter runs Veo on Vertex (provider `google-vertex`, no `expiration_date`), where `veo-3.1-generate-001` and `veo-3.1-fast-generate-001` are GA and retire "May 4, 2027 or later", and `veo-3.1-lite-generate-001` is a Preview with no date (Vertex model page, updated 5 November 2026). Google says such dates may move later but never earlier, so framy does not mark them deprecated. Gemini 3.1 Flash Image was deprecated on 6 October 2026 with no shutdown day; Gemini 2.5 Flash Image shuts on 15 March 2027. Veo with references runs 8 s only (Vertex for 3.1, the Gemini API for 3.1 and Fast), and framy sends 8 s then; the Gemini API docs say the same of 1080p and 4K, which Vertex's page does not. Omni spells 4K as `4k`.
 
 ## HeyGen
 
 | Capability | At the maker | Through OpenRouter | Why framy wants it |
 |:--|:--|:--|:--|
-| HeyGen Video 16 to 30 s and `auto` length | since October 2026 | no: 5 to 15 s | longer clips |
-| 1080p | yes, at 3 times the 768p rate | no: 480p, 768p, 2K | |
+| HeyGen Video 16 to 30 s | since October 2026 | yes by 5 November 2026: 5 to 30 s, with `long_duration_seconds` rates beside the usual ones ($0.075 a second at 768p against $0.036) and no word on which seconds they bill (unverified: the cost of the first run over 15 s tells) | longer clips |
+| `auto` length | yes | no | |
+| 1080p | yes, at 3 times the 768p rate | yes by 5 November 2026, at $0.10 a second, as 2K | |
 | `aspect_ratio: adaptive` | default for reference to video | no | |
-| reference videos and sounds | 3 videos sharing 15 s, 32 MB, mp4 or webm; 3 sounds; 15 files in all (confirmed) | a reference video works and is billed: job 47 on the test bot, a 14.948 s clip and 5 s of 480p, cost (5 + 14.949) × the reference rate $0.07, less 50% (30 October 2026); sounds unverified | they guide motion and style; set in the overlay, a run confirms |
+| reference videos and sounds | 3 videos sharing 15 s, 32 MB, mp4 or webm; 3 sounds; 15 files in all (confirmed) | a reference video works and is billed: job 33 of the shared schema, a run of the test bot, a 14.948 s clip and 5 s of 480p, cost (5 + 14.949) × the reference rate $0.07, less 50% (30 October 2026); sounds unverified | they guide motion and style; set in the overlay, a run confirms |
 | Avatar IV audio, 4:5, 5:4, webm | yes | audio unverified, the rest no | the talking head stays hidden until the composer takes a voice |
 
-At 2K, text to video and reference to video take only 16:9 and 9:16. The first two reference images are free on OpenRouter's page ("after first 2"); framy's estimate counts them free (`price.free_images` in the overlay), unverified by a run. OpenRouter's 50% off mirrors HeyGen's launch price, which HeyGen says lasts to the end of October.
+At 2K, text to video and reference to video take only 16:9 and 9:16. The first two reference images are free on OpenRouter's page ("after first 2"); framy's estimate counts them free (`price.free_images` in the overlay), unverified by a run. OpenRouter's 50% off mirrors HeyGen's launch price, which HeyGen said would last to the end of October; on 5 November OpenRouter still took it off (`discount` 0.5 on the endpoint). When it ends, the free allowance's 5 s at 768p costs $0.18 instead of $0.09.
 
 ## Kling (Kuaishou)
 
@@ -148,7 +150,7 @@ Microsoft's retirement schedule gave 1 October 2026 for MAI-Image-2.5, 2.5 Pro a
 | Context-IR enrichment, 2K regeneration, `mm_file://` ids | yes | no | |
 | Hailuo 3 Max references | yes by the API reference; the FAQ says frames only | text and image only, no reference SKU | |
 | Max `prompt_expansion_mode` | yes | no | |
-| Hailuo 2.3 768P (MiniMax's default), 2.3 Fast | yes | no: 1080p at 6 s and 10 s only | |
+| Hailuo 2.3 768P (MiniMax's default), 2.3 Fast | yes; 10 s is made at 768P only, 1080P is 6 s (confirmed, API reference, 5 November 2026) | no: 1080p only; OpenRouter lists 6 s and 10 s, and framy offers 6 s | 10 s clips |
 
 The first five reference images are free at MiniMax and on OpenRouter's page; framy's estimate counts them free. A sound alone is refused.
 
@@ -157,13 +159,16 @@ The first five reference images are free at MiniMax and on OpenRouter's page; fr
 | Capability | At the maker | Through OpenRouter | Why framy wants it |
 |:--|:--|:--|:--|
 | any size up to 3840 px and 8.29 MP | yes | 8 aspect ratios and `auto` | 2K and 4K, on the direct port only |
-| `output_format` | yes | no: PNG; `output_compression` probably does nothing | |
+| `output_format` | yes | on 2.6 only: PNG, JPEG, WebP and GIF, of which framy offers the first three; PNG on the others, where `output_compression` probably does nothing | |
 | mask | yes, on the first image, with alpha, up to 50 MB | no | the stage 3 mask editor |
 | `partial_images`, `safety_identifier`, Batch at half price | yes | no | progress previews; cheaper bulk runs |
 | `moderation` | a field | only `provider.options.openai.moderation` | |
 | transparent background on GPT Image 2 | preview since 20 August 2026 | auto and opaque only | |
+| GIF output on 2.6 | `output_format: gif` on generations, 2 to 16 frames (9 by default), 20 to 2000 ms each | `gif` in `output_format` | an animation; left out while a GIF's frames have no published price |
+| SVG output on 2.6 | `output_format: svg` on generations, n = 1, billed as a reference image plus the authoring model's tokens; the `svg` field picking the authoring model needs access OpenAI grants apart | no | vector art; the authoring model's tokens are not published |
+| `complexity` on 2.6 | low, medium, high (the default), no fee | a pass-through | a lighter edit; offered on the direct port as "Planning", high by default |
 
-Both ports take 16 references, n up to 10 and every quality. gpt-image-1 shut on 23 October 2026, gpt-image-1-mini shuts on 1 December 2026. `gpt-5-image` and its siblings exist only on OpenRouter, as chat models around GPT Image.
+Both ports take 16 references, n up to 10 and every quality; GPT Image 2.6 Sunburst and Flare (4 November 2026) are on both. gpt-image-1 shut on 23 October 2026, gpt-image-1-mini and gpt-image-1.5 shut on 1 December 2026. `gpt-5-image` and its siblings exist only on OpenRouter, as chat models around GPT Image.
 
 ## Qwen (Alibaba)
 

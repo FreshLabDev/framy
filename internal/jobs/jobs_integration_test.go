@@ -7,6 +7,7 @@
 package jobs
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -562,6 +563,91 @@ func TestAFinishedJobHasItsEstimateAndItsCost(t *testing.T) {
 	}
 }
 
+// A picture that came broken does not take the others with it: the run is
+// done with the ones that came whole, its cost kept, and the log says what
+// was lost.
+func TestARunThatLostAPictureKeepsTheOthers(t *testing.T) {
+	p := newFake()
+	p.submit = func(context.Context, Job) (Submission, error) {
+		sub := done(0.06)
+		sub.Outcome.Lost = errors.New("image 2 of the answer: illegal base64 data at input byte 0")
+		return sub, nil
+	}
+	q, pool := testQueue(t, p)
+	var logged bytes.Buffer
+	q.log = slog.New(slog.NewTextHandler(&logged, nil))
+	id := enqueue(t, q, job(alice, imageOffer))
+	if err := q.work(context.Background(), id); err != nil {
+		t.Fatal(err)
+	}
+	j := get(t, q, id)
+	if j.Status != Done || j.ActualUSD == nil || *j.ActualUSD != 0.06 || scalar[int](t, pool, `SELECT results FROM framy.job WHERE id=$1`, id) != 1 {
+		t.Fatalf("job: %s, actual %v", j.Status, j.ActualUSD)
+	}
+	if !strings.Contains(logged.String(), "image 2 of the answer") {
+		t.Errorf("the log does not say what was lost:\n%s", logged.String())
+	}
+}
+
+// A run the hour ends while its poll keeps failing may be paid: it ends as
+// a timeout, not as a provider that did not answer, which would say nothing
+// was charged, and keeps the cost the provider gave, if any.
+func TestARunPastTheHourIsATimeoutWithItsCost(t *testing.T) {
+	p := newFake()
+	p.submit = func(context.Context, Job) (Submission, error) { return Submission{ProviderJobID: "vid-1"}, nil }
+	p.poll = func(context.Context, Job) (Outcome, error) {
+		cost := 0.509518
+		return Outcome{CostUSD: &cost}, &Error{Class: Unavailable, Err: errors.New("poll the video: Google answered 503")}
+	}
+	q, _ := testQueue(t, p)
+	id := enqueue(t, q, job(alice, videoOffer))
+	ctx := context.Background()
+	for range 2 {
+		// The submit, then a poll within the hour: asked again later.
+		_ = q.work(ctx, id)
+	}
+	if j := get(t, q, id); j.Status != Running || j.ActualUSD != nil || p.count(p.polls, id) != 1 {
+		t.Fatalf("within the hour: %s, actual %v, %d polls", j.Status, j.ActualUSD, p.count(p.polls, id))
+	}
+	q.now = func() time.Time { return time.Now().Add(RunDeadline + time.Minute) }
+	if err := q.work(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	j := get(t, q, id)
+	if j.Status != Expired || j.ErrorClass != Timeout || j.ActualUSD == nil || *j.ActualUSD != 0.509518 {
+		t.Fatalf("past the hour: %s %s, actual %v", j.Status, j.ErrorClass, j.ActualUSD)
+	}
+}
+
+// A video the provider finished and framy could not fetch by the hour's
+// deadline was made and billed: it ends as storage, a result that was not
+// kept, with its cost, and not as a run that took over an hour.
+func TestAFinishedVideoThatCouldNotBeFetchedEndsAsStorage(t *testing.T) {
+	p := newFake()
+	p.submit = func(context.Context, Job) (Submission, error) { return Submission{ProviderJobID: "vid-1"}, nil }
+	p.poll = func(context.Context, Job) (Outcome, error) {
+		cost := 0.5
+		return Outcome{CostUSD: &cost, Ready: true}, errors.New("download the video: openrouter 500")
+	}
+	q, _ := testQueue(t, p)
+	id := enqueue(t, q, job(alice, videoOffer))
+	ctx := context.Background()
+	for range 2 {
+		_ = q.work(ctx, id)
+	}
+	if j := get(t, q, id); j.Status != Running || j.ActualUSD != nil {
+		t.Fatalf("within the hour: %s, actual %v", j.Status, j.ActualUSD)
+	}
+	q.now = func() time.Time { return time.Now().Add(RunDeadline + time.Minute) }
+	if err := q.work(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	j := get(t, q, id)
+	if j.Status != Failed || j.ErrorClass != Storage || j.ActualUSD == nil || *j.ActualUSD != 0.5 {
+		t.Fatalf("past the hour: %s %s, actual %v", j.Status, j.ErrorClass, j.ActualUSD)
+	}
+}
+
 func TestAJobKeepsTheRateItsPriceWasShownWith(t *testing.T) {
 	q, pool := testQueue(t, newFake())
 	n := job(alice, imageOffer)
@@ -770,6 +856,30 @@ func TestOnlyARefusalBeforeTheRunIsRetried(t *testing.T) {
 		}
 		if j := get(t, q, id); j.Status != Failed || j.ErrorClass != Unavailable || j.Submits != maxSubmits {
 			t.Fatalf("%s %s after %d submits", j.Status, j.ErrorClass, j.Submits)
+		}
+	})
+
+	// A model that failed to make the picture is asked fewer times: the
+	// adapter caps the tries, and the queue keeps to the cap.
+	t.Run("a refusal that allows fewer tries", func(t *testing.T) {
+		p := newFake()
+		p.submit = func(context.Context, Job) (Submission, error) {
+			return Submission{}, &Error{Class: Unavailable, Tries: 3, Err: said("openrouter 502: Generation failed", "Generation failed")}
+		}
+		q, pool := testQueue(t, p)
+		id := enqueue(t, q, job(alice, imageOffer))
+		for range maxSubmits {
+			_ = q.work(ctx, id)
+			if _, err := pool.Exec(ctx, `UPDATE framy.job SET retry_at=now() WHERE id=$1`, id); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if j := get(t, q, id); j.Status != Failed || j.ErrorClass != Unavailable || j.Submits != 3 {
+			t.Fatalf("%s %s after %d submits, want failed after 3", j.Status, j.ErrorClass, j.Submits)
+		}
+		var words *string
+		if err := pool.QueryRow(ctx, `SELECT provider_message FROM framy.job WHERE id=$1`, id).Scan(&words); err != nil || words == nil || *words != "Generation failed" {
+			t.Fatalf("the provider's words: %v, %v", words, err)
 		}
 	})
 }

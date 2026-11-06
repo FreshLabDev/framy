@@ -284,7 +284,7 @@ export const failEl = (label, said) => h("div", { class: "c fail" }, h("b", {}, 
 // A price of 0 in the person's currency, from a label of the run's own price.
 const zeroOf = (label) => (label || "$0").replace(/\d[\d.,]*/, "0");
 // The figure of each reason a run gave nothing; the rest show a cross.
-const FAILFIG = { moderation: "ban", refused: "ban", faces: "ban", sound: "ban", money: "coin", key: "key", timeout: "clock", draft_expired: "clock", rate_limited: "hush", unavailable: "hush", interrupted: "link", cancelled: "line" };
+const FAILFIG = { moderation: "ban", refused: "ban", faces: "ban", sound: "ban", region: "ban", money: "coin", key: "key", timeout: "clock", draft_expired: "clock", rate_limited: "hush", unavailable: "hush", interrupted: "link", cancelled: "line" };
 const REFFIG = { price_changed: "coin", not_free: "coin", free_limit: "clock", free_closed: "clock", no_connection: "key", connection_invalid: "key", key_in_prompt: "key", sign_in: "key",
   init_data_expired: "clock", init_data_invalid: "key",
   network: "link", shutting_down: "link", http_429: "hush", busy: "hush", wrong_inputs: "bang", unknown_input: "bang", unknown_offer: "bang", cannot_continue: "bang",

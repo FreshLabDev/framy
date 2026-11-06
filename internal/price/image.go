@@ -315,18 +315,25 @@ func (c *calc) inputTokensBySize() (float64, bool) {
 func (c *calc) outputTokens() (lo, hi float64, ok bool) {
 	if base := c.hints.OpenAITokens; len(base) > 0 {
 		w, h := c.openAISize()
+		tokens := func(quality string) float64 {
+			t := float64(openAITokens(w, h, base[quality]))
+			if f, ok := c.hints.OpenAITokenFactor[quality]; ok {
+				// The calculator's Math.round, which takes a half up.
+				t = math.Floor(t*f + 0.5)
+			}
+			return t
+		}
 		if q := c.setting("quality"); q != "" {
-			b, ok := base[q]
-			if !ok {
+			if _, ok := base[q]; !ok {
 				return 0, 0, false
 			}
-			t := float64(openAITokens(w, h, b))
+			t := tokens(q)
 			return t, t, true
 		}
 		// No quality chosen: anything from the lowest to the highest.
 		var ts []float64
-		for _, b := range base {
-			ts = append(ts, float64(openAITokens(w, h, b)))
+		for q := range base {
+			ts = append(ts, tokens(q))
 		}
 		return slices.Min(ts), slices.Max(ts), true
 	}

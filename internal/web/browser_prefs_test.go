@@ -21,7 +21,8 @@ import (
 
 // fakePrefs is the API of a signed-in person for the settings: their keys and
 // settings as the server would keep them. A pasted key passes the provider's
-// check unless it says otherwise: "rejected", "forbidden" or "down" in it.
+// check unless it says otherwise: "rejected", "forbidden", "region" or
+// "down" in it.
 // Check on a kept key goes by its last four: "dead" is refused (the key turns
 // invalid), "busy" gets no answer. The keys are made up and never real.
 type fakePrefs struct {
@@ -178,6 +179,8 @@ func (f *fakePrefs) mount(srv *Server) {
 			writeTestJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": "key_rejected", "provider": p})
 		case strings.Contains(b.Key, "forbidden"):
 			writeTestJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": "key_forbidden", "provider": p})
+		case strings.Contains(b.Key, "region"):
+			writeTestJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "key_region", "provider": p})
 		case strings.Contains(b.Key, "down"):
 			w.Header().Set("Retry-After", "2")
 			writeTestJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "check_unavailable", "provider": p})
@@ -343,6 +346,7 @@ func TestBrowserPrefs(t *testing.T) {
 	for key, want := range map[string]string{
 		"sk-test-rejected-0000000000": "OpenAI did not accept the key: it is wrong or revoked.",
 		"sk-test-forbidden-000000000": "OpenAI accepted the key but does not let it list the models. Allow that in the key’s settings.",
+		"sk-test-region-00000000000":  "OpenAI does not serve the country framy’s server is in, so framy cannot check or use the key.",
 	} {
 		s = prefs(t, ctx, `
 	await typeKey("openai", `+jsString(key)+`);

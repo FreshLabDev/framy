@@ -104,6 +104,13 @@ func TestEstimates(t *testing.T) {
 		// OpenRouter's example: high at 16:9 is 1536×864 and $0.13.
 		{"gpt-image-2 on OpenRouter at 16:9", "openrouter:openai/gpt-image-2", Request{Settings: set{"aspect_ratio": "16:9", "quality": "high"}}, 4312 * 3e-5, 0, About},
 		{"gpt-image-2.5 with no quality chosen", "openai:gpt-image-2.5-sunburst", Request{Settings: set{"size": "1024x1024"}}, 196 * 3e-5, 7024 * 3e-5, UpTo},
+		// OpenAI's calculator: 2.6 takes 2.5's tokens times 4.2 at low and
+		// 3.3 at medium, rounded, and the same from high up.
+		{"gpt-image-2.6 low square", "openai:gpt-image-2.6-flare", Request{Settings: set{"size": "1024x1024", "quality": "low"}}, 823 * 3e-5, 0, About},
+		{"gpt-image-2.6 medium square", "openai:gpt-image-2.6-sunburst", Request{Settings: set{"size": "1024x1024", "quality": "medium"}}, 1449 * 3e-5, 0, About},
+		{"gpt-image-2.6 high square", "openai:gpt-image-2.6-sunburst", Request{Settings: set{"size": "1024x1024", "quality": "high"}}, 1756 * 3e-5, 0, About},
+		{"gpt-image-2.6 on OpenRouter at 16:9", "openrouter:openai/gpt-image-2.6-flare", Request{Settings: set{"aspect_ratio": "16:9", "quality": "low"}}, 504 * 3e-5, 0, About},
+		{"gpt-image-2.6 with no quality chosen", "openrouter:openai/gpt-image-2.6-sunburst", Request{Settings: set{"aspect_ratio": "1:1"}}, 823 * 3e-5, 7024 * 3e-5, UpTo},
 
 		// Google's pricing page: Nano Banana 2.1 at 1K is $0.0336, at 4K $0.113.
 		{"nano banana direct 1K", "gemini:gemini-nano-banana-2.1", Request{Settings: set{"resolution": "1K"}}, 1120 * 3e-5, 0, About},
@@ -127,8 +134,9 @@ func TestEstimates(t *testing.T) {
 		// 2048x1152 one about 2,470; the overlay sets 1,100 a megapixel.
 		{"mai flash editing a square photo", "openrouter:microsoft/mai-image-2.6-flash", Request{Settings: set{"aspect_ratio": "1:1"}, Images: images(1)}, 1024*1.9e-5 + 1154*2.5e-6, 0, About},
 		{"mai flash editing a wide photo", "openrouter:microsoft/mai-image-2.6-flash", Request{Settings: set{"aspect_ratio": "1:1"}, Images: []Image{{Width: 2048, Height: 1152}}}, 1024*1.9e-5 + 2596*2.5e-6, 0, About},
-		// Job 40 on the test bot: a 1280×853 photo took 1,080 tokens at $8 a
-		// million, beside 158 of a low 1536×1024 output.
+		// Job 53 of the shared schema, a run of the test bot: a 1280×853
+		// photo took 1,080 tokens at $8 a million, beside 158 of a low
+		// 1536×1024 output.
 		{"gpt image flare editing a photo", "openrouter:openai/gpt-image-2.5-flare", Request{Settings: set{"aspect_ratio": "3:2", "quality": "low"}, Images: []Image{{Width: 1280, Height: 853}}}, 158*3e-5 + 1080*8e-6, 0, About},
 
 		{"flux 3 at 1K", "openrouter:black-forest-labs/flux-3-image", Request{Settings: set{"resolution": "1K"}}, 0.048, 0, Exact},
@@ -146,8 +154,10 @@ func TestEstimates(t *testing.T) {
 		{"krea without style references", "openrouter:krea/krea-2-medium", Request{Settings: set{"resolution": "1K"}}, 0.03, 0, Exact},
 		{"recraft styles once per request", "openrouter:recraft/recraft-v4-styles", Request{Images: images(1)}, 0.04, 0, Exact},
 		{"grok low at 2K with a reference", "openrouter:x-ai/grok-imagine-image-2.0", Request{Settings: set{"quality": "low", "resolution": "2K"}, Images: images(1)}, 0.07, 0, Exact},
-		// What high_resolution is, Seedream does not say.
-		{"seedream pro", "openrouter:bytedance-seed/seedream-5-0-pro", Request{Settings: set{"resolution": "1K"}, Images: images(1)}, 0.048, 0.093, UpTo},
+		// OpenRouter's high_resolution line is above 2.36 MP: 2K, not 1K.
+		{"seedream pro at 1K", "openrouter:bytedance-seed/seedream-5-0-pro", Request{Settings: set{"resolution": "1K"}, Images: images(1)}, 0.048, 0, Exact},
+		{"seedream pro at 2K", "openrouter:bytedance-seed/seedream-5-0-pro", Request{Settings: set{"resolution": "2K"}, Images: images(1)}, 0.093, 0, Exact},
+		{"seedream pro with no resolution chosen", "openrouter:bytedance-seed/seedream-5-0-pro", Request{Images: images(1)}, 0.048, 0.093, UpTo},
 		{"riverflow 2.5 is a floor", "openrouter:sourceful/riverflow-v2.5-pro", Request{Settings: set{"resolution": "2K"}}, 0.15, 0.15, From},
 		{"riverflow 2 without super-resolution references", "openrouter:sourceful/riverflow-v2-pro", Request{Settings: set{"resolution": "1K"}, Images: images(2)}, 0.15, 0, Exact},
 
@@ -187,11 +197,11 @@ func TestEstimates(t *testing.T) {
 		{"hailuo 3 with a reference", "openrouter:minimax/hailuo-3", Request{Settings: set{"duration": 5}, Images: images(1)}, 0.65, 0, Exact},
 		{"hailuo 3 with seven references", "openrouter:minimax/hailuo-3", Request{Settings: set{"duration": 5}, Images: images(7)}, 0.73, 0, Exact},
 		// A reference clip's seconds are billed at the output's rate, rounded
-		// up to a hundredth: job 44 on the test bot, a 14.948 s clip and 5 s
+		// up to a hundredth: job 47 of the shared schema, a 14.948 s clip and 5 s
 		// of 480p on Wan 3.0, cost (5 + 14.95) × $0.05 less 15%.
 		{"wan 3.0 with a reference clip", "openrouter:alibaba/wan-3.0", Request{Settings: set{"resolution": "480p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": true}, Video: &Video{Seconds: 14.948, Width: 1920, Height: 1080}}, 19.95 * 0.05, 0, About},
 		{"wan 3.0 with two clips", "openrouter:alibaba/wan-3.0", Request{Settings: set{"resolution": "720p", "aspect_ratio": "16:9", "duration": 5}, Video: clip, Clips: []float64{3, 4.001}}, 12.01 * 0.1, 0, About},
-		// HeyGen with a clip takes its reference rate for both: job 47.
+		// HeyGen with a clip takes its reference rate for both: job 33.
 		{"heygen with a reference clip", "openrouter:heygen/heygen-video-1", Request{Settings: set{"resolution": "480p", "aspect_ratio": "16:9", "duration": 5}, Video: &Video{Seconds: 14.948, Width: 1920, Height: 1080}}, 19.95 * 0.07, 0, About},
 		{"hailuo 3 with a reference clip", "openrouter:minimax/hailuo-3", Request{Settings: set{"duration": 5}, Video: &Video{Seconds: 2, Width: 1280, Height: 720}}, 7 * 0.13, 0, About},
 		{"flux 3 video at 1080p", "openrouter:black-forest-labs/flux-3-video", Request{Settings: set{"resolution": "1080p", "duration": 5}}, 1.45, 0, Exact},
@@ -342,11 +352,11 @@ func TestTheTestBotsRuns(t *testing.T) {
 		actual      float64
 		within      float64
 	}{
-		{"job 44", "openrouter:alibaba/wan-3.0", 0.15, Request{Settings: set{"resolution": "480p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": true}, Video: &Video{Seconds: 14.948, Width: 1920, Height: 1080}}, 0.847875, 0.001},
-		{"job 47", "openrouter:heygen/heygen-video-1", 0.5, Request{Settings: set{"resolution": "480p", "aspect_ratio": "16:9", "duration": 5}, Video: &Video{Seconds: 14.948, Width: 1920, Height: 1080}}, 0.698215, 0.001},
+		{"job 47", "openrouter:alibaba/wan-3.0", 0.15, Request{Settings: set{"resolution": "480p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": true}, Video: &Video{Seconds: 14.948, Width: 1920, Height: 1080}}, 0.847875, 0.001},
+		{"job 33", "openrouter:heygen/heygen-video-1", 0.5, Request{Settings: set{"resolution": "480p", "aspect_ratio": "16:9", "duration": 5}, Video: &Video{Seconds: 14.948, Width: 1920, Height: 1080}}, 0.698215, 0.001},
 		// No ratio was sent, so OpenAI made 1536×1024 where framy counts a
 		// square, which costs more.
-		{"job 40", "openrouter:openai/gpt-image-2.5-flare", 0, Request{Settings: set{"n": 1, "quality": "low"}, Prompt: strings.Repeat("я", 32), Images: []Image{{Width: 1280, Height: 853}}}, 0.01351, 0.1},
+		{"job 53", "openrouter:openai/gpt-image-2.5-flare", 0, Request{Settings: set{"n": 1, "quality": "low"}, Prompt: strings.Repeat("я", 32), Images: []Image{{Width: 1280, Height: 853}}}, 0.01351, 0.1},
 	} {
 		m, of := offer(t, tc.offer)
 		of.Routes = slices.Clone(of.Routes)
@@ -360,7 +370,7 @@ func TestTheTestBotsRuns(t *testing.T) {
 	}
 }
 
-// The counts of the forum post that worked the formula out, and job 40.
+// The counts of the forum post that worked the formula out, and job 53.
 func TestOpenAIInputTokens(t *testing.T) {
 	for _, tc := range []struct{ w, h, want int }{
 		{256, 256, 256}, {384, 384, 576}, {512, 512, 1024}, {768, 768, 1024},
@@ -390,6 +400,8 @@ func TestPublishedPrices(t *testing.T) {
 		{"openai:gpt-image-2", set{"size": "1024x1536", "quality": "medium"}, 0.041, 0.001},
 		{"openai:gpt-image-2", set{"size": "1536x1024", "quality": "high"}, 0.165, 0.001},
 		{"openrouter:openai/gpt-image-2", set{"aspect_ratio": "16:9", "quality": "high"}, 0.13, 0.01},
+		// OpenAI's calculator for GPT Image 2.6 at low 1024×1024: $0.02469.
+		{"openai:gpt-image-2.6-sunburst", set{"size": "1024x1024", "quality": "low"}, 0.02469, 0.00001},
 		// Tencent's 20,000 tokens at 4K at OpenRouter's rate.
 		{"openrouter:tencent/hy-image-v3.5-preview", set{"resolution": "4K"}, 0.032, 0.001},
 	} {
@@ -441,6 +453,19 @@ func TestCheckReadsTheWholeCatalog(t *testing.T) {
 	}}}}}}}
 	if got := Check(broken); len(got) != 3 || !strings.Contains(got[2], "no price before the run") {
 		t.Fatalf("check = %v, want the billable, the SKU and the price it leaves unknown", got)
+	}
+	// A GPT Image OpenRouter adds before the overlay knows it: its tokens are
+	// counted by nothing, and the price would be "known after the run".
+	uncounted := catalog.Snapshot{Models: []catalog.Model{{ID: "openai/gpt-image-9", Offers: []catalog.Offer{{ID: "openrouter:openai/gpt-image-9", Routes: []catalog.Route{
+		{Prices: []catalog.Price{{Billable: "input_text", Unit: "token", CostUSD: 5e-6}, {Billable: "output_image", Unit: "token", CostUSD: 3e-5}}},
+		{Prices: []catalog.Price{{Billable: "output_image", Unit: "token", CostUSD: 3e-5}}},
+	}}}}}}
+	if got := Check(uncounted); len(got) != 1 || !strings.Contains(got[0], "openrouter:openai/gpt-image-9 has no price before the run at its default settings: the tokens of the output image") {
+		t.Fatalf("check = %v, want one line of the uncounted output", got)
+	}
+	uncounted.Models[0].Traits.Price = &catalog.PriceHints{OpenAITokens: map[string]int{"low": 16}}
+	if got := Check(uncounted); len(got) != 0 {
+		t.Fatalf("check with a count = %v", got)
 	}
 }
 

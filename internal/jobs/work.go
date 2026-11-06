@@ -223,7 +223,7 @@ func (q *Queue) submit(ctx context.Context, p Provider, j Job) error {
 	ctx, done := detach(ctx)
 	defer done()
 	if pe != nil {
-		if pe.retryable() && j.Submits < maxSubmits && pe.RetryAfter <= maxRetryWait {
+		if pe.retryable() && j.Submits < pe.tries() && pe.RetryAfter <= maxRetryWait {
 			return q.requeue(ctx, j, pe)
 		}
 		msg := pe.Error()
@@ -326,8 +326,18 @@ func (q *Queue) poll(ctx context.Context, p Provider, j Job) error {
 		q.log.Warn("job not asked about; asking again", "job", j.ID, "class", pe.Class)
 		return river.JobSnooze(q.askAgain(j, pe.RetryAfter))
 	case pe != nil && (pe.retryable() || pe.Class == ProviderFailed || pe.Class == Timeout || pe.Class == Interrupted):
-		if late {
-			return q.end(ctx, j.ID, ending{status: Expired, class: pe.Class, msg: "the provider did not finish within an hour: " + pe.Error(), said: pe.Said()})
+		switch {
+		case late && out.Ready:
+			// The provider made the result and billed it, and only fetching
+			// it kept failing: the run ends as a result framy could not
+			// keep, with its cost, and not as one that took over an hour.
+			return q.end(ctx, j.ID, ending{status: Failed, class: Storage, msg: "the provider finished the run, but its result could not be fetched within the hour: " + pe.Error(), said: pe.Said(), cost: out.CostUSD})
+		case late:
+			// The request went out, so the run may be paid whatever kept the
+			// poll from an answer: it ends as a timeout, which says so, and
+			// not as a provider that did not answer, which says nothing was
+			// charged. It keeps the cost the provider gave, if any.
+			return q.end(ctx, j.ID, ending{status: Expired, class: Timeout, msg: "the provider did not finish within an hour: " + pe.Error(), said: pe.Said(), cost: out.CostUSD})
 		}
 		return river.JobSnooze(q.askAgain(j, pe.RetryAfter))
 	case pe != nil:
@@ -380,6 +390,9 @@ func (q *Queue) settle(ctx context.Context, j Job, out Outcome) error {
 			break
 		}
 		e.status, e.results = Done, len(out.Results)
+		if out.Lost != nil {
+			q.log.Warn("job lost a file the provider sent, and keeps the others", "job", j.ID, "results", len(out.Results), "error", redact(out.Lost.Error()))
+		}
 		if !out.Grounding.Empty() {
 			e.grounding = out.Grounding
 		}
@@ -485,9 +498,15 @@ func (q *Queue) end(ctx context.Context, id int64, e ending) error {
 	if actual != nil {
 		attrs = append(attrs, "actual_usd", *actual)
 	}
-	if e.status == Done {
+	switch {
+	case e.status == Done:
 		q.log.Info("job done", attrs...)
-	} else {
+	case e.class == Region:
+		// Not the person's to fix: every run on this provider fails the same
+		// way until the server's address changes.
+		q.log.Error("provider does not serve framy's server; its runs fail until the server's address changes",
+			append(attrs, "provider", provider, "error", e.msg)...)
+	default:
 		q.log.Warn("job ended without a result", append(attrs, "error", e.msg)...)
 	}
 	// A price that changed shows up as a run that cost more, or less, than

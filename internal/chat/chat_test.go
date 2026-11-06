@@ -929,6 +929,9 @@ func TestAFailedRunShowsTheCard(t *testing.T) {
 		// The model's own sound: the same run without it may pass. This
 		// run had no sound to turn off.
 		{jobs.Failed, jobs.Sound, false, "err.sound", retry, false},
+		// framy's server is where the provider does not serve: another
+		// model, through another provider, may run; the same one cannot.
+		{jobs.Failed, jobs.Region, false, "err.region", other, false},
 		// The person's key out of credits: a link to top it up, then another
 		// try, each on its own row since "Top up OpenRouter" is too long to
 		// share one.
@@ -946,7 +949,9 @@ func TestAFailedRunShowsTheCard(t *testing.T) {
 		{jobs.Expired, jobs.ProviderFailed, false, "err.timeout", []string{actRetry, actOther}, false},
 		// framy's own failure is not the model's.
 		{jobs.Failed, jobs.Internal, true, "run.failed", []string{actRetry, actOther}, false},
-		{jobs.Failed, jobs.Storage, false, "run.failed", []string{actRetry, actOther}, false},
+		// The provider made it and framy could not keep it (a finished video
+		// that could not be fetched within the hour): not "the model could not".
+		{jobs.Failed, jobs.Storage, false, "web.fail.storage", []string{actRetry, actOther}, false},
 		{jobs.Failed, jobs.NoAdapter, false, "run.failed", other, false},
 		{jobs.Failed, jobs.ProviderFailed, false, "err.failed", []string{actRetry, actOther}, false},
 	} {

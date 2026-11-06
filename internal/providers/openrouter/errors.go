@@ -130,10 +130,10 @@ var budgetLimits = map[string]bool{
 
 // class is what the queue does with the error. Only a refusal before the
 // run started is tried again: a 429, no provider free or one overloaded
-// (503, 529), a 402 for money other runs are holding. A 500 is not, nor a
-// 502: OpenRouter sends that (provider_unavailable) when the provider gave
-// an empty or broken answer, so the run went out and nobody can tell
-// whether it was paid.
+// (503, 529), a 402 for money other runs are holding, a request Cloudflare
+// could not hand to OpenRouter. A 500 is not, nor a 502: OpenRouter sends
+// that (provider_unavailable) when the provider gave an empty or broken
+// answer, so the run went out and nobody can tell whether it was paid.
 func (e *APIError) class() jobs.Class {
 	switch s := e.Status; {
 	case facesCode.MatchString(e.Code):
@@ -153,7 +153,7 @@ func (e *APIError) class() jobs.Class {
 		return jobs.Key
 	case s == http.StatusTooManyRequests:
 		return jobs.RateLimited
-	case s == http.StatusServiceUnavailable || s == 529:
+	case s == http.StatusServiceUnavailable || s == 529 || unreached[s]:
 		return jobs.Unavailable
 	case s == http.StatusRequestTimeout || s == http.StatusGatewayTimeout || s == 524:
 		// The run may go on, and be paid, after the answer gave up.
@@ -163,6 +163,15 @@ func (e *APIError) class() jobs.Class {
 	}
 	return jobs.ProviderFailed
 }
+
+// unreached are the answers of Cloudflare, in front of OpenRouter, for a
+// request it could not hand on: 521, the origin refused the connection; 522,
+// the origin did not take the connection or acknowledge the request; 523,
+// the origin cannot be reached; 525 and 526, the TLS to it failed. The
+// request never got to OpenRouter, so nothing ran, nothing was billed and
+// sending it again is safe. A 520 (an answer Cloudflare could not read) and
+// a 524 (no answer in time) came after OpenRouter had the request.
+var unreached = map[int]bool{521: true, 522: true, 523: true, 525: true, 526: true}
 
 // KeyStatus tells internal/keys what the answer shows about the key. A 401 is
 // a key OpenRouter does not know. A 403 shows nothing: it can be a guardrail

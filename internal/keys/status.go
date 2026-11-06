@@ -101,8 +101,8 @@ func statusOf(provider string, err error) (Status, jobs.Class) {
 
 // keyRelated: the class says something about the key or the account behind
 // it. A moderation block, a refused setting, a refused person in a file and a
-// refused sound are about the request, and a run framy did not send says
-// nothing of the key.
+// refused sound are about the request, a refused region is about framy's
+// server, and a run framy did not send says nothing of the key.
 func keyRelated(c jobs.Class) bool {
-	return c != jobs.Moderation && c != jobs.Refused && c != jobs.Faces && c != jobs.Sound && c != jobs.Invalid
+	return c != jobs.Moderation && c != jobs.Refused && c != jobs.Faces && c != jobs.Sound && c != jobs.Invalid && c != jobs.Region
 }

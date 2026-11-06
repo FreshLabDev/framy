@@ -435,6 +435,7 @@ const (
 	codeBadKey            = "bad_key"
 	codeKeyRejected       = "key_rejected"
 	codeKeyForbidden      = "key_forbidden"
+	codeKeyRegion         = "key_region"
 	codeKeyUnreadable     = "key_unreadable"
 	codeKeyInUse          = "key_in_use"
 	codeCheckUnavailable  = "check_unavailable"

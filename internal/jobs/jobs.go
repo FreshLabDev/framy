@@ -201,7 +201,11 @@ type Provider interface {
 	// returns it in the Outcome; one that runs in the background returns its
 	// job id, and the result comes from Poll.
 	Submit(ctx context.Context, j Job) (Submission, error)
-	// Poll asks about a run Submit started. It costs nothing.
+	// Poll asks about a run Submit started. It costs nothing. An error
+	// means no answer yet, and the queue asks again; of an Outcome beside
+	// it only CostUSD counts: what the run cost already, such as a
+	// finished video that could not be fetched, kept if the hour's
+	// deadline ends the run first.
 	Poll(ctx context.Context, j Job) (Outcome, error)
 }
 
@@ -220,6 +224,16 @@ type Outcome struct {
 	CostUSD *float64
 	// Err ends the run without a result, as moderation does.
 	Err *Error
+	// Ready, beside a poll's error: the provider finished the run and holds
+	// its result, which could not be fetched this time. The run is paid, so
+	// CostUSD goes with it, and when the result has not come by the hour's
+	// deadline the run ends as storage (made, not kept), not as a timeout.
+	Ready bool
+	// Lost says why files of the answer were left out of Results, such as
+	// a picture that was not base64: the run is paid in full, so the
+	// others are kept, and the log says what was lost. Nil when nothing
+	// was.
+	Lost error
 	// Grounding is what a search-grounded run brought with its result.
 	Grounding *Grounding
 }
@@ -277,6 +291,12 @@ const (
 	// Faces: the provider refused a real person in an input, such as
 	// Seedance on BytePlus. Another model may take the same files.
 	Faces Class = "faces"
+	// Region: the provider does not serve the country framy's server calls
+	// from, as Google's "User location is not supported" and OpenAI's
+	// unsupported_country_region_territory. Nothing ran and nothing was
+	// billed, the person's key is fine, and asking again changes nothing
+	// until the server's address does; another provider may serve it.
+	Region Class = "region"
 	// Sound: the provider refused the sound the model made, as BytePlus
 	// refuses Seedance's when it may be copyrighted. The same run without
 	// sound may pass, and nothing was billed.
@@ -307,7 +327,12 @@ type Error struct {
 	Class Class
 	// RetryAfter is the provider's own wait, from Retry-After.
 	RetryAfter time.Duration
-	Err        error
+	// Tries caps the requests in all that a refusal before the run allows,
+	// when the adapter knows that sending more seldom helps, such as a
+	// model that failed to make the picture. Zero, or anything above the
+	// queue's own cap, leaves the queue's.
+	Tries int
+	Err   error
 }
 
 func (e *Error) Error() string {
@@ -333,6 +358,14 @@ func (e *Error) Said() string {
 // retryable: the provider refused before the run started, so nothing was
 // paid and sending again is safe.
 func (e *Error) retryable() bool { return e.Class == RateLimited || e.Class == Unavailable }
+
+// tries is how many requests in all the refusal allows.
+func (e *Error) tries() int {
+	if e.Tries > 0 && e.Tries < maxSubmits {
+		return e.Tries
+	}
+	return maxSubmits
+}
 
 // classify reads an error from a provider call made with ctx: the adapter's
 // class, or a timeout or a stop for the context's own errors.

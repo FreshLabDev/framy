@@ -57,10 +57,22 @@ const (
 	previousSetting = "previous_job_id"
 )
 
+// nested is the object a model's own options go in under its upstream's
+// tag: "Google Veo models are the only video models that nest options in a
+// parameters object. Other video models, including other Google video
+// models, take their allowed passthrough keys directly" (OpenRouter, Video
+// Generation). So it follows the model, not the upstream, which Veo shares.
+func nested(model string) string {
+	if strings.HasPrefix(model, "google/veo-") {
+		return "parameters"
+	}
+	return ""
+}
+
 // videoRequest builds the body of POST /videos. What framy can tell is wrong
 // comes back as refused, so nothing is paid for it. A pass-through setting
-// (a negative prompt, say) is refused too: it goes under
-// provider.options.<slug>, and the video catalog names no slug.
+// (a negative prompt, say) goes under provider.options.<tag> of the model's
+// one upstream, which the catalog names; without it the run is refused.
 func videoRequest(j jobs.Job, callbackURL string) (map[string]any, error) {
 	of := j.Offer
 	if of.ProviderModelID == "" {
@@ -75,6 +87,7 @@ func videoRequest(j jobs.Job, callbackURL string) (map[string]any, error) {
 	}
 
 	var frames []string
+	own := map[string]any{}
 	for _, name := range slices.Sorted(maps.Keys(j.Settings)) {
 		v := j.Settings[name]
 		switch {
@@ -97,13 +110,31 @@ func videoRequest(j jobs.Job, callbackURL string) (map[string]any, error) {
 			switch {
 			case !ok:
 				return nil, refused("%s is not a setting of %s", name, of.ID)
-			case p.Passthrough:
-				return nil, refused("%s is a setting of the model's own provider, which framy cannot address yet", name)
 			case !accepts(name, p, v):
 				return nil, refused("%s=%v is not allowed for %s", name, v, of.ID)
+			case p.Passthrough:
+				// A blank text says nothing; it is not sent.
+				if s, ok := v.(string); !ok || strings.TrimSpace(s) != "" {
+					own[name] = normalize(name, v)
+				}
+				continue
 			}
 			body[name] = normalize(name, v)
 		}
+	}
+	if len(own) > 0 {
+		upstream := ""
+		if len(of.Routes) == 1 {
+			upstream = of.Routes[0].Upstream
+		}
+		if upstream == "" {
+			return nil, refused("%s is a setting of the model's own provider, and the catalog does not say which provider runs %s", slices.Sorted(maps.Keys(own))[0], of.ID)
+		}
+		var options any = own
+		if key := nested(of.ProviderModelID); key != "" {
+			options = map[string]any{key: own}
+		}
+		body["provider"] = map[string]any{"options": map[string]any{upstream: options}}
 	}
 	if _, bySize := body["size"]; bySize {
 		for _, other := range []string{"resolution", "aspect_ratio"} {
@@ -210,9 +241,7 @@ type videoJob struct {
 	// number is used, since the video is downloaded from /content.
 	UnsignedURLs []string `json:"unsigned_urls"`
 	URLs         []string `json:"urls"`
-	Usage        *struct {
-		Cost *float64 `json:"cost"`
-	} `json:"usage"`
+	Usage        *usage   `json:"usage"`
 }
 
 // submitVideo sends the paid request. The answer is the job's id, which the
@@ -311,10 +340,7 @@ func (p *Provider) pollVideo(ctx context.Context, j jobs.Job) (jobs.Outcome, err
 // outcome reads a job object. A status it does not know is taken for a run
 // still going: the queue gives up on it after an hour.
 func (p *Provider) outcome(ctx context.Context, key string, r videoJob) (jobs.Outcome, error) {
-	var out jobs.Outcome
-	if r.Usage != nil {
-		out.CostUSD = r.Usage.Cost
-	}
+	out := jobs.Outcome{CostUSD: r.Usage.total()}
 	switch r.Status {
 	case videoCompleted:
 		n := max(len(r.UnsignedURLs), len(r.URLs))
@@ -325,14 +351,26 @@ func (p *Provider) outcome(ctx context.Context, key string, r videoJob) (jobs.Ou
 		for i := range n {
 			res, err := p.download(ctx, key, r.ID, i)
 			var big *tooLargeError
+			var pe *jobs.Error
 			switch {
 			case errors.As(err, &big):
 				// Paid and finished, and too large to keep: nothing to try again.
 				out.Results = nil
 				out.Err = &jobs.Error{Class: jobs.Storage, Err: err}
 				return out, nil
+			case errors.As(err, &pe) && !fetchAgain(pe.Class):
+				// A key that stopped working, money or a filter: asking
+				// again cannot change it, and the run is paid.
+				out.Results = nil
+				out.Err = pe
+				return out, nil
 			case err != nil:
-				return jobs.Outcome{}, err
+				// The run is paid and its video is at OpenRouter: a download
+				// that failed is asked for again at the next poll, until the
+				// hour's deadline. The cost goes beside the error, so a run
+				// whose video never comes keeps it and ends as made but not
+				// kept.
+				return jobs.Outcome{CostUSD: out.CostUSD, Ready: true}, err
 			}
 			out.Results = append(out.Results, res)
 		}
@@ -388,6 +426,18 @@ var moderationPhrases = []string{"content policy", "content_policy", "moderation
 func saysModeration(text string) bool {
 	text = strings.ToLower(text)
 	return slices.ContainsFunc(moderationPhrases, func(p string) bool { return strings.Contains(text, p) })
+}
+
+// fetchAgain says whether a download of a finished video that failed with
+// this class is worth asking for again: a wait, a provider that was down or
+// slow, or an answer cut short. A key that stopped working, money or a
+// filter is a verdict.
+func fetchAgain(c jobs.Class) bool {
+	switch c {
+	case jobs.RateLimited, jobs.Unavailable, jobs.Timeout, jobs.ProviderFailed:
+		return true
+	}
+	return false
 }
 
 // tooLargeError: a finished video above the limit.
@@ -487,7 +537,11 @@ func (p *Provider) newRequest(ctx context.Context, key, method, link string, bod
 		req.Header.Set("HTTP-Referer", p.cfg.Referer)
 	}
 	if p.cfg.Title != "" {
+		req.Header.Set("X-OpenRouter-Title", p.cfg.Title)
 		req.Header.Set("X-Title", p.cfg.Title)
+	}
+	if p.cfg.Categories != "" {
+		req.Header.Set("X-OpenRouter-Categories", p.cfg.Categories)
 	}
 	return req, nil
 }
