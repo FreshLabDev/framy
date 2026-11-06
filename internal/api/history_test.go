@@ -84,6 +84,9 @@ func TestTheHistoryFiltersSearchesAndPages(t *testing.T) {
 		{"?q=100%25", []float64{13}},
 		{"?kind=image&q=fox", []float64{11}},
 		{"?before=13", []float64{12, 11}},
+		{"?failed=1", []float64{12}},
+		{"?failed=1&kind=image", nil},
+		{"?failed=0", []float64{14, 13, 12, 11}},
 	} {
 		got := idsOf(t, jsonOf(t, r.do(alice, http.MethodGet, "/api/jobs"+tc.query, nil)))
 		if len(got) != len(tc.want) || (len(got) > 0 && (got[0] != tc.want[0] || got[len(got)-1] != tc.want[len(tc.want)-1])) {
@@ -102,7 +105,7 @@ func TestTheHistoryFiltersSearchesAndPages(t *testing.T) {
 
 func TestAWrongHistoryRequestIsRefused(t *testing.T) {
 	r := newRig(t)
-	for _, q := range []string{"?kind=audio", "?before=x", "?before=-1", "?limit=0", "?limit=101", "?q=" + strings.Repeat("a", 201)} {
+	for _, q := range []string{"?kind=audio", "?failed=yes", "?before=x", "?before=-1", "?limit=0", "?limit=101", "?q=" + strings.Repeat("a", 201)} {
 		resp := r.do(alice, http.MethodGet, "/api/jobs"+q, nil)
 		if m := jsonOf(t, resp); resp.StatusCode != http.StatusBadRequest || m["error"] != "bad_request" {
 			t.Errorf("%s: %d %v", q, resp.StatusCode, m)

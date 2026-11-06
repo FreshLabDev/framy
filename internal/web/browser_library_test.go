@@ -151,6 +151,9 @@ func (f *fakeLibrary) mount(srv *Server) {
 			if before > 0 && j["id"].(int64) >= before {
 				continue
 			}
+			if st := j["status"]; q.Get("failed") == "1" && st != "failed" && st != "cancelled" && st != "expired" {
+				continue
+			}
 			out = append(out, j)
 		}
 		page := map[string]any{"jobs": out}
@@ -345,6 +348,113 @@ func TestBrowserLibrary(t *testing.T) {
 	noErrors(t, ctx)
 }
 
+// failEvery makes the runs from the fifth on, every other one, fail with no
+// result (but for run keep, when it is not 0): with the failed and cancelled
+// two above, the runs that did not work are more than a page.
+func (f *fakeLibrary) failEvery(keep int64) {
+	for i := 4; i < len(f.jobs); i += 2 {
+		j := f.jobs[i]
+		if j["id"] == keep {
+			continue
+		}
+		delete(j, "results")
+		delete(j, "cost")
+		j["status"], j["error"] = "failed", map[string]any{"class": "moderation", "message": fakeMessage}
+	}
+}
+
+// TestBrowserLibraryFailed checks the filter of the runs that did not work
+// and deleting them all: the filter reaches the server and shows only those,
+// Delete all reads the pages not read yet so the question says how many go,
+// a No leaves them, a Yes deletes them one by one, and a list with none left
+// says so and goes back to all.
+func TestBrowserLibraryFailed(t *testing.T) {
+	f := newFakeLibrary()
+	f.failEvery(64)
+	ts := fakeSite(t, f.mount)
+	ctx := browser(t, ts.URL+"/library", 1440, 900, false)
+	got := js[map[string]any](t, ctx, libHelpers+`
+	await settled();
+	const btn = () => document.querySelector("#library .lfail");
+	const before = { pressed: btn().getAttribute("aria-pressed"), bulk: !!document.querySelector("#library .lbulk") };
+	btn().click();
+	await wait(900); await settled();
+	const first = ids();
+	return { ...before, pressed: btn().getAttribute("aria-pressed"), n: first.length, bad: tiles().filter((e) => !e.querySelector(".cover.none")).length,
+	  kind: document.querySelector("#library [data-seg=lib] [aria-checked=true]")?.dataset.v, bulk: document.querySelector("#library .lbulk .x")?.textContent,
+	  stat: tiles().slice(0, 2).map((e) => e.querySelector(".cover.none b")?.textContent).join(",") };`)
+	if got["pressed"] != "true" || got["bulk"] != "Delete all" || got["n"] != float64(30) || got["bad"] != float64(0) || got["kind"] != "all" {
+		t.Errorf("the filter: %v", got)
+	}
+	lists, _, _ := f.state()
+	if !slices.ContainsFunc(lists, func(q string) bool { return strings.Contains(q, "failed=1") }) {
+		t.Errorf("the filter did not reach the server: %v", lists)
+	}
+
+	// A No leaves every run, the pages read for the question staying. A Yes deletes them one by one.
+	got = js[map[string]any](t, ctx, libHelpers+`
+	const askUp = () => until(() => !document.querySelector("#ask").hidden && document.querySelector("#ask"));
+	document.querySelector("#library .lbulk .x").click();
+	let dlg = await askUp();
+	const q = dlg.querySelector("h2").textContent + " " + dlg.querySelector("p").textContent, dis = document.querySelector("#library .lbulk .x").disabled;
+	dlg.querySelector(".x:not(.yes)").click();
+	await wait(300);
+	const kept = tiles().length;
+	document.querySelector("#library .lbulk .x").click();
+	dlg = await askUp();
+	dlg.querySelector(".yes").click();
+	await until(() => /Deleted/.test(document.querySelector(".toast")?.textContent || ""), 15000);
+	await wait(600);
+	return { q, dis, kept, toast: document.querySelector(".toast")?.textContent, left: tiles().length, none: document.querySelector("#library .lempty.slim p")?.textContent,
+	  bulk: !!document.querySelector("#library .lbulk") };`)
+	if got["q"] != "Delete the failed runs? Runs to delete: 34. They and the files they took go from framy for good. What the bot already sent to chats stays there." ||
+		got["dis"] != true || got["kept"] != float64(34) || got["toast"] != "Deleted: 34" || got["left"] != float64(0) || got["none"] != "No failed runs." || got["bulk"] != false {
+		t.Errorf("deleting them all: %v", got)
+	}
+	_, _, deleted := f.state()
+	if len(deleted) != 34 || slices.Contains(deleted, 70) || slices.Contains(deleted, 69) {
+		t.Errorf("deleted %v: the running and the queued runs stay, the 34 that did not work go", deleted)
+	}
+
+	// Show all brings back what is left, and the filter is off.
+	got = js[map[string]any](t, ctx, libHelpers+`
+	document.querySelector("#library .lempty.slim .x").click();
+	await wait(900); await settled();
+	return { n: ids().length, first: ids().slice(0, 2).join(","), pressed: document.querySelector("#library .lfail").getAttribute("aria-pressed") };`)
+	if got["n"] != float64(30) || got["first"] != "70,69" || got["pressed"] != "false" {
+		t.Errorf("show all: %v", got)
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserLibraryFailedStops checks that Delete all stops at the first run
+// that would not go, says so, and keeps that run and the ones after it.
+func TestBrowserLibraryFailedStops(t *testing.T) {
+	f := newFakeLibrary()
+	f.failEvery(0)
+	ts := fakeSite(t, f.mount)
+	ctx := browser(t, ts.URL+"/library", 390, 844, true)
+	got := js[map[string]any](t, ctx, libHelpers+`
+	await settled();
+	document.querySelector("#library .lfail").click();
+	await wait(900); await settled();
+	const row = document.querySelector("#library .lfind").getBoundingClientRect(), field = document.querySelector("#library .lsearch").getBoundingClientRect();
+	document.querySelector("#library .lbulk .x").click();
+	const dlg = await until(() => !document.querySelector("#ask").hidden && document.querySelector("#ask"), 15000);
+	dlg.querySelector(".yes").click();
+	await until(() => document.querySelector(".toast"), 15000);
+	await wait(600);
+	return { toast: document.querySelector(".toast")?.textContent, still: ids().includes(64), first: ids()[0], search: Math.round(field.width), row: Math.round(row.width),
+	  over: document.documentElement.scrollWidth - innerWidth, wide: innerWidth, btn: document.querySelector("#library .lbulk .x")?.disabled };`)
+	// 68, 66 and the ones before 64 went; 64 would not (storage_unavailable), and the run stops there.
+	_, _, deleted := f.state()
+	if got["toast"] != "The files were not deleted. The run is still here, try again." || got["still"] != true || got["first"] != float64(64) || got["btn"] != false ||
+		got["over"].(float64) > 0 || got["wide"] != float64(390) || got["search"].(float64) < 100 || !slices.Equal(deleted, []int64{68, 67, 66}) {
+		t.Errorf("a run that would not go: %v, deleted %v", got, deleted)
+	}
+	noErrors(t, ctx)
+}
+
 // TestBrowserViewer checks one run on the viewer: at its own address, the
 // arrows, closing, deleting and its refusals, and Again at today's price.
 func TestBrowserViewer(t *testing.T) {
@@ -490,7 +600,7 @@ func TestBrowserLibraryPhone(t *testing.T) {
 		ctx := browser(t, ts.URL+"/library", size[0], size[1], true)
 		got := js[map[string]any](t, ctx, libHelpers+`
 		await settled();
-		const r = { overflow: document.documentElement.scrollWidth - innerWidth, cols: getComputedStyle(document.querySelector("#library .libgrid")).gridTemplateColumns.split(" ").length,
+		const r = { overflow: document.documentElement.scrollWidth - innerWidth, vw: innerWidth, cols: getComputedStyle(document.querySelector("#library .libgrid")).gridTemplateColumns.split(" ").length,
 		  tabText: vis(document.querySelector("#top .tab .t")), dock: vis(document.querySelector("#composer")) };
 		tiles()[6].click();
 		await wait(700);
@@ -500,7 +610,7 @@ func TestBrowserLibraryPhone(t *testing.T) {
 		r.box = Math.round(v.querySelector(".vbox").getBoundingClientRect().width);
 		r.wide = v.scrollWidth - v.clientWidth;
 		return r;`)
-		if got["overflow"].(float64) > 0 || got["cols"].(float64) != 2 || got["tabText"] != false || got["dock"] != false ||
+		if got["overflow"].(float64) > 0 || got["vw"] != float64(size[0]) || got["cols"].(float64) != 2 || got["tabText"] != false || got["dock"] != false ||
 			got["sheet"] != true || got["actsIn"] != true || got["box"].(float64) > float64(size[0]) || got["wide"].(float64) > 0 {
 			t.Errorf("%dx%d: %v", size[0], size[1], got)
 		}

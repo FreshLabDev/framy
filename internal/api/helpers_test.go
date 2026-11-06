@@ -167,6 +167,7 @@ func (d *fakeData) List(_ context.Context, userID int64, f Filter) ([]State, err
 		case f.Kind != "" && s.Kind != f.Kind:
 		case f.Query != "" && !strings.Contains(strings.ToLower(s.Prompt), strings.ToLower(f.Query)):
 		case f.Before != 0 && id >= f.Before:
+		case f.Failed && s.Status != jobs.Failed && s.Status != jobs.Cancelled && s.Status != jobs.Expired:
 		default:
 			out = append(out, s)
 		}

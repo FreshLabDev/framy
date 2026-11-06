@@ -634,8 +634,18 @@ main.library {display: grid; gap: 18px; padding: 6px 0 calc(48px + env(safe-area
 .lsearch .clr {position: absolute; right: 4px; width: 34px; height: 34px; display: grid; place-items: center; color: var(--soft); opacity: 0; pointer-events: none;}
 .lsearch .clr .ic {width: 14px; height: 14px;}
 .lsearch.has .clr {opacity: 1; pointer-events: auto;}
+/* Search and the filter of the runs that did not work share a row, the search taking what is left. */
+.lfind {display: flex; align-items: center; gap: var(--gap); min-width: 0; max-width: 100%;}
+.lfail {flex: none; height: 42px; padding: 0 14px; display: inline-flex; align-items: center; gap: 8px; background: var(--deep); font-weight: 600; white-space: nowrap;}
+.lfail[aria-pressed="true"] {background: var(--ink); color: var(--field);}
+.lfail .ic {width: 16px; height: 16px;}
+.lbulk {display: flex;}
+.lbulk .x {height: 40px; padding: 0 14px; display: inline-flex; align-items: center; gap: 8px; background: var(--deep); color: var(--ink); font-weight: 600;}
+.lbulk .x:disabled {opacity: .5;}
 @media (max-width: 959px) {
-  .libhead .seg, .lsearch {width: 100%;}
+  .libhead .seg, .lfind {width: 100%;}
+  /* A width of 0 so the field adds nothing to the least the row needs; it grows into the room that is left. */
+  .lfind .lsearch {flex: 1 1 0; width: 0; min-width: 120px;}
 }
 .lday {display: grid; gap: 12px;}
 .lday + .lday {margin-top: 10px;}
@@ -689,11 +699,11 @@ main.library {display: grid; gap: 18px; padding: 6px 0 calc(48px + env(safe-area
 .li .m > span {white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
 .li:focus-visible {outline-offset: 4px;}
 @media (hover: hover) {
-  .tab:not([aria-current="page"]):hover, .libmore .x:hover, .lempty .x:hover {background-color: var(--line);}
+  .tab:not([aria-current="page"]):hover, .libmore .x:hover, .lempty .x:hover, .lbulk .x:not(:disabled):hover, .lfail[aria-pressed="false"]:hover {background-color: var(--line);}
   .li:hover .p {text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px;}
 }
 @media (prefers-reduced-motion: no-preference) {
-  .tab, .libmore .x, .lempty .x {transition: background-color .16s, color .16s;}
+  .tab, .libmore .x, .lempty .x, .lbulk .x, .lfail {transition: background-color .16s, color .16s;}
 }
 
 /* The viewer: one run on a sheet. On a wide screen the result stands beside what it says. */

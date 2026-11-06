@@ -1,7 +1,7 @@
 // The library and the viewer. The library is every run of the person's,
-// newest first by day, filtered by kind and searched by prompt
-// (GET /api/jobs); the viewer is one run on a sheet, at /r/<job id>, with
-// what can be done with it. The page's views and their addresses live here
+// newest first by day, filtered by kind or to the runs that did not work,
+// and searched by prompt (GET /api/jobs); the viewer is one run on a sheet,
+// at /r/<job id>, with what can be done with it. The page's views and their addresses live here
 // too: / is the composer, /library the library. The Mini App keeps its
 // address and walks back with Telegram's back button instead.
 import { $, $$, h, ic, isWide, isPhone } from "./dom.js";
@@ -78,7 +78,7 @@ onLeave(() => { closeFull(true); if (viewerOpen()) { V.quiet = true; closeSheets
 
 const PAGE = 30;
 // busy is "page" while the first page loads, "more" while the next one does.
-const L = { kind: "all", q: "", jobs: [], next: 0, busy: "", loaded: false, err: "", more: "", gen: 0, at: 0, any: false, dirty: false };
+const L = { kind: "all", q: "", failed: false, clearing: false, jobs: [], next: 0, busy: "", loaded: false, err: "", more: "", gen: 0, at: 0, any: false, dirty: false };
 const TILES = new Map();
 let Q = null;
 
@@ -86,7 +86,9 @@ export function mountLibrary() {
   return h("main", { class: "library", id: "library", hidden: true, "aria-label": t("tab.library") });
 }
 
-const matches = (j) => (L.kind === "all" || j.kind === L.kind) && (!L.q || (j.prompt || "").toLocaleLowerCase().includes(L.q.toLocaleLowerCase()));
+// A run that ended with no result: it failed, was cancelled or ran out of time.
+const bad = (j) => j.status === "failed" || j.status === "cancelled" || j.status === "expired";
+const matches = (j) => (L.kind === "all" || j.kind === L.kind) && (!L.failed || bad(j)) && (!L.q || (j.prompt || "").toLocaleLowerCase().includes(L.q.toLocaleLowerCase()));
 const shown = () => L.jobs.filter(matches);
 const libOn = () => S.view === "library";
 
@@ -94,6 +96,7 @@ function params(more) {
   const p = new URLSearchParams({ limit: String(PAGE) });
   if (L.kind !== "all") p.set("kind", L.kind);
   if (L.q) p.set("q", L.q);
+  if (L.failed) p.set("failed", "1");
   if (more) p.set("before", String(L.next));
   return p;
 }
@@ -157,7 +160,7 @@ function showLibrary() {
 export function libMe() {
   if (!S.signed) {
     L.gen++;
-    Object.assign(L, { jobs: [], next: 0, busy: "", loaded: false, err: "", more: "", at: 0, any: false });
+    Object.assign(L, { jobs: [], next: 0, busy: "", loaded: false, err: "", more: "", at: 0, any: false, failed: false });
     TILES.clear();
     if (viewerOpen()) { V.quiet = true; closeSheets(true); setPath("/library", "replace"); }
   }
@@ -176,8 +179,11 @@ function renderLibrary() {
   else if (L.err && !list.length) body = [slim(t("lib.failed"), "again", t("act.retry"), () => { swap(() => { L.err = ""; L.loaded = false; }); load(); })];
   else if (!list.length) body = [empty()];
   else body = [...days(entries(list)).map(dayEl), foot(list)];
-  const tools = S.signed && L.loaded && (L.any || L.kind !== "all" || !!L.q);
-  root.replaceChildren(h("div", { class: "libhead", "data-k": "lhead" }, h("h1", {}, t("tab.library")), tools ? kinds() : null, tools ? searchBox() : null), ...body);
+  const tools = S.signed && L.loaded && (L.any || L.kind !== "all" || !!L.q || L.failed);
+  // The runs that did not work can all go at once, from the list of just those.
+  const bulk = tools && L.failed && list.length ? h("div", { class: "lbulk", "data-k": "lbulk" }, clearBtn()) : null;
+  root.replaceChildren(h("div", { class: "libhead", "data-k": "lhead" }, h("h1", {}, t("tab.library")), tools ? kinds() : null,
+    tools ? h("div", { class: "lfind" }, searchBox(), failedBtn()) : null), bulk, ...body);
   placeSegs(root);
   watchFoot();
   if (focused) Q.input.focus({ preventScroll: true });
@@ -193,6 +199,55 @@ function setKind(k) {
   // What is read already shows at once; the server's page follows.
   swap(() => { L.kind = k; L.next = 0; L.busy = "page"; });
   load();
+}
+// Only the runs that did not work: to see what went wrong, to take them again, or to clear them.
+function failedBtn() {
+  return h("button", { type: "button", class: "lfail", "aria-pressed": String(L.failed), onclick: () => setFailed(!L.failed) }, ic("warn"), h("span", {}, t("lib.only_failed")));
+}
+function setFailed(on) {
+  if (L.failed === on || L.clearing) return;
+  swap(() => { L.failed = on; L.next = 0; L.busy = "page"; });
+  load();
+}
+// Delete all: every run of the list, after the pages not read yet are, so the
+// question says how many go. Each is deleted as one run is, one after another,
+// and the list follows once it is over.
+let BK = null;
+function clearBtn() {
+  if (!BK) BK = h("button", { type: "button", class: "x", onclick: clearFailed }, ic("trash"), h("span", {}));
+  BK.disabled = L.clearing;
+  BK.lastChild.textContent = t("lib.delete_all");
+  return BK;
+}
+const deleteError = (e) => (e.code === "job_active" ? t("view.del_active") : e.code === "network" ? t("err.network") : e.code === "storage_unavailable" ? t("view.del_storage") : t("view.del_failed"));
+async function clearFailed() {
+  if (L.clearing || !L.failed) return;
+  L.clearing = true; clearBtn();
+  const ids = new Set();
+  let error = null;
+  try {
+    // A page the observer is reading is waited for; one that failed ends the wait.
+    for (let tries = 0; L.next && tries < 400; tries++) {
+      if (L.busy) await new Promise((r) => setTimeout(r, 100));
+      else { await load(true); if (L.more) break; }
+    }
+    const list = shown().filter(bad);
+    if (L.more || L.next) { toast(t("lib.more_failed")); return; }
+    if (!list.length || !(await ask({ title: t("lib.delete_q"), text: t("lib.delete_text", { n: fmtNum(list.length) }), yes: t("view.delete") }))) return;
+    for (const j of list) {
+      try { await removeJob(j.id); ids.add(j.id); TILES.delete(j.id); }
+      catch (e) { error = e; break; }
+    }
+  } finally {
+    L.clearing = false;
+    if (ids.size) {
+      const open = ids.has(V.id) && viewerOpen();
+      swap(() => { L.jobs = L.jobs.filter((x) => !ids.has(x.id)); });
+      if (open) { closeFull(true); closeSheets(); }
+    } else clearBtn();
+  }
+  if (error) { if (error.status === 401) refreshMe(); else toast(deleteError(error)); }
+  else if (ids.size) toast(t("lib.deleted_n", { n: fmtNum(ids.size) }));
 }
 // The search field is one element kept across renders, so typing never loses it.
 function searchBox() {
@@ -374,6 +429,7 @@ function signedOut() {
 }
 function empty() {
   if (L.q) return slim(t("lib.none_q", { q: L.q }), "close", t("lib.reset"), () => { if (Q) Q.input.value = ""; find(""); });
+  if (L.failed) return slim(t("lib.none_failed"), "grid", t("lib.show_all"), () => setFailed(false));
   if (L.kind !== "all") return slim(t(L.kind === "video" ? "lib.none_videos" : "lib.none_images"), "grid", t("lib.show_all"), () => setKind("all"));
   return h("div", { class: "lempty", "data-k": "lempty" }, frame(), h("div", { class: "t" }, h("h2", {}, t("lib.empty_title")), h("p", {}, t("lib.empty_text")),
     h("button", { type: "button", class: "go", onclick: () => { go("create"); if (!isPhone()) $("#prompt").focus(); } }, ic("spark"), t("go.create"))));
@@ -681,7 +737,7 @@ async function del() {
   try { await removeJob(j.id); }
   catch (e) {
     // storage_unavailable: the files did not go, so the run stays and a second press is safe.
-    toast(e.code === "job_active" ? t("view.del_active") : e.code === "network" ? t("err.network") : e.code === "storage_unavailable" ? t("view.del_storage") : t("view.del_failed"));
+    toast(deleteError(e));
     if (e.code === "job_active") api(`/api/jobs/${j.id}`).then((x) => took(x, true), () => {});
     return;
   }

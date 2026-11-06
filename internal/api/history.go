@@ -29,8 +29,9 @@ type historyJSON struct {
 
 // history answers GET /api/jobs: the person's jobs that were queued, newest
 // first, each as GET /api/jobs/{id} gives it. kind is image or video, q a
-// part of the prompt in any case, before the next of the previous page and
-// limit up to 100 (30 by default). A draft that was never generated and a
+// part of the prompt in any case, failed=1 only the jobs that ended without a
+// result (failed, cancelled or expired), before the next of the previous page
+// and limit up to 100 (30 by default). A draft that was never generated and a
 // deleted job are not in it.
 func (a *API) history(w http.ResponseWriter, r *http.Request) {
 	user, ok := a.person(w, r)
@@ -50,6 +51,14 @@ func (a *API) history(w http.ResponseWriter, r *http.Request) {
 	f.Query = strings.TrimSpace(q.Get("q"))
 	if utf8.RuneCountInString(f.Query) > maxQuery {
 		badRequest("q", "the search is at most 200 characters").write(w)
+		return
+	}
+	switch v := q.Get("failed"); v {
+	case "", "0":
+	case "1":
+		f.Failed = true
+	default:
+		badRequest("failed", `failed is "1" for the jobs that did not work`).write(w)
 		return
 	}
 	if v := q.Get("before"); v != "" {

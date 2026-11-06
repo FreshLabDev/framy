@@ -89,6 +89,9 @@ type Filter struct {
 	Kind catalog.Kind
 	// Query is a part of the prompt, any case; empty for every job.
 	Query string
+	// Failed keeps only the jobs that ended without a result: failed,
+	// cancelled or expired.
+	Failed bool
 	// Before is the id of the last job of the previous page, 0 for the
 	// first.
 	Before int64
@@ -253,8 +256,9 @@ func (d pgData) List(ctx context.Context, userID int64, f Filter) ([]State, erro
 		  AND ($2 = '' OR kind = $2)
 		  AND ($3 = '' OR prompt ILIKE '%' || $3 || '%' ESCAPE '\')
 		  AND ($4 = 0 OR id < $4)
+		  AND (NOT $6 OR status IN ('failed', 'cancelled', 'expired'))
 		ORDER BY id DESC
-		LIMIT $5`, userID, string(f.Kind), likeEscape(f.Query), f.Before, f.Limit)
+		LIMIT $5`, userID, string(f.Kind), likeEscape(f.Query), f.Before, f.Limit, f.Failed)
 	if err != nil {
 		return nil, fmt.Errorf("read the history: %w", err)
 	}
