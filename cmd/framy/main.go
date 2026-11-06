@@ -144,7 +144,14 @@ func run(log *slog.Logger) error {
 	// People's own keys (#13). Without a KEK file there are none, and a run
 	// that needs one fails as key. Track writes what each run shows about its
 	// key as the connection's status.
-	people, err := openKeys(ctx, cfg, store, userAgent, log)
+	watch := &modelWatch{files: catalogFiles, log: log.With("component", "models")}
+	if cfg.OperatorChatID != 0 && cfg.Primary() {
+		watch.notify = func(ctx context.Context, text string) error {
+			_, err := client.SendPlainText(ctx, cfg.OperatorChatID, text)
+			return err
+		}
+	}
+	people, err := openKeys(ctx, cfg, store, userAgent, watch.listed, log)
 	if err != nil {
 		return err
 	}
@@ -659,7 +666,7 @@ func openAllowance(cfg config.Config, store *db.Store, client *tg.Client, userAg
 // that keeps no keys. A KEK file that cannot be read stops the start: it
 // is the operator's mistake, and running without it would look like every
 // stored key being gone.
-func openKeys(ctx context.Context, cfg config.Config, store *db.Store, userAgent string, log *slog.Logger) (*keys.Service, error) {
+func openKeys(ctx context.Context, cfg config.Config, store *db.Store, userAgent string, listed func(string, []catalog.Listed), log *slog.Logger) (*keys.Service, error) {
 	if cfg.KEKFile == "" {
 		log.Warn("no FRAMY_KEK_FILE: people cannot connect keys of their own, and a run on one fails as key")
 		return nil, nil
@@ -677,6 +684,7 @@ func openKeys(ctx context.Context, cfg config.Config, store *db.Store, userAgent
 		KEK:            kek,
 		UserAgent:      userAgent,
 		OpenRouterBase: cfg.OpenRouterAPIBase,
+		Listed:         listed,
 		Log:            log,
 	})
 	if err != nil {

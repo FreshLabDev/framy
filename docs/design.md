@@ -155,12 +155,21 @@ In the catalog only GPT Image 2.5 and 2.6 and the direct Gemini models have effo
 ### Hidden
 
 - Models with an OpenRouter `expiration_date` less than 14 days away.
-- Models on the OpenAI and Google deprecation pages. Proposal: the service reads both pages weekly and posts changes to the operator chat.
+- Models on the OpenAI and Google deprecation pages, by the overlay's `hide` and `deprecated.shuts_down` (a model is hidden 14 days before its day). OpenAI's list of models says it itself (`shutdown_date`), so there the operator is told: see "Watching the makers' lists" below. Google's pages are prose, so they are still read by hand.
 - Duplicates and wrappers: the Gemini preview ids Google shut down on 25 June 2026 (`google/gemini-3-pro-image-preview`, `google/gemini-3.1-flash-image-preview`), named one by one so Google's next preview is shown, `openai/gpt-5*-image*`, `openai/gpt-image-1*` (every GPT Image 1, 1.5 included, closes by 1 December 2026), `meta/muse-image` (an eval slug), `openrouter/auto*`.
 - An offer with no route, such as `meta/muse-image`, whose endpoint list on the Images API is empty.
 - `heygen/avatar-iv`, a talking head from a photo and a voice, until the composer takes a voice.
 
-Until the weekly reader of the deprecation pages exists, the overlay hides such models by hand, `gemini-2.5-flash-image` among them.
+The overlay hides such models by hand, `gemini-2.5-flash-image` among them.
+
+### Watching the makers' lists
+
+framy has no key of OpenAI's own, so it cannot ask `GET /v1/models` on a schedule. It reads the answer at the moments it already asks for it: every time a person saves or rechecks an OpenAI key and the check passes (`keys.Config.Listed`). The comparison with `catalog/` (`Files.ListedNotes`) says two things, each once per process, in the log of every stack and in the operator chat from production:
+
+- OpenAI lists a `gpt-image-*` that `catalog/openai.yaml` does not describe and the overlay does not hide: a new GPT Image (GPT Image 2.6 came out on 4 November 2026 with nothing in the logs). A dated snapshot of a known model, the closing GPT Image 1 line the overlay hides, and a model whose shutdown day has passed are not news.
+- A described model has a `shutdown_date` the overlay lacks or has differently: the note says to set `deprecated.shuts_down`, which is what makes the picker stop offering the model 14 days before.
+
+Nothing hides a model by itself: the list is one person's account, and the decision is written in the overlay. A watch without a person's key, such as a weekly job on a key of the operator's own, would need a secret that does not exist yet; until then a new model is noticed when someone connects or rechecks a key. Gemini's list has no shutdown field.
 
 ### Featured at launch
 

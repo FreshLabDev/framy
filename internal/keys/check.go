@@ -47,14 +47,19 @@ const (
 	DefaultOpenRouterBase = "https://openrouter.ai/api/v1"
 )
 
-// maxCheckBody bounds what is read of an answer. Only a Gemini error is
-// parsed, and it is a few hundred bytes.
+// maxCheckBody bounds what is read of an answer. A Gemini error is parsed, and
+// it is a few hundred bytes. OpenAI's list of models is read too and is a few
+// tens of kilobytes at most; one that does not fit is not read, and the check
+// stands.
 const maxCheckBody = 64 << 10
 
 type checker struct {
 	http      *http.Client
 	userAgent string
 	bases     map[string]string
+	// listed hears the models a provider's list named when a check passed:
+	// OpenAI's, with the day each one is shut down. Nil hears nothing.
+	listed func(provider string, models []catalog.Listed)
 }
 
 // check asks the provider whether it accepts the key, with a call that costs
@@ -100,7 +105,42 @@ func (c *checker) check(ctx context.Context, provider, key string) error {
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxCheckBody))
-	return verdict(provider, resp.StatusCode, body)
+	err = verdict(provider, resp.StatusCode, body)
+	if err == nil && c.listed != nil && provider == catalog.OpenAI {
+		if models := openAIModels(body); len(models) > 0 {
+			c.listed(provider, models)
+		}
+	}
+	return err
+}
+
+// openAIModels reads the ids and shutdown days of GET /v1/models. The list is
+// a few hundred models at most and fits maxCheckBody; one that does not
+// parses as nothing, and the check stands without it. The ids are the
+// account's own and go to the operator chat, so only those that look like a
+// model id are kept.
+func openAIModels(body []byte) []catalog.Listed {
+	var list struct {
+		Data []struct {
+			ID           string  `json:"id"`
+			ShutdownDate *string `json:"shutdown_date"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(body, &list) != nil {
+		return nil
+	}
+	var out []catalog.Listed
+	for _, m := range list.Data {
+		if len(m.ID) == 0 || len(m.ID) > 80 || strings.ContainsAny(m.ID, " \t\r\n/") {
+			continue
+		}
+		l := catalog.Listed{ID: m.ID}
+		if m.ShutdownDate != nil {
+			l.ShutsDown = *m.ShutdownDate
+		}
+		out = append(out, l)
+	}
+	return out
 }
 
 // verdict turns a status into the outcome of a check.

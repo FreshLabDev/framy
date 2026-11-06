@@ -84,6 +84,11 @@ type Config struct {
 	// local server.
 	OpenAIBase, GeminiBase, OpenRouterBase string
 	Log                                    *slog.Logger
+	// Listed hears the models OpenAI's list named each time a key of OpenAI
+	// passed its check, with the day each is shut down where OpenAI gave one.
+	// It runs on the caller's goroutine, so it must not wait. Nil hears
+	// nothing.
+	Listed func(provider string, models []catalog.Listed)
 }
 
 // Service keeps the keys. A nil *Service is a framy without a KEK file: Save
@@ -117,6 +122,7 @@ func newChecker(cfg Config) checker {
 	return checker{
 		http:      hc,
 		userAgent: cfg.UserAgent,
+		listed:    cfg.Listed,
 		bases: map[string]string{
 			catalog.OpenAI:     strings.TrimRight(orDefault(cfg.OpenAIBase, DefaultOpenAIBase), "/"),
 			catalog.Gemini:     strings.TrimRight(orDefault(cfg.GeminiBase, DefaultGeminiBase), "/"),
