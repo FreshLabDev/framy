@@ -10,6 +10,9 @@ export const S = {
   // expired is why framy refused the Mini App's launch data (init_data_expired or
   // init_data_invalid): nobody is signed in until Telegram opens the Mini App anew.
   expired: "",
+  // unsure: framy did not say who is here (a 5xx, the tunnel, the network),
+  // which is not "nobody": until it does, nobody is asked to sign in again.
+  unsure: false,
   // meV counts the person's changes to the account on this page: a read of
   // /api/me begun before one is older than what the page holds.
   meV: 0,
@@ -376,6 +379,7 @@ export function next(prompt) {
   if (!M()) return { label: t("go.create"), on: false };
   const items = plan(), cont = items.some((it) => contFits(it.m, it.pay)), empty = !prompt.trim() && !S.files.length && !cont;
   if (!S.signed && S.mini && S.expired) return { label: t("go.close"), act: "close", on: true, why: reopenText() };
+  if (!S.signed && S.unsure) return { label: t("go.offline"), on: false };
   // Signing in needs no prompt: the button goes at once, and what is typed meanwhile waits for the return.
   if (!S.signed) return { label: t(S.mini ? "go.create" : "go.signin"), act: "signin", on: true };
   if (!S.online) return { label: t("go.offline"), on: false };

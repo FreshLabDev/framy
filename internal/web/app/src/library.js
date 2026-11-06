@@ -181,7 +181,8 @@ function drawLibrary() {
   L.dirty = false;
   const list = shown(), focused = Q && document.activeElement === Q.input;
   let body;
-  if (!S.signed) body = [signedOut()];
+  // framy has not said yet who is here: no sign-in for someone who may be signed in.
+  if (!S.signed) body = [S.unsure ? loading() : signedOut()];
   else if (!L.loaded || (!list.length && L.busy === "page")) body = [loading()];
   else if (L.err && !list.length) body = [slim(t("lib.failed"), "again", t("act.retry"), () => { swap(() => { L.err = ""; L.loaded = false; }); load(); })];
   else if (!list.length) body = [empty()];

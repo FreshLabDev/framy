@@ -1002,6 +1002,45 @@ func TestBrowserMiniOutsideTelegram(t *testing.T) {
 	noErrors(t, ctx)
 }
 
+// TestBrowserMeFails opens the page while framy cannot say who is there:
+// GET /api/me answers 503 twice. That is no "signed out": the page offers no
+// sign-in to a person who may well be signed in, says framy is out of reach,
+// and asks again until the account comes.
+func TestBrowserMeFails(t *testing.T) {
+	var mu sync.Mutex
+	asked := 0
+	ts := fakeSite(t, func(srv *Server) {
+		srv.HandleFunc("GET /api/me", func(w http.ResponseWriter, _ *http.Request) {
+			mu.Lock()
+			asked++
+			n := asked
+			mu.Unlock()
+			if n <= 2 {
+				writeTestJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "unavailable"})
+				return
+			}
+			writeTestJSON(w, http.StatusOK, map[string]any{"user_id": 1, "name": "Ada", "language": "en", "currency": "USD",
+				"connections": []map[string]any{}, "free": map[string]any{
+					"images": map[string]any{"used": 0, "limit": 5, "left": 5, "window_seconds": 86400},
+					"videos": map[string]any{"used": 0, "limit": 1, "left": 1, "window_seconds": 604800}}})
+		})
+	})
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	got := js[map[string]any](t, ctx, pageHelpers+`
+	const go = document.querySelector("#go");
+	const first = { signin: !!document.querySelector("#top .signin"), me: !!document.querySelector("#meBtn"), go: go.textContent, on: !go.disabled,
+	  toast: document.querySelector(".toast")?.textContent || "" };
+	for (let i = 0; i < 100 && !document.querySelector("#meBtn"); i++) await wait(100);
+	return { ...first, after: !!document.querySelector("#meBtn"), cap: document.querySelector("#pcap").textContent, goAfter: go.textContent };`)
+	if got["signin"] != false || got["me"] != false || got["go"] != "Offline" || got["on"] != false || !strings.HasPrefix(got["toast"].(string), "No connection to framy") {
+		t.Errorf("while framy cannot say who is here: %v", got)
+	}
+	if got["after"] != true || got["cap"] != "Free left: 5 of 5" || !strings.HasPrefix(got["goAfter"].(string), "Create") {
+		t.Errorf("once framy answers: %v", got)
+	}
+	noErrors(t, ctx)
+}
+
 // TestBrowserMiniExpired lets the Mini App's session end: framy stops taking
 // its launch data, as it does an hour after Telegram signed it. Opened that
 // late, the Mini App says to open it again and its main button closes it;

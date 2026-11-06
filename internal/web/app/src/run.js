@@ -54,19 +54,24 @@ export function forget() {
   window.dispatchEvent(new Event("framy:me"));
 }
 
+// Reads the account again; true once framy answered who it is or that
+// nobody is signed in, false when it could not be asked.
 export async function refreshMe() {
   const v = S.meV;
+  let said = true;
   try {
     const me = await api("/api/me");
+    S.unsure = false;
     // A setting changed meanwhile, and its answer is the newer account.
-    if (S.meV !== v) return;
+    if (S.meV !== v) return true;
     const was = S.me?.currency;
     S.me = me; S.signed = true;
     if (was && was !== me.currency) clearPrices();
   } catch (e) {
-    if (e.status === 401) { S.me = null; S.signed = false; }
+    if (e.status === 401) { S.me = null; S.signed = false; S.unsure = false; } else said = false;
   }
   window.dispatchEvent(new Event("framy:me"));
+  return said;
 }
 
 /* A run: what was pressed, and where it stands. phase is "prep" while the

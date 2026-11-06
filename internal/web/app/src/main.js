@@ -34,7 +34,7 @@ function account() {
     const av = me.photo_url ? h("img", { class: "av", src: me.photo_url, alt: "", referrerpolicy: "no-referrer" }) : h("span", { class: "av" }, (me.name || "?").slice(0, 1).toUpperCase());
     return h("button", { type: "button", class: "me", id: "meBtn", onclick: () => openPrefs(), "aria-label": t("prefs.title"), "aria-haspopup": "dialog" }, av, h("span", { class: "t" }, t("prefs.title")));
   }
-  return S.mini ? null : h("button", { type: "button", class: "signin", onclick: signIn }, ic("send"), h("span", {}, t("auth.signin")));
+  return S.mini || S.unsure ? null : h("button", { type: "button", class: "signin", onclick: signIn }, ic("send"), h("span", {}, t("auth.signin")));
 }
 // The header is drawn anew on every change of view; a tab pressed with the keyboard keeps the focus.
 function renderTop() {
@@ -115,6 +115,16 @@ function telegram(tg) {
   tg.onEvent?.("shareMessageFailed", (e) => { if (e?.error !== "USER_DECLINED") toast(t("share.failed")); });
 }
 
+// framy did not say who is here: it is asked again, a little later each
+// time, until it answers who it is or that nobody is signed in.
+function findMe(wait = 2000) {
+  setTimeout(async () => {
+    if (!S.unsure) return;
+    if (await refreshMe()) netState("live");
+    else findMe(Math.min(wait * 2, 60000));
+  }, wait);
+}
+
 async function main() {
   session.mini = B.mini;
   session.initData = B.initData;
@@ -128,7 +138,8 @@ async function main() {
   try { const a = await B.auth; if (a) setToken(a); } catch (e) { authFail = e; }
   // Launch data framy refused cannot be traded again: the Mini App has to be opened anew.
   if (authFail?.status === 401 || authFail?.status === 400) { endSession(authFail.error); S.expired = session.dead; }
-  try { S.me = authFail ? null : await B.me; } catch { S.me = null; }
+  // Only a 401 says nobody is signed in; any other failure leaves it unknown.
+  try { S.me = authFail ? null : await B.me; } catch { S.me = null; S.unsure = !authFail; }
   S.signed = !!S.me;
   useDefaults();
   // The person's own language, where it is another than the one guessed for the first paint.
@@ -156,6 +167,7 @@ async function main() {
   try { back = sessionStorage.getItem("framy.prefs"); sessionStorage.removeItem("framy.prefs"); } catch {}
   if (back && S.signed && !sp.get("connect")) openPrefs();
   if (authFail) toast(S.expired ? reopenText() : t("err.network"), { ms: 8000 });
+  if (S.unsure) { netState("lost"); findMe(); }
   // Opened too late, with what was kept from the last time in the prompt: kept again for the next open.
   if (S.expired) keepPrompt();
   // The session ends while the Mini App is open, an hour or so after Telegram opened it:
@@ -176,7 +188,7 @@ async function main() {
     if (oauthBack()) return;
     if (S.signed && hidAt && Date.now() - hidAt > 30000) refreshMe();
   });
-  addEventListener("online", () => { S.online = true; netState("live"); renderBar(); });
+  addEventListener("online", () => { S.online = true; netState("live"); renderBar(); if (S.unsure) refreshMe(); });
   addEventListener("offline", () => { S.online = false; netState("lost"); renderBar(); });
   (window.requestIdleCallback || setTimeout)(warmFormats);
   prefetchPicker();
