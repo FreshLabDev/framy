@@ -4,7 +4,7 @@
 import { $, h, ic, keepFocus } from "./dom.js";
 import { anim, placeSegs, DUR } from "./motion.js";
 import { setTexts, t, lang, warmFormats } from "./i18n.js";
-import { session, setToken, endSession } from "./api.js";
+import { session, setToken, endSession, api } from "./api.js";
 import { loadCatalog, PNAME } from "./catalog.js";
 import { S, initModels, useDefaults, reopenText } from "./state.js";
 import { mountComposer, wireComposer, wireTuneSwipe, render, renderBar, tuneClosed } from "./composer.js";
@@ -15,8 +15,8 @@ import { signIn, refreshMe, generate, netState, closeMini, keepPrompt } from "./
 import { mountCutter, openCut } from "./clips.js";
 import { mountPrefs, openPrefs, renderPrefs, prefsOpen, oauthResult, oauthBack } from "./prefs.js";
 import { mountLibrary, mountViewer, mountFull, tabs, go, route, libMe } from "./library.js";
-import { takeDraft } from "./draft.js";
-import { MARK, FATAL } from "assets:lists";
+import { takeDraft, keepDraft } from "./draft.js";
+import { MARK, FATAL, LANGS } from "assets:lists";
 
 const B = window.framy;
 
@@ -40,8 +40,29 @@ function account() {
     return h("button", { type: "button", class: "me", id: "meBtn", onclick: () => openPrefs(), "aria-label": t("prefs.title"), "aria-haspopup": "dialog" }, av, h("span", { class: "t" }, t("prefs.title")));
   }
   // A phone shows the short line; the whole one stays the button's name.
-  return S.mini || S.unsure ? null : h("button", { type: "button", class: "signin", onclick: signIn, "aria-label": t("auth.signin") },
-    ic("send"), h("span", { class: "t" }, t("auth.signin")), h("span", { class: "ts" }, t("auth.signin_short")));
+  return S.mini || S.unsure ? null : [guestLang(), h("button", { type: "button", class: "signin", onclick: signIn, "aria-label": t("auth.signin") },
+    ic("send"), h("span", { class: "t" }, t("auth.signin")), h("span", { class: "ts" }, t("auth.signin_short")))];
+}
+// Before signing in the page speaks the browser's language. A visitor picks another here: the code
+// of the language shows, the list names them in their own words. The pick is kept for the next
+// loads and goes to the account they sign in with, unless that account has chosen its own (boot).
+function guestLang() {
+  const pick = async (code) => {
+    try { localStorage.setItem("framy.language", code); localStorage.setItem("framy.guest_lang", code); } catch {}
+    await keepDraft();
+    location.reload();
+  };
+  return h("label", { class: "glang" }, h("span", { "aria-hidden": "true" }, lang.toUpperCase()), ic("chevd"),
+    h("select", { "aria-label": t("prefs.language"), onchange: (e) => pick(e.target.value) },
+      LANGS.map(([c, n]) => h("option", { value: c, selected: c === lang, lang: c }, n))));
+}
+// A language picked before signing in, for an account that has not chosen one: framy and its
+// bot speak it from now on. An account with its own keeps it, and the page follows the account.
+async function guestToAccount() {
+  let code = "";
+  try { code = localStorage.getItem("framy.guest_lang") || ""; localStorage.removeItem("framy.guest_lang"); } catch {}
+  if (!code || S.me.language_chosen || code === S.me.language) return;
+  try { S.me = await api("/api/me", { method: "PATCH", body: { language: code } }); } catch {}
 }
 // The mark leads to the composer from anywhere, signed in or not: a person who
 // came by a link to the library or to a run has a way to make something. The
@@ -54,7 +75,7 @@ function logo() {
 // The header is drawn anew on every change of view; a tab pressed with the keyboard keeps the focus.
 function renderTop() {
   const top = $("#top");
-  keepFocus(() => top.replaceChildren(...[logo(), tabs(), h("span", { class: "sp" }), account()].filter(Boolean)));
+  keepFocus(() => top.replaceChildren(...[logo(), tabs(), h("span", { class: "sp" }), account()].flat().filter(Boolean)));
   placeSegs(top);
 }
 
@@ -160,6 +181,7 @@ async function main() {
   // Only a 401 says nobody is signed in; any other failure leaves it unknown.
   try { S.me = authFail ? null : await B.me; } catch { S.me = null; S.unsure = !authFail; }
   S.signed = !!S.me;
+  if (S.me && !S.mini) await guestToAccount();
   useDefaults();
   // The person's own language, where it is another than the one guessed for the first paint.
   const want = S.me?.language;

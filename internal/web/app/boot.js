@@ -25,8 +25,9 @@
   try { tgUser = JSON.parse(new URLSearchParams(initData).get("user") || "null"); } catch {}
 
   // The language: the account's, as framy said it the last time someone was
-  // signed in here, else Telegram's, else the browser's. A guess is never
-  // kept, so it follows a browser or a Telegram set to another language.
+  // signed in here, or the one a visitor picked before signing in, else
+  // Telegram's, else the browser's. A guess is never kept, so it follows a
+  // browser or a Telegram set to another language.
   // (framy.lang, which kept the guesses too, is no longer read.)
   const pick = (code) => { code = String(code || "").toLowerCase().split(/[-_]/)[0]; return langs[code] ? code : ""; };
   let saved = "";

@@ -1135,3 +1135,88 @@ func TestBrowserPrefsRows(t *testing.T) {
 		noErrors(t, ctx)
 	}
 }
+
+// TestBrowserGuestLanguage checks a visitor not signed in picks the page's
+// language beside Sign in: the bar still fits a small phone, the page loads
+// again in the pick with what was typed, the pick holds, and it goes to the
+// account they sign in with when that account has not chosen its own.
+func TestBrowserGuestLanguage(t *testing.T) {
+	f := &fakePrefs{}
+	ts := fakeSite(t, f.mount)
+	f.with(func() { f.out = true })
+	for _, w := range []int64{320, 1440} {
+		ctx := browserAs(t, ts.URL, w, 700, opened{phone: w < 960})
+		s := js[map[string]any](t, ctx, pageHelpers+`
+		const g = document.querySelector(".top .glang"), sel = g?.querySelector("select"), si = document.querySelector(".top .signin"), code = g?.querySelector("span").textContent;
+		const r = (e) => e.getBoundingClientRect();
+		return { code, val: sel?.value, name: sel?.getAttribute("aria-label"), n: sel?.options.length, de: [...(sel?.options || [])].find((o) => o.value === "de")?.textContent,
+		  wide: document.documentElement.scrollWidth <= innerWidth, beside: !!si && r(g).right <= r(si).left + 1 && Math.abs(r(g).top + r(g).height / 2 - (r(si).top + r(si).height / 2)) < 2,
+		  tall: r(g).height >= (matchMedia("(pointer: coarse)").matches ? 44 : 40) };`)
+		if s["code"] != "EN" || s["val"] != "en" || s["name"] != "Language" || s["n"] != float64(16) || s["de"] != "Deutsch" || s["wide"] != true || s["beside"] != true || s["tall"] != true {
+			t.Errorf("at %d px the visitor's language: %v", w, s)
+		}
+		noErrors(t, ctx)
+	}
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	js[any](t, ctx, pageHelpers+`
+	const p = document.querySelector("#prompt"); p.value = "a fox"; p.dispatchEvent(new Event("input"));
+	const sel = document.querySelector(".top .glang select");
+	`+leave+`
+	sel.value = "de"; sel.dispatchEvent(new Event("change"));
+	return 1;`)
+	reloaded(t, ctx)
+	s := js[map[string]any](t, ctx, pageHelpers+`
+	return { lang: document.documentElement.lang, code: document.querySelector(".top .glang span").textContent, signin: document.querySelector(".top .signin").getAttribute("aria-label"),
+	  prompt: document.querySelector("#prompt").value, kept: localStorage.getItem("framy.language") };`)
+	if s["lang"] != "de" || s["code"] != "DE" || s["signin"] == "Sign in with Telegram" || s["prompt"] != "a fox" || s["kept"] != "de" {
+		t.Errorf("after the pick: %v", s)
+	}
+	// Signed in now, to an account with no language of its own: it takes the pick.
+	f.with(func() { f.out, f.language, f.langPick = false, "en", false })
+	if _, err := chromedp.Run(ctx, chromedp.Reload()); err != nil {
+		t.Fatal(err)
+	}
+	ready(t, ctx)
+	s = js[map[string]any](t, ctx, pageHelpers+`
+	await until(() => document.querySelector("#meBtn"));
+	return { lang: document.documentElement.lang, me: document.querySelector("#meBtn").getAttribute("aria-label"), glang: !!document.querySelector(".top .glang"), flag: localStorage.getItem("framy.guest_lang") };`)
+	f.with(func() {
+		if len(f.patches) != 1 || f.patches[0]["language"] != "de" || f.language != "de" {
+			t.Errorf("the account was sent %v and speaks %q", f.patches, f.language)
+		}
+	})
+	if s["lang"] != "de" || s["me"] != "Einstellungen" || s["glang"] != false || s["flag"] != nil {
+		t.Errorf("signed in after the pick: %v", s)
+	}
+	noErrors(t, ctx)
+
+	// An account that chose its own language keeps it, and the page follows it.
+	g := &fakePrefs{}
+	gs := fakeSite(t, g.mount)
+	g.with(func() { g.out = true })
+	ctx = browser(t, gs.URL, 1440, 900, false)
+	js[any](t, ctx, pageHelpers+`
+	const sel = document.querySelector(".top .glang select");
+	`+leave+`
+	sel.value = "fr"; sel.dispatchEvent(new Event("change"));
+	return 1;`)
+	reloaded(t, ctx)
+	g.with(func() { g.out, g.language, g.langPick = false, "ru", true })
+	if _, err := chromedp.Run(ctx, chromedp.Reload()); err != nil {
+		t.Fatal(err)
+	}
+	ready(t, ctx)
+	s = js[map[string]any](t, ctx, pageHelpers+`
+	await until(() => document.querySelector("#meBtn"));
+	await wait(300);
+	return { lang: document.documentElement.lang, kept: localStorage.getItem("framy.language") };`)
+	g.with(func() {
+		if len(g.patches) != 0 {
+			t.Errorf("an account with its own language was sent %v", g.patches)
+		}
+	})
+	if s["lang"] != "ru" || s["kept"] != "ru" {
+		t.Errorf("an account with its own language: %v", s)
+	}
+	noErrors(t, ctx)
+}
