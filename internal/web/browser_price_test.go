@@ -24,7 +24,7 @@ import (
 // another currency's label.
 func priceInit(lang, shape string) string {
 	return `
-try { localStorage.setItem("framy.lang", ` + jsString(lang) + `); } catch (e) {}
+try { localStorage.setItem("framy.language", ` + jsString(lang) + `); } catch (e) {}
 window.__shape = ` + shape + `;
 // A promise in __hold keeps the answers of the quote until it settles.
 window.__hold = null;

@@ -20,7 +20,7 @@ import (
 // shape, a page function of the catalog's JSON.
 func catalogInit(lang, shape string) string {
 	return `
-try { localStorage.setItem("framy.lang", ` + jsString(lang) + `); } catch (e) {}
+try { localStorage.setItem("framy.language", ` + jsString(lang) + `); } catch (e) {}
 {
   const shape = ` + shape + `, fetch0 = window.fetch;
   window.fetch = async (u, o) => {
@@ -142,7 +142,7 @@ func TestBrowserShutDownSentence(t *testing.T) {
 // function of an estimate and the offer it is for.
 func quoteByOffer(lang, shape string) string {
 	return `
-try { localStorage.setItem("framy.lang", ` + jsString(lang) + `); } catch (e) {}
+try { localStorage.setItem("framy.language", ` + jsString(lang) + `); } catch (e) {}
 {
   const shape = ` + shape + `, fetch0 = window.fetch;
   window.fetch = async (u, o) => {

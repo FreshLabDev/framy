@@ -206,7 +206,7 @@ func TestBrowserFramesPhone(t *testing.T) {
 func TestBrowserFramesPhoneRTL(t *testing.T) {
 	ts := fakeAPI(t)
 	ctx := browser(t, ts.URL, 390, 844, true)
-	js[any](t, ctx, `localStorage.setItem("framy.lang", "ar");`)
+	js[any](t, ctx, `localStorage.setItem("framy.language", "ar");`)
 	if err := chromedp.Do(ctx, chromedp.Reload()); err != nil {
 		t.Fatal(err)
 	}
@@ -216,9 +216,9 @@ func TestBrowserFramesPhoneRTL(t *testing.T) {
 	const whole = (k) => { const s = document.querySelector("#stage .strip"), c = s.querySelectorAll(":scope > .cell")[k], r = s.getBoundingClientRect(), b = c.getBoundingClientRect();
 	  return b.left >= r.left - 1 && b.right <= r.right + 1; };
 	const at = () => { const k = dot(); return k >= 0 && whole(k) ? k : -1; };
-	const settle = async (k) => { for (let i = 0; i < 25 && at() !== k; i++) await wait(100); await wait(200); };
+	const settleOn = async (k) => { for (let i = 0; i < 25 && at() !== k; i++) await wait(100); await wait(200); };
 	document.querySelector("#stage .addf").click(); await wait(900);
-	document.querySelector("#stage .addf").click(); await settle(2);
+	document.querySelector("#stage .addf").click(); await settleOn(2);
 	const strip = document.querySelector("#stage .strip");
 	const added = { dir: document.dir, at: at(), dot: dot(), roll: Math.sign(strip.scrollLeft) };
 	hit(cells()[2]).click(); await wait(800);
@@ -233,7 +233,7 @@ func TestBrowserFramesPhoneRTL(t *testing.T) {
 	  tg.dispatchEvent(new TouchEvent("touchstart", { touches: [touch(180)], changedTouches: [touch(180)], bubbles: true }));
 	  await wait(100);
 	  tg.dispatchEvent(new TouchEvent("touchend", { touches: [], changedTouches: [touch(180 + dx)], bubbles: true }));
-	  await wait(300); await settle(k);
+	  await wait(300); await settleOn(k);
 	  return [at(), from];
 	}
 	const back = await swipe(-120, 1), next = await swipe(120, 2);
@@ -380,7 +380,7 @@ func TestBrowserLibraryPressWaiting(t *testing.T) {
 
 // backHelpers make a press of two frames whose results stand on the stage.
 const backHelpers = `
-const until = async (fn, n = 60) => { for (let i = 0; i < n; i++) { const v = fn(); if (v) return v; await wait(100); } return fn(); };
+const untilN = async (fn, n = 60) => { for (let i = 0; i < n; i++) { const v = fn(); if (v) return v; await wait(100); } return fn(); };
 async function twoResults() {
   document.querySelector("#stage .addf").click(); await wait(600);
   for (let i = 0; i < 30 && /…/.test(document.querySelector("#bar").textContent); i++) await wait(100);
@@ -399,24 +399,24 @@ func TestBrowserBack(t *testing.T) {
 	ctx := browser(t, ts.URL, 1440, 900, false)
 	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+framesHelpers+backHelpers+`
 	const s = await twoResults(), r = { press: !s.timeout };
-	const back = async (until_) => { history.back(); await until(until_); await wait(300); };
-	cells()[0].click(); await until(fullShown);
+	const back = async (until_) => { history.back(); await untilN(until_); await wait(300); };
+	cells()[0].click(); await untilN(fullShown);
 	r.full = fullShown(); r.marked = !!history.state?.over;
 	await back(() => !fullShown());
 	r.fullClosed = !fullShown(); r.path = location.pathname; r.create = vis(document.querySelector("#create"));
 	// Closed by its button, the entry goes too: the next back leaves nothing open behind.
-	cells()[1].click(); await until(fullShown);
+	cells()[1].click(); await untilN(fullShown);
 	document.querySelector("#full .fbar .x").click();
-	await until(() => !fullShown() && !history.state?.over); await wait(300);
+	await untilN(() => !fullShown() && !history.state?.over); await wait(300);
 	r.unmarked = !history.state?.over;
 	// The model picker, and the settings with the picker of a default model over them: one back each.
-	document.querySelector("#how .mhead").click(); await until(() => !document.querySelector("#picker").hidden);
+	document.querySelector("#how .mhead").click(); await untilN(() => !document.querySelector("#picker").hidden);
 	await back(() => document.querySelector("#picker").hidden);
 	r.picker = document.querySelector("#picker").hidden; r.path2 = location.pathname;
-	document.querySelector("#meBtn").click(); await until(() => document.querySelector('#prefsBody [data-k="p-def-image"] button'));
+	document.querySelector("#meBtn").click(); await untilN(() => document.querySelector('#prefsBody [data-k="p-def-image"] button'));
 	await wait(400);
 	document.querySelector('#prefsBody [data-k="p-def-image"] button').click();
-	await until(() => !document.querySelector("#picker").hidden); await wait(400);
+	await untilN(() => !document.querySelector("#picker").hidden); await wait(400);
 	r.over = document.querySelector("#prefs").hidden;
 	await back(() => !document.querySelector("#prefs").hidden);
 	r.prefs = !document.querySelector("#prefs").hidden && document.querySelector("#picker").hidden;
@@ -435,19 +435,19 @@ func TestBrowserBack(t *testing.T) {
 	// In the library, the viewer keeps its address: back closes the whole screen first, then the viewer.
 	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+framesHelpers+backHelpers+`
 	document.querySelector("#top .tab[data-v=library]").click();
-	await until(() => document.querySelector("#library .li")); await wait(400);
+	await untilN(() => document.querySelector("#library .li")); await wait(400);
 	document.querySelector("#library .li").click();
-	await until(() => !document.querySelector("#viewer").hidden); await wait(500);
+	await untilN(() => !document.querySelector("#viewer").hidden); await wait(500);
 	const r = { path: location.pathname };
-	document.querySelector("#viewer .vexp").click(); await until(fullShown);
-	history.back(); await until(() => !fullShown()); await wait(400);
+	document.querySelector("#viewer .vexp").click(); await untilN(fullShown);
+	history.back(); await untilN(() => !fullShown()); await wait(400);
 	r.fullClosed = !fullShown(); r.viewer = !document.querySelector("#viewer").hidden; r.path2 = location.pathname;
 	// The question whether to delete it: back answers no, and the viewer stays.
 	[...document.querySelectorAll("#viewer .jacts button")].find((b) => b.textContent.trim() === "Delete").click();
-	await until(() => !document.querySelector("#ask").hidden);
-	history.back(); await until(() => document.querySelector("#ask").hidden); await wait(400);
+	await untilN(() => !document.querySelector("#ask").hidden);
+	history.back(); await untilN(() => document.querySelector("#ask").hidden); await wait(400);
 	r.asked = document.querySelector("#ask").hidden && !document.querySelector("#viewer").hidden && location.pathname === r.path;
-	history.back(); await until(() => document.querySelector("#viewer").hidden); await wait(400);
+	history.back(); await untilN(() => document.querySelector("#viewer").hidden); await wait(400);
 	r.viewerClosed = document.querySelector("#viewer").hidden; r.path3 = location.pathname;
 	return r;`)
 	if !strings.HasPrefix(fmt.Sprint(s["path"]), "/r/") || s["fullClosed"] != true || s["viewer"] != true || s["path2"] != s["path"] || s["asked"] != true ||
@@ -466,14 +466,14 @@ func TestBrowserBackMini(t *testing.T) {
 	ctx := miniBrowser(t, ts.URL)
 	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+framesHelpers+backHelpers+`
 	const s = await twoResults(), r = { press: !s.timeout, back0: __tg.back };
-	cells()[0].click(); await until(fullShown);
+	cells()[0].click(); await untilN(fullShown);
 	r.full = fullShown(); r.back1 = __tg.back; r.main1 = __tg.params.is_visible;
-	__tg.backClick(); await until(() => !fullShown()); await wait(300);
+	__tg.backClick(); await untilN(() => !fullShown()); await wait(300);
 	r.closed = !fullShown(); r.back2 = __tg.back; r.create = vis(document.querySelector("#create")); r.left = !!__tg.closed; r.main2 = __tg.params.is_visible;
 	// The main button stays out from under a sheet too, and comes back with the composer.
-	document.querySelector("#dtools .chipbtn").click(); await until(() => vis(document.querySelector("#picker")));
+	document.querySelector("#dtools .chipbtn").click(); await untilN(() => vis(document.querySelector("#picker")));
 	r.main3 = __tg.params.is_visible;
-	__tg.backClick(); await until(() => document.querySelector("#picker").hidden);
+	__tg.backClick(); await untilN(() => document.querySelector("#picker").hidden);
 	r.main4 = __tg.params.is_visible;
 	return r;`)
 	if s["press"] != true || s["back0"] != false || s["full"] != true || s["back1"] != true || s["closed"] != true || s["back2"] != false ||

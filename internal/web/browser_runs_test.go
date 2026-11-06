@@ -1628,7 +1628,7 @@ func TestBrowserDeprecation(t *testing.T) {
 		s["composer"] != "Google is closing this model. Switch to Gemini Omni 1.1 Flash" {
 		t.Errorf("English: %v", s)
 	}
-	js[map[string]any](t, ctx, `localStorage.setItem("framy.lang", "zh"); setTimeout(() => location.reload(), 50); return {};`)
+	js[map[string]any](t, ctx, `localStorage.setItem("framy.language", "zh"); setTimeout(() => location.reload(), 50); return {};`)
 	time.Sleep(800 * time.Millisecond)
 	ready(t, ctx)
 	s = js[map[string]any](t, ctx, pageHelpers+read)

@@ -462,7 +462,8 @@ func noErrors(t *testing.T, ctx context.Context) {
 // happens in that time still waits it out. until polls a condition.
 const pageHelpers = `
 const sleep = window.__sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
-const settle = async (most = 4000) => {
+// settle and until are set on the page, not declared, so a test with its own of the same name keeps it.
+globalThis.settle = async (most = 4000) => {
   const end = Date.now() + most;
   for (let calm = 0; Date.now() < end; await sleep(20)) {
     calm = !window.__idle || window.__idle() ? calm + 1 : 0;
@@ -471,7 +472,7 @@ const settle = async (most = 4000) => {
   return false;
 };
 const wait = async (ms) => { await sleep(ms); await settle(); };
-const until = async (fn, ms = 8000) => { const end = Date.now() + ms; while (Date.now() < end) { const v = fn(); if (v) return v; await sleep(50); } return fn(); };
+globalThis.until = async (fn, ms = 8000) => { const end = Date.now() + ms; while (Date.now() < end) { const v = fn(); if (v) return v; await sleep(50); } return fn(); };
 const vis = (el) => !!el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== "hidden";
 // Where a button starts across and how big it is. Its top may move when a
 // line above it changes, as the facts of another variant do.

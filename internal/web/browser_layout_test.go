@@ -46,7 +46,7 @@ func browserAs(t *testing.T, url string, w, h int64, o opened) context.Context {
 	}
 	pre := watch
 	if o.lang != "" {
-		pre += fmt.Sprintf("try { localStorage.setItem(\"framy.lang\", %s); } catch (e) {}\n", jsString(o.lang))
+		pre += fmt.Sprintf("try { localStorage.setItem(\"framy.language\", %s); } catch (e) {}\n", jsString(o.lang))
 	}
 	media := []*emulation.MediaFeature{}
 	for k, v := range o.media {
