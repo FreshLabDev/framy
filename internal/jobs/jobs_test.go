@@ -2,6 +2,8 @@
 package jobs
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -96,5 +98,17 @@ func TestTheCopyHasTimeForWhatItCopies(t *testing.T) {
 		if got := keepLimit(c.j, c.results); got != c.want {
 			t.Errorf("%s: %v, want %v", c.name, got, c.want)
 		}
+	}
+}
+
+// A key the database could not give is sent again later, wrapped as the
+// adapters wrap it; any other internal error is not.
+func TestAKeyLookupThatFailedIsTriedAgain(t *testing.T) {
+	lookup := &Error{Class: Internal, Err: fmt.Errorf("find the key: %w", fmt.Errorf("%w: %w", ErrKeyLookup, errors.New("connection refused")))}
+	if !lookup.retryable() {
+		t.Error("a failed key lookup is not tried again")
+	}
+	if (&Error{Class: Internal, Err: errors.New("no provider id")}).retryable() {
+		t.Error("another internal error is tried again")
 	}
 }

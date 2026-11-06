@@ -226,20 +226,32 @@ func TestTheLastAttemptKeepsTheTruthAboutTheMoney(t *testing.T) {
 	}
 }
 
-// A key refused or a balance short while a sent video is asked about is
-// trouble with the asking, not an answer about the run: it is likely paid,
-// so framy asks again until the hour is up, and a key put right fetches it.
-// Past the hour it expires with that class, as a run that may be paid.
+// A key refused, a balance short or a key the database could not give while
+// a sent video is asked about is trouble with the asking, not an answer about
+// the run: it is likely paid, so framy asks again until the hour is up, and a
+// key put right fetches it. Past the hour it expires with that class, as a
+// run that may be paid.
 func TestAskingAboutAPaidVideoOutlastsTroubleWithTheKey(t *testing.T) {
 	ctx := context.Background()
-	for _, class := range []Class{Key, Money} {
-		t.Run(string(class), func(t *testing.T) {
+	// The adapters wrap a lookup that failed as Internal (openrouter.key).
+	lookup := fmt.Errorf("find the key: %w", fmt.Errorf("%w: %w", ErrKeyLookup, errors.New("connection refused")))
+	for _, tc := range []struct {
+		name  string
+		class Class
+		err   error
+	}{
+		{"key", Key, errors.New("the person has no openrouter key")},
+		{"money", Money, errors.New("the person has no openrouter key")},
+		{"lookup", Internal, lookup},
+	} {
+		class := tc.class
+		t.Run(tc.name, func(t *testing.T) {
 			p := newFake()
 			p.submit = func(context.Context, Job) (Submission, error) { return Submission{ProviderJobID: "gen-1"}, nil }
 			fixed := false
 			p.poll = func(context.Context, Job) (Outcome, error) {
 				if !fixed {
-					return Outcome{}, &Error{Class: class, Err: errors.New("the person has no openrouter key")}
+					return Outcome{}, &Error{Class: class, Err: tc.err}
 				}
 				cost := 1.40
 				return Outcome{Results: []Result{{ContentType: "video/mp4", URL: "https://example.test/v.mp4"}}, CostUSD: &cost}, nil
@@ -277,7 +289,7 @@ func TestAskingAboutAPaidVideoOutlastsTroubleWithTheKey(t *testing.T) {
 				t.Fatal(err)
 			}
 			j := get(t, q, late)
-			if j.Status != Expired || j.ErrorClass != class || j.Error != "framy could not ask about the run for an hour: "+string(class)+": the person has no openrouter key" {
+			if j.Status != Expired || j.ErrorClass != class || j.Error != "framy could not ask about the run for an hour: "+string(class)+": "+tc.err.Error() {
 				t.Fatalf("past the hour: %s %s %q", j.Status, j.ErrorClass, j.Error)
 			}
 		})

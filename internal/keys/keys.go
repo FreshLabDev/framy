@@ -405,7 +405,7 @@ func (s *Service) JobKey(ctx context.Context, j jobs.Job) (string, error) {
 	case errors.Is(err, ErrNotFound):
 		return "", keyError("the person has no " + name + " key")
 	case err != nil:
-		return "", err
+		return "", fmt.Errorf("%w: %w", jobs.ErrKeyLookup, err)
 	case r.status == Invalid && j.ProviderJobID == "":
 		return "", keyError("the " + name + " key was refused by the provider; the person has to replace it")
 	}

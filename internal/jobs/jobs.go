@@ -355,9 +355,19 @@ func (e *Error) Said() string {
 	return ""
 }
 
-// retryable: the provider refused before the run started, so nothing was
-// paid and sending again is safe.
-func (e *Error) retryable() bool { return e.Class == RateLimited || e.Class == Unavailable }
+// ErrKeyLookup: framy's own store did not answer when the job's key was
+// looked up (keys.Service.JobKey). It says nothing about the key or the run,
+// so a submit tries again later, and a poll asks again, as it does for a key
+// refused: a video sent and likely paid is not lost to a moment the
+// database was away.
+var ErrKeyLookup = errors.New("the key could not be looked up")
+
+// retryable: the provider refused before the run started, or the key could
+// not be looked up before anything was sent, so nothing was paid and sending
+// again is safe.
+func (e *Error) retryable() bool {
+	return e.Class == RateLimited || e.Class == Unavailable || errors.Is(e.Err, ErrKeyLookup)
+}
 
 // tries is how many requests in all the refusal allows.
 func (e *Error) tries() int {

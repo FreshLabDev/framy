@@ -299,9 +299,10 @@ func (q *Queue) requeue(ctx context.Context, j Job, pe *Error) error {
 
 // poll asks about a run in the background. Asking costs nothing, so any
 // trouble short of a definite answer about the run means asking again later,
-// until the hour is up. A key refused or a balance short is trouble with the
-// asking, not an answer: the run was sent and is likely paid, and a key put
-// right, or one put back, fetches it.
+// until the hour is up. A key refused, a balance short or a key framy's
+// store could not look up is trouble with the asking, not an answer: the run
+// was sent and is likely paid, and a key put right, put back or read again
+// fetches it.
 func (q *Queue) poll(ctx context.Context, p Provider, j Job) error {
 	limit := videoCall
 	if j.Kind == catalog.Video {
@@ -319,7 +320,7 @@ func (q *Queue) poll(ctx context.Context, p Provider, j Job) error {
 	defer done()
 	late := j.SubmittedAt != nil && q.now().Sub(*j.SubmittedAt) > RunDeadline
 	switch {
-	case pe != nil && (pe.Class == Key || pe.Class == Money):
+	case pe != nil && (pe.Class == Key || pe.Class == Money || errors.Is(pe, ErrKeyLookup)):
 		if late {
 			return q.end(ctx, j.ID, ending{status: Expired, class: pe.Class, msg: "framy could not ask about the run for an hour: " + pe.Error(), said: pe.Said()})
 		}
