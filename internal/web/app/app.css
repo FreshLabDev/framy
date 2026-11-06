@@ -803,6 +803,7 @@ main.library {display: grid; gap: 18px; padding: 6px 0 calc(48px + env(safe-area
 .lday + .lday {margin-top: 10px;}
 .lday > h2 {margin: 0; font-size: 17px; font-weight: 700;}
 .libmore {min-height: 56px; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--muted); font-size: 14px;}
+.libmore > .w {display: inline-flex; align-items: center; gap: 10px;}
 .libmore .x {height: 36px; padding: 0 12px; display: inline-flex; align-items: center; gap: 6px; background: var(--deep); color: var(--ink); font-weight: 600;}
 .lspin {width: 14px; height: 14px; border: 2px solid var(--line); border-top-color: var(--ink);}
 .lempty {display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 28px; padding: 32px; background: var(--deep);}

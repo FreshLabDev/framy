@@ -156,7 +156,11 @@ async function refresh() {
 
 const LIBMORPH = { dur: DUR.m,
   enter: (el, i, wait) => anim(el, [{ opacity: 0, transform: "translateY(10px)" }, { opacity: 1, transform: "none" }], { duration: DUR.m, delay: wait + Math.min(i, 12) * 24, fill: "backwards" }),
-  leave: (g) => anim(g, [{ opacity: 1 }, { opacity: 0 }], { duration: DUR.xs, easing: OUT, fill: "forwards" }) };
+  leave: (g) => {
+    // A loading word still waiting to show stays as it is while it goes, never showing on the way out.
+    for (const w of g.querySelectorAll(".libmore > .w")) w.getAnimations().forEach((a) => a.pause());
+    return anim(g, [{ opacity: 1 }, { opacity: 0 }], { duration: DUR.xs, easing: OUT, fill: "forwards" });
+  } };
 // A change of the list: shown at once where the library is in view, else when it is next.
 function swap(fn) {
   if (libOn() && !$("#library").hidden) morph($("#library"), () => { fn(); renderLibrary(); }, LIBMORPH);
@@ -202,8 +206,9 @@ function drawLibrary() {
   const tools = S.signed && L.loaded && (L.any || L.kind !== "all" || !!L.q || L.failed);
   // The runs that did not work can all go at once, from the list of just those.
   const bulk = tools && L.failed && list.length ? h("div", { class: "lbulk", "data-k": "lbulk" }, clearBtn()) : null;
+  // replaceChildren, unlike h, would write a null as the text "null".
   root.replaceChildren(h("div", { class: "libhead", "data-k": "lhead" }, h("h1", {}, t("tab.library")), tools ? kinds() : null,
-    tools ? h("div", { class: "lfind" }, searchBox(), failedBtn()) : null), bulk, ...body);
+    tools ? h("div", { class: "lfind" }, searchBox(), failedBtn()) : null), ...[bulk, ...body].filter(Boolean));
   placeSegs(root);
   watchFoot();
   if (focused) Q.input.focus({ preventScroll: true });
@@ -466,11 +471,20 @@ function spinner() {
   anim(s, [{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }], { duration: LOOP, iterations: Infinity, easing: "linear" });
   return s;
 }
-const loading = () => h("div", { class: "libmore", "data-k": "lload", role: "status" }, spinner(), t("lib.loading"));
+// The word shows only when the wait is long enough to see: an answer that comes
+// sooner goes straight to the tiles, with no word flashing in their place.
+function loading() {
+  const w = h("span", { class: "w" }, spinner(), t("lib.loading"));
+  anim(w, [{ opacity: 0 }, { opacity: 1 }], { duration: DUR.s, delay: DUR.l, fill: "backwards" });
+  return h("div", { class: "libmore", "data-k": "lload", role: "status" }, w);
+}
 // The end of the list: where the next page loads, or a word that there is no more.
+// While another kind, filter or search is read, the list already shows what was
+// read of it, and its end keeps its room with no word, so nothing jumps.
 function foot(list) {
   const el = (...kids) => h("div", { class: "libmore", "data-k": "lmore", role: "status" }, ...kids);
-  if (L.busy) return el(spinner(), t(L.busy === "more" ? "lib.more" : "lib.loading"));
+  if (L.busy === "more") return el(spinner(), t("lib.more"));
+  if (L.busy) return el();
   if (L.more) return el(t("lib.more_failed"), h("button", { type: "button", class: "x", onclick: () => load(true) }, ic("again"), t("act.retry")));
   if (L.next) return el();
   return list.length > PAGE ? el(t("lib.end")) : null;

@@ -496,7 +496,8 @@ function drawPrefs() {
   const accSub = ACC === "busy" ? t("prefs.deleting") : ACC === "fail" ? warn(t("prefs.delete_failed")) : t("prefs.delete_sub");
   const free = [freeRow("image"), freeRow("video")].filter(Boolean);
   const defs = [defRow("image"), defRow("video")].filter(Boolean);
-  body.replaceChildren(
+  // replaceChildren, unlike h, would write a null as the text "null".
+  body.replaceChildren(...[
     h("div", { class: "group", "data-k": "g-keys" }, t("prefs.keys")),
     ...PROVIDERS.flatMap(keyRows),
     h("p", { class: "note", "data-k": "n-keys" }, t("prefs.keys_note")),
@@ -517,7 +518,7 @@ function drawPrefs() {
     whoRow(),
     sheetRow("del", ic("trash"), t("prefs.delete"), accSub,
       h("button", { type: "button", class: "danger", disabled: ACC === "busy", onclick: deleteAccount }, ic("trash"),
-        h("span", {}, t(ACC === "busy" ? "prefs.deleting_btn" : ACC === "fail" ? "prefs.delete_again" : "prefs.delete_btn")))));
+        h("span", {}, t(ACC === "busy" ? "prefs.deleting_btn" : ACC === "fail" ? "prefs.delete_again" : "prefs.delete_btn"))))].filter(Boolean));
   placeSegs($("#prefs"));
   if (typing) $(`#prefsBody [data-k="${typing}"] input`)?.focus({ preventScroll: true });
 }

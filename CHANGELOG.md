@@ -11,6 +11,16 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+### Fixed
+
+- The library wrote "null" under its heading once the failed filter was
+  turned off, and the settings wrote it in place of the stored files until
+  they were known.
+- Choosing another kind, the failed filter or a search no longer shows a
+  loading line that jumps: the list keeps what is read of it while the
+  page comes, and an empty one says it is loading only when the wait is
+  long enough to see.
+
 ## v0.1.0-alpha.5 - 2026-11-06
 
 The review of 5 November, worked through: about 490 findings across the
