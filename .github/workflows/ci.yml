@@ -83,9 +83,12 @@ jobs:
   web:
     name: Site assets and browser tests
     runs-on: ubuntu-latest
-    # The browser tests have 20 minutes of their own, below: they take a little
-    # under seven (6 min 39 s on 5 November) and go test's default is ten, which
-    # a few more tests would pass. Watch the time in the log.
+    # The browser tests have 26 minutes of their own, below: they took 6 min
+    # 39 s on 5 November and 19 min 55 s on 6 November, after the review's
+    # fixes brought their tests, which was 5 s short of the 20 they had. The
+    # job's 30 leave the upload of the failed pages its time. Watch the time
+    # in the log: the next minutes should come from splitting the suite over
+    # jobs, not from a longer timeout.
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -117,7 +120,7 @@ jobs:
         env:
           CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
           FRAMY_BROWSER_ARTIFACTS: ${{ runner.temp }}/browser
-        run: go test -tags=browser -run Browser -v -timeout 20m ./internal/web/
+        run: go test -tags=browser -run Browser -v -timeout 26m ./internal/web/
       - name: Pages of the failed browser tests
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
