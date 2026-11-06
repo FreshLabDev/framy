@@ -166,7 +166,10 @@ func TestTheProcessIsOnThePage(t *testing.T) {
 				v, found = x, true
 			}
 		}
-		if !found || !(v > 0) {
+		// The CPU counter of a process this young may not have a tick of
+		// /proc's yet (10 ms): 0 is a figure there. cpuOfStat's reading is
+		// checked on its own below.
+		if !found || v < 0 || kind == "gauge" && v == 0 {
 			t.Errorf("%s = %v, found %v; want a figure above 0", name, v, found)
 		}
 	}
