@@ -706,10 +706,10 @@ func TestBrowserSignOutEverywhere(t *testing.T) {
 	await yes();
 	await until(() => sheet().hidden && document.querySelector(".signin"));
 	await wait(100);
-	return { row, q, failed, toast: toastText(), top: document.querySelector("#top").textContent };`)
+	return { row, q, failed, toast: toastText(), top: (() => { const c = document.querySelector("#top").cloneNode(true); c.querySelectorAll("select").forEach((e) => e.remove()); return c.textContent; })() };`)
 	if fmt.Sprint(s["row"]) != "[Sign out Sign out everywhere]" || s["q"] != "Sign out of framy on every device?" ||
 		fmt.Sprint(s["failed"]) != "map[me:true open:true toast:framy is busy right now. Try again in a minute.]" ||
-		s["toast"] != "You signed out." || s["top"] != "framySign in with TelegramSign in" {
+		s["toast"] != "You signed out." || s["top"] != "framyENSign in with TelegramSign in" {
 		t.Errorf("sign out everywhere: %v", s)
 	}
 	f.with(func() {
@@ -737,10 +737,10 @@ func TestBrowserPrefsSignOut(t *testing.T) {
 	btn(sheet(), "Sign out").click();
 	await yes();
 	await until(() => sheet().hidden && document.querySelector(".signin"));
-	r.toast2 = toastText(); r.top = document.querySelector("#top").textContent;
+	r.toast2 = toastText(); r.top = (() => { const c = document.querySelector("#top").cloneNode(true); c.querySelectorAll("select").forEach((e) => e.remove()); return c.textContent; })();
 	return r;`)
 	if s["q"] != "Sign out of framy?" || s["toast"] != "Could not sign out, you are still signed in. Try again in a minute." || s["open"] != true ||
-		s["out"] != true || s["me"] != true || s["toast2"] != "You signed out." || s["top"] != "framySign in with TelegramSign in" {
+		s["out"] != true || s["me"] != true || s["toast2"] != "You signed out." || s["top"] != "framyENSign in with TelegramSign in" {
 		t.Errorf("sign out: %v", s)
 	}
 	f.with(func() {
@@ -766,8 +766,8 @@ func TestBrowserPrefsSignOutLate(t *testing.T) {
 	await yes();
 	await until(() => document.querySelector(".signin"));
 	await wait(1000);
-	return { top: document.querySelector("#top").textContent, go: document.querySelector("#go").textContent.trim() };`)
-	if s["top"] != "framySign in with TelegramSign in" || !strings.HasPrefix(s["go"].(string), "Sign in to create") {
+	return { top: (() => { const c = document.querySelector("#top").cloneNode(true); c.querySelectorAll("select").forEach((e) => e.remove()); return c.textContent; })(), go: document.querySelector("#go").textContent.trim() };`)
+	if s["top"] != "framyENSign in with TelegramSign in" || !strings.HasPrefix(s["go"].(string), "Sign in to create") {
 		t.Errorf("after a late read: %v", s)
 	}
 	noErrors(t, ctx)
