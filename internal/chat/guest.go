@@ -304,8 +304,9 @@ func (f *Flow) guestEnd(ctx context.Context, run db.ChatRun) {
 }
 
 // guestDeliver puts the result on the answer: a picture as a JPEG framy
-// makes, a video as it is kept. What Telegram cannot fetch, or will not
-// show, stays in the person's library on the site, and the answer says where.
+// makes, a GIF as the clip Telegram loops, a video as it is kept. What
+// Telegram cannot fetch, or will not show, stays in the person's library on
+// the site, and the answer says where.
 func (f *Flow) guestDeliver(ctx context.Context, run db.ChatRun, a storage.Asset) {
 	caption := resultCaption(run.Prompt, run.Model)
 	var item tg.InputMedia
@@ -314,6 +315,9 @@ func (f *Flow) guestDeliver(ctx context.Context, run db.ChatRun, a storage.Asset
 		w, h := fit(a.Width, a.Height, 0)
 		item = tg.InputMediaVideo{Media: tg.InputFileString{Data: f.shareURL(run.UserID, a.ID, shareVideo)}, Caption: caption,
 			Width: w, Height: h, Duration: int(a.Seconds + 0.5), SupportsStreaming: true}
+	case storage.Animated(a.ContentType):
+		item = tg.InputMediaAnimation{Media: tg.InputFileString{Data: f.shareURL(run.UserID, a.ID, shareGIF)}, Caption: caption,
+			Width: a.Width, Height: a.Height}
 	case shareable(a.ContentType):
 		item = tg.InputMediaPhoto{Media: tg.InputFileString{Data: f.shareURL(run.UserID, a.ID, sharePhoto)}, Caption: caption}
 	}

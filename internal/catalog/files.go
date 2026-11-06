@@ -70,17 +70,22 @@ type HideRule struct {
 // be known before the run, on every GPT Image OpenRouter adds.
 type ExcludeRule struct {
 	// Match is a path.Match pattern over model ids, as a HideRule's.
-	Match  string           `yaml:"match"`
-	Values map[string][]any `yaml:"values"`
-	Why    string           `yaml:"why"`
+	Match string `yaml:"match"`
+	// Provider, when set, keeps the rule to that provider's offers: GPT
+	// Image's GIF goes on OpenAI's own port, where the frames are set, and
+	// not through OpenRouter, which takes no frame settings.
+	Provider string           `yaml:"provider"`
+	Values   map[string][]any `yaml:"values"`
+	Why      string           `yaml:"why"`
 }
 
-// excludeOf is what the settings of a model leave out: its own exclude and
-// that of every rule matching its id.
-func (o Overlay) excludeOf(id string) map[string][]any {
+// excludeOf is what the settings of a model's offer from provider leave
+// out: the model's own exclude and that of every rule matching its id and
+// the provider.
+func (o Overlay) excludeOf(id, provider string) map[string][]any {
 	out := o.Models[id].Exclude
 	for _, r := range o.Exclude {
-		if ok, _ := path.Match(r.Match, id); !ok {
+		if ok, _ := path.Match(r.Match, id); !ok || (r.Provider != "" && r.Provider != provider) {
 			continue
 		}
 		merged := maps.Clone(out)
@@ -228,6 +233,9 @@ func (d descriptorFile) offers(file string) ([]Offer, error) {
 			if err := p.validate(name, false); err != nil {
 				return nil, fmt.Errorf("%s: model %s: %w", file, m.ID, err)
 			}
+			if err := checkOnly(name, p, m.SupportedParameters); err != nil {
+				return nil, fmt.Errorf("%s: model %s: %w", file, m.ID, err)
+			}
 		}
 		if len(m.Pricing) == 0 {
 			return nil, fmt.Errorf("%s: model %s has no pricing", file, m.ID)
@@ -278,6 +286,9 @@ func (f Files) validate() error {
 		}
 		if len(r.Values) == 0 {
 			return fmt.Errorf("overlay: exclude rule %q lists no values", r.Match)
+		}
+		if r.Provider != "" && r.Provider != OpenRouter && r.Provider != OpenAI && r.Provider != Gemini {
+			return fmt.Errorf("overlay: exclude rule %q: provider %q is not %s, %s or %s", r.Match, r.Provider, OpenRouter, OpenAI, Gemini)
 		}
 		for name, values := range r.Values {
 			if len(values) == 0 {

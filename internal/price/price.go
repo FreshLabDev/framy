@@ -267,6 +267,23 @@ func (c *calc) count() float64 {
 	return 1
 }
 
+// gifFrames is OpenAI's frame_count when none is set.
+const gifFrames = 9
+
+// frames is how many pictures one output is: a GIF's frames, each drawn
+// and billed as a still of its size and quality would be (owner, 6
+// November 2026: as many frames, as many pictures), and 1 for anything
+// else.
+func (c *calc) frames() float64 {
+	if c.setting("output_format") != catalog.GIF {
+		return 1
+	}
+	if n, ok := c.number("frame_count"); ok && n >= 1 {
+		return math.Ceil(n)
+	}
+	return gifFrames
+}
+
 // resolution is the chosen resolution, or the only one the offer has.
 func (c *calc) resolution() string {
 	if r := c.setting("resolution"); r != "" {

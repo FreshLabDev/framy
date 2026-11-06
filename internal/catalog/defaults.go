@@ -2,6 +2,7 @@
 package catalog
 
 import (
+	"maps"
 	"math"
 	"slices"
 	"strconv"
@@ -21,9 +22,17 @@ import (
 // take with that value, since sending it would narrow the upstreams
 // OpenRouter may try while the estimate counts the cheapest.
 func Defaults(of Offer, shape float64) map[string]any {
+	return defaults(of, shape, nil)
+}
+
+// defaults are the Defaults of an offer whose run has the settings chosen
+// so far: a setting that goes only with another (Param.Only) gets one when
+// that one, as chosen or by its own default, has a value it goes with.
+func defaults(of Offer, shape float64, chosen map[string]any) map[string]any {
 	out := map[string]any{}
+	var dependent []string
 	for name, p := range of.Params {
-		if !drawn[name] || p.Passthrough {
+		if !isDrawn(name, p) || p.Passthrough {
 			continue
 		}
 		if _, ratio := of.Params["aspect_ratio"]; name == "size" && (of.Kind == Video || ratio) {
@@ -31,8 +40,25 @@ func Defaults(of Offer, shape float64) map[string]any {
 			// refuses a video with both, and an image needs only one.
 			continue
 		}
+		if len(p.Only) > 0 {
+			dependent = append(dependent, name)
+			continue
+		}
 		v, ok := defaultOf(of.Kind, name, p, shape)
 		if ok && everyRouteTakes(of, name, v) {
+			out[name] = v
+		}
+	}
+	if len(dependent) == 0 {
+		return out
+	}
+	now := maps.Clone(out)
+	maps.Copy(now, chosen)
+	for _, name := range dependent {
+		if !Applies(of, name, now) {
+			continue
+		}
+		if v, ok := defaultOf(of.Kind, name, of.Params[name], shape); ok && everyRouteTakes(of, name, v) {
 			out[name] = v
 		}
 	}
@@ -42,12 +68,27 @@ func Defaults(of Offer, shape float64) map[string]any {
 // drawn are the settings the composer draws a control for. OpenRouter lists
 // seed and an image's size as booleans that only say a route takes the
 // field, so a boolean is a toggle only for sound, Google Search and Google
-// Image Search.
+// Image Search. A GIF's frames and their length are drawn while the result
+// is a GIF.
 var drawn = map[string]bool{
 	"aspect_ratio": true, "size": true, "resolution": true, "quality": true, "background": true,
 	"thinking_level": true, "n": true, "duration": true, "generate_audio": true, "google_search": true,
 	"image_search": true, "upscale_factor": true, "creativity": true, "complexity": true,
+	"frame_count": true, "frame_duration_ms": true,
 }
+
+// isDrawn: the composer draws the setting. The format is drawn only where it
+// can be a GIF, as a switch between a picture and an animation; elsewhere
+// the provider's own format stays.
+func isDrawn(name string, p Param) bool {
+	if name == "output_format" {
+		return p.Type == Enum && slices.ContainsFunc(p.Values, func(v any) bool { return sameValue(v, GIF) })
+	}
+	return drawn[name]
+}
+
+// GIF is the output_format of an animation.
+const GIF = "gif"
 
 // Standard sizes: the side of an image and the height of a video that a
 // default resolution reaches, and the length of a video.
@@ -66,6 +107,9 @@ func defaultOf(kind Kind, name string, p Param, shape float64) (any, bool) {
 	case Range:
 		if p.Min == nil || p.Max == nil {
 			return nil, false
+		}
+		if d, ok := number(p.Default); ok && d >= *p.Min && d <= *p.Max {
+			return d, true
 		}
 		return rangeDefault(name, *p.Min, *p.Max), true
 	case Boolean:

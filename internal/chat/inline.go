@@ -151,8 +151,12 @@ func inlineResult(r db.InlineResult) tg.InlineQueryResult {
 	id := "j" + strconv.FormatInt(r.JobID, 10)
 	title := cmp.Or(inlineTitleOf(r.Prompt), r.Model)
 	caption := resultCaption(r.Prompt, r.Model)
-	if r.FileType == db.FileVideo {
+	switch r.FileType {
+	case db.FileVideo:
 		return tg.InlineQueryResultCachedVideo{ID: id, VideoFileID: r.FileID, Title: title, Description: r.Model, Caption: caption}
+	case db.FileAnimation:
+		// A GIF Telegram keeps as the MP4 it made of it.
+		return tg.InlineQueryResultCachedMpeg4Gif{ID: id, Mpeg4FileID: r.FileID, Title: title, Caption: caption}
 	}
 	return tg.InlineQueryResultCachedPhoto{ID: id, PhotoFileID: r.FileID, Title: title, Description: r.Model, Caption: caption}
 }

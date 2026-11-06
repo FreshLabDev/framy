@@ -332,14 +332,11 @@ func fillFree(settings map[string]any, plan free.Plan, inputs int) {
 }
 
 // fillDefaults gives a run on the person's key framy's value of every
-// setting it leaves out (catalog.Defaults), so the run is what was priced.
-// A free run takes its plan's settings and nothing else.
+// setting it leaves out (catalog.Fill), so the run is what was priced: a
+// GIF gets its frames, and a still goes without them. A free run takes its
+// plan's settings and nothing else.
 func fillDefaults(settings map[string]any, offer catalog.Offer, shape float64) {
-	for name, v := range catalog.Defaults(offer, shape) {
-		if cur, set := settings[name]; !set || cur == nil {
-			settings[name] = v
-		}
-	}
+	catalog.Fill(offer, settings, shape)
 }
 
 // shapeOf is the width over the height of the first file that has both,

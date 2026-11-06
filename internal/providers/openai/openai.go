@@ -29,7 +29,7 @@ import (
 const DefaultBase = "https://api.openai.com/v1"
 
 // DefaultMaxResponse bounds an answer: a 4K PNG is about 30 MB in base64,
-// and a run may return up to ten.
+// and a run may return up to ten, PNGs or GIFs of up to 16 frames.
 const DefaultMaxResponse = 256 << 20
 
 // Config is how the adapter reaches OpenAI.
@@ -116,7 +116,7 @@ func (p *Provider) key(ctx context.Context, j jobs.Job) (string, error) {
 // are read one at a time (answer.Each). An error can come with a 200 when it
 // happened after OpenAI took the request.
 type imagesResponse struct {
-	// OutputFormat is png, jpeg or webp.
+	// OutputFormat is png, jpeg, webp or gif.
 	OutputFormat string     `json:"output_format"`
 	Usage        *usage     `json:"usage"`
 	Error        *errorBody `json:"error"`

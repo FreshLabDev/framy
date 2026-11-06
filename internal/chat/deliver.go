@@ -445,7 +445,8 @@ func (f *Flow) deliver(ctx context.Context, run db.ChatRun) {
 }
 
 // deliverAlbum puts several results in the DM as one album, the caption on
-// the first, and the loop goes: an album cannot take the loop's place. An
+// the first, and the loop goes: an album cannot take the loop's place. GIFs
+// come one after another, as an album takes no animation (postAlbum). An
 // album takes no keyboard either, so there is no Animate, Again or Original
 // under it, as under a press of frames from the site. The run keeps the
 // first picture as its message; a reply to any of them changes that one
@@ -463,7 +464,10 @@ func (f *Flow) deliverAlbum(ctx context.Context, run db.ChatRun, results []stora
 	}
 	if err != nil {
 		f.log.Error("results not sent", "job", run.JobID, "error", err)
-		return
+		if len(msgs) == 0 {
+			return
+		}
+		// GIFs go one by one, and some went: the run is theirs.
 	}
 	f.deleteMessage(ctx, run.ChatID, run.PreviewMessageID)
 	if _, err := f.cfg.Store.FinishChatRun(ctx, run.JobID, db.StageDone, resultOf(msgs[0])); err != nil {
@@ -473,15 +477,19 @@ func (f *Flow) deliverAlbum(ctx context.Context, run db.ChatRun, results []stora
 	f.forget(run.JobID)
 }
 
-// sendImage puts a picture in the chat: a photo, or a document when
-// Telegram would not take it as one, with Animate, Again and, under a
-// photo, Original. The loop goes once a reply is sent.
+// sendImage puts a picture in the chat: a photo, an animation for a GIF,
+// or a document when Telegram would not take it as either, with Animate,
+// Again and, under a photo, Original. The loop goes once a reply is sent.
 func (f *Flow) sendImage(ctx context.Context, run db.ChatRun, a storage.Asset, caption string) (tg.Message, error) {
-	asPhoto := photoFits(a)
+	gif := storage.Animated(a.ContentType)
 	kb := resultKeyboard(run.Lang, run.JobID, a, fromChat(run), true)
-	if asPhoto && f.now().Sub(run.GenerateAt) <= inPlaceWithin {
+	if (photoFits(a) || gif) && f.now().Sub(run.GenerateAt) <= inPlaceWithin {
 		msg, err := f.withResult(ctx, a, func(file tg.InputFile) (tg.Message, error) {
-			return f.cfg.Telegram.EditMessageMediaMessage(ctx, run.ChatID, run.PreviewMessageID, tg.InputMediaPhoto{Media: file, Caption: caption}, kb)
+			var item tg.InputMedia = tg.InputMediaPhoto{Media: file, Caption: caption}
+			if gif {
+				item = tg.InputMediaAnimation{Media: file, Caption: caption, Width: a.Width, Height: a.Height}
+			}
+			return f.cfg.Telegram.EditMessageMediaMessage(ctx, run.ChatID, run.PreviewMessageID, item, kb)
 		})
 		if err == nil {
 			return msg, nil
@@ -497,11 +505,15 @@ func (f *Flow) sendImage(ctx context.Context, run db.ChatRun, a storage.Asset, c
 	return msg, nil
 }
 
-// postImage sends a picture to the chat as a new message: a photo, or a
-// document when Telegram would not take it as one.
+// postImage sends a picture to the chat as a new message: a photo, a GIF
+// as an animation, which Telegram turns into a silent MP4 it loops, or a
+// document when Telegram would not take it as a photo.
 func (f *Flow) postImage(ctx context.Context, chatID int64, a storage.Asset, opts tg.CaptionOptions) (tg.Message, error) {
 	return f.withResult(ctx, a, func(file tg.InputFile) (tg.Message, error) {
-		if photoFits(a) {
+		switch {
+		case storage.Animated(a.ContentType):
+			return f.cfg.Telegram.SendAnimation(ctx, chatID, file, tg.AnimationOptions{CaptionOptions: opts, Width: a.Width, Height: a.Height})
+		case photoFits(a):
 			return f.cfg.Telegram.SendPhoto(ctx, chatID, file, opts)
 		}
 		return f.cfg.Telegram.SendDocument(ctx, chatID, file, tg.DocumentOptions{CaptionOptions: opts})

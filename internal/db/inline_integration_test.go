@@ -41,12 +41,12 @@ func inlineJob(t *testing.T, store *Store, user int64, prompt, fileType string, 
 	return job
 }
 
-func TestInlineResultsAreThePersonsPhotosAndVideos(t *testing.T) {
+func TestInlineResultsAreThePersonsPhotosVideosAndGIFs(t *testing.T) {
 	store := testStore(t)
 	ctx := context.Background()
 	photo := inlineJob(t, store, 4501, "A red fox", FilePhoto, false)
 	inlineJob(t, store, 4501, "a fox as a file", FileDocument, false)
-	inlineJob(t, store, 4501, "a fox that moves", FileAnimation, false)
+	gif := inlineJob(t, store, 4501, "a fox that moves", FileAnimation, false)
 	inlineJob(t, store, 4501, "a fox deleted", FilePhoto, true)
 	inlineJob(t, store, 4501, "a fox still making", "", false)
 	inlineJob(t, store, 4502, "someone else's fox", FilePhoto, false)
@@ -68,15 +68,20 @@ func TestInlineResultsAreThePersonsPhotosAndVideos(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(got) != 3 {
+		t.Fatalf("results = %+v, want the video, the GIF and the photo", got)
+	}
 	want := []InlineResult{
 		{JobID: video, Prompt: "Fox in the rain", Model: "Chat image", FileID: got[0].FileID, FileType: FileVideo},
-		{JobID: photo, Prompt: "A red fox", Model: "Chat image", FileID: got[1].FileID, FileType: FilePhoto},
+		{JobID: gif, Prompt: "a fox that moves", Model: "Chat image", FileID: got[1].FileID, FileType: FileAnimation},
+		{JobID: photo, Prompt: "A red fox", Model: "Chat image", FileID: got[2].FileID, FileType: FilePhoto},
 	}
-	if !reflect.DeepEqual(got, want) || got[0].FileID == "" || got[0].FileID == got[1].FileID {
+	if !reflect.DeepEqual(got, want) || got[0].FileID == "" || got[0].FileID == got[2].FileID {
 		t.Fatalf("results = %+v", got)
 	}
 	for search, want := range map[string][]int64{
-		"FOX":     {video, photo},
+		"FOX":     {video, gif, photo},
+		"moves":   {gif},
 		"rain":    {video},
 		"red fox": {photo},
 		"%":       nil,
@@ -91,8 +96,11 @@ func TestInlineResultsAreThePersonsPhotosAndVideos(t *testing.T) {
 	if got := ids("", 0, 1); !reflect.DeepEqual(got, []int64{video}) {
 		t.Fatalf("first page = %v", got)
 	}
-	if got := ids("", video, 1); !reflect.DeepEqual(got, []int64{photo}) {
+	if got := ids("", video, 1); !reflect.DeepEqual(got, []int64{gif}) {
 		t.Fatalf("second page = %v", got)
+	}
+	if got := ids("", gif, 1); !reflect.DeepEqual(got, []int64{photo}) {
+		t.Fatalf("third page = %v", got)
 	}
 	if got := ids("", photo, 1); got != nil {
 		t.Fatalf("past the end = %v", got)

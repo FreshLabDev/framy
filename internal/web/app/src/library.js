@@ -14,6 +14,7 @@ import { failure } from "./errors.js";
 import { known, priceEl, priceText, onPrices, sumOf, knownTotal, needTotal } from "./price.js";
 import { thumbMedia } from "./clips.js";
 import { player } from "./player.js";
+import { isGif, gifView, gifButton } from "./gif.js";
 import { grounding } from "./ground.js";
 import { openSheet, closeSheets, toast, ask, layer, goBack, inHistory, takeEntry } from "./ui.js";
 import { view, B, actRow, ticking, renderStage, refit } from "./stage.js";
@@ -385,6 +386,8 @@ function cover(j) {
       kids.push(im);
     } else kids.push(h("span", { class: "c" }, ic(vid ? "film" : "image"), res.url ? null : h("small", {}, t("lib.gone"))));
     if (vid && res.seconds) kids.push(h("span", { class: "badge" }, ic("play"), fmtSecs(res.seconds)));
+    // A GIF's tile is its first frame, and says it moves.
+    else if (isGif(res)) kids.push(h("span", { class: "badge" }, ic("loop"), "GIF"));
     if (outsOf(j).length > 1) kids.push(h("span", { class: "badge n" }, "×" + fmtNum(outsOf(j).length)));
     return h("span", { class: "cover" }, kids);
   }
@@ -690,13 +693,13 @@ function mediaOf(j, v) {
   if (v.done && res.url) {
     // A video has its own player, with its own whole screen.
     if (res.content_type?.startsWith("video/")) return h("div", { class: "vbox vfit" }, player(res));
-    const el = h("img", { src: res.url, alt: j.prompt || "", decoding: "async" });
+    const gif = isGif(res) ? gifView(res, j.prompt || "") : null, el = gif ? gif._img : h("img", { src: res.url, alt: j.prompt || "", decoding: "async" });
     // The thumbnail stands in while the original loads.
     const ph = res.thumb?.url ? h("img", { class: "ph", src: res.thumb.url, alt: "" }) : null;
     if (ph) el.addEventListener("load", () => ph.remove(), { once: true });
-    el.addEventListener("click", () => openFull(fullStart()));
+    (gif || el).addEventListener("click", () => openFull(fullStart()));
     const big = h("button", { type: "button", class: "vexp", "aria-label": t("full.open"), title: t("full.open"), onclick: () => openFull(fullStart()) }, ic("expand"));
-    return h("div", { class: "vbox vfit zoom" }, ph, el, big);
+    return h("div", { class: "vbox vfit zoom" }, ph, gif || el, big, gif ? gifButton(gif) : null);
   }
   const st = v.status || h("div", { class: "c" }, ic(j.kind), h("b", {}, t("lib.gone")));
   return h("div", { class: "jbox vfit" + (v.fail ? " failed" : "") }, h("i"), h("i"), h("i"), h("i"), st);
@@ -861,8 +864,9 @@ export function openFull(at = 0, items = null) {
   const box = $("#full"), n = items.length, kind = items[0].j.kind;
   const cells = items.map(({ j, res: r }) => {
     const vid = r.content_type?.startsWith("video/"), ratio = r.width && r.height ? r.width / r.height : ratioOf(j);
-    const m = vid ? player(r, { autoplay: false }) : h("img", { src: r.url, alt: j.prompt || "", decoding: "async" });
-    return h("div", { class: "fcell" }, h("div", { class: "fimg", style: { "--r": String(ratio) } }, m));
+    const gif = isGif(r) ? gifView(r, j.prompt || "") : null;
+    const m = vid ? player(r, { autoplay: false }) : gif || h("img", { src: r.url, alt: j.prompt || "", decoding: "async" });
+    return h("div", { class: "fcell" }, h("div", { class: "fimg", style: { "--r": String(ratio) } }, m, gif ? gifButton(gif) : null));
   });
   const strip = h("div", { class: "fstrip" }, cells), cnt = h("span", { class: "cnt", "aria-live": "polite" });
   const nav = n > 1 ? [h("button", { type: "button", class: "fnav s", "aria-label": t("view.prev"), title: t("view.prev"), onclick: () => fullGo(-1) }, ic("chevl")),

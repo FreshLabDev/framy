@@ -126,12 +126,13 @@ type Files interface {
 	Open(ctx context.Context, a storage.Asset) (io.ReadCloser, error)
 }
 
-// Clips reads the videos /edit takes and readies a video result for
-// Telegram: *media.Converter.
+// Clips reads the videos /edit takes and readies a video result, and a GIF
+// Telegram fetches by a link, for Telegram: *media.Converter.
 type Clips interface {
 	ProbeVideo(ctx context.Context, path string) (media.Video, error)
 	Poster(ctx context.Context, dir string) (string, error)
 	NormalizeVideo(ctx context.Context, dir string, cut *media.Cut) (media.Video, error)
+	GIFVideo(ctx context.Context, dir string) (media.Video, error)
 }
 
 // Allowance says how much of the free tier a person has left: *free.Allowance.

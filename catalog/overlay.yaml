@@ -86,6 +86,10 @@ exclude:
   - match: openai/gpt-image-*
     values: {quality: [auto], aspect_ratio: [auto]}
     why: OpenAI decides the quality and the shape of an auto run, so its price is known only after it
+  - match: openai/gpt-image-*
+    provider: openrouter
+    values: {output_format: [gif]}
+    why: OpenRouter takes no frame_count or frame_duration_ms (6 November 2026), so a GIF through it would have OpenAI's 9 frames of 200 ms whatever the composer showed; it goes on the direct port
 
 models:
   # Images.
@@ -100,15 +104,15 @@ models:
   # calculator multiplies its tokens by 4.2 at low quality and 3.3 at
   # medium: $0.025 and $0.043 for 1024×1024, where 2.5 costs $0.006 and
   # $0.013. OpenAI says nothing of its input tokens, so they are 2.5's and
-  # the estimate stays "about". Its GIF output has no published price: left
-  # out. The family opens on 2.6 (owner, 6 November); 2.5 stays current for
-  # its price.
+  # the estimate stays "about". Its GIF (direct port only, see exclude
+  # above) is priced as one still of its quality and size a frame (owner, 6
+  # November), since OpenAI publishes no price of its own for it. The family
+  # opens on 2.6 (owner, 6 November); 2.5 stays current for its price.
   openai/gpt-image-2.6-sunburst:
     family: {id: gpt-image, gen: "2.6", tier: sunburst, label: 2.6 Sunburst}
     offers: [openai:gpt-image-2.6-sunburst]
     featured: true
     effort: {parameter: quality, values: [low, medium, high, xhigh, max]}
-    exclude: {output_format: [gif]}
     price:
       openai_tokens: {low: 16, medium: 24, high: 48, xhigh: 64, max: 96}
       openai_token_factor: {low: 4.2, medium: 3.3}
@@ -119,7 +123,6 @@ models:
     offers: [openai:gpt-image-2.6-flare]
     featured: true
     effort: {parameter: quality, values: [low, medium, high, xhigh, max]}
-    exclude: {output_format: [gif]}
     price:
       openai_tokens: {low: 16, medium: 24, high: 48, xhigh: 64, max: 96}
       openai_token_factor: {low: 4.2, medium: 3.3}

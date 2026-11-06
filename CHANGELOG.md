@@ -18,6 +18,19 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
   exact rather than "up to", 30% below 1.1, and a clip to edit or extend of
   up to 15 s. It takes 1.1's place in the picker; 1.1 is marked as closing
   on 3 December, when Google moves its requests to 1.2.
+- Animated GIFs from GPT Image 2.6 on an OpenAI key. GIF under Format
+  turns the form into frames (2 to 16, 9 by default) and frame length
+  (50 ms to 1 s, 200 ms by default) and shows how long the loop runs,
+  with a strip that lights a cell per frame at its pace. With a photo
+  attached, one tap animates it. OpenAI publishes no price for a GIF, so the estimate counts
+  one still of the same quality and size per frame and says it is an
+  estimate; the cost is the usage OpenAI reports. The key's account needs
+  OpenAI's GIF preview. OpenRouter takes no frame settings, so there is no
+  GIF through it.
+- A GIF plays on the stage, in the library and on the whole screen, and a
+  button stops it on its first frame. In Telegram it comes as an animation
+  in a direct chat, a group, a guest answer and inline mode, several of
+  them one by one, and `/img` asks for one under Settings.
 
 ### Changed
 

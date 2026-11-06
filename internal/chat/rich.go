@@ -272,10 +272,8 @@ func keySettings(m catalog.Model, o catalog.Offer, current map[string]any, taken
 	if len(images) > 0 && images[0].Width > 0 && images[0].Height > 0 {
 		shape = float64(images[0].Width) / float64(images[0].Height)
 	}
-	s := catalog.Defaults(o, shape)
-	for k, v := range carried(current, o) {
-		s[k] = v
-	}
+	s := carried(current, o)
+	catalog.Fill(o, s, shape)
 	if m.Kind == catalog.Video && taken > 0 {
 		var types []string
 		for _, v := range o.Params[framesSetting].Values {
@@ -297,8 +295,19 @@ const framesSetting = "frame_images"
 // ones the site's composer shows first. A size goes only where the model has
 // neither an aspect ratio nor a resolution, and never on a video, as
 // catalog.Defaults decides. n is how many results, up to maxResults, and
-// only where they may be several (severalResults).
-var drawnSettings = []string{"aspect_ratio", "resolution", "quality", "background", "n", "duration", "generate_audio", "size"}
+// only where they may be several (severalResults). The format is a choice
+// of a picture or a GIF where the model makes one, and the GIF's frames and
+// their length follow it while it is a GIF (catalog.Applies).
+var drawnSettings = []string{"output_format", "frame_count", "frame_duration_ms",
+	"aspect_ratio", "resolution", "quality", "background", "n", "duration", "generate_audio", "size"}
+
+// gifFrames and gifFrameMS are the GIF's counts of frames and lengths of a
+// frame in milliseconds the preview offers: OpenAI's 9 of 200 ms among them,
+// as many as fit a row, within what the model takes.
+var (
+	gifFrames  = []int{4, 6, 9, 12, 16}
+	gifFrameMS = []int{100, 150, 200, 300, 500}
+)
 
 // settingsOf are the settings of an offer the rich preview offers, with
 // their values. many: the run may make several results, so n is offered.
@@ -312,14 +321,20 @@ func settingsOf(o catalog.Offer, many bool) []setting {
 			continue
 		}
 		var values []any
-		switch p.Type {
-		case catalog.Enum:
+		switch {
+		case name == "output_format":
+			values = formats(p)
+		case name == "frame_count" && p.Type == catalog.Range:
+			values = within(p, gifFrames)
+		case name == "frame_duration_ms" && p.Type == catalog.Range:
+			values = within(p, gifFrameMS)
+		case p.Type == catalog.Enum:
 			values = p.Values
-		case catalog.Range:
+		case p.Type == catalog.Range:
 			if name == "n" && many {
 				values = results(o)
 			}
-		case catalog.Boolean:
+		case p.Type == catalog.Boolean:
 			if name == "generate_audio" {
 				values = []any{false, true}
 			}
@@ -329,6 +344,36 @@ func settingsOf(o catalog.Offer, many bool) []setting {
 		}
 		if len(values) > 1 {
 			out = append(out, setting{name: name, values: values})
+		}
+	}
+	return out
+}
+
+// formats are a picture and a GIF, where the model makes a GIF: the format
+// a picture has without a choice, and gif. A model that makes none has no
+// choice: its format stays the provider's.
+func formats(p catalog.Param) []any {
+	if p.Type != catalog.Enum || !slices.ContainsFunc(p.Values, func(v any) bool { return sameSetting(v, catalog.GIF) }) {
+		return nil
+	}
+	still := p.Default
+	if still == nil || sameSetting(still, catalog.GIF) {
+		i := slices.IndexFunc(p.Values, func(v any) bool { return !sameSetting(v, catalog.GIF) })
+		if i < 0 {
+			return nil
+		}
+		still = p.Values[i]
+	}
+	return []any{still, catalog.GIF}
+}
+
+// within are the values of a range the preview offers: those of some that
+// it takes.
+func within(p catalog.Param, some []int) []any {
+	var out []any
+	for _, v := range some {
+		if (p.Min == nil || float64(v) >= *p.Min) && (p.Max == nil || float64(v) <= *p.Max) {
+			out = append(out, v)
 		}
 	}
 	return out
@@ -394,6 +439,16 @@ func valueLabel(lang, name string, v any) string {
 			return t(lang, "web.val.with_sound")
 		}
 		return t(lang, "web.val.no_sound")
+	case "output_format":
+		if sameSetting(v, catalog.GIF) {
+			return t(lang, "web.val.gif")
+		}
+		return t(lang, "web.val.image")
+	case "frame_count":
+		// Its row is titled Frames.
+		return fmt.Sprint(v)
+	case "frame_duration_ms":
+		return t(lang, "web.unit.ms", "n", fmt.Sprint(v))
 	}
 	s := fmt.Sprint(v)
 	if valueWords[s] {
@@ -514,13 +569,22 @@ func (l listing) pickLabel(lang string, p entry) string {
 	return cmp.Or(local, usd)
 }
 
-// labelled are the settings that read as words, which a caption names:
-// "Low, Medium, High" alone does not say of what.
-func labelled(name string) bool { return name == "quality" || name == "background" }
+// labelled are the settings that read as words or bare numbers, which a
+// caption names: "Low, Medium, High" alone does not say of what, nor "4, 6,
+// 9" that they are a GIF's frames.
+func labelled(name string) bool {
+	switch name {
+	case "quality", "background", "frame_count", "frame_duration_ms":
+		return true
+	}
+	return false
+}
 
 // richSettings are the run's settings, each a row of its values with the
 // current one marked, and in the title the values the run has. A free run
-// has its settings fixed, and an edit of a clip none to change.
+// has its settings fixed, and an edit of a clip none to change. A setting
+// that goes only with another shows while it does: a GIF's frames on a GIF,
+// a background on a picture. The title names the format only for a GIF.
 func richSettings(lang string, jobID int64, d draft, open bool) string {
 	if d.pay == payFree || d.clip {
 		return ""
@@ -534,8 +598,15 @@ func richSettings(lang string, jobID int64, d draft, open bool) string {
 		now  []string
 	)
 	for _, set := range sets {
+		if !catalog.Applies(d.offer, set.name, d.settings) {
+			continue
+		}
 		cur, has := d.settings[set.name]
-		if has {
+		switch {
+		case !has || (set.name == "output_format" && !sameSetting(cur, catalog.GIF)):
+		case set.name == "frame_count":
+			now = append(now, t(lang, "web.unit.frames", "n", fmt.Sprint(cur)))
+		default:
 			now = append(now, valueLabel(lang, set.name, cur))
 		}
 		var buttons []string
@@ -545,6 +616,9 @@ func richSettings(lang string, jobID int64, d draft, open bool) string {
 		per := 5
 		if labelled(set.name) {
 			rows.WriteString("<p>" + html.EscapeString(t(lang, "web.set."+set.name)) + "</p>")
+		}
+		if set.name == "quality" || set.name == "background" {
+			// Words take more room than figures.
 			per = 3
 		}
 		rows.WriteString(richRows(buttons, per))

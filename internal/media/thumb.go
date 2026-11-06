@@ -32,6 +32,8 @@ func (c *Converter) CheckThumb(ctx context.Context) error {
 // picture, upright, in sRGB as Normalize makes it, and keeps the alpha. in
 // is a file framy keeps, read as Normalize reads one: by the format its
 // bytes name, and refused with ErrUnsupported, ErrTooLarge or ErrUnreadable.
+// A GIF's thumbnail is its first frame, the still the site shows while the
+// GIF loads or stands paused.
 func (c *Converter) Thumb(ctx context.Context, in, out string) (width, height int, err error) {
 	f, err := os.Open(in)
 	if err != nil {

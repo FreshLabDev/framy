@@ -7,6 +7,7 @@ import (
 	"errors"
 	"image"
 	"image/color"
+	"image/gif"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -140,5 +141,70 @@ func TestWhatIsNotAPictureHasNoThumb(t *testing.T) {
 	c := thumbConverter(t)
 	if _, _, _, err := thumb(t, c, []byte("not a picture at all")); !errors.Is(err, ErrUnsupported) {
 		t.Errorf("%v, want ErrUnsupported", err)
+	}
+}
+
+// gifOf is an animation of w×h whose first frame is red and second blue.
+func gifOf(t *testing.T, w, h int) []byte {
+	t.Helper()
+	pal := color.Palette{color.NRGBA{R: 255, A: 255}, color.NRGBA{B: 255, A: 255}}
+	frame := func(i uint8) *image.Paletted {
+		p := image.NewPaletted(image.Rect(0, 0, w, h), pal)
+		for k := range p.Pix {
+			p.Pix[k] = i
+		}
+		return p
+	}
+	var buf bytes.Buffer
+	if err := gif.EncodeAll(&buf, &gif.GIF{Image: []*image.Paletted{frame(0), frame(1)}, Delay: []int{20, 20}}); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// A GIF is measured by its header, and its thumbnail is its first frame:
+// the still the site shows while the animation loads or stands paused.
+func TestAGIFsThumbnailIsItsFirstFrame(t *testing.T) {
+	data := gifOf(t, 640, 360)
+	if info, err := Inspect(bytes.NewReader(data), int64(len(data))); err != nil || info.Format != GIF || info.Width != 640 || info.Height != 360 {
+		t.Fatalf("Inspect = %+v, %v; want a GIF of 640×360", info, err)
+	}
+	c := thumbConverter(t)
+	pic, w, h, err := thumb(t, c, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w != ThumbLongSide || h != ThumbLongSide*360/640 {
+		t.Errorf("thumbnail %d×%d, want %d on the long side in the GIF's shape", w, h, ThumbLongSide)
+	}
+	if r, g, b, _ := vp8At(pic, w/2, h/2).RGBA(); r>>8 < 200 || g>>8 > 60 || b>>8 > 60 {
+		t.Errorf("the thumbnail is %d,%d,%d at its middle, want the first frame's red", r>>8, g>>8, b>>8)
+	}
+}
+
+// A GIF Telegram fetches by a link goes as the silent MP4 it would make of
+// it itself: H.264 with even sides, as long as the GIF's frames.
+func TestAGIFGoesToTelegramAsAClip(t *testing.T) {
+	c := videoConverter(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, In), gifOf(t, 641, 361), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	v, err := c.GIFVideo(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.ContentType != "video/mp4" || v.Audio || v.Width%2 != 0 || v.Height%2 != 0 || v.Width < 638 || v.Height < 358 {
+		t.Errorf("GIFVideo = %+v, want a silent MP4 of about 640×360 with even sides", v)
+	}
+	// Two frames of 200 ms.
+	if v.Seconds < 0.3 || v.Seconds > 0.5 {
+		t.Errorf("the clip is %.3f s, want the GIF's 0.4", v.Seconds)
+	}
+	if err := os.WriteFile(filepath.Join(dir, In), pngOf(t, 4, 4, func(int, int) color.NRGBA { return color.NRGBA{A: 255} }), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.GIFVideo(context.Background(), dir); !errors.Is(err, ErrUnsupportedVideo) {
+		t.Errorf("a PNG: %v, want ErrUnsupportedVideo", err)
 	}
 }

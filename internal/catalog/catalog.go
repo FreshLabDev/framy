@@ -66,8 +66,14 @@ type Param struct {
 	// Default is what the provider does when the field is left out, where a
 	// hand-written descriptor says so. A setting that no rule of Defaults
 	// decides starts on it, so a run nobody set it for is no worse than the
-	// provider's own. It is one of Values.
+	// provider's own. It is one of Values, or within a range.
 	Default any `json:"default,omitempty" yaml:"default,omitempty"`
+	// Only, where a hand-written descriptor says so, is when the setting
+	// goes at all: while every setting it names has one of the values
+	// listed, as set or as its default. GPT Image 2.6's frame_count goes
+	// only with output_format gif. A setting it leaves out gets no default
+	// and is not sent (Applies, Fill).
+	Only map[string][]any `json:"only,omitempty" yaml:"only,omitempty"`
 	// Passthrough marks a setting the provider takes among its own options
 	// rather than as a field of the request. The overlay supplies its values,
 	// since OpenRouter lists only the names.
@@ -95,6 +101,11 @@ func (p Param) validate(name string, allowText bool) error {
 	case Range:
 		if p.Min == nil || p.Max == nil || *p.Min > *p.Max {
 			return fmt.Errorf("parameter %s: a range needs min <= max", name)
+		}
+		if p.Default != nil {
+			if d, ok := number(p.Default); !ok || d < *p.Min || d > *p.Max {
+				return fmt.Errorf("parameter %s: the default %v is not within %v to %v", name, p.Default, *p.Min, *p.Max)
+			}
 		}
 	case Boolean:
 	case Text:

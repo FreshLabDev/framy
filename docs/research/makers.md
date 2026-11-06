@@ -159,12 +159,12 @@ The first five reference images are free at MiniMax and on OpenRouter's page; fr
 | Capability | At the maker | Through OpenRouter | Why framy wants it |
 |:--|:--|:--|:--|
 | any size up to 3840 px and 8.29 MP | yes | 8 aspect ratios and `auto` | 2K and 4K, on the direct port only |
-| `output_format` | yes | on 2.6 only: PNG, JPEG, WebP and GIF, of which framy offers the first three; PNG on the others, where `output_compression` probably does nothing | |
+| `output_format` | yes | on 2.6 only: PNG, JPEG, WebP and GIF, of which framy offers the first three there; PNG on the others, where `output_compression` probably does nothing | GIF, on the direct port |
 | mask | yes, on the first image, with alpha, up to 50 MB | no | the stage 3 mask editor |
 | `partial_images`, `safety_identifier`, Batch at half price | yes | no | progress previews; cheaper bulk runs |
 | `moderation` | a field | only `provider.options.openai.moderation` | |
 | transparent background on GPT Image 2 | preview since 20 August 2026 | auto and opaque only | |
-| GIF output on 2.6 | `output_format: gif` on generations, 2 to 16 frames (9 by default), 20 to 2000 ms each | `gif` in `output_format` | an animation; left out while a GIF's frames have no published price |
+| GIF output on 2.6 | `output_format: gif` on generations, 2 to 16 frames (9 by default), 20 to 2000 ms each, no transparent background; needs the GIF preview on the account | `gif` in `output_format`, but no `frame_count` or `frame_duration_ms` (6 November 2026) | an animation; offered on the direct port since 6 November 2026, estimated as a still of its quality and size a frame (no price is published) and billed by usage |
 | SVG output on 2.6 | `output_format: svg` on generations, n = 1, billed as a reference image plus the authoring model's tokens; the `svg` field picking the authoring model needs access OpenAI grants apart | no | vector art; the authoring model's tokens are not published |
 | `complexity` on 2.6 | low, medium, high (the default), no fee | a pass-through | a lighter edit; offered on the direct port as "Planning", high by default |
 

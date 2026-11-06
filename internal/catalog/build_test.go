@@ -196,8 +196,15 @@ func TestBuildAppliesExclusionsAndPassthrough(t *testing.T) {
 				t.Fatalf("%s: quality = %v", id, params["quality"].Values)
 			}
 			if slices.Contains(params["output_format"].Values, any("gif")) {
-				t.Fatalf("%s: a GIF, of no published price, is offered", id)
+				t.Fatalf("%s: a GIF goes through OpenRouter, which takes none of its frame settings", id)
 			}
+		}
+		// The direct port of 2.6 makes the GIF, with its frames.
+		direct := m.Offers[0]
+		gif := slices.Contains(direct.Params["output_format"].Values, any("gif"))
+		_, frames := direct.Params["frame_count"]
+		if want := strings.HasPrefix(id, "openai/gpt-image-2.6"); gif != want || frames != want {
+			t.Fatalf("%s: %s offers a GIF %v and its frames %v, want %v", id, direct.ID, gif, frames, want)
 		}
 		if e := m.Traits.Effort; id != "openai/gpt-image-2" && (e == nil || e.Parameter != "quality") {
 			t.Fatalf("%s: effort = %+v", id, e)

@@ -47,7 +47,8 @@ const (
 )
 
 var (
-	// ErrUnsupported: not a JPEG, PNG, WebP, HEIC or AVIF.
+	// ErrUnsupported: not a JPEG, PNG, WebP, HEIC or AVIF; a GIF is kept
+	// as a result only.
 	ErrUnsupported = errors.New("not an image framy takes")
 	// ErrTooLarge: more pixels than MaxPixels.
 	ErrTooLarge = errors.New("the picture is too large")
@@ -166,7 +167,9 @@ func (c *Converter) Normalize(ctx context.Context, dir string) (Image, error) {
 		return Image{}, fmt.Errorf("%w: %v", ErrUnreadable, err)
 	case err != nil:
 		return Image{}, err
-	case h.format == "":
+	case h.format == "" || h.format == GIF:
+		// A GIF comes from the browser as a PNG of its first frame, and a
+		// model takes a still.
 		return Image{}, ErrUnsupported
 	case h.pixels() > c.maxPixels():
 		return Image{}, fmt.Errorf("%w: %d×%d", ErrTooLarge, h.width, h.height)

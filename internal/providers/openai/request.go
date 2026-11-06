@@ -51,7 +51,10 @@ var reserved = map[string]bool{
 
 // wholeNumbers are the settings whose value is an integer, which a JSON
 // number from the database may spell 2.0.
-var wholeNumbers = map[string]bool{"n": true, "output_compression": true}
+var wholeNumbers = map[string]bool{"n": true, "output_compression": true, "frame_count": true, "frame_duration_ms": true}
+
+// gifOnly are the settings OpenAI takes only with output_format gif.
+var gifOnly = []string{"frame_count", "frame_duration_ms"}
 
 // request is a call ready to go: where, with what, and the rates the answer's
 // usage is priced with.
@@ -72,7 +75,9 @@ type request struct {
 //     draws, the rules are OpenAI's;
 //   - everything else must be a setting of the offer with a value the offer
 //     allows;
-//   - references make it an edit, and they go as links OpenAI fetches.
+//   - references make it an edit, and they go as links OpenAI fetches;
+//   - a GIF (output_format gif) goes on either endpoint, with its
+//     frame_count and frame_duration_ms, which go with nothing else.
 func imageRequest(j jobs.Job) (request, error) {
 	of := j.Offer
 	switch {
@@ -139,6 +144,13 @@ func imageRequest(j jobs.Job) (request, error) {
 	}
 	if bg, _ := settings["background"].(string); bg == "transparent" && format != "" && format != "png" && format != "webp" {
 		return request{}, refused("a transparent background needs output_format png or webp")
+	}
+	// A GIF's frames go only with a GIF: anything else would be refused by
+	// OpenAI after the person was shown a price for frames.
+	for _, name := range gifOnly {
+		if _, set := settings[name]; set && format != catalog.GIF {
+			return request{}, refused("%s needs output_format gif", name)
+		}
 	}
 
 	body := map[string]any{

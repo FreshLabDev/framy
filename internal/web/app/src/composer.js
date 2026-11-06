@@ -5,7 +5,7 @@ import { $, $$, h, ic, isPhone, inFlow, MAC, keepFocus } from "./dom.js";
 import { anim, rise, spin, opt, placeSegs, placeSeg, fitSegs, snap, ticker, roll, follow, EASE, SPRING, OUT, motion, DUR } from "./motion.js";
 import { t, fmtNum, fmtIn, fmtSecs, fmtList, spaced } from "./i18n.js";
 import { C, PNAME, vname, famLogo, lg, provMark, freePlan, pays, offerOf, facts, factEl, deprecation, fieldsOf, SECONDARY, SEARCH, SICON,
-  label, show, ordered, ratioNum, ratioOfSize, sizeK, resScore, needsVideo, OPEN, SEED_MAX } from "./catalog.js";
+  label, show, ordered, ratioNum, ratioOfSize, sizeK, resScore, needsVideo, OPEN, SEED_MAX, GIF, applies, stillOf } from "./catalog.js";
 import { S, M, images, clip, payOf, usable, keyOk, connection, freeLeft, freeLimit, freesAt, freePer, settings, route, runItem, altItem, next, sourceRatio, quoteNow,
   maxSecs, needsCut, contFits, slotOf, sources, inputsOf, placeFiles, refuses, refLengths,
   FR, MAXFR, scopeFr, newFrame, common, wanted, setModelHere, setPayHere, setWantedHere, tidy, ownBits, hasOwn, plan, paidItems, cutLimits, cutNeeded, renewFiles, renewRefused } from "./state.js";
@@ -511,7 +511,8 @@ function settingsBlock(m, pay) {
       open.length && pays(m).length > 1 ? h("button", { type: "button", class: "link-t", onclick: () => act(() => { setPayHere(m, keyed.provider); render(); }) }, t("free.tune")) : null));
     return box;
   }
-  const names = [...fieldsOf(o), ...("fast" in s ? ["fast"] : [])];
+  // A setting that goes only with another shows while it does: a GIF's frames, a picture's background.
+  const names = [...fieldsOf(o).filter((x) => applies(o, x, s)), ...("fast" in s ? ["fast"] : [])];
   const prim = names.filter((x) => !SECONDARY.has(x)), sec = names.filter((x) => SECONDARY.has(x));
   // A model that picks the length itself (Omni) says so where the length would be.
   let picks = m.kind === "video" && !o.params.duration ? m.traits?.picks_length : null;
@@ -537,6 +538,9 @@ function toggleMore() {
 const setWanted = setWantedHere;
 function settingField(m, pay, o, s, name) {
   if (name === "size") return sizeFields(m, pay, o, s);
+  if (name === "output_format") return formatField(m, pay, o, s);
+  if (name === "frame_count") return framesField(o, s);
+  if (name === "frame_duration_ms") return frameLenField(o, s);
   if (OPEN.has(name)) return openField(name, s[name]);
   // With reference images, frames or a clip some models make fewer lengths: only those are offered.
   const all = o.params[name] || { type: "boolean" }, lens = name === "duration" ? refLengths(m, pay) : null;
@@ -663,6 +667,80 @@ function fieldBits(name, v, src) {
   if (name === "aspect_ratio" && v === "auto") bits.push(right(t("set.as_" + of)));
   else if ((name === "aspect_ratio" || name === "size") && wanted()[name] === undefined) bits.push(right(t("set.near_" + of)));
   return bits;
+}
+/* A picture or a GIF (GPT Image 2.6). The GIF turns the form into one at once: its frames
+   and how long each shows come under it, with the loop they make, the background goes, and a
+   size past 1.5K comes down to its shape's smallest, since a GIF is billed as a picture a frame.
+   A photo given is what the GIF brings to life, and a picture offers to. */
+function formatField(m, pay, o, s) {
+  const v = s.output_format, gif = v === GIF, still = stillOf(o), key = "set-output_format";
+  const set = (x) => act(() => {
+    setWanted("output_format", x);
+    if (x === GIF) gifSize(o, s);
+    render();
+  });
+  const priceWith = (x) => h("small", {}, priceEl(altItem(m, pay, { ...s, output_format: x })));
+  const seg = h("div", { class: "seg", role: "radiogroup", "aria-label": label("output_format"), "data-seg": key }, [still, GIF].map((x) =>
+    opt({ key, v: x, on: (x === GIF) === gif, pick: () => set(x) }, h("span", { class: "row" }, ic(x === GIF ? "loop" : "image"), show("output_format", x)), priceWith(x))));
+  const out = [fieldSec("output_format", label("output_format"), SICON.output_format, fieldBits("output_format", v, null), seg)];
+  if (images().length) out.push(h("p", { class: "snote", "data-k": "h-gifnote" }, gif ? t("gif.animates_photo")
+    : h("button", { type: "button", class: "link-t", onclick: () => set(GIF) }, t("gif.animate_photo"))));
+  return out;
+}
+function gifSize(o, s) {
+  if (!fieldsOf(o).includes("size") || resScore(sizeK(s.size)) <= resScore("1.5K")) return;
+  const r = ratioOfSize(s.size), x = o.params.size.values.map(String).filter((y) => ratioOfSize(y) === r).sort((a, b) => resScore(sizeK(a)) - resScore(sizeK(b)))[0];
+  if (x) setWanted("size", x);
+}
+// The frames: a slider of whole frames, and under it the loop they make, a cell a frame lit in
+// turn for as long as a frame shows. With reduced motion the cells stand still.
+function framesField(o, s) {
+  const p = o.params.frame_count, v = s.frame_count;
+  const r = h("input", { type: "range", min: p.min, max: p.max, step: 1, value: v, "aria-label": label("frame_count"), "aria-valuetext": show("frame_count", v) });
+  const cur = h("b", {}, show("frame_count", v)), strip = h("span", { class: "gloop", "aria-hidden": "true" });
+  const draw = (n) => loopStrip(strip, n, s.frame_duration_ms);
+  fillRange(r);
+  draw(v);
+  r.addEventListener("input", () => {
+    const n = +r.value;
+    setWanted("frame_count", n);
+    cur.textContent = show("frame_count", n);
+    r.setAttribute("aria-valuetext", cur.textContent);
+    fillRange(r);
+    draw(n);
+    const gl = $("#how [data-gl]");
+    if (gl) gl.textContent = loopText(n, s.frame_duration_ms);
+    renderBar();
+  });
+  r.addEventListener("change", () => act(() => render()));
+  const control = h("div", { class: "rng" }, h("div", { class: "rline" }, r, cur),
+    h("div", { class: "rends", "aria-hidden": "true" }, h("span", {}, show("frame_count", p.min)), h("span", {}, show("frame_count", p.max))), strip);
+  return fieldSec("frame_count", label("frame_count"), SICON.frame_count, fieldBits("frame_count", v, null), control);
+}
+// How long a frame shows, in named steps around OpenAI's 200 ms, and on the right the loop's length.
+const FRAME_MS = [50, 100, 200, 300, 500, 1000];
+function frameLenField(o, s) {
+  const p = o.params.frame_duration_ms, v = s.frame_duration_ms;
+  const vals = FRAME_MS.filter((x) => x >= p.min && x <= p.max);
+  if (!vals.includes(v)) vals.push(v), vals.sort((a, b) => a - b);
+  const loop = h("span", { class: "right", "data-gl": "" }, loopText(s.frame_count, v));
+  // The loop's length and the strip's pace follow the slider as it moves, before any render.
+  const store = (x) => {
+    setWanted("frame_duration_ms", x);
+    loop.textContent = loopText(s.frame_count, x);
+    const strip = $("#how .gloop");
+    if (strip) loopStrip(strip, s.frame_count, x);
+  };
+  return fieldSec("frame_duration_ms", label("frame_duration_ms"), SICON.frame_duration_ms, [...fieldBits("frame_duration_ms", v, null), loop],
+    stepSlider("frame_duration_ms", vals, v, store, () => null));
+}
+const loopText = (n, ms) => t("gif.loop", { s: fmtSecs((n * ms) / 1000) });
+function loopStrip(strip, n, ms) {
+  strip.replaceChildren(...Array.from({ length: n }, () => h("i")));
+  if (!motion()) return;
+  const cells = [...strip.children], all = n * ms;
+  cells.forEach((c, i) => c.animate([{ opacity: 0.25, offset: 0 }, { opacity: 0.25, offset: i / n }, { opacity: 1, offset: i / n },
+    { opacity: 1, offset: (i + 1) / n }, { opacity: 0.25, offset: (i + 1) / n }, { opacity: 0.25, offset: 1 }], { duration: all, iterations: Infinity }));
 }
 /* GPT Image's one "size" is both the shape and the resolution; here they are two rows like everywhere else. */
 function sizeFields(m, pay, o, s) {

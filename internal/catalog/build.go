@@ -29,7 +29,7 @@ func Build(up Upstream, files Files, now time.Time) Snapshot {
 	for _, offer := range append(slices.Clone(up.Offers), files.Offers...) {
 		offer.ModelID = o.modelOf(offer)
 		ov := o.Models[offer.ModelID]
-		ov.Exclude = o.excludeOf(offer.ModelID)
+		ov.Exclude = o.excludeOf(offer.ModelID, offer.Provider)
 		offer = applyOverlay(offer, ov)
 		switch {
 		case len(offer.Routes) == 0:

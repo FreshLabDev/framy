@@ -169,12 +169,13 @@ func (c *calc) quantity(billable, unit string) (lo, hi float64, ok bool) {
 	refs := float64(len(c.req.Images))
 	switch billable + "/" + unit {
 	case outputImage + "/" + unitImage:
-		return n, n, true
+		f := c.frames()
+		return n * f, n * f, true
 	case outputImage + "/" + unitRequest:
 		return 1, 1, true
 	case outputImage + "/" + unitMegapixel:
 		c.about()
-		mp := c.outputPixels() / 1e6
+		mp := c.outputPixels() / 1e6 * c.frames()
 		return n * mp, n * mp, true
 	case outputImage + "/" + unitToken:
 		lo, hi, ok := c.outputTokens()
@@ -183,7 +184,8 @@ func (c *calc) quantity(billable, unit string) (lo, hi float64, ok bool) {
 			return 0, 0, false
 		}
 		c.about()
-		return n * lo, n * hi, true
+		f := c.frames()
+		return n * f * lo, n * f * hi, true
 	case inputImage + "/" + unitImage, inputReference + "/" + unitImage:
 		return refs, refs, true
 	case inputReference + "/" + unitRequest:

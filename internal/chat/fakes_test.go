@@ -1269,6 +1269,18 @@ func (c *fakeClips) NormalizeVideo(_ context.Context, dir string, _ *media.Cut) 
 		os.WriteFile(out, b, 0o600)
 }
 
+// GIFVideo writes "mp4:" and the GIF as the clip.
+func (c *fakeClips) GIFVideo(_ context.Context, dir string) (media.Video, error) {
+	b, err := os.ReadFile(filepath.Join(dir, media.In))
+	if err != nil {
+		return media.Video{}, err
+	}
+	out := filepath.Join(dir, "out.mp4")
+	clip := append([]byte("mp4:"), b...)
+	return media.Video{Path: out, ContentType: "video/mp4", Width: 1024, Height: 1024, Seconds: 1.8, Bytes: int64(len(clip))},
+		os.WriteFile(out, clip, 0o600)
+}
+
 type fakeKeys struct{ conns []keys.Connection }
 
 func (k fakeKeys) List(context.Context, int64) ([]keys.Connection, error) { return k.conns, nil }

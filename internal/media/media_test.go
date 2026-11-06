@@ -48,7 +48,8 @@ func TestSniff(t *testing.T) {
 		{"animated avif", ftyp("avis", "msf1"), AVIF},
 		{"mp4 video", ftyp("isom", "iso2", "avc1", "mp41"), ""},
 		{"quicktime", ftyp("qt  ", "qt  "), ""},
-		{"gif", []byte("GIF89a\x01\x00"), ""},
+		{"gif", []byte("GIF89a\x01\x00"), GIF},
+		{"old gif", []byte("GIF87a\x01\x00"), GIF},
 		{"text", []byte("hello world, not a picture"), ""},
 		{"empty", nil, ""},
 	} {

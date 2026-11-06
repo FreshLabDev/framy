@@ -194,6 +194,10 @@ textarea#prompt::placeholder {color: var(--muted);}
 .rline input[type="range"] {flex: 1; min-width: 0; height: 44px;}
 .rline b {min-width: 48px; text-align: end; font-size: 16px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums;}
 .rends {display: flex; justify-content: space-between; margin-top: -8px; padding-inline-end: 62px; font-size: 12px; color: var(--muted);}
+/* A GIF's loop under its frames: a cell a frame, lit in turn for as long as a frame shows
+   (src/composer.js); with reduced motion they stand at half. */
+.gloop {display: flex; gap: 3px; margin-top: 10px; padding-inline-end: 62px;}
+.gloop > i {flex: 1 1 0; max-width: 28px; height: 8px; background: var(--ink); opacity: .5;}
 @media (min-width: 960px) {
   .sec.row {grid-template-columns: 112px minmax(0, 1fr); align-items: start; column-gap: 12px;}
   .sec.row > .lab {flex-wrap: wrap; align-items: center; align-content: center; min-height: 44px; row-gap: 2px;}
@@ -900,6 +904,12 @@ main.library {display: grid; gap: 18px; padding: 6px 0 calc(48px + env(safe-area
   #viewBody :is(.jacts, .sqs) > .sq2 > .t, #full :is(.jacts, .sqs) > .sq2 > .t {display: inline;}
 }
 .vbox.zoom > img {cursor: zoom-in;}
+/* A GIF result: the animation, and its first frame over it while it stands still (src/gif.js). */
+.gifv {position: relative; display: block; width: 100%; height: 100%;}
+.gifv > img, .gifv > canvas {position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain;}
+.vbox > .gifv, .full .fimg > .gifv {position: absolute; inset: 0;}
+.vbox.zoom > .gifv {cursor: zoom-in;}
+:is(.jbox:not(.cell), .vbox, .full .fimg) > .tpp {position: absolute; inset-inline-end: 8px; bottom: 8px; z-index: 1; width: 44px; height: 44px; display: grid; place-items: center; background: rgba(0, 69, 79, .85); color: var(--ink);}
 .vexp {position: absolute; inset-inline-end: 0; top: 0; z-index: 1; width: 44px; height: 44px; display: grid; place-items: center; background: rgba(0, 69, 79, .85);}
 .vexp .ic {width: 16px; height: 16px;}
 /* The whole screen for a run's results. */
