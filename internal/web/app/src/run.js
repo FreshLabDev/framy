@@ -75,15 +75,22 @@ export async function signOutAll() {
 // Nobody is signed in any more: signed out, the account deleted, or the session gone.
 // A press still sending its files stops there: they would go up for nobody
 // (a clip to the bucket needs no session), and Create is free again.
-export function forget() {
-  stopWatch?.();
+// A session that ended by itself (signed out elsewhere, the Mini App's hour)
+// leaves a run still being made on the stage, saying it goes on on the
+// server, and signing in again comes back to it (signIn). A sign-out pressed
+// here, or a run that is over, clears the stage.
+export function forget(ended = false) {
+  stopWatch?.(); stopWatch = null;
   if (S.run?.phase === "prep" && !S.run.sending) S.run.stop.abort();
+  const r = S.run, on = ended && r?.phase === "job" && jobsOf(r).some((j) => !isFinal(j.status));
+  if (on) r.net = S.mini ? "reopen" : "signin";
   // A read of the account already on its way is older than this: its answer
   // does not show the person signed in again (refreshMe).
   S.meV++;
-  S.signed = false; S.me = null; S.run = null; S.busy = false;
+  S.signed = false; S.me = null; S.run = on ? r : null; S.busy = false;
   freeLinks();
   clearPrices();
+  if (on) runChanged();
   window.dispatchEvent(new Event("framy:me"));
 }
 
@@ -107,7 +114,7 @@ export async function refreshMe() {
     if (e.status === 401) {
       const gone = S.signed && launchGone(e);
       S.unsure = false;
-      forget();
+      forget(true);
       if (gone) toast(t(gone), { ms: 8000 });
       return true;
     }

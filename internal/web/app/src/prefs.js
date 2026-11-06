@@ -448,7 +448,7 @@ async function activeJobs() {
 const gone = (e) => e.code === "sign_in" || !!launchGone(e);
 function lost(e) {
   closeSheets(true);
-  forget();
+  forget(true);
   toast(S.mini ? reopenText() : t(launchGone(e) || "err.sign_in"), { ms: 6000 });
 }
 

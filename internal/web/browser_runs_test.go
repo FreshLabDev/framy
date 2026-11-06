@@ -820,12 +820,13 @@ func TestBrowserRuns(t *testing.T) {
 
 // Signed out everywhere from another device while a run goes: the server
 // ends the run's stream, and the reconnect is refused. The page forgets the
-// person, the run with them, and offers to sign in.
-func TestBrowserASignOutElsewhereEndsTheRunOnThePage(t *testing.T) {
+// person and offers to sign in; the run stays, saying it goes on on the
+// server, instead of hanging in the queue.
+func TestBrowserASignOutElsewhereSaysTheRunGoesOn(t *testing.T) {
 	runs := &fakeRuns{}
 	ts := fakeSite(t, runs.mount)
 	ctx := browser(t, ts.URL, 1440, 900, false)
-	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`return await press("running", (s) => s.acts.includes("Cancel"));`)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`return await press("running", (s) => s.label === "Making it");`)
 	if s["timeout"] == true {
 		t.Fatalf("the run never ran: %v", s)
 	}
@@ -833,7 +834,7 @@ func TestBrowserASignOutElsewhereEndsTheRunOnThePage(t *testing.T) {
 	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+`
 	for (let i = 0; i < 80 && !document.querySelector(".top .signin"); i++) await wait(100);
 	return { signin: !!document.querySelector(".top .signin"), me: !!document.querySelector("#meBtn"), ...stage() };`)
-	if acts, _ := s["acts"].([]any); s["signin"] != true || s["me"] != false || s["label"] != "" || len(acts) != 0 {
+	if s["signin"] != true || s["me"] != false || s["sub"] != "Sign in again: the run goes on on the server" {
 		t.Errorf("after a sign-out elsewhere: %v", s)
 	}
 }
