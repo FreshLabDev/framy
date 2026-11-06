@@ -286,7 +286,8 @@ func TestSubmitFailuresAreClassified(t *testing.T) {
 		{"no credit", 402, `{"error":{"code":402,"message":"Insufficient credits"}}`, nil, jobs.Money},
 		{"too many requests", 429, `{"error":{"code":429,"message":"slow down"}}`, []string{"Retry-After", "7"}, jobs.RateLimited},
 		{"a provider that is down", 503, `{"error":{"code":503,"message":"no provider"}}`, nil, jobs.Unavailable},
-		{"a provider that answered badly", 502, `{"error":{"code":502,"message":"Provider returned error","metadata":{"error_type":"provider_unavailable"}}}`, nil, jobs.Unavailable},
+		// A video's 502 may have been paid: it is not sent again.
+		{"a provider that answered badly", 502, `{"error":{"code":502,"message":"Provider returned error","metadata":{"error_type":"provider_unavailable"}}}`, nil, jobs.ProviderFailed},
 		{"a request OpenRouter turns away", 400, `{"error":{"code":400,"message":"bad request"}}`, nil, jobs.Refused},
 		{"a content filter", 400, `{"error":{"code":400,"message":"blocked","metadata":{"error_type":"content_policy_violation"}}}`, nil, jobs.Moderation},
 		{"an error nobody can read", 500, `<html>oops</html>`, nil, jobs.ProviderFailed},

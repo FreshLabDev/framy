@@ -376,9 +376,9 @@ func TestErrorsAreToldApart(t *testing.T) {
 		{"a model that is gone", 404, `{"error":{"code":404,"message":"Model not found"}}`, nil, jobs.Refused, 0},
 		{"a body too large", 413, `<html>Request Entity Too Large</html>`, nil, jobs.Refused, 0},
 		{"a rate limit", 429, `{"error":{"code":429,"message":"Rate limit exceeded","metadata":{"error_type":"rate_limit_exceeded"}}}`, []string{"Retry-After", "30"}, jobs.RateLimited, 30 * time.Second},
-		// A 502 is the provider's empty or broken answer: the run went
-		// out and may be paid, so it is not sent again.
-		{"a provider that gave a broken answer", 502, `{"error":{"code":502,"message":"Provider returned error","metadata":{"error_type":"provider_unavailable"}}}`, nil, jobs.ProviderFailed, 0},
+		// A 502 on an image is a generation that did not complete, which
+		// OpenRouter does not bill: it is tried again (openrouter.go).
+		{"a provider that gave a broken answer", 502, `{"error":{"code":502,"message":"Provider returned error","metadata":{"error_type":"provider_unavailable"}}}`, nil, jobs.Unavailable, 0},
 		{"no provider, wait until a date", 503, `{"error":{"code":503,"message":"No available provider"}}`, []string{"Retry-After", soon}, jobs.Unavailable, 90 * time.Second},
 		{"overloaded", 529, `{"error":{"code":529,"message":"Provider overloaded"}}`, nil, jobs.Unavailable, 0},
 		{"an internal error", 500, `{"error":{"code":500,"message":"Internal Server Error","metadata":{"error_type":"server"}}}`, nil, jobs.ProviderFailed, 0},
