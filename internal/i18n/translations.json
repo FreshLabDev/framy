@@ -984,7 +984,7 @@
     "tr": "Bu hâlâ açık: düğmelerini kullan.",
     "sv": "Den här är fortfarande öppen: använd dess knappar.",
     "be": "Гэтая панэль яшчэ адкрытая: карыстайся яе кнопкамі.",
-    "ca": "Aquest encara és obert: fes servir els seus botons.",
+    "ca": "Aquest encara està obert: fes servir els seus botons.",
     "zh": "这条还没完成：请使用它的按钮。",
     "ja": "これはまだ途中です。そのボタンを使ってください。",
     "ar": "هذه الرسالة ما زالت مفتوحة: استخدم أزرارها."
@@ -1470,7 +1470,7 @@
     "tr": "Mesajın bir anahtara benziyordu, bu yüzden silindi. Anahtar gerçekse ele geçmiş sayılır: sağlayıcıda iptal et ve yenisini oluştur. Anahtarlar sitedeki veya Mini App’teki ayarlara girilir.",
     "sv": "Ditt meddelande såg ut som en nyckel och har raderats. Är nyckeln riktig är den röjd: återkalla den hos leverantören och skapa en ny. Nycklar läggs in i inställningarna, på webbplatsen eller i Mini App.",
     "be": "Тваё паведамленне было падобнае на ключ, таму яго выдалілі. Калі ключ сапраўдны, ён скампраметаваны: анулюй яго ў правайдара і ствары новы. Ключы ўводзяць у наладах, на сайце або ў Mini App.",
-    "ca": "El teu missatge semblava una clau, així que s’ha eliminat. Si la clau és real, està exposada: revoca-la al proveïdor i crea’n una de nova. Les claus s’afegeixen a la configuració, al web o a la Mini App.",
+    "ca": "El teu missatge semblava una clau, així que s’ha eliminat. Si la clau és real, està exposada: revoca-la al proveïdor i crea’n una de nova. Les claus s’afegeixen als ajustos, al web o a la Mini App.",
     "zh": "你的消息看起来像一个密钥，所以已被删除。如果密钥是真的，它已经泄露：到服务商处吊销它，再创建一个新的。密钥请在设置中添加（网站或 Mini App）。",
     "ja": "メッセージがキーのように見えたため、削除しました。本物のキーなら漏れたものとして扱い、プロバイダーで無効にして新しく作成してください。キーは設定（サイトまたは Mini App）で追加します。",
     "ar": "بدت رسالتك كأنها مفتاح، لذلك حُذفت. إذا كان المفتاح حقيقيًا فهو مكشوف: ألغِه لدى المزوّد وأنشئ مفتاحًا جديدًا. تُضاف المفاتيح في الإعدادات، على الموقع أو في Mini App."
@@ -1488,7 +1488,7 @@
     "tr": "Mesajın bir anahtara benziyordu ama silinemedi: kendin sil. Anahtar gerçekse ele geçmiş sayılır: sağlayıcıda iptal et ve yenisini oluştur. Anahtarlar sitedeki veya Mini App’teki ayarlara girilir.",
     "sv": "Ditt meddelande såg ut som en nyckel men gick inte att radera: radera det själv. Är nyckeln riktig är den röjd: återkalla den hos leverantören och skapa en ny. Nycklar läggs in i inställningarna, på webbplatsen eller i Mini App.",
     "be": "Тваё паведамленне было падобнае на ключ, але выдаліць яго не ўдалося: выдалі яго ўручную. Калі ключ сапраўдны, ён скампраметаваны: анулюй яго ў правайдара і ствары новы. Ключы ўводзяць у наладах, на сайце або ў Mini App.",
-    "ca": "El teu missatge semblava una clau, però no s’ha pogut eliminar: elimina’l manualment. Si la clau és real, està exposada: revoca-la al proveïdor i crea’n una de nova. Les claus s’afegeixen a la configuració, al web o a la Mini App.",
+    "ca": "El teu missatge semblava una clau, però no s’ha pogut eliminar: elimina’l manualment. Si la clau és real, està exposada: revoca-la al proveïdor i crea’n una de nova. Les claus s’afegeixen als ajustos, al web o a la Mini App.",
     "zh": "你的消息看起来像一个密钥，但无法删除：请自行删除。如果密钥是真的，它已经泄露：到服务商处吊销它，再创建一个新的。密钥请在设置中添加（网站或 Mini App）。",
     "ja": "メッセージがキーのように見えましたが、削除できませんでした。ご自身で削除してください。本物のキーなら漏れたものとして扱い、プロバイダーで無効にして新しく作成してください。キーは設定（サイトまたは Mini App）で追加します。",
     "ar": "بدت رسالتك كأنها مفتاح، لكن تعذّر حذفها: احذفها يدويًا. إذا كان المفتاح حقيقيًا فهو مكشوف: ألغِه لدى المزوّد وأنشئ مفتاحًا جديدًا. تُضاف المفاتيح في الإعدادات، على الموقع أو في Mini App."
@@ -3900,7 +3900,7 @@
     "tr": "Çıkış yapılamadı, oturumun hâlâ açık. Bir dakika sonra tekrar dene.",
     "sv": "Det gick inte att logga ut, du är fortfarande inloggad. Försök igen om en minut.",
     "be": "Не атрымалася выйсці, ты ўсё яшчэ ў акаўнце. Паспрабуй праз хвіліну.",
-    "ca": "No s’ha pogut tancar la sessió, encara és oberta. Torna-ho a provar d’aquí a un minut.",
+    "ca": "No s’ha pogut tancar la sessió, continua oberta. Torna-ho a provar d’aquí a un minut.",
     "zh": "无法退出登录，你仍处于登录状态。请一分钟后再试。",
     "ja": "ログアウトできませんでした。まだログインしたままです。1 分後にもう一度お試しください。",
     "ar": "تعذّر تسجيل الخروج، ما زلت مسجّلًا الدخول. حاول مرة أخرى بعد دقيقة."
@@ -7806,7 +7806,7 @@
     "tr": "OpenRouter tarayıcıda açık. Orada giriş yap, erişime izin ver ve buraya dön.",
     "sv": "OpenRouter är öppet i webbläsaren. Logga in där, tillåt åtkomst och kom tillbaka hit.",
     "be": "OpenRouter адкрыты ў браўзеры. Увайдзі там, дазволь доступ і вярніся сюды.",
-    "ca": "OpenRouter és obert al navegador. Inicia-hi la sessió, permet l’accés i torna aquí.",
+    "ca": "OpenRouter s’ha obert al navegador. Inicia-hi la sessió, permet l’accés i torna aquí.",
     "zh": "OpenRouter 已在浏览器中打开。请在那里登录、允许访问，然后回到这里。",
     "ja": "OpenRouter をブラウザで開きました。そこでログインしてアクセスを許可し、こちらに戻ってください。",
     "ar": "تم فتح OpenRouter في المتصفح. سجّل الدخول هناك، واسمح بالوصول، ثم عد إلى هنا."
@@ -9138,7 +9138,7 @@
     "tr": "framy birçok sekmede açık: bu sekme sonucu {every}’de bir kontrol ediyor",
     "sv": "framy är öppet i flera flikar: den här kontrollerar resultatet var {every}",
     "be": "framy адкрыты ў многіх укладках: гэтая правярае вынік раз на {every}",
-    "ca": "framy és obert en diverses pestanyes: aquesta comprova el resultat cada {every}",
+    "ca": "framy està obert en diverses pestanyes: aquesta comprova el resultat cada {every}",
     "zh": "framy 在多个标签页中打开：这一页每 {every}检查一次结果",
     "ja": "framy が複数のタブで開かれています。このタブは {every}ごとに結果を確認します",
     "ar": "framy مفتوح في عدة علامات تبويب: هذه العلامة تتحقق من النتيجة كل {every}"
@@ -11496,7 +11496,7 @@
     "tr": "İstem bir anahtara benzeyen bir şey içeriyor, bu yüzden hiçbir şey başlatılmadı ve anahtar framy’den öteye gitmedi. Onu istemden çıkar: anahtarlar ayarlara girilir.",
     "sv": "Prompten innehåller något som ser ut som en nyckel, så inget startades och nyckeln gick inte längre än till framy. Ta bort den från prompten: nycklar läggs in i inställningarna.",
     "be": "У запыце ёсць нешта падобнае на ключ, таму запуск не пачаўся, а ключ далей за framy не пайшоў. Прыбяры яго з запыту: ключы ўводзяць у наладах.",
-    "ca": "El prompt conté una cosa que sembla una clau, així que no s’ha iniciat res i la clau no ha anat més enllà de framy. Treu-la del prompt: les claus s’afegeixen a la configuració.",
+    "ca": "El prompt conté una cosa que sembla una clau, així que no s’ha iniciat res i la clau no ha anat més enllà de framy. Treu-la del prompt: les claus s’afegeixen als ajustos.",
     "zh": "提示词中有看起来像密钥的内容，所以没有开始生成，密钥也没有离开 framy。请把它从提示词中删掉：密钥请在设置中添加。",
     "ja": "プロンプトにキーのようなものが含まれているため、生成は始まっていません。キーは framy から外には送られていません。プロンプトから削除してください。キーは設定で追加します。",
     "ar": "يحتوي الطلب على ما يبدو أنه مفتاح، لذلك لم يبدأ شيء ولم يتجاوز المفتاح framy. احذفه من الطلب: تُضاف المفاتيح في الإعدادات."
