@@ -1224,8 +1224,10 @@ func TestBrowserFrameWords(t *testing.T) {
 // Telegram is kept in window.__tg for the checks to read, and its main
 // button is pressed by calling window.__tg.main().
 const fakeTelegram = `(() => {
-  const tg = window.__tg = { shared: [], links: [], main: null, params: null, back: false, backClick: null, settings: null, settingsShown: false, events: {} };
-  const button = { setParams(p) { tg.params = { ...tg.params, ...p }; }, show() {}, hide() {}, onClick(fn) { tg.main = fn; } };
+  const tg = window.__tg = { shared: [], links: [], main: null, params: null, back: false, backClick: null, settings: null, settingsShown: false, events: {},
+    haptics: [], confirm: false, progress: false, fullAsked: 0, fullLeft: 0 };
+  const button = { setParams(p) { tg.params = { ...tg.params, ...p }; }, show() {}, hide() {}, onClick(fn) { tg.main = fn; },
+    showProgress() { tg.progress = true; }, hideProgress() { tg.progress = false; } };
   window.Telegram = { WebApp: {
     version: "8.0", platform: "ios", initData: "",
     isVersionAtLeast: (v) => parseFloat(v) <= 8,
@@ -1235,6 +1237,11 @@ const fakeTelegram = `(() => {
     shareMessage(id) { tg.shared.push(id); },
     downloadFile() {}, openLink(u) { tg.links.push(u); }, close() { tg.closed = true; },
     SettingsButton: { show() { tg.settingsShown = true; }, hide() { tg.settingsShown = false; }, onClick(fn) { tg.settings = fn; } },
+    HapticFeedback: { notificationOccurred(k) { tg.haptics.push(k); }, impactOccurred() {}, selectionChanged() {} },
+    enableClosingConfirmation() { tg.confirm = true; }, disableClosingConfirmation() { tg.confirm = false; },
+    isFullscreen: false,
+    requestFullscreen() { tg.fullAsked++; this.isFullscreen = true; tg.events.fullscreenChanged?.(); },
+    exitFullscreen() { tg.fullLeft++; this.isFullscreen = false; tg.events.fullscreenChanged?.(); },
   } };
 })();`
 
@@ -1420,6 +1427,59 @@ func TestBrowserMiniExpired(t *testing.T) {
 	}
 	if s["sub"] != "Open framy again: the run goes on on the server" || s["button"] != "Close framy" || s["cap"] != old || s["toast"] != old || trades() != 3 {
 		t.Errorf("the session ended under a run: %v, %d trades", s, trades())
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserMiniNative checks what the Mini App asks of Telegram itself: a
+// wheel on its button and a question before closing while a run is sent, a
+// tap of the phone when a run it saw going ends (success, or error), and
+// Telegram's fullscreen for the whole screen of a result, left again when the
+// whole screen closes.
+func TestBrowserMiniNative(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := miniBrowser(t, ts.URL)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	for (let i = 0; i < 50 && !window.__tg?.main; i++) await wait(100);
+	const tg = window.__tg;
+	// The run's request waits a moment at framy, as over a slow network.
+	const real = window.fetch;
+	window.fetch = async (u, o) => { if (/\/api\/jobs$/.test(String(u)) && o?.method === "POST") await sleep(500); return real(u, o); };
+	const p = document.querySelector("#prompt"); p.value = "done"; p.dispatchEvent(new Event("input"));
+	await wait(80);
+	tg.main();
+	await sleep(200);
+	const sending = { confirm: tg.confirm, progress: tg.progress };
+	await until(() => stage().done, 14000);
+	await wait(300);
+	const after = { confirm: tg.confirm, progress: tg.progress, haptics: tg.haptics.join(",") };
+	await press("fail:key", (s) => s.failed);
+	await wait(300);
+	return { sending, after, failed: tg.haptics.join(",") };`)
+	if fmt.Sprint(s["sending"]) != "map[confirm:true progress:true]" || fmt.Sprint(s["after"]) != "map[confirm:false haptics:success progress:false]" || s["failed"] != "success,error" {
+		t.Errorf("what the Mini App asked of Telegram for a run: %v", s)
+	}
+	// A page loaded again with a run over says nothing; the whole screen of a result is Telegram's fullscreen.
+	if _, err := chromedp.Run(ctx, chromedp.Reload()); err != nil {
+		t.Fatal(err)
+	}
+	ready(t, ctx)
+	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	for (let i = 0; i < 50 && !window.__tg?.main; i++) await wait(100);
+	await wait(500);
+	const tg = window.__tg, quiet = tg.haptics.join(",");
+	document.querySelector("#stage .addf").click(); await wait(500);
+	await press("frames:done,done", () => document.querySelectorAll("#stage .jbox.cell.done img").length === 2);
+	await wait(300);
+	document.querySelectorAll("#stage .jbox.cell.done > .fhit")[0].click();
+	await until(() => !document.querySelector("#full").hidden);
+	const full = { asked: tg.fullAsked, cls: document.documentElement.classList.contains("tgfull") };
+	document.querySelector("#full .fbar .x").click();
+	await until(() => document.querySelector("#full").hidden);
+	return { quiet, full, left: tg.fullLeft, cls: document.documentElement.classList.contains("tgfull"), haptics: tg.haptics.join(",") };`)
+	if s["quiet"] != "" || fmt.Sprint(s["full"]) != "map[asked:1 cls:true]" || s["left"] != float64(1) || s["cls"] != false || s["haptics"] != "success" {
+		t.Errorf("what the Mini App asked of Telegram for the whole screen: %v", s)
 	}
 	noErrors(t, ctx)
 }

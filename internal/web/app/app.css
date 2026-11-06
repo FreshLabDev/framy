@@ -907,6 +907,10 @@ html.full-on {overflow: hidden;}
 .full .fnav .ic {width: 18px; height: 18px;}
 @media (hover: none) { .full .fnav {display: none;} }
 .full .fbot {display: grid; gap: 12px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));}
+/* Telegram's fullscreen (library.js, tgFull): the screen's edges and Telegram's own buttons over the
+   top are its insets, which it sets only for a fullscreen Mini App. */
+html.tgfull .full .fbar {padding-top: calc(10px + var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px));}
+html.tgfull .full .fbot {padding-bottom: calc(12px + var(--tg-safe-area-inset-bottom, 0px) + var(--tg-content-safe-area-inset-bottom, 0px));}
 .full .jacts {justify-content: center;}
 .dots {display: flex; justify-content: center; gap: 6px; height: 6px;}
 .dots > i {width: 6px; height: 6px; background: var(--line);}

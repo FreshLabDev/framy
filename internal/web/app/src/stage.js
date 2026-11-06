@@ -659,7 +659,7 @@ const sigOf = (run) => [run.n, run.phase, jobsOf(run).map((j) => [j.status, j.re
 // The run changed: the stage shows its new state, the frame glides to its new shape.
 export function runChanged() {
   const run = S.run;
-  if (!run) { shownSig = ""; renderStage(); say(""); return; }
+  if (!run) { shownSig = ""; renderStage(); say(""); window.dispatchEvent(new Event("framy:run")); return; }
   const sig = sigOf(run);
   if (sig === shownSig && run.step === shownStep) return;
   const fresh = run.n !== shownN;
@@ -668,6 +668,7 @@ export function runChanged() {
   renderStage();
   d();
   say(phaseOf(run));
+  window.dispatchEvent(new Event("framy:run"));
   if (fresh && S.showJob) anim($("#stage [data-k=pv]"), [{ transform: "scale(.96)", opacity: 0.6 }, { transform: "none", opacity: 1 }], { duration: DUR.l, easing: EASE });
   else if (motion() && (run.multi ? !runOver(run) : run.phase !== "job" || !isFinal(run.job?.status))) rise($$("#stage .jbox .c, #stage .c.under"), { y: 6 });
 }

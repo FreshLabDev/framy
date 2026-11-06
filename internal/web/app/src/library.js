@@ -858,7 +858,7 @@ export function openFull(at = 0, items = null) {
   // The videos under the whole screen stop while it is open, and those that played go on after.
   const under = [...document.querySelectorAll("#app video")].filter((v) => !v.paused && !box.contains(v));
   under.forEach((v) => v.pause());
-  FULL = { items, strip, at: -1, back: document.activeElement, mark: markOf(document.activeElement), under };
+  FULL = { items, strip, at: -1, back: document.activeElement, mark: markOf(document.activeElement), under, tg: tgFull(true) };
   // What the strip shows now: the count, the dots, the arrows, the actions of that result, and only its video plays.
   const upd = () => {
     if (!FULL) return;
@@ -889,10 +889,23 @@ export function openFull(at = 0, items = null) {
   anim(box, [{ opacity: 0 }, { opacity: 1 }], { duration: DUR.s });
   anim(cells[at]?.firstChild, [{ transform: "scale(.94)", opacity: 0.4 }, { transform: "none", opacity: 1 }], { duration: DUR.m });
 }
+// In the Mini App the whole screen is Telegram's too, its header gone (Bot API 8.0); the bar of the
+// view keeps clear of Telegram's buttons over it (app.css, --tg-content-safe-area-inset-top). Only a
+// fullscreen it asked for is left again: one the person had already stays.
+function tgFull(on) {
+  const tg = S.tg;
+  if (!tg?.requestFullscreen || !tg.isVersionAtLeast?.("8.0")) return false;
+  try {
+    if (on) { if (tg.isFullscreen) return false; tg.requestFullscreen(); return true; }
+    if (tg.isFullscreen) tg.exitFullscreen();
+  } catch {}
+  return false;
+}
 export function closeFull(quick = false) {
   const box = $("#full");
   if (!FULL || !box) return;
   const { under } = FULL, back = FULL.back?.isConnected ? FULL.back : findMark(FULL.mark);
+  if (FULL.tg) tgFull(false);
   FULL = null;
   layer("full", null);
   box.querySelectorAll("video").forEach((v) => v.pause());

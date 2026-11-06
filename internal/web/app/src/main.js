@@ -4,14 +4,14 @@
 import { $, h, ic, keepFocus } from "./dom.js";
 import { anim, placeSegs, DUR } from "./motion.js";
 import { setTexts, t, lang, warmFormats } from "./i18n.js";
-import { session, setToken, endSession, api } from "./api.js";
+import { session, setToken, endSession, api, isFinal } from "./api.js";
 import { loadCatalog, PNAME } from "./catalog.js";
 import { S, initModels, useDefaults, reopenText } from "./state.js";
 import { mountComposer, wireComposer, wireTuneSwipe, render, renderBar, tuneClosed } from "./composer.js";
 import { mountPicker, prefetchPicker } from "./picker.js";
 import { renderStage } from "./stage.js";
 import { closeSheets, onSheets, toast, overOpen, closeTop, useHistory } from "./ui.js";
-import { signIn, refreshMe, generate, netState, closeMini, keepPrompt } from "./run.js";
+import { signIn, refreshMe, generate, netState, closeMini, keepPrompt, jobsOf } from "./run.js";
 import { mountCutter, openCut } from "./clips.js";
 import { mountPrefs, openPrefs, renderPrefs, prefsOpen, oauthResult, oauthBack } from "./prefs.js";
 import { mountLibrary, mountViewer, mountFull, tabs, go, route, libMe } from "./library.js";
@@ -134,8 +134,30 @@ function telegram(tg) {
     last = nx;
     run = nx.act === "create" ? generate : nx.act === "signin" ? signIn : nx.act === "cut" ? openCut : nx.act === "key" ? () => openPrefs(nx.provider) : nx.act === "close" ? closeMini : null;
     mb.setParams({ text: nx.label, is_active: !!nx.on, is_visible: S.view === "create" && !overOpen(), color: "#FFFFFF", text_color: "#00606E" });
+    // Telegram's own wheel on its button while a run is being sent.
+    if (nx.busy) mb.showProgress?.(false); else mb.hideProgress?.();
   };
   addEventListener("framy:button", (e) => sync(e.detail));
+  // The phone answers the end of a run it saw going with a tap of its own: done, or failed (a stop
+  // the person made says nothing). While a run's files go up, closing framy asks first: closed, the
+  // run would never reach framy.
+  const full = () => document.documentElement.classList.toggle("tgfull", !!tg.isFullscreen);
+  tg.onEvent?.("fullscreenChanged", full); full();
+  const hf = tg.isVersionAtLeast?.("6.1") ? tg.HapticFeedback : null;
+  let going = 0, told = 0, guard = false;
+  addEventListener("framy:run", () => {
+    const r = S.run, g = r?.phase === "prep";
+    if (g !== guard && tg.isVersionAtLeast?.("6.2")) { guard = g; try { g ? tg.enableClosingConfirmation() : tg.disableClosingConfirmation(); } catch {} }
+    if (!r || !hf) return;
+    const all = jobsOf(r), over = r.phase === "refused" || (r.phase === "job" && all.length > 0 && all.every((j) => isFinal(j.status)));
+    if (!over) { if (r.phase === "prep" || r.phase === "job") going = r.n; return; }
+    if (going !== r.n || told === r.n) return;
+    told = r.n;
+    try {
+      if (all.some((j) => j.status === "done")) hf.notificationOccurred("success");
+      else if (r.phase === "refused" || all.some((j) => j.status === "failed" || j.status === "expired")) hf.notificationOccurred("error");
+    } catch {}
+  });
   addEventListener("framy:view", () => renderBar());
   mb.onClick(() => run?.());
   renderBar();
