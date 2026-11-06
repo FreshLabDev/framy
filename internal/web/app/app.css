@@ -989,8 +989,8 @@ html.full-on {overflow: hidden;}
    of a header) it reaches that far around its drawing, into the space beside it and never over a
    neighbour. A cross on a tile reaches outward, and inward no farther than the tile's middle. */
 @media (pointer: coarse) {
-  :where(.pill, .jprompt > .cp, .x, .signin, .me, .tab, .link, .morebtn, .scopetip button, .vnav .ib, .link-t, .mnote button, .dold button, .seg.kind > button, .sets .ratios.one > .rt) {position: relative;}
-  :where(.pill, .jprompt > .cp, .x, .signin, .me, .tab, .link, .morebtn, .scopetip button, .vnav .ib, .link-t, .mnote button, .dold button, .seg.kind > button, .sets .ratios.one > .rt, .jbox.cell > .tdl)::after {
+  :where(.pill, .jprompt > .cp, .x, .signin, .me, .logo, .lfail, .tab, .link, .morebtn, .scopetip button, .vnav .ib, .link-t, .mnote button, .dold button, .seg.kind > button, .sets .ratios.one > .rt) {position: relative;}
+  :where(.pill, .jprompt > .cp, .x, .signin, .me, .logo, .lfail, .tab, .link, .morebtn, .scopetip button, .vnav .ib, .link-t, .mnote button, .dold button, .seg.kind > button, .sets .ratios.one > .rt, .jbox.cell > .tdl)::after {
     content: ""; position: absolute; inset: min(0px, calc(50% - 22px)) var(--reach, 0px);}
   /* A link in a line of text reaches 10 px over and under it, as far as the gaps around such lines go. */
   :is(.link-t, .mnote button, .dold button)::after {inset-block: -10px;}
