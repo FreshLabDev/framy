@@ -1416,7 +1416,7 @@
     "tr": "Arayüz dilini seç. Diğer botlarımız da bu dili kullanır.",
     "sv": "Välj språk för gränssnittet. Våra andra botar använder det också.",
     "be": "Абяры мову інтэрфейсу. Яна агульная з іншымі нашымі ботамі.",
-    "ca": "Tria l’idioma de la interfície. Els altres bots nostres també el fan servir.",
+    "ca": "Tria l’idioma de la interfície. Els nostres altres bots també el fan servir.",
     "zh": "选择界面语言。我们的其他机器人也会使用它。",
     "ja": "表示言語を選んでください。私たちのほかのボットでも使われます。",
     "ar": "اختر لغة الواجهة. تستخدمها بوتاتنا الأخرى أيضًا."
@@ -1902,7 +1902,7 @@
     "tr": "Large modelinin yaklaşık yarı fiyatına",
     "sv": "Kostar ungefär hälften av Large",
     "be": "Прыкладна ўдвая таньней, чым Large",
-    "ca": "Al voltant de la meitat de preu que Large",
+    "ca": "Costa aproximadament la meitat que Large",
     "zh": "价格约为 Large 的一半",
     "ja": "Largeの約半額",
     "ar": "بنحو نصف سعر Large"
@@ -2100,7 +2100,7 @@
     "tr": "En yeni, ayrıntılı işler için",
     "sv": "Nyast, för detaljerat arbete",
     "be": "Найноўшая, для дэталёвай працы",
-    "ca": "El més recent, per a feina detallada",
+    "ca": "El més recent, per a treballs detallats",
     "zh": "最新，适合精细作品",
     "ja": "最新、細部まで作り込む作業向け",
     "ar": "الأحدث، للأعمال الدقيقة"
@@ -9228,7 +9228,7 @@
     "tr": "Bağlantının süresi doldu: 10 dakikadan fazla geçti ya da bağlantı yeniden başlatıldı. “Bağla” düğmesine bir kez daha bas.",
     "sv": "Anslutningen har gått ut: det har gått mer än 10 minuter, eller så startades den om. Tryck på ”Anslut” en gång till.",
     "be": "Падключэнне састарэла: прайшло больш за 10 хвілін або яго пачалі нанова. Націсні «Падключыць» яшчэ раз.",
-    "ca": "La connexió ha caducat: han passat més de 10 minuts o s’ha tornat a iniciar. Prem «Connecta» una altra vegada.",
+    "ca": "Aquest intent de connexió ha caducat: han passat més de 10 minuts o se n’ha iniciat un de més recent. Prem «Connecta» una altra vegada.",
     "zh": "连接已过期：超过了 10 分钟，或者已重新发起。请再点一次“连接”。",
     "ja": "接続の有効期限が切れました。10 分以上経過したか、もう一度開始されました。もう一度「接続」を押してください。",
     "ar": "انتهت صلاحية الربط: مرّت أكثر من 10 دقائق أو بدأ من جديد. اضغط «ربط» مرة أخرى."
@@ -10686,7 +10686,7 @@
     "tr": "Diğer botlarımız da bu dili kullanır",
     "sv": "Våra andra botar använder det också",
     "be": "Агульная з іншымі нашымі ботамі",
-    "ca": "Els altres bots nostres també el fan servir",
+    "ca": "Els nostres altres bots també el fan servir",
     "zh": "我们的其他机器人也会使用它",
     "ja": "私たちのほかのボットでも使われます",
     "ar": "تستخدمها بوتاتنا الأخرى أيضًا"
@@ -10974,7 +10974,7 @@
     "tr": "Başlamış bir görsel birkaç dakikada biter.",
     "sv": "En bild som redan har startat är klar om några minuter.",
     "be": "Пачатая выява будзе гатовая праз некалькі хвілін.",
-    "ca": "Una imatge ja iniciada acaba d’aquí a uns minuts.",
+    "ca": "Una imatge ja iniciada acaba en pocs minuts.",
     "zh": "已经开始的图片几分钟内就会完成。",
     "ja": "開始済みの画像は数分で完成します。",
     "ar": "الصورة التي بدأت تنتهي خلال بضع دقائق."
@@ -11388,7 +11388,7 @@
     "tr": "Ücretsiz çalıştırmalar {time} saatine kadar duraklatıldı. Kendi anahtarınla şimdi çalışır.",
     "sv": "Gratiskörningar är pausade till kl. {time}. Med din egen nyckel går det nu.",
     "be": "Бясплатныя запускі на паўзе да {time}. На ўласным ключы працуе ўжо цяпер.",
-    "ca": "Les generacions de franc estan en pausa fins a les {time}. Amb la teva clau es pot ara mateix.",
+    "ca": "Les generacions de franc estan en pausa fins a les {time}. Amb la teva clau funciona ara mateix.",
     "zh": "免费生成暂停到 {time}。用你自己的密钥现在就可以。",
     "ja": "無料の生成は {time} まで停止しています。自分のキーなら今すぐ使えます。",
     "ar": "التشغيلات المجانية متوقفة حتى {time}. أما بمفتاحك الخاص فيعمل الآن."
@@ -12504,7 +12504,7 @@
     "tr": "Telegram bu dosyayı kabul edemiyor. Bunun yerine indir.",
     "sv": "Telegram kan inte ta emot den här filen. Ladda ner den istället.",
     "be": "Telegram не можа прыняць гэты файл. Спампуй яго замест гэтага.",
-    "ca": "Telegram no pot acceptar aquest fitxer. Descarrega’l en lloc seu.",
+    "ca": "Telegram no pot acceptar aquest fitxer. Millor descarrega’l.",
     "zh": "Telegram 无法接收这个文件，请改为下载。",
     "ja": "Telegram ではこのファイルを受け付けられません。代わりにダウンロードしてください。",
     "ar": "لا يستطيع Telegram قبول هذا الملف. حمّله بدلاً من ذلك."
@@ -14214,7 +14214,7 @@
     "tr": "Bu model son kare almaz",
     "sv": "Den här modellen tar inte emot någon slutbild",
     "be": "Гэтая мадэль не прымае фота канца",
-    "ca": "Aquest model no admet últim fotograma",
+    "ca": "Aquest model no admet l’últim fotograma",
     "zh": "此模型不接受尾帧",
     "ja": "このモデルでは最後のフレームは使えません",
     "ar": "هذا النموذج لا يقبل صورة النهاية"
@@ -14232,7 +14232,7 @@
     "tr": "Bu model ilk kare almaz",
     "sv": "Den här modellen tar inte emot någon startbild",
     "be": "Гэтая мадэль не прымае фота пачатку",
-    "ca": "Aquest model no admet primer fotograma",
+    "ca": "Aquest model no admet el primer fotograma",
     "zh": "此模型不接受首帧",
     "ja": "このモデルでは最初のフレームは使えません",
     "ar": "هذا النموذج لا يقبل صورة البداية"
