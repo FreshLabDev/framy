@@ -19,6 +19,12 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
   up to 15 s. It takes 1.1's place in the picker; 1.1 is marked as closing
   on 3 December, when Google moves its requests to 1.2.
 
+### Changed
+
+- GPT Image 2.6 Flare is suggested for an image and for many photos in
+  place of 2.5 Flare, and the GPT Image row opens on 2.6. 2.5 stays in the
+  row: at low and medium quality it costs a quarter to a third of 2.6.
+
 ### Fixed
 
 - The library wrote "null" under its heading once the failed filter was

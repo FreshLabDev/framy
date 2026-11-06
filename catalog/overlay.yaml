@@ -55,8 +55,9 @@ tiers: [mini, lite, turbo, klein, fast, flash, flare, medium, std, flex, large, 
 # What the picker suggests first, best first: an image, an image from more
 # than five photos, a video, and a video made from an attached one.
 recommend:
-  image: [microsoft/mai-image-2.6-flash, google/gemini-nano-banana-2.1, openai/gpt-image-2.5-flare]
-  many_photos: [black-forest-labs/flux-3-image-klein, google/gemini-nano-banana-2.1, openai/gpt-image-2.5-flare]
+  # GPT Image 2.6 Flare replaced 2.5 Flare (owner, 6 November).
+  image: [microsoft/mai-image-2.6-flash, google/gemini-nano-banana-2.1, openai/gpt-image-2.6-flare]
+  many_photos: [black-forest-labs/flux-3-image-klein, google/gemini-nano-banana-2.1, openai/gpt-image-2.6-flare]
   # Seedance 2.0 Mini replaced Veo 3.1 Fast (owner, 28 October), when Google
   # seemed to be closing it. It is not: Vertex keeps it to May 2027 at least.
   video: [heygen/heygen-video-1, bytedance/seedance-2.0-mini, kwaivgi/kling-v3.0-pro]
@@ -100,11 +101,12 @@ models:
   # medium: $0.025 and $0.043 for 1024×1024, where 2.5 costs $0.006 and
   # $0.013. OpenAI says nothing of its input tokens, so they are 2.5's and
   # the estimate stays "about". Its GIF output has no published price: left
-  # out. Not featured before a blind test, so the family still opens on 2.5,
-  # which stays current for its price.
+  # out. The family opens on 2.6 (owner, 6 November); 2.5 stays current for
+  # its price.
   openai/gpt-image-2.6-sunburst:
     family: {id: gpt-image, gen: "2.6", tier: sunburst, label: 2.6 Sunburst}
     offers: [openai:gpt-image-2.6-sunburst]
+    featured: true
     effort: {parameter: quality, values: [low, medium, high, xhigh, max]}
     exclude: {output_format: [gif]}
     price:
@@ -115,6 +117,7 @@ models:
   openai/gpt-image-2.6-flare:
     family: {id: gpt-image, gen: "2.6", tier: flare, label: 2.6 Flare}
     offers: [openai:gpt-image-2.6-flare]
+    featured: true
     effort: {parameter: quality, values: [low, medium, high, xhigh, max]}
     exclude: {output_format: [gif]}
     price:
@@ -125,7 +128,6 @@ models:
   openai/gpt-image-2.5-sunburst:
     family: {id: gpt-image, gen: "2.5", tier: sunburst, label: 2.5 Sunburst, keep: "a quarter to a third of 2.6's price at low and medium quality, and OpenAI still sells it"}
     offers: [openai:gpt-image-2.5-sunburst]
-    featured: true
     effort: {parameter: quality, values: [low, medium, high, xhigh, max]}
     price:
       openai_tokens: {low: 16, medium: 24, high: 48, xhigh: 64, max: 96}
@@ -134,7 +136,6 @@ models:
   openai/gpt-image-2.5-flare:
     family: {id: gpt-image, gen: "2.5", tier: flare, label: 2.5 Flare, keep: "a quarter to a third of 2.6's price at low and medium quality, and OpenAI still sells it"}
     offers: [openai:gpt-image-2.5-flare]
-    featured: true
     effort: {parameter: quality, values: [low, medium, high, xhigh, max]}
     price:
       openai_tokens: {low: 16, medium: 24, high: 48, xhigh: 64, max: 96}
