@@ -2,10 +2,21 @@
 // (its error.class, docs/design.md, Jobs), and a press the server refused
 // before any job existed. Each says what happened to the money and which
 // buttons fit. The English message of a job is shown only where it is the
-// provider's own reason.
-import { t, fmtTime, fmtAt, fmtSecs, fmtNum } from "./i18n.js";
-import { C, PNAME, vname, hasAudio } from "./catalog.js";
+// provider's own reason, as the server marks it (error.from_provider):
+// framy's own line is never shown as what the provider said.
+import { t, fmtTime, fmtAt, fmtSecs, fmtNum, fmtUnit } from "./i18n.js";
+import { C, PNAME, vname, hasAudio, label } from "./catalog.js";
 import { priceText } from "./price.js";
+import { S, reopenText } from "./state.js";
+
+// MONEY_PAUSE_MIN is free.MoneyPause: how long the free tier stays closed
+// after a free run found framy's key out of credits. The server closes it;
+// the site says so and closes its own button as long.
+export const MONEY_PAUSE_MIN = 15;
+// CLIP_MAX_S is media.DefaultMaxSeconds, for an answer that did not say
+// max_seconds: the longest clip or sound framy takes. TestTheSiteSaysTheServersNumbers
+// holds both equal to the server's.
+const CLIP_MAX_S = 60;
 
 // The provider may have charged for these: the request reached it.
 export const MAYPAY = new Set(["timeout", "provider", "interrupted", "storage"]);
@@ -19,6 +30,11 @@ export const BILLING = {
 };
 
 export const providerOf = (j) => (j.free ? "openrouter" : String(j.offer || "").split(":")[0]);
+
+// The Mini App's launch data that buys no token any more: an hour after Telegram signed it
+// (init_data_expired), or not Telegram's. Only opening framy again gives new data, and the
+// line that says so is the key returned here; "" for any other error.
+export const launchGone = (e) => ({ init_data_expired: "auth.mini_expired", init_data_invalid: "auth.mini_failed" })[e?.code] || "";
 
 // The provider's words without framy's wrapping: "refused: openrouter 400:
 // HTTP 400: {json}" reads as the message inside the JSON, without its request id.
@@ -52,26 +68,37 @@ export function failure(j) {
   // The most the run could have cost: the label of the estimate, which for "up to" is its top.
   const up = j.estimate && j.estimate.kind !== "unknown" ? j.estimate.label : "";
   const may = free ? back : up ? t("fail.may_charge", { p: up, provider: P }) : t("fail.may_charge_some", { provider: P });
-  const msg = OWNWORDS.has(cls) && j.error?.message ? ownWords(j.error.message) : "";
+  const msg = OWNWORDS.has(cls) && j.error?.from_provider && j.error.message ? ownWords(j.error.message) : "";
   const said = msg ? t("fail.said", { provider: P, text: msg }) : "";
   const again = ["retry", "edit"];
+  // A key refused or a balance short while framy asked about a video it had
+  // sent: the run went to the provider and may be paid, unlike a request the
+  // key could not send.
+  const sent = j.status === "expired" ? { note: may } : none;
   if (j.status === "cancelled") return { cls: "cancelled", label: t("stage.cancelled"), text: "", ...none, acts: again };
+  // Expired is the run deadline, an hour after the request went out, whatever
+  // the last poll said; a failed timeout is a call that got no answer in time
+  // (180 s for an image, a 408, 504 or 524), so it says no hour. A key that
+  // stopped working, or ran short, in that hour says so instead (sent, above).
+  if (j.status === "expired" && cls !== "key" && cls !== "money") return { cls: "timeout", label: t("fail.timeout_l"), text: "", note: may, acts: again };
   const face = faceOf(j, cls), m = C.byId[j.model];
   if (face) return { cls: "faces", label: t(face === "video" ? "fail.faces_clip_l" : "fail.faces_photo_l"), text: t("fail.faces", { model: m ? vname(m) : P }),
     ...(cls === "moderation" && free ? { note: t("fail.free_spent") } : none), acts: ["model", "edit"] };
   switch (cls) {
     case "moderation": return { cls, label: t("fail.moderation_l"), text: "", ...(free ? { note: t("fail.free_spent") } : none), said, acts: ["edit"] };
     case "money": return free
-      ? { cls, label: t("fail.free_closed_l"), text: t("fail.free_money"), note: t("fail.free_kept"), acts: ["bykey"], closeFree: 15 * 60e3 }
-      : { cls, label: t("fail.money_l"), text: "", ...none, acts: ["topup", "rekey"], provider: p };
+      ? { cls, label: t("fail.free_closed_l"), text: t("fail.free_money", { pause: fmtUnit(MONEY_PAUSE_MIN, "minute") }), note: t("fail.free_kept"), acts: ["bykey"], closeFree: MONEY_PAUSE_MIN * 60e3 }
+      : { cls, label: t("fail.money_l"), text: "", ...sent, acts: ["topup", "rekey"], provider: p };
     case "key": return free
       ? { cls, label: t("fail.free_off_l"), text: t("fail.free_key"), note: t("fail.free_kept"), acts: ["bykey"] }
-      : { cls, label: t("fail.key_l"), text: t("fail.key", { provider: P }), ...none, acts: ["rekey"], provider: p };
+      : { cls, label: t("fail.key_l"), text: t("fail.key", { provider: P }), ...sent, acts: ["rekey"], provider: p };
     case "refused": return { cls, label: t("fail.refused_l"), text: t("fail.refused", { provider: P }), ...none, said, acts: ["edit"] };
+    // The provider does not serve the country of framy's server: nothing ran, and another provider may.
+    case "region": return { cls, label: t("fail.region_l"), text: t("fail.region", { provider: P }), ...none, acts: ["model"] };
     // The model refused the sound it made (copyright); nothing was charged.
     case "sound": return { cls, label: t("fail.sound_l"), text: t("fail.sound"), ...none, acts: m && hasAudio(m) ? ["quiet", "edit"] : again };
     case "rate_limited": case "unavailable": return { cls, label: t("fail.no_answer_l"), text: "", ...none, note: (free ? back + " " : "") + t("fail.later"), acts: again };
-    case "timeout": return { cls, label: t("fail.timeout_l"), text: "", note: may, acts: again };
+    case "timeout": return { cls, label: t("stage.expired"), text: "", note: may, acts: again };
     case "provider": return { cls, label: t("fail.provider_l"), text: "", note: may, said, acts: again };
     case "interrupted": return { cls, label: t("fail.interrupted_l"), text: t("fail.interrupted"), note: may, acts: again };
     case "storage": return { cls, label: t("fail.storage_l"), text: t(vid ? "fail.storage_video" : "fail.storage"), note: t(free ? "fail.free_back" : "fail.charged"), acts: again };
@@ -79,7 +106,7 @@ export function failure(j) {
     // framy did not send it: a setting the offer lacks, so nothing reached the provider.
     case "invalid_request": return { cls, label: t("fail.invalid_l"), text: t("fail.invalid"), ...none, acts: ["edit"] };
     case "draft_expired": return { cls, label: t("stage.expired"), text: t("fail.draft_expired"), ...none, acts: again };
-    default: return { cls: cls || "unknown", label: t(j.status === "expired" ? "stage.expired" : "stage.failed"), text: t("fail.unknown"), note: "", acts: again };
+    default: return { cls: cls || "unknown", label: t("stage.failed"), text: t("fail.unknown"), note: "", acts: again };
   }
 }
 
@@ -100,7 +127,7 @@ export function refusal(err, ctx = {}) {
   const R = (label, text, acts = [], more = {}) => ({ code, label, text, acts, ...more });
   // A sound framy could not take: what was wrong with it.
   if (ctx.sound) switch (code) {
-    case "video_too_long": return R(t("ref.sound_bad_l"), t("ref.sound_long"));
+    case "video_too_long": return R(t("ref.sound_bad_l"), t("ref.sound_long", { max: clock(b.max_seconds || CLIP_MAX_S) }));
     case "unsupported_type": return R(t("ref.sound_bad_l"), t("files.sound_type"));
     case "unreadable": return R(t("ref.sound_bad_l"), t("ref.sound_unreadable"));
     case "too_large": return R(t("ref.sound_bad_l"), ctx.maxBytes ? t("files.sound_big", { n: fmtNum(Math.floor(ctx.maxBytes / 1e6)) }) : t("err.too_large"));
@@ -120,10 +147,17 @@ export function refusal(err, ctx = {}) {
       if (mx && ctx.clipSecs > mx) return R(t("ref.part_long_l"), t("ref.part_long", { len: t("unit.s", { n: fmtNum(ctx.clipSecs, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }), max: fmtSecs(mx) }), ctx.cut ? ["cut"] : []);
       return R(t("ref.files_l"), t("ref.wrong_inputs"));
     }
+    // A key pasted into the prompt: nothing ran, and the settings take it.
+    case "key_in_prompt": {
+      const k = PNAME[b.provider] ? ["key"] : [], set = /(?:^|\.)settings\.(.+)$/.exec(b.field || "")?.[1];
+      // In what to leave out, not the prompt: that field is the one named.
+      if (set) return R(t("ref.key_prompt_l"), t("ref.key_setting", { setting: label(set) }), k, { provider: b.provider });
+      return R(t("ref.key_prompt_l"), t("ref.key_prompt"), k, { provider: b.provider });
+    }
     case "unknown_offer": return R(t("ref.model_l"), t("err.unknown_offer"));
     case "unknown_setting": return R(t("fail.invalid_l"), t("fail.invalid"));
     case "cannot_continue": return R(t("ref.cont_l"), t("ref.cannot_continue"), ctx.lastFrame ? ["lastframe"] : []);
-    case "video_too_long": return R(t("ref.too_long_l"), t("ref.too_long", { len: clock(b.seconds) }), ["cut"], { seconds: b.seconds });
+    case "video_too_long": { const max = clock(b.max_seconds || CLIP_MAX_S); return R(t("ref.too_long_l", { max }), t("ref.too_long", { len: clock(b.seconds), max }), ["cut"], { seconds: b.seconds }); }
     case "not_a_video": return R(t("ref.not_clip_l"), t("ref.not_a_video"));
     case "unsupported_type": return ctx.clip ? R(t("ref.clip_bad_l"), t("files.clip_type")) : R(t("ref.file_bad_l"), t("ref.not_a_picture", { name: ctx.name || "" }));
     case "unreadable": return ctx.clip ? R(t("ref.clip_bad_l"), t("ref.clip_unreadable")) : R(t("ref.file_bad_l"), t("err.unreadable"));
@@ -132,8 +166,9 @@ export function refusal(err, ctx = {}) {
     case "storage_unavailable": return R(t("ref.storage_l"), t("ref.storage"), ["again"]);
     case "shutting_down": return R(t("ref.restart_l"), t("ref.restart"), ["again"]);
     case "network": return R(t("ref.offline_l"), t("err.network"), ["again"]);
-    case "http_429": case "busy": return R(t("ref.busy_l"), t("err.busy"), ["again"]);
-    case "sign_in": return R(t("ref.signin_l"), t("err.sign_in"));
+    case "http_429": case "busy": case "unavailable": return R(t("ref.busy_l"), t("err.busy"), ["again"]);
+    case "sign_in": return S.mini ? R(t("ref.reopen_l"), reopenText()) : R(t("ref.signin_l"), t("err.sign_in"));
+    case "init_data_expired": case "init_data_invalid": return R(t("ref.signin_l"), t(launchGone(err)));
     default: return R(t("stage.failed"), t("err.generic", { code }), ["again"]);
   }
 }

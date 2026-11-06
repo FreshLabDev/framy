@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -375,5 +376,53 @@ func TestAJobGoneEndsItsStream(t *testing.T) {
 	r.data.mu.Unlock()
 	if !s.ended(wait) {
 		t.Error("a stream of a job that is gone should end")
+	}
+}
+
+// A stream is checked against its session as it goes: signing out, here or
+// everywhere, or a Mini App token running out, ends it at its next ping, and
+// the client that comes back is sent to sign in. A database that misses a
+// beat does not end it.
+func TestSigningOutEndsAnOpenStream(t *testing.T) {
+	var mu sync.Mutex
+	session := "alice"
+	r := newRig(t, func(o *rigOptions) {
+		o.cfg = func(c *Config) {
+			c.Ping = 30 * time.Millisecond
+			c.Person = func(req *http.Request) (int64, bool, error) {
+				if req.Header.Get("X-Test-User") == "" {
+					return 0, false, nil
+				}
+				mu.Lock()
+				defer mu.Unlock()
+				switch session {
+				case "alice":
+					return alice, true, nil
+				case "down":
+					return 0, false, errBoom
+				}
+				return 0, false, nil
+			}
+		}
+	})
+	r.data.set(alice, queuedState(7))
+	s := r.openStream(alice, "/api/jobs/7/events")
+	s.event(wait)
+
+	mu.Lock()
+	session = "down"
+	mu.Unlock()
+	s.quiet(200 * time.Millisecond)
+
+	mu.Lock()
+	session = "gone"
+	mu.Unlock()
+	if !s.ended(wait) {
+		t.Fatal("the stream outlived the session")
+	}
+	eventually(t, "the stream to give its place back", func() bool { return r.api.streams.count(alice) == 0 })
+	resp := r.do(alice, "GET", "/api/jobs/7/events", nil)
+	if m := jsonOf(t, resp); resp.StatusCode != http.StatusUnauthorized || m["error"] != "sign_in" {
+		t.Errorf("the reconnect: %d %v", resp.StatusCode, m)
 	}
 }

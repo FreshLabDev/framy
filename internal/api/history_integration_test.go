@@ -26,10 +26,11 @@ func aJob(t *testing.T, pool *pgxpool.Pool, user int64, status, kind, prompt str
 	var id int64
 	err := pool.QueryRow(context.Background(), `
 		INSERT INTO job (user_id, surface, offer_id, model_id, provider, kind, prompt, settings, free, status,
-		                 chat_id, message_id, error, error_class, queued_at, finished_at)
+		                 chat_id, message_id, error, error_class, provider_message, queued_at, finished_at)
 		VALUES ($1, 'site', $2, $3, 'openrouter', $4, $5, '{"n": 1}', $6, $7,
 		        42, 7, CASE WHEN $7 = 'failed' THEN 'the provider said no' END,
 		        CASE WHEN $7 = 'failed' THEN 'moderation' END,
+		        CASE WHEN $7 = 'failed' THEN 'The input image may contain ' || $5 END,
 		        CASE WHEN $7 <> 'draft' THEN now() END,
 		        CASE WHEN $7 IN ('done', 'failed', 'cancelled', 'expired') THEN now() END)
 		RETURNING id`, user, offer, model, kind, prompt, isFree, status).Scan(&id)
@@ -78,10 +79,13 @@ func TestTheHistoryIsReadFromTheDatabase(t *testing.T) {
 	in := anAsset(t, pool, alice, fox, "u/1001/in/a.jpg", true)
 	out := anAsset(t, pool, alice, fox, "u/1001/out/a.png", false)
 	run := aJob(t, pool, alice, "failed", "video", "fox running", false)
-	anAsset(t, pool, alice, run, "u/1001/in/b.jpg", true)
+	clip := anAsset(t, pool, alice, run, "u/1001/in/b.mp4", true)
+	exec(t, pool, `UPDATE asset SET content_type = 'video/mp4', seconds = 4, fps = 29.97 WHERE id = $1`, clip)
 	cotton := aJob(t, pool, alice, "done", "image", "100% cotton shirt", false)
 	den := aJob(t, pool, alice, "done", "image", "fox_den at night", false)
 	aJob(t, pool, alice, "draft", "image", "draft fox", false)
+	stopped := aJob(t, pool, alice, "cancelled", "image", "gave up one", false)
+	timedOut := aJob(t, pool, alice, "expired", "video", "gave up two", false)
 	gone := aJob(t, pool, alice, "done", "image", "a deleted fox", false)
 	exec(t, pool, `UPDATE job SET deleted_at = now() WHERE id = $1`, gone)
 	aJob(t, pool, bob, "done", "image", "bob's fox", false)
@@ -91,14 +95,17 @@ func TestTheHistoryIsReadFromTheDatabase(t *testing.T) {
 		f    Filter
 		want []int64
 	}{
-		{"everything", Filter{Limit: 10}, []int64{den, cotton, run, fox}},
-		{"a kind", Filter{Kind: catalog.Video, Limit: 10}, []int64{run}},
+		{"everything", Filter{Limit: 10}, []int64{timedOut, stopped, den, cotton, run, fox}},
+		{"a kind", Filter{Kind: catalog.Video, Limit: 10}, []int64{timedOut, run}},
 		{"any case", Filter{Query: "FOX", Limit: 10}, []int64{den, run, fox}},
 		{"a percent sign is a percent sign", Filter{Query: "%", Limit: 10}, []int64{cotton}},
 		{"so is an underscore", Filter{Query: "_", Limit: 10}, []int64{den}},
 		{"a backslash", Filter{Query: `\`, Limit: 10}, nil},
 		{"a page", Filter{Before: run, Limit: 10}, []int64{fox}},
-		{"a short page", Filter{Limit: 2}, []int64{den, cotton}},
+		{"a short page", Filter{Limit: 2}, []int64{timedOut, stopped}},
+		{"only what did not work", Filter{Failed: true, Limit: 10}, []int64{timedOut, stopped, run}},
+		{"cancelled and expired did not work either", Filter{Failed: true, Query: "gave up", Limit: 10}, []int64{timedOut, stopped}},
+		{"a page of what did not work", Filter{Failed: true, Before: timedOut, Limit: 10}, []int64{stopped, run}},
 	} {
 		got, err := d.List(ctx, alice, tc.f)
 		if err != nil {
@@ -124,6 +131,10 @@ func TestTheHistoryIsReadFromTheDatabase(t *testing.T) {
 	}
 	if failed := got[1]; failed.ID != run || len(failed.Inputs) != 1 || len(failed.Results) != 0 {
 		t.Errorf("the failed job: %+v", failed)
+	} else if c := failed.Inputs[0]; c.Seconds != 4 || c.FPS != 29.97 {
+		// An input clip comes with its frame rate: a part of it cut again
+		// is priced by it (an upscale).
+		t.Errorf("the input clip: %+v", c)
 	}
 	if last.Joined != nil {
 		t.Errorf("a job with no joined clip: %+v", last.Joined)
@@ -161,28 +172,34 @@ func TestARemovedJobIsClearedButStillCountsAsFree(t *testing.T) {
 	}
 	ran := aJob(t, pool, alice, "done", "image", "a free fox", true)
 	anAsset(t, pool, alice, ran, "u/1001/in/c.jpg", true)
-	exec(t, pool, `INSERT INTO chat_run (job_id, chat_id, command_message_id, lang) VALUES ($1, 42, 7, 'en')`, ran)
+	exec(t, pool, `INSERT INTO chat_run (job_id, chat_id, command_message_id, lang, stage, clip_file_id) VALUES ($1, 42, 7, 'en', 'done', 'clip')`, ran)
+	exec(t, pool, `INSERT INTO site_delivery (job_id, state, message_id) VALUES ($1, 'sent', 77)`, ran)
 	refused := aJob(t, pool, alice, "failed", "image", "a refused fox", true)
+	// It ended a moment ago and the bot has not put it in the chat yet.
+	undelivered := aJob(t, pool, alice, "done", "image", "an undelivered fox", true)
+	exec(t, pool, `INSERT INTO chat_run (job_id, chat_id, command_message_id, preview_message_id, lang, stage, clip_file_id)
+		VALUES ($1, 42, 8, 9, 'en', 'generating', 'clip')`, undelivered)
 	running := aJob(t, pool, alice, "running", "image", "a running fox", true)
 	before, err := allow.Usage(ctx, alice)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	for _, id := range []int64{ran, refused} {
+	for _, id := range []int64{ran, refused, undelivered} {
 		if err := d.Remove(ctx, alice, id); err != nil {
 			t.Fatalf("remove %d: %v", id, err)
 		}
 	}
 	var prompt, settings string
-	var errText, chat *string
+	var errText, said, chat *string
 	var class *string
-	if err := pool.QueryRow(ctx, `SELECT prompt, settings::text, error, chat_id::text, error_class FROM job WHERE id = $1 AND deleted_at IS NOT NULL`, refused).
-		Scan(&prompt, &settings, &errText, &chat, &class); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT prompt, settings::text, error, provider_message, chat_id::text, error_class FROM job WHERE id = $1 AND deleted_at IS NOT NULL`, refused).
+		Scan(&prompt, &settings, &errText, &said, &chat, &class); err != nil {
 		t.Fatal(err)
 	}
-	if prompt != "" || settings != "{}" || errText != nil || chat != nil {
-		t.Errorf("left: %q %s %v %v", prompt, settings, errText, chat)
+	// The provider's words may quote the prompt: they go with it.
+	if prompt != "" || settings != "{}" || errText != nil || said != nil || chat != nil {
+		t.Errorf("left: %q %s %v %v %v", prompt, settings, errText, said, chat)
 	}
 	if class == nil || *class != string(jobs.Moderation) {
 		t.Errorf("the class the allowance counts went: %v", class)
@@ -192,12 +209,28 @@ func TestARemovedJobIsClearedButStillCountsAsFree(t *testing.T) {
 	if inputs != 0 || runs != 0 {
 		t.Errorf("job_input %d, chat_run %d", inputs, runs)
 	}
+	// It stays sent, so it does not go to the DM again, but without the
+	// message it went in.
+	var state string
+	var message *int64
+	if err := pool.QueryRow(ctx, `SELECT state, message_id FROM site_delivery WHERE job_id = $1`, ran).Scan(&state, &message); err != nil ||
+		state != "sent" || message != nil {
+		t.Errorf("site delivery %q %v: %v", state, message, err)
+	}
+	// The loop still in the chat waits for the bot to take it down; only
+	// the clip it pointed at goes now.
+	var preview int64
+	var clip string
+	if err := pool.QueryRow(ctx, `SELECT preview_message_id, clip_file_id FROM chat_run WHERE job_id = $1`, undelivered).Scan(&preview, &clip); err != nil ||
+		preview != 9 || clip != "" {
+		t.Errorf("the open run: %d %q, %v", preview, clip, err)
+	}
 
 	after, err := allow.Usage(ctx, alice)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if before.Images.Used != 3 || after.Images.Used != before.Images.Used {
+	if before.Images.Used != 4 || after.Images.Used != before.Images.Used {
 		t.Errorf("free images used %d, then %d: deleting gives no run back", before.Images.Used, after.Images.Used)
 	}
 
@@ -233,9 +266,17 @@ func TestForgettingAnAccount(t *testing.T) {
 	exec(t, pool, `INSERT INTO oauth_state (state_hash, user_id, provider, verifier, expires_at)
 		VALUES (sha256('s'), 1001, 'openrouter', 'v', now() + interval '10 minutes')`)
 	done := aJob(t, pool, alice, "done", "image", "a fox", false)
+	refused := aJob(t, pool, alice, "failed", "image", "a refused fox", false)
 	draft := aJob(t, pool, alice, "draft", "image", "a draft fox", false)
 	running := aJob(t, pool, alice, "running", "image", "a running fox", false)
 	bobs := aJob(t, pool, bob, "done", "image", "bob's fox", false)
+	for _, job := range []int64{done, bobs} {
+		exec(t, pool, `INSERT INTO site_delivery (job_id, state, message_id) VALUES ($1, 'sent', 77)`, job)
+	}
+	// The draft's preview is open in a chat; done's result is in one.
+	exec(t, pool, `INSERT INTO chat_run (job_id, chat_id, command_message_id, preview_message_id, lang, clip_file_id)
+		VALUES ($1, 42, 7, 8, 'en', 'clip')`, draft)
+	exec(t, pool, `INSERT INTO chat_run (job_id, chat_id, command_message_id, lang, stage) VALUES ($1, 42, 9, 'en', 'done')`, done)
 
 	count := func(sql string, args ...any) int {
 		t.Helper()
@@ -271,14 +312,28 @@ func TestForgettingAnAccount(t *testing.T) {
 			}
 		}
 	}
-	if n := count(`SELECT count(*) FROM job WHERE id = ANY($1) AND deleted_at IS NOT NULL AND prompt = ''`, []int64{done, draft, running}); n != 3 {
-		t.Errorf("%d of alice's 3 jobs cleared", n)
+	cleared := `SELECT count(*) FROM job WHERE id = ANY($1) AND deleted_at IS NOT NULL AND prompt = '' AND settings = '{}'
+		AND error IS NULL AND provider_message IS NULL AND grounding IS NULL AND chat_id IS NULL AND message_id IS NULL`
+	if n := count(cleared, []int64{done, refused, draft, running}); n != 4 {
+		t.Errorf("%d of alice's 4 jobs cleared", n)
 	}
 	if n := count(`SELECT count(*) FROM job WHERE id = $1 AND status = 'cancelled'`, draft); n != 1 {
 		t.Error("the draft was not cancelled")
 	}
+	if n := count(`SELECT count(*) FROM chat_run WHERE job_id = $1`, done); n != 0 {
+		t.Error("the run of a sent result stayed")
+	}
+	if n := count(`SELECT count(*) FROM chat_run WHERE job_id = $1 AND stage = 'preview' AND preview_message_id = 8 AND clip_file_id = ''`, draft); n != 1 {
+		t.Error("the open preview's run is not left for the bot to take down, or kept its clip")
+	}
 	if n := count(`SELECT count(*) FROM job WHERE id = $1 AND deleted_at IS NULL AND prompt <> ''`, bobs); n != 1 {
 		t.Error("bob's job was touched")
+	}
+	if n := count(`SELECT count(*) FROM site_delivery WHERE job_id = $1 AND state = 'sent' AND message_id IS NULL`, done); n != 1 {
+		t.Error("the DM message of alice's result is still known")
+	}
+	if n := count(`SELECT count(*) FROM site_delivery WHERE job_id = $1 AND message_id = 77`, bobs); n != 1 {
+		t.Error("bob's DM message was forgotten")
 	}
 	if n := count(`SELECT count(*) FROM core.person WHERE telegram_user_id = 1001`); n != 1 {
 		t.Error("the person went from core")
@@ -289,5 +344,107 @@ func TestForgettingAnAccount(t *testing.T) {
 	// Forgetting again finds nothing to do.
 	if err := d.Forget(ctx, alice); err != nil {
 		t.Errorf("a second forget: %v", err)
+	}
+}
+
+// A deleted account's jobs say whose they were only while the free
+// allowance counts them; then the row keeps its kind, cost and times and
+// nothing else of the person's.
+func TestADeletedAccountsJobsForgetWhoseTheyWere(t *testing.T) {
+	store, pool := pg(t)
+	ctx := context.Background()
+	d := pgData{pool: pool}
+	allow, err := free.New(free.Config{Pool: pool, DailyBudgetUSD: 1, Log: quiet})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ran := func(kind string, isFree bool, ago string) int64 {
+		id := aJob(t, pool, alice, "done", kind, "a fox", isFree)
+		exec(t, pool, `UPDATE job SET queued_at = now() - $2::interval, finished_at = now() - $2::interval, actual_usd = 0.02 WHERE id = $1`, id, ago)
+		return id
+	}
+	recent := ran("image", true, "2 hours")   // in the 24-hour window
+	old := ran("image", true, "30 hours")     // out of it
+	video := ran("video", true, "2 days")     // in the 7-day window
+	paid := ran("image", false, "10 minutes") // never counted
+	draft := aJob(t, pool, alice, "draft", "image", "a draft fox", true)
+	exec(t, pool, `INSERT INTO chat_run (job_id, chat_id, command_message_id, preview_message_id, lang)
+		VALUES ($1, 42, 7, 8, 'en')`, draft)
+	bobs := aJob(t, pool, bob, "done", "image", "bob's fox", true)
+	before, err := allow.Usage(ctx, alice)
+	if err != nil || before.Images.Used != 1 || before.Videos.Used != 1 {
+		t.Fatalf("setup: %+v, %v", before, err)
+	}
+
+	if err := d.Forget(ctx, alice); err != nil {
+		t.Fatal(err)
+	}
+	// A free run is forgotten when it leaves its window; any other at once.
+	var inWindow, now int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FILTER (WHERE id = $1 AND forget_at = queued_at + interval '24 hours'
+		                         OR id = $2 AND forget_at = queued_at + interval '7 days'),
+		       count(*) FILTER (WHERE id = ANY($3) AND forget_at <= now())
+		FROM job`, recent, video, []int64{old, paid, draft}).Scan(&inWindow, &now); err != nil || inWindow != 2 || now != 3 {
+		t.Fatalf("forget_at: %d in the window, %d now; %v", inWindow, now, err)
+	}
+
+	n, err := store.ForgetJobs(ctx)
+	if err != nil || n != 2 {
+		t.Fatalf("ForgetJobs = %d, %v; want the old run and the paid one", n, err)
+	}
+	owner := func(id int64) *int64 {
+		t.Helper()
+		var u *int64
+		if err := pool.QueryRow(ctx, `SELECT user_id FROM job WHERE id = $1`, id).Scan(&u); err != nil {
+			t.Fatal(err)
+		}
+		return u
+	}
+	for _, id := range []int64{old, paid} {
+		if owner(id) != nil {
+			t.Errorf("job %d still says whose it was", id)
+		}
+	}
+	for _, id := range []int64{recent, video, bobs} {
+		if owner(id) == nil {
+			t.Errorf("job %d lost its person too early", id)
+		}
+	}
+	// The preview still in the chat keeps it until the bot has taken the
+	// message down, which it does by the person's id.
+	if owner(draft) == nil {
+		t.Error("the run with an open preview lost its person")
+	}
+	// What the budget and the books count stays.
+	var kind string
+	var isFree, times bool
+	var cost float64
+	if err := pool.QueryRow(ctx, `SELECT kind, free, queued_at IS NOT NULL AND finished_at IS NOT NULL, actual_usd::float8 FROM job WHERE id = $1`, old).
+		Scan(&kind, &isFree, &times, &cost); err != nil || kind != "image" || !isFree || !times || cost != 0.02 {
+		t.Errorf("the forgotten row: %s %v %v %v, %v", kind, isFree, times, cost, err)
+	}
+	// Coming back, the runs still in their window count.
+	after, err := allow.Usage(ctx, alice)
+	if err != nil || after != before {
+		t.Errorf("usage %+v, then %+v, %v", before, after, err)
+	}
+
+	// The bot took the preview down; the windows ran out.
+	exec(t, pool, `DELETE FROM chat_run WHERE job_id = $1`, draft)
+	exec(t, pool, `UPDATE job SET forget_at = now() - interval '1 second' WHERE id IN ($1, $2)`, recent, video)
+	if n, err := store.ForgetJobs(ctx); err != nil || n != 3 {
+		t.Fatalf("ForgetJobs = %d, %v; want the rest of alice's", n, err)
+	}
+	var left int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE user_id = $1`, alice).Scan(&left); err != nil || left != 0 {
+		t.Errorf("%d jobs still say they were alice's, %v", left, err)
+	}
+	if owner(bobs) == nil {
+		t.Error("bob's job was touched")
+	}
+	// Only a deleted job may be without a person.
+	if _, err := pool.Exec(ctx, `UPDATE job SET user_id = NULL WHERE id = $1`, bobs); err == nil {
+		t.Error("a live job lost its person")
 	}
 }

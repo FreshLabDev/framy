@@ -32,13 +32,14 @@ type generateWorker struct {
 	q *Queue
 }
 
-// Timeout is the attempt's limit: the client's for an image, longer for a
-// video, whose last poll downloads it and copies it to R2.
+// Timeout is the attempt's limit: an image's call and the copy of its
+// pictures to R2, and longer for a video, whose last poll downloads it and
+// copies it to R2. River rescues no job before its limit has passed.
 func (w *generateWorker) Timeout(rj *river.Job[generateArgs]) time.Duration {
 	if rj.Args.Video {
 		return videoAttempt
 	}
-	return 0
+	return imageAttempt
 }
 
 func (w *generateWorker) Work(ctx context.Context, rj *river.Job[generateArgs]) error {
@@ -53,13 +54,40 @@ func (w *generateWorker) Work(ctx context.Context, rj *river.Job[generateArgs]) 
 		// stay queued or running for nobody.
 		ctx, done := detach(ctx)
 		defer done()
-		if endErr := w.q.end(ctx, rj.Args.JobID, ending{status: Failed, class: Internal, msg: err.Error()}); endErr != nil {
+		if endErr := w.q.end(ctx, rj.Args.JobID, w.q.givenUp(ctx, rj.Args.JobID, err)); endErr != nil {
 			return endErr
 		}
 		return river.JobCancel(err)
 	}
 	return err
 }
+
+// givenUp is how job id ends when its last attempt failed with err, by what
+// is known of the money: a finished run whose results could not be copied
+// is storage, a run whose paid request went out is interrupted, and only a
+// job for which nothing was sent is internal. The cost written down so far
+// stays on the job, and so the free budget counts it.
+func (q *Queue) givenUp(ctx context.Context, id int64, err error) ending {
+	var ke *keepError
+	if errors.As(err, &ke) {
+		return ending{status: Failed, class: Storage, msg: err.Error()}
+	}
+	var sent bool
+	if qerr := q.pool.QueryRow(ctx, `SELECT submitted_at IS NOT NULL FROM job WHERE id=$1`, id).Scan(&sent); qerr == nil && sent {
+		return ending{status: Failed, class: Interrupted, msg: "framy could not finish the run after the paid request went out: " + err.Error()}
+	}
+	return ending{status: Failed, class: Internal, msg: err.Error()}
+}
+
+// keepError: the provider finished the run and its results could not be
+// copied. The provider still holds them, so the next attempt asks again.
+type keepError struct {
+	id  int64
+	err error
+}
+
+func (e *keepError) Error() string { return fmt.Sprintf("keep the results of job %d: %v", e.id, e.err) }
+func (e *keepError) Unwrap() error { return e.err }
 
 // work moves job id as far as it can go in one attempt.
 func (q *Queue) work(ctx context.Context, id int64) error {
@@ -95,8 +123,18 @@ func (q *Queue) work(ctx context.Context, id int64) error {
 	case j.ProviderJobID != "":
 		return q.poll(ctx, p, j)
 	case j.SubmittedAt != nil:
-		// The paid request went out and its answer never came back: the
-		// worker stopped mid-run. Sending it again could pay twice.
+		// The paid request went out and the attempt that sent it did not
+		// end the job. Results it kept make the run done, with the cost it
+		// wrote down; otherwise the worker stopped mid-run, and sending the
+		// request again could pay twice.
+		n, err := keptResults(ctx, q.pool, j.ID)
+		if err != nil {
+			return err
+		}
+		if n > 0 {
+			q.log.Warn("job ended by a later attempt with the results kept before", "job", j.ID, "results", n)
+			return q.end(ctx, j.ID, ending{status: Done, results: n})
+		}
 		return q.end(ctx, j.ID, ending{status: Failed, class: Interrupted, msg: "the worker stopped while the paid request was out; it is not sent again"})
 	}
 	if q.cfg.Inputs != nil {
@@ -127,18 +165,28 @@ func (q *Queue) waitFor(j Job) time.Duration {
 // claim starts a queued job if the person has a free slot and no older job
 // waiting for one. The person's claims take turns under a lock, so two
 // workers cannot both take the last slot.
+//
+// Slots and turns are counted on the job's own stack (docs/design.md,
+// Stacks): a job of a stack that is stopped stays queued or running until
+// that stack is back, and it must not hold up the person's runs on the
+// other one.
+//
+// A slot is a run framy is working on: one being sent or made while framy
+// waits on the call. A video out at the provider (provider_job_id), which
+// framy only asks about every PollEvery for up to an hour, holds none, so
+// two videos do not keep the person's pictures waiting behind them.
 func (q *Queue) claim(ctx context.Context, j Job) (bool, error) {
 	var claimed bool
 	err := pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('framy.job.person:' || $1::bigint::text, 0))`, j.UserID); err != nil {
+		if err := LockPerson(ctx, tx, j.UserID); err != nil {
 			return err
 		}
 		tag, err := tx.Exec(ctx, `
 			UPDATE job SET status='running', retry_at=NULL, started_at=COALESCE(started_at, now()), updated_at=now()
 			WHERE id=$1 AND status='queued' AND (retry_at IS NULL OR retry_at <= now())
-			  AND (SELECT count(*) FROM job WHERE user_id=$2 AND status='running') < $3
+			  AND (SELECT count(*) FROM job r WHERE r.user_id=$2 AND r.stack=job.stack AND r.status='running' AND r.provider_job_id IS NULL) < $3
 			  AND NOT EXISTS (
-			    SELECT 1 FROM job o WHERE o.user_id=$2 AND o.status='queued' AND o.id < $1
+			    SELECT 1 FROM job o WHERE o.user_id=$2 AND o.stack=job.stack AND o.status='queued' AND o.id < $1
 			      AND (o.retry_at IS NULL OR o.retry_at <= now()))`,
 			j.ID, j.UserID, q.cfg.MaxRunning)
 		claimed = tag.RowsAffected() == 1
@@ -163,11 +211,7 @@ func (q *Queue) submit(ctx context.Context, p Provider, j Job) error {
 	now := q.now()
 	j.SubmittedAt = &now
 
-	limit := imageCall
-	if j.Kind == catalog.Video {
-		limit = videoCall
-	}
-	call, cancel := context.WithTimeout(ctx, limit)
+	call, cancel := context.WithTimeout(ctx, callLimit(j))
 	sub, err := p.Submit(call, j)
 	var pe *Error
 	if err != nil {
@@ -176,13 +220,17 @@ func (q *Queue) submit(ctx context.Context, p Provider, j Job) error {
 	cancel()
 
 	// What came back is written down even when a stop has begun.
-	ctx, done := detachFor(ctx, settleLimit(j))
+	ctx, done := detach(ctx)
 	defer done()
 	if pe != nil {
-		if pe.retryable() && j.Submits < maxSubmits {
+		if pe.retryable() && j.Submits < pe.tries() && pe.RetryAfter <= maxRetryWait {
 			return q.requeue(ctx, j, pe)
 		}
-		return q.end(ctx, j.ID, ending{status: Failed, class: pe.Class, msg: pe.Error(), said: pe.Said()})
+		msg := pe.Error()
+		if pe.retryable() && pe.RetryAfter > maxRetryWait {
+			msg += fmt.Sprintf("; the provider asked to wait %s, longer than framy waits", pe.RetryAfter.Round(time.Second))
+		}
+		return q.end(ctx, j.ID, ending{status: Failed, class: pe.Class, msg: msg, said: pe.Said()})
 	}
 	if sub.ProviderJobID != "" {
 		if _, err := q.pool.Exec(ctx, `UPDATE job SET provider_job_id=$2, updated_at=now() WHERE id=$1`, j.ID, sub.ProviderJobID); err != nil {
@@ -192,6 +240,12 @@ func (q *Queue) submit(ctx context.Context, p Provider, j Job) error {
 			return err
 		}
 		j.ProviderJobID = sub.ProviderJobID
+		// Out at the provider, the run leaves its slot: the person's next
+		// job may start now rather than at its next look. The id is saved
+		// already, so a failure here costs only that wait.
+		if err := pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error { return q.wake(ctx, tx, j.UserID, q.cfg.Stack) }); err != nil {
+			q.log.Warn("next job not woken", "job", j.ID, "error", err)
+		}
 	}
 	switch {
 	case sub.Outcome != nil && !sub.Outcome.Running:
@@ -202,11 +256,29 @@ func (q *Queue) submit(ctx context.Context, p Provider, j Job) error {
 	return river.JobSnooze(q.cfg.PollEvery)
 }
 
+// callLimit bounds the paid request of j. A video's is answered at once with
+// the run's id, but an adapter that carries the files in the request itself
+// (Gemini's inline base64) downloads them from R2 and sends them, a third
+// larger, within the call: 60 MiB over the host's line takes minutes, and a
+// call cut short by its own limit would read as a run that may be paid. So
+// the call gets sendPerMiB for each MiB of the files, the download and the
+// upload at the line the copy to R2 assumes (keepPerMiB), up to videoPoll.
+func callLimit(j Job) time.Duration {
+	if j.Kind != catalog.Video {
+		return imageCall
+	}
+	var size int64
+	for _, in := range j.Inputs {
+		size += in.Bytes
+	}
+	return min(videoCall+time.Duration(size>>20)*sendPerMiB, videoPoll)
+}
+
 // requeue puts back in line a job the provider refused before the run
-// started, after the provider's wait or a growing one. The person's other
-// jobs may go ahead of it meanwhile.
+// started, after the provider's wait or a growing one, up to maxRetryWait.
+// The person's other jobs may go ahead of it meanwhile.
 func (q *Queue) requeue(ctx context.Context, j Job, pe *Error) error {
-	wait := max(pe.RetryAfter, time.Duration(j.Submits*j.Submits)*5*time.Second)
+	wait := min(max(pe.RetryAfter, time.Duration(j.Submits*j.Submits)*5*time.Second), maxRetryWait)
 	err := pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			UPDATE job SET status='queued', submitted_at=NULL, retry_at=now() + make_interval(secs => $2),
@@ -215,7 +287,8 @@ func (q *Queue) requeue(ctx context.Context, j Job, pe *Error) error {
 		if err != nil || tag.RowsAffected() == 0 {
 			return err
 		}
-		return q.wake(ctx, tx, j.UserID)
+		// A worker works only its own stack's jobs.
+		return q.wake(ctx, tx, j.UserID, q.cfg.Stack)
 	})
 	if err != nil {
 		return err
@@ -225,7 +298,11 @@ func (q *Queue) requeue(ctx context.Context, j Job, pe *Error) error {
 }
 
 // poll asks about a run in the background. Asking costs nothing, so any
-// trouble short of a definite answer means asking again later.
+// trouble short of a definite answer about the run means asking again later,
+// until the hour is up. A key refused, a balance short or a key framy's
+// store could not look up is trouble with the asking, not an answer: the run
+// was sent and is likely paid, and a key put right, put back or read again
+// fetches it.
 func (q *Queue) poll(ctx context.Context, p Provider, j Job) error {
 	limit := videoCall
 	if j.Kind == catalog.Video {
@@ -239,15 +316,31 @@ func (q *Queue) poll(ctx context.Context, p Provider, j Job) error {
 	}
 	cancel()
 
-	ctx, done := detachFor(ctx, settleLimit(j))
+	ctx, done := detach(ctx)
 	defer done()
-	late := j.SubmittedAt != nil && q.now().Sub(*j.SubmittedAt) > runDeadline
+	late := j.SubmittedAt != nil && q.now().Sub(*j.SubmittedAt) > RunDeadline
 	switch {
-	case pe != nil && (pe.retryable() || pe.Class == ProviderFailed || pe.Class == Timeout || pe.Class == Interrupted):
+	case pe != nil && (pe.Class == Key || pe.Class == Money || errors.Is(pe, ErrKeyLookup)):
 		if late {
-			return q.end(ctx, j.ID, ending{status: Expired, class: pe.Class, msg: "the provider did not finish within an hour: " + pe.Error(), said: pe.Said()})
+			return q.end(ctx, j.ID, ending{status: Expired, class: pe.Class, msg: "framy could not ask about the run for an hour: " + pe.Error(), said: pe.Said()})
 		}
-		return river.JobSnooze(max(q.cfg.PollEvery, pe.RetryAfter))
+		q.log.Warn("job not asked about; asking again", "job", j.ID, "class", pe.Class)
+		return river.JobSnooze(q.askAgain(j, pe.RetryAfter))
+	case pe != nil && (pe.retryable() || pe.Class == ProviderFailed || pe.Class == Timeout || pe.Class == Interrupted):
+		switch {
+		case late && out.Ready:
+			// The provider made the result and billed it, and only fetching
+			// it kept failing: the run ends as a result framy could not
+			// keep, with its cost, and not as one that took over an hour.
+			return q.end(ctx, j.ID, ending{status: Failed, class: Storage, msg: "the provider finished the run, but its result could not be fetched within the hour: " + pe.Error(), said: pe.Said(), cost: out.CostUSD})
+		case late:
+			// The request went out, so the run may be paid whatever kept the
+			// poll from an answer: it ends as a timeout, which says so, and
+			// not as a provider that did not answer, which says nothing was
+			// charged. It keeps the cost the provider gave, if any.
+			return q.end(ctx, j.ID, ending{status: Expired, class: Timeout, msg: "the provider did not finish within an hour: " + pe.Error(), said: pe.Said(), cost: out.CostUSD})
+		}
+		return river.JobSnooze(q.askAgain(j, pe.RetryAfter))
 	case pe != nil:
 		return q.end(ctx, j.ID, ending{status: Failed, class: pe.Class, msg: pe.Error(), said: pe.Said()})
 	case out.Running:
@@ -259,29 +352,86 @@ func (q *Queue) poll(ctx context.Context, p Provider, j Job) error {
 	return q.settle(ctx, j, out)
 }
 
-// settle ends a run the provider finished.
+// askAgain is when a background run is asked about again after the
+// provider asked to wait: its wait, at least PollEvery and at most
+// maxRetryWait, and never past the run's hour, so that a long Retry-After
+// does not keep the run past its deadline unasked.
+func (q *Queue) askAgain(j Job, retryAfter time.Duration) time.Duration {
+	wait := min(max(q.cfg.PollEvery, retryAfter), maxRetryWait)
+	if j.SubmittedAt != nil {
+		if left := j.SubmittedAt.Add(RunDeadline).Sub(q.now()); left < wait {
+			wait = max(left, q.cfg.PollEvery)
+		}
+	}
+	return wait
+}
+
+// settle ends a run the provider finished. Copying the results and writing
+// the ending each have their own time, both apart from the attempt's: a
+// copy that takes all of its time still leaves the ending its own, so a
+// paid result is never left for the next attempt to call interrupted.
 func (q *Queue) settle(ctx context.Context, j Job, out Outcome) error {
 	e := ending{cost: out.CostUSD}
 	switch {
 	case out.Err != nil:
-		e.status, e.class, e.msg = Failed, out.Err.Class, out.Err.Error()
+		e.status, e.class, e.msg, e.said = Failed, out.Err.Class, out.Err.Error(), out.Err.Said()
 	case len(out.Results) == 0:
 		e.status, e.class, e.msg = Failed, ProviderFailed, "the run ended with no result"
 	default:
-		if err := q.cfg.Sink.Keep(ctx, j, out.Results); err != nil {
+		q.noteOutcome(ctx, j.ID, out)
+		keep, done := detachFor(ctx, q.keepFor(j, out.Results))
+		err := q.cfg.Sink.Keep(keep, j, out.Results)
+		done()
+		if err != nil {
 			if j.ProviderJobID != "" {
 				// The provider still holds the result: ask for it again.
-				return fmt.Errorf("keep the results of job %d: %w", j.ID, err)
+				return &keepError{id: j.ID, err: err}
 			}
 			e.status, e.class, e.msg = Failed, Storage, err.Error()
 			break
 		}
 		e.status, e.results = Done, len(out.Results)
+		if out.Lost != nil {
+			q.log.Warn("job lost a file the provider sent, and keeps the others", "job", j.ID, "results", len(out.Results), "error", redact(out.Lost.Error()))
+		}
 		if !out.Grounding.Empty() {
 			e.grounding = out.Grounding
 		}
 	}
+	ctx, done := detach(ctx)
+	defer done()
 	return q.end(ctx, j.ID, e)
+}
+
+// noteOutcome writes down what the provider charged for a finished run and
+// what a grounded run brought, before its results are copied: an attempt
+// that does not get to the ending leaves them for the one that does. It is
+// one of the writes that follow the call, on their detached ctx and within
+// their limit (settleWrites). A write that fails is left to the ending,
+// which writes them too.
+func (q *Queue) noteOutcome(ctx context.Context, id int64, out Outcome) {
+	var grounding []byte
+	if !out.Grounding.Empty() {
+		grounding, _ = json.Marshal(out.Grounding)
+	}
+	if out.CostUSD == nil && grounding == nil {
+		return
+	}
+	if _, err := q.pool.Exec(ctx, `
+		UPDATE job SET actual_usd=COALESCE($2, actual_usd), grounding=COALESCE($3::jsonb, grounding), updated_at=now()
+		WHERE id=$1 AND status='running'`, id, out.CostUSD, grounding); err != nil {
+		q.log.Warn("job cost not written before its results", "job", id, "error", err)
+	}
+}
+
+// keptResults is how many results of job id are in framy's storage.
+func keptResults(ctx context.Context, db querier, id int64) (int, error) {
+	var n int
+	err := db.QueryRow(ctx, `SELECT count(*) FROM asset WHERE job_id=$1 AND kind='result'`, id).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count the results of job %d: %w", id, err)
+	}
+	return n, nil
 }
 
 // ending is how a job ends.
@@ -309,11 +459,11 @@ func (q *Queue) end(ctx context.Context, id int64, e ending) error {
 		}
 	}
 	var (
-		userID                int64
-		estimate, actual      *float64
-		provider, model, kind string
-		free                  bool
-		took                  *float64
+		userID                       int64
+		estimate, actual             *float64
+		provider, model, kind, stack string
+		free                         bool
+		took                         *float64
 	)
 	ended := false
 	err := pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
@@ -323,9 +473,9 @@ func (q *Queue) end(ctx context.Context, id int64, e ending) error {
 			       retry_at=NULL, finished_at=now(), updated_at=now()
 			WHERE id=$1 AND status IN ('queued', 'running')
 			RETURNING user_id, estimate_usd::float8, actual_usd::float8, provider, model_id, kind, free,
-			          EXTRACT(EPOCH FROM finished_at - queued_at)::float8`,
+			          EXTRACT(EPOCH FROM finished_at - queued_at)::float8, stack`,
 			id, e.status, e.class, clip(e.msg), e.cost, e.results, grounding, clip(e.said)).
-			Scan(&userID, &estimate, &actual, &provider, &model, &kind, &free, &took)
+			Scan(&userID, &estimate, &actual, &provider, &model, &kind, &free, &took, &stack)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
@@ -333,7 +483,7 @@ func (q *Queue) end(ctx context.Context, id int64, e ending) error {
 			return err
 		}
 		ended = true
-		return q.wake(ctx, tx, userID)
+		return q.wake(ctx, tx, userID, stack)
 	})
 	if err != nil || !ended {
 		return err
@@ -349,9 +499,15 @@ func (q *Queue) end(ctx context.Context, id int64, e ending) error {
 	if actual != nil {
 		attrs = append(attrs, "actual_usd", *actual)
 	}
-	if e.status == Done {
+	switch {
+	case e.status == Done:
 		q.log.Info("job done", attrs...)
-	} else {
+	case e.class == Region:
+		// Not the person's to fix: every run on this provider fails the same
+		// way until the server's address changes.
+		q.log.Error("provider does not serve framy's server; its runs fail until the server's address changes",
+			append(attrs, "provider", provider, "error", e.msg)...)
+	default:
 		q.log.Warn("job ended without a result", append(attrs, "error", e.msg)...)
 	}
 	// A price that changed shows up as a run that cost more, or less, than
@@ -387,11 +543,12 @@ func count(e ending, provider, model, kind string, free bool, actual, took *floa
 	}
 }
 
-// Waiting is how many jobs are queued and how many running, for the
-// metrics.
+// Waiting is how many jobs of this stack are queued and how many running,
+// for the metrics. Each stack's process answers for its own, so the two
+// scrape targets add up to the whole and never count a job twice.
 func (q *Queue) Waiting(ctx context.Context) (map[string]float64, error) {
 	rows, err := q.pool.Query(ctx, `
-		SELECT status, count(*)::float8 FROM job WHERE status IN ('queued', 'running') GROUP BY status`)
+		SELECT status, count(*)::float8 FROM job WHERE stack = $1 AND status IN ('queued', 'running') GROUP BY status`, q.cfg.Stack)
 	if err != nil {
 		return nil, err
 	}
@@ -409,14 +566,49 @@ func (q *Queue) Waiting(ctx context.Context) (map[string]float64, error) {
 	return out, rows.Err()
 }
 
-// wake makes the person's next waiting job look for a slot now rather than
-// at its next WaitSlot. A job waiting out a refusal is left to sleep.
-func (q *Queue) wake(ctx context.Context, tx pgx.Tx, userID int64) error {
+// Stalled counts this stack's queued jobs that could have started more than
+// wait ago and have not, and says since when the oldest could: the person
+// had a free slot, no older job of theirs was ahead of it, and no refusal
+// had it wait, all counted on the stack as claim counts them. A slot frees
+// when a run ends or a video goes out to the provider. Working queues take
+// such a job within a WaitSlot; past minutes, nothing is taking jobs, which
+// /healthz does not see.
+func (q *Queue) Stalled(ctx context.Context, wait time.Duration) (int, time.Time, error) {
+	var (
+		n     int
+		since *time.Time
+	)
+	err := q.pool.QueryRow(ctx, `
+		SELECT count(*), min(since) FROM (
+		  SELECT GREATEST(j.queued_at, j.retry_at,
+		           (SELECT max(o.finished_at) FROM job o WHERE o.user_id = j.user_id AND o.stack = j.stack),
+		           (SELECT max(o.submitted_at) FROM job o WHERE o.user_id = j.user_id AND o.stack = j.stack
+		              AND o.provider_job_id IS NOT NULL)) AS since
+		  FROM job j
+		  WHERE j.stack = $1 AND j.status = 'queued' AND (j.retry_at IS NULL OR j.retry_at <= now())
+		    AND (SELECT count(*) FROM job r WHERE r.user_id = j.user_id AND r.stack = j.stack
+		           AND r.status = 'running' AND r.provider_job_id IS NULL) < $2
+		    AND NOT EXISTS (
+		      SELECT 1 FROM job o WHERE o.user_id = j.user_id AND o.stack = j.stack AND o.status = 'queued' AND o.id < j.id
+		        AND (o.retry_at IS NULL OR o.retry_at <= now()))
+		) ready
+		WHERE since <= now() - make_interval(secs => $3)`,
+		q.cfg.Stack, q.cfg.MaxRunning, wait.Seconds()).Scan(&n, &since)
+	if err != nil || since == nil {
+		return n, time.Time{}, err
+	}
+	return n, *since, nil
+}
+
+// wake makes the person's next waiting job on stack look for a slot now
+// rather than at its next WaitSlot: the slot a job leaves is its stack's. A
+// job waiting out a refusal is left to sleep.
+func (q *Queue) wake(ctx context.Context, tx pgx.Tx, userID int64, stack string) error {
 	var riverID int64
 	err := tx.QueryRow(ctx, `
 		SELECT river_job_id FROM job
-		WHERE user_id=$1 AND status='queued' AND river_job_id IS NOT NULL AND (retry_at IS NULL OR retry_at <= now())
-		ORDER BY id LIMIT 1`, userID).Scan(&riverID)
+		WHERE user_id=$1 AND stack=$2 AND status='queued' AND river_job_id IS NOT NULL AND (retry_at IS NULL OR retry_at <= now())
+		ORDER BY id LIMIT 1`, userID, stack).Scan(&riverID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
@@ -437,13 +629,23 @@ func detachFor(ctx context.Context, d time.Duration) (context.Context, context.C
 	return context.WithTimeout(context.WithoutCancel(ctx), d)
 }
 
-// settleLimit is how long what follows a call of j's may take: a video's
-// result is copied to R2 in it.
-func settleLimit(j Job) time.Duration {
+// keepLimit is how long copying a run's results to R2 may take: a video's
+// three minutes, and for pictures settleWrites and keepPerMiB for each MiB
+// of them, up to imageKeep, so that four 4K pictures over a home line are
+// not cut short and a small one that cannot be kept fails soon. A picture
+// that comes as a link is of a size not known before it is fetched.
+func keepLimit(j Job, results []Result) time.Duration {
 	if j.Kind == catalog.Video {
 		return videoKeep
 	}
-	return settleWrites
+	var size int64
+	for _, r := range results {
+		if r.Data == nil {
+			return imageKeep
+		}
+		size += int64(len(r.Data))
+	}
+	return min(settleWrites+time.Duration(size>>20)*keepPerMiB, imageKeep)
 }
 
 // clip keeps an error message to a size a row can hold.

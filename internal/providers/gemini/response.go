@@ -4,7 +4,6 @@ package gemini
 import (
 	"bytes"
 	"cmp"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/FreshLabDev/framy/internal/providers/answer"
 )
 
 // interaction is the answer of POST /interactions and GET
@@ -47,8 +47,10 @@ type block struct {
 	Type     string `json:"type"`
 	Text     string `json:"text"`
 	MimeType string `json:"mime_type"`
-	Data     string `json:"data"`
-	URI      string `json:"uri"`
+	// Data is decoded as the answer is read, with no string between: an
+	// answer may be 192 MiB.
+	Data answer.Base64 `json:"data"`
+	URI  string        `json:"uri"`
 	// Annotations of a text: the pages a grounded answer cites, among
 	// others.
 	Annotations []json.RawMessage `json:"annotations"`
@@ -281,11 +283,18 @@ func outcome(of catalog.Offer, raw []byte, key string) jobs.Outcome {
 	for i, b := range m.media {
 		res, err := result(b)
 		if err != nil {
-			out.Results = nil
-			out.Err = &jobs.Error{Class: jobs.ProviderFailed, Err: fmt.Errorf("image %d of the answer: %w", i+1, err)}
-			return out
+			// The run is billed in full: a picture that came broken does
+			// not take the others with it.
+			if out.Lost == nil {
+				out.Lost = fmt.Errorf("image %d of the answer: %w", i+1, err)
+			}
+			continue
 		}
 		out.Results = append(out.Results, res)
+	}
+	if len(out.Results) == 0 {
+		out.Err, out.Lost = &jobs.Error{Class: jobs.ProviderFailed, Err: out.Lost}, nil
+		return out
 	}
 	out.Grounding = m.grounding
 	return out
@@ -299,19 +308,15 @@ func trustworthy(u *usage) bool {
 
 // result decodes one image of the answer.
 func result(b block) (jobs.Result, error) {
-	if b.Data == "" {
-		if b.URI != "" {
-			// A Files API link needs the key to open; the sink has none.
-			return jobs.Result{}, errors.New("the image came as a link, not as data")
-		}
+	data := b.Data.Data
+	switch {
+	case b.Data.Err != nil:
+		return jobs.Result{}, b.Data.Err
+	case len(data) == 0 && b.URI != "":
+		// A Files API link needs the key to open; the sink has none.
+		return jobs.Result{}, errors.New("the image came as a link, not as data")
+	case len(data) == 0:
 		return jobs.Result{}, errors.New("an image with no data")
-	}
-	data, err := base64.StdEncoding.DecodeString(b.Data)
-	if err != nil {
-		return jobs.Result{}, fmt.Errorf("decode base64: %w", err)
-	}
-	if len(data) == 0 {
-		return jobs.Result{}, errors.New("an empty image")
 	}
 	ct := b.MimeType
 	if !strings.HasPrefix(ct, "image/") {

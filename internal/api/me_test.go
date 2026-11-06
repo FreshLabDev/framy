@@ -26,7 +26,7 @@ func TestMeIsTheSignedInPerson(t *testing.T) {
 	}
 	want := map[string]any{
 		"user_id": float64(alice), "name": "Olesya Kovalenko", "photo_url": "https://t.me/i/userpic/320/olesya.jpg",
-		"language": "uk", "language_chosen": false, "currency": "EUR", "currency_chosen": true, "signed_in_at": "2026-10-27T09:30:00Z",
+		"language": "uk", "language_chosen": false, "currency": "EUR", "currency_chosen": true, "currency_auto": "UAH", "signed_in_at": "2026-10-27T09:30:00Z",
 		"deliver_to_telegram": true,
 	}
 	for k, v := range want {
@@ -63,7 +63,7 @@ func TestMeWithoutACard(t *testing.T) {
 	r.store.lang[bob] = "pl"
 	resp := r.do(bob, "GET", "/api/me", nil)
 	m := jsonOf(t, resp)
-	if resp.StatusCode != http.StatusOK || m["name"] != "" || m["photo_url"] != "" || m["currency"] != "PLN" || m["currency_chosen"] != false {
+	if resp.StatusCode != http.StatusOK || m["name"] != "" || m["photo_url"] != "" || m["currency"] != "PLN" || m["currency_chosen"] != false || m["currency_auto"] != "PLN" {
 		t.Fatalf("%d %v", resp.StatusCode, m)
 	}
 	if _, ok := m["signed_in_at"]; ok {
@@ -73,6 +73,32 @@ func TestMeWithoutACard(t *testing.T) {
 	r.store.chosen[bob] = "GBP"
 	if m := jsonOf(t, r.do(bob, "GET", "/api/me", nil)); m["currency"] != "PLN" || m["currency_chosen"] != false {
 		t.Errorf("%v", m)
+	}
+}
+
+// The site loads the person at every visit and on coming back to the tab,
+// which is when the session is kept going: /api/me renews it, and only for
+// someone signed in.
+func TestMeRenewsTheSession(t *testing.T) {
+	var renewed []int64
+	r := newRig(t, func(o *rigOptions) {
+		o.cfg = func(c *Config) {
+			c.Renew = func(w http.ResponseWriter, req *http.Request) {
+				id, _, _ := c.Person(req)
+				renewed = append(renewed, id)
+				http.SetCookie(w, &http.Cookie{Name: "renewed", Value: "yes"})
+			}
+		}
+	})
+	resp := r.do(alice, "GET", "/api/me", nil)
+	if resp.StatusCode != http.StatusOK || len(resp.Cookies()) != 1 || resp.Cookies()[0].Name != "renewed" {
+		t.Fatalf("%d, cookies %v", resp.StatusCode, resp.Header.Values("Set-Cookie"))
+	}
+	if resp := r.do(0, "GET", "/api/me", nil); resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("nobody: %d", resp.StatusCode)
+	}
+	if len(renewed) != 1 || renewed[0] != alice {
+		t.Errorf("renewed for %v", renewed)
 	}
 }
 
@@ -146,5 +172,25 @@ func TestMeHasTheConnectionsAndTheAllowance(t *testing.T) {
 	r.conns.err = errors.New("connection reset")
 	if resp := r.do(alice, "GET", "/api/me", nil); resp.StatusCode != http.StatusInternalServerError {
 		t.Errorf("%d", resp.StatusCode)
+	}
+}
+
+// A session the database could not read is not a sign-out: the person is
+// told to try again (503), and only a request with no session at all is sent
+// to sign in. The site keeps the person shown, and the Mini App does not
+// trade its launch data again for nothing.
+func TestASessionThatCannotBeReadIsNoSignOut(t *testing.T) {
+	r := newRig(t)
+	resp := r.do(0, "GET", "/api/me", nil, "X-Test-User", "down")
+	if m := jsonOf(t, resp); resp.StatusCode != http.StatusServiceUnavailable || m["error"] != "unavailable" || resp.Header.Get("Retry-After") == "" {
+		t.Errorf("unreadable: %d %v, Retry-After %q", resp.StatusCode, m, resp.Header.Get("Retry-After"))
+	}
+	resp = r.do(0, "GET", "/api/jobs", nil)
+	if m := jsonOf(t, resp); resp.StatusCode != http.StatusUnauthorized || m["error"] != "sign_in" {
+		t.Errorf("nobody: %d %v", resp.StatusCode, m)
+	}
+	// What anyone may read is still answered, as for nobody.
+	if resp := r.do(0, "GET", "/api/catalog", nil, "X-Test-User", "down"); resp.StatusCode != http.StatusOK {
+		t.Errorf("the catalog: %d", resp.StatusCode)
 	}
 }

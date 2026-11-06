@@ -43,6 +43,23 @@ jobs:
     # the only way to publish without that, and it says so in the notes.
     if: ${{ !cancelled() && (needs.ci.result == 'success' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
+    # Build, media tests and scan take about six minutes; a hung build or
+    # push fails instead of holding the release for six hours.
+    timeout-minutes: 25
+    # For the storage tests among the media tests of the image built here.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: framy
+          POSTGRES_PASSWORD: framy
+          POSTGRES_DB: framy_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U framy -d framy_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     env:
       TAG: ${{ inputs.tag || github.ref_name }}
       SKIP_REASON: ${{ inputs.reason }}
@@ -109,15 +126,46 @@ jobs:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
-      - name: Build and push image
+      # docs/versioning.md: a published version is never moved. A run started
+      # again after it had pushed the image (the release step failed, say)
+      # would build anew, with another build date and Alpine's packages of
+      # that day, and move the tag to a digest nobody tested, while
+      # production pins the first. So an image already under the tag is kept
+      # and the run only finishes the release with it. Anything but "not
+      # found" stops the run before it pushes.
+      - name: Keep an image already published under the tag
+        id: published
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+        run: |
+          err="$(mktemp)"
+          if manifest="$(docker buildx imagetools inspect "${IMAGE}:${TAG}" --format '{{json .Manifest}}' 2>"${err}")"; then
+            digest="$(jq -r .digest <<<"${manifest}")"
+            case "${digest}" in
+              sha256:*) ;;
+              *) echo "${IMAGE}:${TAG} is published, but its digest could not be read"; exit 1 ;;
+            esac
+            echo "::notice::${IMAGE}:${TAG} is already published as ${digest}; this run keeps it and builds nothing"
+            echo "digest=${digest}" >>"$GITHUB_OUTPUT"
+          elif grep -qi 'not found' "${err}"; then
+            echo "${IMAGE}:${TAG} is not published yet"
+          else
+            cat "${err}"
+            echo "could not tell whether ${IMAGE}:${TAG} is published, so nothing is pushed"
+            exit 1
+          fi
+
+      # The image is pushed by its digest alone, tested and scanned as it
+      # is in the registry, and only then given its tags: the build CI
+      # tested is another one, made minutes earlier with that minute's
+      # packages of Alpine, so what production pulls is checked here.
+      - name: Build and push the image by digest
         id: build
+        if: steps.published.outputs.digest == ''
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
-          push: true
-          tags: |
-            ${{ steps.meta.outputs.image }}:${{ env.TAG }}
-            ${{ steps.meta.outputs.image }}:sha-${{ steps.meta.outputs.commit }}
+          outputs: type=image,name=${{ steps.meta.outputs.image }},push-by-digest=true,name-canonical=true,push=true
           provenance: mode=max
           sbom: true
           build-args: |
@@ -125,12 +173,55 @@ jobs:
             COMMIT=${{ steps.meta.outputs.commit }}
             DATE=${{ steps.meta.outputs.date }}
 
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: steps.build.outcome == 'success'
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Media tests in the pushed image
+        if: steps.build.outcome == 'success'
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}@${{ steps.build.outputs.digest }}
+          FRAMY_TEST_DATABASE_URL: postgres://framy:framy@localhost:5432/framy_test?sslmode=disable
+        run: |
+          docker pull "${IMAGE}"
+          .github/scripts/media-tests.sh "${IMAGE}"
+
+      # As CI scans its own build (docs/releases.md, When the image scan
+      # fails).
+      - name: Scan the pushed image's packages
+        if: steps.build.outcome == 'success'
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: registry:${{ steps.meta.outputs.image }}@${{ steps.build.outputs.digest }}
+          config: .grype.yaml
+          only-fixed: true
+          severity-cutoff: high
+          output-format: table
+
+      # A single source is copied as it is, so the tags name the digest
+      # that was tested; the check makes sure of it.
+      - name: Tag the tested image
+        if: steps.build.outcome == 'success'
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          COMMIT: ${{ steps.meta.outputs.commit }}
+        run: |
+          docker buildx imagetools create -t "${IMAGE}:${TAG}" -t "${IMAGE}:sha-${COMMIT}" "${IMAGE}@${DIGEST}"
+          tagged="$(docker buildx imagetools inspect "${IMAGE}:${TAG}" --format '{{json .Manifest}}' | jq -r .digest)"
+          if [ "${tagged}" != "${DIGEST}" ]; then
+            echo "${IMAGE}:${TAG} is ${tagged}, not the tested ${DIGEST}"
+            exit 1
+          fi
+
       - name: Record the image digest
         # docs/releases.md tells the operator to pin this digest; the notes are
         # where it is read from.
         env:
           IMAGE: ${{ steps.meta.outputs.image }}
-          DIGEST: ${{ steps.build.outputs.digest }}
+          DIGEST: ${{ steps.published.outputs.digest || steps.build.outputs.digest }}
           NOTES_FILE: ${{ steps.changelog.outputs.file }}
         run: |
           printf '\n### Container image\n\n`%s@%s`\n' "$IMAGE" "$DIGEST" >>"$NOTES_FILE"

@@ -23,13 +23,27 @@ body { font: 400 16px/1.45 system-ui, sans-serif; }
   .sk-stage { display: block; }
   .sk-stage i { aspect-ratio: 1; max-height: calc(100vh - 120px); margin: 0 auto; width: min(100%, calc(100vh - 120px)); }
 }
+/* A phone: the bar of 56 px, the dock of the app (the row of the kind and the
+   model, the prompt, the row of files, Create with the line under it) and the
+   frame centred over it under the room of the stage's heading, as app.css lays
+   them out, so nothing moves when the app takes over. */
 @media (max-width: 959.98px) {
-  .sk-col .p, .sk-col .m, .sk-col .r { display: none; }
-  .sk-col { position: fixed; left: 0; right: 0; bottom: 0; padding: 10px 16px; background: #00606E; border-top: 1px solid #0B7280; }
-  .sk-col .k { height: 54px; }
-  .sk-col .b { margin-top: 0; }
-  .sk-stage { display: block; }
-  .sk-stage i { aspect-ratio: 1; }
+  .sk-top { height: 56px; }
+  #skel .sk-col .m, #skel .sk-col .r + .r { display: none; }
+  .sk-col { position: fixed; left: 0; right: 0; bottom: 0; gap: 8px; padding: 10px 16px; background: #00606E; border-top: 1px solid #0B7280; }
+  .sk-col .k { height: 46px; }
+  .sk-col .p { height: 94px; }
+  .sk-col .r { width: 52px; height: 52px; }
+  .sk-col .b { width: 136px; margin: 0 0 20px; }
+  .sk-stage { display: grid; position: fixed; top: 56px; left: 16px; right: 16px; bottom: 333px; align-content: center; justify-items: center; gap: 28px; }
+  .sk-stage::before { content: ""; height: 44px; }
+  .sk-stage i { aspect-ratio: 1; width: min(100%, calc(100vh - 457px)); }
+}
+/* A phone held sideways: the app puts the composer in the page over the stage (html.flow, composer.js). */
+@media (max-width: 959.98px) and (max-height: 560px) and (orientation: landscape) {
+  .sk-col { position: static; padding: 0; border-top: 0; }
+  .sk-stage { position: static; }
+  .sk-stage i { width: min(100%, calc(100vh - 92px)); }
 }
 @media (prefers-reduced-motion: no-preference) {
   #skel i { animation: sk 1.4s ease-in-out infinite alternate; }

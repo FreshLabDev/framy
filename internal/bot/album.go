@@ -124,7 +124,13 @@ func albumItem(m *tg.Message) (db.AlbumItem, bool) {
 		v := m.Video
 		it.Kind, it.FileID, it.FileUniqueID = db.AlbumVideo, v.FileID, v.FileUniqueID
 		it.Width, it.Height, it.FileSize = v.Width, v.Height, v.FileSize
-	case m.Document != nil && imageOrVideo(m.Document.MimeType):
+	case m.Document != nil && hasType(m.Document.MimeType, "image/"):
+		// A picture sent as a file is a photo here: its file is the
+		// picture whole, as it was made, which /img takes as it takes a
+		// photo. People send files so as not to lose any of it.
+		d := m.Document
+		it.Kind, it.FileID, it.FileUniqueID, it.FileSize = db.AlbumPhoto, d.FileID, d.FileUniqueID, d.FileSize
+	case m.Document != nil && hasType(m.Document.MimeType, "video/"):
 		d := m.Document
 		it.Kind, it.FileID, it.FileUniqueID, it.FileSize = db.AlbumDocument, d.FileID, d.FileUniqueID, d.FileSize
 	default:
@@ -154,9 +160,10 @@ func pickPhoto(it *db.AlbumItem, sizes []tg.Photo) bool {
 	return true
 }
 
-func imageOrVideo(mime string) bool {
-	mime = strings.ToLower(mime)
-	return strings.HasPrefix(mime, "image/") || strings.HasPrefix(mime, "video/")
+// hasType tells whether a MIME type is of the kind prefix names, "image/"
+// or "video/", whatever its case.
+func hasType(mime, prefix string) bool {
+	return strings.HasPrefix(strings.ToLower(mime), prefix)
 }
 
 // noteAlbumItem keeps the item a message carries, command or not. A failure
@@ -173,9 +180,9 @@ func (b *Bot) noteAlbumItem(ctx context.Context, m *tg.Message) {
 	// Marked before the write as well as after it: an Album call that comes
 	// between the two must wait for this item, not read the album without it.
 	k := albumKey{it.ChatID, it.MediaGroupID}
-	b.arrivals.mark(k, time.Now())
+	b.arrivals.mark(k, b.now())
 	err := b.store.NoteAlbumItem(ctx, it)
-	b.arrivals.mark(k, time.Now())
+	b.arrivals.mark(k, b.now())
 	if err != nil {
 		metrics.AlbumFailures.Inc()
 		b.log.Error("album item not saved", "chat", it.ChatID, "message", it.MessageID, "error", err)
@@ -194,10 +201,10 @@ func (b *Bot) noteAlbumItem(ctx context.Context, m *tg.Message) {
 // of the chat (SeesEveryMessage).
 func (b *Bot) Album(ctx context.Context, chatID int64, mediaGroupID string, quiet, max time.Duration) ([]db.AlbumItem, error) {
 	k := albumKey{chatID, mediaGroupID}
-	deadline := time.Now().Add(max)
+	deadline := b.now().Add(max)
 	for {
 		last := b.arrivals.at(k)
-		now := time.Now()
+		now := b.now()
 		wake := last.Add(quiet)
 		if last.IsZero() || !wake.After(now) || !now.Before(deadline) {
 			break
@@ -205,7 +212,7 @@ func (b *Bot) Album(ctx context.Context, chatID int64, mediaGroupID string, quie
 		if wake.After(deadline) {
 			wake = deadline
 		}
-		if !wait(ctx, wake.Sub(now)) {
+		if !b.sleep(ctx, wake.Sub(now)) {
 			return nil, ctx.Err()
 		}
 	}
@@ -231,7 +238,7 @@ func (b *Bot) sweepAlbums(ctx context.Context, every time.Duration) {
 	tick := time.NewTicker(every)
 	defer tick.Stop()
 	for {
-		n, err := b.store.DeleteAlbumItemsBefore(ctx, time.Now().Add(-albumKeep))
+		n, err := b.store.DeleteAlbumItemsBefore(ctx, b.now().Add(-albumKeep))
 		switch {
 		case ctx.Err() != nil:
 			return

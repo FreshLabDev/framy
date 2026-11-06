@@ -14,9 +14,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/FreshLabDev/framy/internal/jobs"
 	"github.com/FreshLabDev/framy/internal/media"
+	"github.com/FreshLabDev/framy/internal/r2/r2test"
 	"github.com/FreshLabDev/framy/internal/storage"
 )
 
@@ -84,14 +86,16 @@ func (h *harness) incoming(t *testing.T) []string {
 func TestAClipPutByLinkIsKeptWithItsLength(t *testing.T) {
 	h := newHarness(t, storage.Config{Media: videoConverter(t)})
 	ctx := context.Background()
-	up, err := h.store.VideoUpload(alice)
+	data := clip(t, "2")
+	up, err := h.store.VideoUpload(alice, int64(len(data)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !storage.ValidToken(up.Token) || up.MaxBytes != storage.DefaultMaxVideo || up.MaxSeconds != media.DefaultMaxSeconds {
+	if !storage.ValidToken(up.Token) || up.MaxBytes != storage.DefaultMaxVideo || up.MaxSeconds != media.DefaultMaxSeconds ||
+		time.Until(up.ExpiresAt) > storage.DefaultIncomingTTL || time.Until(up.ExpiresAt) < storage.DefaultIncomingTTL-time.Minute {
 		t.Fatalf("%+v", up)
 	}
-	put(t, up.URL, clip(t, "2"))
+	put(t, up.URL, data)
 	if keys := h.incoming(t); len(keys) != 1 || keys[0] != "incoming/3001/"+up.Token {
 		t.Fatalf("incoming %v", keys)
 	}
@@ -109,7 +113,7 @@ func TestAClipPutByLinkIsKeptWithItsLength(t *testing.T) {
 		t.Fatal(err)
 	}
 	if a.Kind != "upload" || a.ContentType != "video/mp4" || a.Width != 320 || a.Height != 180 ||
-		math.Abs(a.Seconds-2) > 0.1 || a.FPS != 30 || !a.Audio || !strings.HasPrefix(a.Key, "u/3001/in/") || !strings.HasSuffix(a.Key, ".mp4") {
+		math.Abs(a.Seconds-2) > 0.1 || a.FPS != 30 || !a.Audio || !strings.HasPrefix(a.Key, "in/") || !strings.HasSuffix(a.Key, ".mp4") {
 		t.Fatalf("%+v", a)
 	}
 	var secs, fps float64
@@ -135,19 +139,25 @@ func TestAClipPutByLinkIsKeptWithItsLength(t *testing.T) {
 func TestAClipFramyCannotTakeGoesFromIncoming(t *testing.T) {
 	h := newHarness(t, storage.Config{Media: videoConverter(t), MaxVideo: 64 << 10})
 	ctx := context.Background()
+	// A clip over the limit gets no link.
+	if _, err := h.store.VideoUpload(alice, 65<<10); !errors.Is(err, storage.ErrTooBig) {
+		t.Errorf("a link for a clip over the limit: %v", err)
+	}
 	for name, tc := range map[string]struct {
 		data []byte
 		want error
 	}{
 		"text":    {[]byte("an error page, not a clip"), media.ErrUnsupportedVideo},
 		"picture": {pngBytes(t, 8, 8, 255), media.ErrUnsupportedVideo},
+		// Over the limit all the same, were the bucket to take a body of
+		// another length than the link's.
 		"too big": {make([]byte, 65<<10), storage.ErrTooBig},
 	} {
-		up, err := h.store.VideoUpload(alice)
+		up, err := h.store.VideoUpload(alice, 1)
 		if err != nil {
 			t.Fatal(err)
 		}
-		put(t, up.URL, tc.data)
+		h.bucket.Put("incoming/3001/"+up.Token, r2test.Object{Data: tc.data, ContentType: "video/mp4"})
 		if _, err := h.store.TakeVideo(ctx, alice, up.Token, nil); !errors.Is(err, tc.want) {
 			t.Errorf("%s: %v, want %v", name, err, tc.want)
 		}
@@ -168,14 +178,15 @@ func TestATooLongClipWaitsForAPartOfIt(t *testing.T) {
 	c.MaxSeconds = 1
 	h := newHarness(t, storage.Config{Media: c})
 	ctx := context.Background()
-	up, err := h.store.VideoUpload(alice)
+	data := clip(t, "2")
+	up, err := h.store.VideoUpload(alice, int64(len(data)))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if up.MaxSeconds != 1 {
 		t.Errorf("max seconds %v", up.MaxSeconds)
 	}
-	put(t, up.URL, clip(t, "2"))
+	put(t, up.URL, data)
 	var long *media.TooLongError
 	if _, err := h.store.TakeVideo(ctx, alice, up.Token, nil); !errors.As(err, &long) {
 		t.Fatalf("%v", err)
@@ -311,11 +322,12 @@ func sound(t *testing.T, secs string) []byte {
 func TestASoundPutByLinkIsKeptForTheReferences(t *testing.T) {
 	h := newHarness(t, storage.Config{Media: videoConverter(t)})
 	ctx := context.Background()
-	up, err := h.store.VideoUpload(alice)
+	data := sound(t, "4")
+	up, err := h.store.VideoUpload(alice, int64(len(data)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	put(t, up.URL, sound(t, "4"))
+	put(t, up.URL, data)
 	a, err := h.store.TakeVideo(ctx, alice, up.Token, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -337,6 +349,37 @@ func TestASoundPutByLinkIsKeptForTheReferences(t *testing.T) {
 	}
 	if _, err := h.store.LastFrame(ctx, alice, a.ID); !errors.Is(err, storage.ErrNotVideo) {
 		t.Errorf("the last frame of a sound: %v", err)
+	}
+	h.workIsEmpty(t)
+}
+
+// With a bucket of their own, clips are put there and taken from there, and
+// kept in the bucket with everything else.
+func TestAClipGoesThroughItsOwnBucket(t *testing.T) {
+	clips := r2test.New(t)
+	h := newHarness(t, storage.Config{Media: videoConverter(t), Incoming: clips.Client(t)})
+	ctx := context.Background()
+	data := clip(t, "1")
+	up, err := h.store.VideoUpload(alice, int64(len(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(up.URL, clips.URL+"/") {
+		t.Fatal("the link is not to the clips' bucket")
+	}
+	put(t, up.URL, data)
+	if keys := clips.Keys(); len(keys) != 1 || keys[0] != "incoming/3001/"+up.Token || len(h.incoming(t)) != 0 {
+		t.Fatalf("clips %v, incoming of the main bucket %v", keys, h.incoming(t))
+	}
+	a, err := h.store.TakeVideo(ctx, alice, up.Token, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := h.bucket.Get(a.Key); !ok || !strings.HasPrefix(a.Key, "in/") {
+		t.Fatalf("kept %s: %v", a.Key, ok)
+	}
+	if keys := clips.Keys(); len(keys) != 0 {
+		t.Errorf("left in the clips' bucket: %v", keys)
 	}
 	h.workIsEmpty(t)
 }

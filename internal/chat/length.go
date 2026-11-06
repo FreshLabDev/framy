@@ -65,22 +65,17 @@ func (d draft) otherLength() (clipChoice, bool) {
 	return clipChoice{}, false
 }
 
-// label is the choice's button. One on a key the person does not have is
-// marked 🔑, as such a model is in the list, and its press says where to
-// connect one.
-func (c clipChoice) label(lang string, d draft) string {
+// label is the choice's button. Its words say it runs on the person's key;
+// without one, its press says where to connect one.
+func (c clipChoice) label(lang string) string {
 	n := wholeSeconds(c.seconds)
-	if c.action == actFreeClip {
+	switch {
+	case c.action == actFreeClip:
 		return t(lang, "edit.free_first", "n", n)
+	case c.whole:
+		return t(lang, "edit.key_whole", "n", n)
 	}
-	text := t(lang, "edit.key_first", "n", n)
-	if c.whole {
-		text = t(lang, "edit.key_whole", "n", n)
-	}
-	if !d.hasKey {
-		text = "🔑 " + text
-	}
-	return text
+	return t(lang, "edit.key_first", "n", n)
 }
 
 // cut is the part of the clip the choice keeps: nil for the whole clip.
@@ -132,9 +127,9 @@ func (f *Flow) otherLength(ctx context.Context, cq *tg.CallbackQuery, run db.Cha
 		return err
 	}
 	if limits := s.model.Traits.SourceVideo; limits != nil && limits.MaxMiB > 0 && a.Bytes > int64(limits.MaxMiB)<<20 {
-		return fmt.Errorf("%g s of the clip: %w", c.seconds, errTooBig)
+		return fmt.Errorf("%g s of the clip: %w", c.seconds, &tooBigError{int64(limits.MaxMiB) << 20})
 	}
-	est := price.Of(s.model, s.offer, priceRequest(run.Prompt, s.settings, nil, &price.Video{Seconds: a.Seconds, Width: a.Width, Height: a.Height}))
+	est := price.Of(s.model, s.offer, priceRequest(run.Prompt, s.settings, nil, &price.Video{Seconds: a.Seconds, Width: a.Width, Height: a.Height, FPS: a.FPS}))
 	n := jobs.New{
 		UserID: run.UserID, Offer: s.offer, Prompt: run.Prompt, Settings: s.settings,
 		Free: onFree, Estimate: &est, Inputs: []int64{a.ID},
@@ -159,18 +154,31 @@ func (f *Flow) otherLength(ctx context.Context, cq *tg.CallbackQuery, run db.Cha
 	case err != nil:
 		return err
 	}
+	if err := f.drawLength(ctx, cq.ID, run.JobID, on, c, dir); err != nil {
+		// The card shows the length the run had, and so does the draft.
+		f.putBack(ctx, run, on, viewMain, s.inputs, true, err)
+		return err
+	}
+	return nil
+}
+
+// drawLength draws the card of a run that has just taken the length c of
+// its clip, kept in dir. The press was answered with a word already;
+// Telegram may still take it for the requester's own preview.
+func (f *Flow) drawLength(ctx context.Context, press string, jobID int64, on place, c clipChoice, dir string) error {
 	note := ""
 	if c.cut() != nil {
 		note = noteClipCut
 	}
-	if err := f.cfg.Store.SetChatRunNote(ctx, run.JobID, note); err != nil {
+	if err := f.cfg.Store.SetChatRunNote(ctx, jobID, note); err != nil {
 		return err
 	}
-	fresh, err := f.cfg.Store.ChatRun(ctx, run.JobID)
+	fresh, err := f.cfg.Store.ChatRun(ctx, jobID)
 	if err != nil {
 		return err
 	}
-	if s, err = f.stateOf(ctx, fresh); err != nil {
+	s, err := f.stateOf(ctx, fresh)
+	if err != nil {
 		return err
 	}
 	// The part kept starts where the clip does, so its first frame is the
@@ -179,5 +187,5 @@ func (f *Flow) otherLength(ctx context.Context, cq *tg.CallbackQuery, run db.Cha
 	if err != nil {
 		return err
 	}
-	return f.drawCard(ctx, fresh, on, viewMain, s, dir, []string{poster})
+	return f.drawCard(ctx, fresh, press, on, viewMain, s, dir, []string{poster})
 }

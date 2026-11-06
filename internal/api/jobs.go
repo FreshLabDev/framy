@@ -69,7 +69,9 @@ type createRequest struct {
 	// figure of the quote's label, usd, or max_usd for "up to". A run on
 	// their own key whose price would now show higher is refused with 409
 	// price_changed and the new estimate, and waits for another press. A
-	// lower price runs as it is. Absent: no check.
+	// lower price runs as it is. A run on a key needs it: without it the
+	// person saw no price, and the answer is price_changed with the price,
+	// unless framy cannot price the run either. A free run needs none.
 	ShownUSD *float64 `json:"shown_usd"`
 	// Continues is the id of a finished job of the person's whose video this
 	// run continues, on the model that made it, where the catalog says the
@@ -125,8 +127,8 @@ func (a *API) create(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, err)
 		return
 	}
-	if !p.n.Free && req.ShownUSD != nil && dearer(*p.n.Estimate, *req.ShownUSD, quote, lang) {
-		priceChanged(*p.n.Estimate, quote, lang).write(w)
+	if !p.n.Free && unseen(*p.n.Estimate, req.ShownUSD, quote, lang) {
+		priceChanged(*p.n.Estimate, req.ShownUSD, quote, lang).write(w)
 		return
 	}
 	n := p.n
@@ -143,15 +145,19 @@ func (a *API) create(w http.ResponseWriter, r *http.Request) {
 	a.accepted(w, r, user, id, created)
 }
 
-// priceChanged is the answer to a run whose price would now show higher
-// than the one the person saw: the new estimate, to show and ask again.
-func priceChanged(e price.Estimate, quote fx.Quote, lang string) *apiError {
+// priceChanged is the answer to a run whose price the person did not see:
+// it would now show higher than the one they saw, or none came with the run.
+// It carries the estimate, to show and ask again.
+func priceChanged(e price.Estimate, shownUSD *float64, quote fx.Quote, lang string) *apiError {
 	shown := estimateJSONOf(e.USD, &e, quote.Code, quote.PerUSD, lang)
 	if quote.Code != fx.USD {
 		shown.RateDate = quote.Date.Format(time.DateOnly)
 	}
-	return newError(http.StatusConflict, codePriceChanged, "the price is higher than the one shown; show the new one and ask again").
-		with("estimate", shown)
+	msg := "the price is higher than the one shown; show the new one and ask again"
+	if shownUSD == nil {
+		msg = "a run on a key needs shown_usd, the price shown; show this one and ask again"
+	}
+	return newError(http.StatusConflict, codePriceChanged, msg).with("estimate", shown)
 }
 
 // prepared is a run checked and priced, ready to queue: the job without its
@@ -237,6 +243,7 @@ func (a *API) prepare(r *http.Request, user int64, req createRequest, conns *con
 	files := countOf(settings, inputs, nil)
 	fillFrames(settings, m, offer, files.Images)
 	files.Frames = frameCount(settings)
+	fitDuration(settings, m, offer, &files)
 	if aerr := checkInputs(m, offer, files); aerr != nil {
 		return prepared{}, aerr, nil
 	}
@@ -353,6 +360,16 @@ func assetSizes(inputs []InputAsset) [][2]int {
 	return out
 }
 
+// unseen reports whether a run on the person's key would start at a price
+// they did not see: none came with it while framy has one to show, or the
+// one that came is lower than the price would show now.
+func unseen(e price.Estimate, shownUSD *float64, q fx.Quote, lang string) bool {
+	if shownUSD == nil {
+		return e.Kind != price.Unknown
+	}
+	return dearer(e, *shownUSD, q, lang)
+}
+
 // dearer reports whether the estimate would show a higher price than the one
 // the person saw, in the currency it is shown in: a change too small to
 // change the label is no change. An estimate of unknown kind has no figure
@@ -417,17 +434,22 @@ func (a *API) quote(r *http.Request, user int64, lang string) (fx.Quote, error) 
 			return fx.Quote{}, err
 		}
 	}
-	country := ""
-	if web.FromProxy(r) {
-		country = r.Header.Get("CF-IPCountry")
-	}
-	code := fx.Default(chosen, country, lang)
+	code := fx.Default(chosen, country(r), lang)
 	q, err := a.cfg.Store.Quote(ctx, code, fx.Day(a.now()))
 	if errors.Is(err, fx.ErrNoRate) {
 		a.log.Warn("no rate saved; the price is shown in USD", "currency", code)
 		return fx.Dollar, nil
 	}
 	return q, err
+}
+
+// country is the one Cloudflare saw the request come from, believed only
+// through the trusted proxy; "" when there is none.
+func country(r *http.Request) string {
+	if !web.FromProxy(r) {
+		return ""
+	}
+	return r.Header.Get("CF-IPCountry")
 }
 
 // priceRequest is the estimate's input. The first pictures are frames, as
@@ -437,7 +459,7 @@ func (a *API) quote(r *http.Request, user int64, lang string) (fx.Quote, error) 
 func priceRequest(m catalog.Model, prompt string, settings map[string]any, inputs []InputAsset, continues *InputAsset) price.Request {
 	req := price.Request{Settings: settings, Prompt: prompt}
 	if continues != nil {
-		req.Video = &price.Video{Seconds: continues.Seconds, Width: continues.Width, Height: continues.Height}
+		req.Video = &price.Video{Seconds: continues.Seconds, Width: continues.Width, Height: continues.Height, FPS: continues.FPS}
 		req.Clips = append(req.Clips, continues.Seconds)
 	}
 	frames := frameCount(settings)
@@ -445,7 +467,7 @@ func priceRequest(m catalog.Model, prompt string, settings map[string]any, input
 		switch {
 		case strings.HasPrefix(in.ContentType, "video/"):
 			if req.Video == nil {
-				req.Video = &price.Video{Seconds: in.Seconds, Width: in.Width, Height: in.Height}
+				req.Video = &price.Video{Seconds: in.Seconds, Width: in.Width, Height: in.Height, FPS: in.FPS}
 			}
 			req.Clips = append(req.Clips, in.Seconds)
 		case strings.HasPrefix(in.ContentType, "audio/"):
@@ -508,6 +530,45 @@ func fillFrames(settings map[string]any, m catalog.Model, offer catalog.Offer, i
 	if len(types) > 0 {
 		settings[framesSetting] = types
 	}
+}
+
+// durationSetting is a video's length in seconds.
+const durationSetting = "duration"
+
+// fitDuration gives a video from reference images the length its model
+// makes those at, where the run sets none: framy's default length would be
+// refused, as Veo 3.1 makes them at 8 s only. It puts the length the run
+// asks for in c, which checkInputs holds against the files.
+func fitDuration(settings map[string]any, m catalog.Model, offer catalog.Offer, c *catalog.Count) {
+	if v, set := settings[durationSetting]; !set || v == nil {
+		if d := catalog.InputsOf(m, offer).Durations(*c); len(d) > 0 {
+			settings[durationSetting] = durationValue(offer, d[0])
+		}
+	}
+	c.Duration = secondsOf(settings[durationSetting])
+}
+
+// durationValue is a length as the offer lists it, so a run's settings
+// carry the value of its enum.
+func durationValue(offer catalog.Offer, secs float64) any {
+	for _, v := range offer.Params[durationSetting].Values {
+		if secondsOf(v) == secs {
+			return v
+		}
+	}
+	return secs
+}
+
+// secondsOf reads a length from the settings: a JSON number, or an int
+// from the catalog. Anything else is 0, no length.
+func secondsOf(v any) float64 {
+	switch x := v.(type) {
+	case float64:
+		return x
+	case int:
+		return float64(x)
+	}
+	return 0
 }
 
 // countOf counts a run's files by kind: the kept ones, then those still in
@@ -627,7 +688,31 @@ func checkCreate(prefix string, req createRequest) *apiError {
 	if strings.TrimSpace(req.Prompt) == "" && len(req.Inputs) == 0 {
 		return badRequest(prefix+"prompt", "send a prompt or an input file")
 	}
+	// A key pasted into the prompt would go to the model's provider, into
+	// the job and into every caption of it; the person meant the settings.
+	// A quote is not refused: it reaches no provider, and the price shows
+	// while the person types.
+	if provider, ok := keys.KeyIn(req.Prompt); ok {
+		return keyIn(prefix+"prompt", "the prompt", provider)
+	}
+	// The same for a setting typed in words, such as what a video should
+	// leave out: it goes to the provider and into the job just as the prompt.
+	for _, name := range slices.Sorted(maps.Keys(req.Settings)) {
+		if v, ok := req.Settings[name].(string); ok {
+			if provider, ok := keys.KeyIn(v); ok {
+				return keyIn(prefix+"settings."+name, "a setting", provider)
+			}
+		}
+	}
 	return nil
+}
+
+func keyIn(field, where, provider string) *apiError {
+	e := newError(http.StatusUnprocessableEntity, codeKeyInPrompt, where+" holds what looks like a provider key: keys go in the settings").with("field", field)
+	if provider != "" {
+		e.with("provider", provider)
+	}
+	return e
 }
 
 // checkRun checks the prompt, the settings and the inputs of a run, for a

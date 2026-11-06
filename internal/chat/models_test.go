@@ -20,8 +20,8 @@ func pricedOffer(provider, model string, usd float64) catalog.Offer {
 }
 
 // familyCatalog: the two free models, Nano Banana in two variants the
-// site suggests for an image, GPT Image that only OpenAI runs, and a model
-// of no family the site does not suggest.
+// site suggests for an image and a third only Gemini runs, GPT Image that
+// only OpenAI runs, and a model of no family the site does not suggest.
 func familyCatalog() []catalog.Model {
 	return []catalog.Model{
 		{ID: "tencent/hy-image-3.5-preview", Kind: catalog.Image, Name: "Hy Image 3.5 Preview", Maker: "Tencent", Featured: true, Offers: []catalog.Offer{
@@ -36,6 +36,9 @@ func familyCatalog() []catalog.Model {
 		{ID: "google/nano-banana-pro", Kind: catalog.Image, Name: "Nano Banana Pro", Maker: "Google", Featured: true, Offers: []catalog.Offer{
 			pricedOffer(catalog.OpenRouter, "google/nano-banana-pro", 0.13),
 		}, Traits: catalog.Traits{Family: &catalog.Family{ID: "nano-banana", Name: "Nano Banana", Label: "Pro", Rank: 0}}},
+		{ID: "google/nano-banana-2-lite", Kind: catalog.Image, Name: "Nano Banana 2 Lite", Maker: "Google", Featured: true, Offers: []catalog.Offer{
+			pricedOffer(catalog.Gemini, "google/nano-banana-2-lite", 0.06),
+		}, Traits: catalog.Traits{Family: &catalog.Family{ID: "nano-banana", Name: "Nano Banana", Label: "2 Lite", Rank: 2}}},
 		{ID: "openai/gpt-image-2.5", Kind: catalog.Image, Name: "GPT Image 2.5", Maker: "OpenAI", Featured: true, Offers: []catalog.Offer{
 			pricedOffer(catalog.OpenAI, "openai/gpt-image-2.5", 0.05),
 		}, Traits: catalog.Traits{Family: &catalog.Family{ID: "gpt-image", Name: "GPT Image", Label: "2.5"}}},
@@ -87,21 +90,24 @@ func TestTheListGroupsFamiliesAndFoldsWhatNeedsAKey(t *testing.T) {
 		{"✓ MAI-Image-2.6 Flash" + free, "j:1:" + pick("microsoft/mai-image-2.6-flash")},
 		{"Nano Banana · " + i18n.T("en", "run.from", "price", "$0.04"), "j:1:" + actFamily + nano},
 		{"Hy Image 3.5 Preview · $0.03", "j:1:" + pick("tencent/hy-image-3.5-preview")},
-		{"🔑 " + i18n.T("en", "panel.more_key", "n", "1"), "j:1:" + actLocked},
+		{i18n.T("en", "panel.more_key", "n", "1"), "j:1:" + actLocked},
 		{back, "j:1:" + actBack},
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("list = %v", got)
 	}
-	// The family's variants, newest first, each with its own price.
+	// The family's variants, newest first, each with its own price; one on
+	// a key the person has not connected last, saying which key, with no
+	// emoji (core/docs/panels.md, R9).
 	if got, want := list(actFamily+nano), [][]string{
 		{"Pro · $0.13", "j:1:" + pick("google/nano-banana-pro")},
 		{"2.1 · $0.04", "j:1:" + pick("google/nano-banana-2.1")},
+		{"2 Lite · " + i18n.T("en", "run.need_key", "provider", "AI Studio"), "j:1:" + pick("google/nano-banana-2-lite")},
 		{back, "j:1:" + actModel},
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("family = %v", got)
 	}
 	if got, want := list(actLocked), [][]string{
-		{"🔑 GPT Image 2.5 · $0.05", "j:1:" + pick(gpt)},
+		{"GPT Image 2.5 · $0.05", "j:1:" + pick(gpt)},
 		{back, "j:1:" + actModel},
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("on a key = %v", got)

@@ -4,6 +4,8 @@ package db
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -31,16 +33,65 @@ func WithStack(stack string) Option { return func(s *Store) { s.stack = stack } 
 // Stack is the stack the store is.
 func (s *Store) Stack() string { return s.stack }
 
+// The connections of one process (docs/design.md, Security and operations).
+// core-postgres is shared by the family's bots and by both stacks, so framy
+// keeps few and lets the idle ones go. DATABASE_URL may say otherwise:
+// pool_max_conns, pool_max_conn_idle_time, statement_timeout,
+// idle_in_transaction_session_timeout and application_name in it win.
+const (
+	// maxConns: the jobs mostly wait on providers, not on the database.
+	maxConns = 8
+	// maxConnIdle closes a connection nobody used for that long.
+	maxConnIdle = 5 * time.Minute
+	// statementTimeout ends a statement that hangs, and the locks it waits
+	// on or holds. The migrations set their own (Migrate).
+	statementTimeout = "30s"
+	// idleInTransaction ends a transaction left open with nothing running
+	// in it, which holds its locks and keeps vacuum back. The longest framy
+	// means to keep one is while an object is deleted from R2.
+	idleInTransaction = "10min"
+)
+
+// AppName is how the process's connections are named in pg_stat_activity:
+// framy for production, framy-<stack> for another stack.
+func AppName(stack string) string {
+	if stack == "" {
+		return Bot
+	}
+	return Bot + "-" + stack
+}
+
 func Connect(ctx context.Context, databaseURL string, opts ...Option) (*Store, error) {
+	s := &Store{}
+	for _, o := range opts {
+		o(s)
+	}
 	cfg, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
 		// pgx quotes the URL in some parse errors, password included.
 		return nil, fmt.Errorf("parse database url: invalid")
 	}
-	if cfg.ConnConfig.RuntimeParams == nil {
-		cfg.ConnConfig.RuntimeParams = map[string]string{}
+	if !strings.Contains(databaseURL, "pool_max_conns") {
+		cfg.MaxConns = maxConns
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = "framy"
+	if !strings.Contains(databaseURL, "pool_max_conn_idle_time") {
+		cfg.MaxConnIdleTime = maxConnIdle
+	}
+	params := cfg.ConnConfig.RuntimeParams
+	if params == nil {
+		params = map[string]string{}
+		cfg.ConnConfig.RuntimeParams = params
+	}
+	params["search_path"] = "framy"
+	for name, value := range map[string]string{
+		"application_name":                    AppName(s.stack),
+		"statement_timeout":                   statementTimeout,
+		"idle_in_transaction_session_timeout": idleInTransaction,
+	} {
+		if params[name] == "" {
+			params[name] = value
+		}
+	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("connect postgres: %w", err)
@@ -49,10 +100,7 @@ func Connect(ctx context.Context, databaseURL string, opts ...Option) (*Store, e
 		pool.Close()
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
-	s := &Store{pool: pool}
-	for _, o := range opts {
-		o(s)
-	}
+	s.pool = pool
 	return s, nil
 }
 

@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // Build joins what OpenRouter listed with the hand-written offers and applies
@@ -26,7 +28,9 @@ func Build(up Upstream, files Files, now time.Time) Snapshot {
 	byModel := map[string][]Offer{}
 	for _, offer := range append(slices.Clone(up.Offers), files.Offers...) {
 		offer.ModelID = o.modelOf(offer)
-		offer = applyOverlay(offer, o.Models[offer.ModelID])
+		ov := o.Models[offer.ModelID]
+		ov.Exclude = o.excludeOf(offer.ModelID)
+		offer = applyOverlay(offer, ov)
 		switch {
 		case len(offer.Routes) == 0:
 			offer.Hidden = "no route runs it"
@@ -73,6 +77,9 @@ func Build(up Upstream, files Files, now time.Time) Snapshot {
 		}
 		if kind == Video && m.Hidden == "" {
 			checkSourceVideo(id, m.Traits.SourceVideo, offers, warn)
+		}
+		if r := m.Traits.References; r != nil {
+			checkRefDurations(id, r.ImageDurations, offers, warn)
 		}
 		if h := m.Traits.Price; h != nil {
 			checkPrice(id, *h, offers, warn)
@@ -271,22 +278,89 @@ func checkSourceVideo(model string, s *SourceVideo, offers []Offer, warn func(st
 	}
 }
 
+// checkRefDurations warns when a length the overlay gives a video from
+// reference images is not one any offer makes.
+func checkRefDurations(model string, durations []float64, offers []Offer, warn func(string, ...any)) {
+	for _, d := range durations {
+		if !slices.ContainsFunc(offers, func(of Offer) bool { return lasts(of.Params["duration"], d) }) {
+			warn("model %s: references.image_durations has %g s, but no offer makes that duration", model, d)
+		}
+	}
+}
+
+// lasts reports whether a duration parameter has this many seconds.
+func lasts(p Param, secs float64) bool {
+	switch p.Type {
+	case Enum:
+		return slices.ContainsFunc(p.Values, func(v any) bool { n, ok := number(v); return ok && n == secs })
+	case Range:
+		return p.Min != nil && p.Max != nil && *p.Min <= secs && secs <= *p.Max
+	}
+	return false
+}
+
 var (
 	markdownLink = regexp.MustCompile(`\[([^\]]+)\]\([^)]*\)`)
-	// OpenRouter cuts descriptions short, sometimes inside a link's URL.
+	// OpenRouter cuts descriptions short with "...", sometimes inside a
+	// link's URL.
 	cutLink = regexp.MustCompile(`\[([^\]]+)\]\([^)]*$`)
+	cutEnd  = regexp.MustCompile(`\s*(\.\.\.|…)$`)
 )
 
-// plain drops Markdown links, which point at OpenRouter's own pages.
+// plain makes a source's description the text a person reads beside a
+// model. Markdown links go, since they point at OpenRouter's own pages. Only
+// whole sentences stay: OpenRouter cuts a description at its length, and the
+// sentence it cut is dropped rather than shown broken off. A sentence about
+// what the model costs or how its API is called goes too: framy shows its
+// own price, which the provider's per-image rate is not, and the parameters
+// are framy's controls.
 func plain(s string) string {
-	s = markdownLink.ReplaceAllString(s, "$1")
-	s = cutLink.ReplaceAllString(s, "$1...")
-	return strings.TrimSpace(s)
+	s = strings.TrimSpace(markdownLink.ReplaceAllString(s, "$1"))
+	cut := cutLink.MatchString(s) || cutEnd.MatchString(s)
+	s = cutEnd.ReplaceAllString(cutLink.ReplaceAllString(s, ""), "")
+	all := sentences(s)
+	if cut && len(all) > 0 && !strings.ContainsRune(".!?", rune(all[len(all)-1][len(all[len(all)-1])-1])) {
+		all = all[:len(all)-1]
+	}
+	keep := all[:0]
+	for _, x := range all {
+		if !strings.HasPrefix(x, "Pricing") && !strings.ContainsAny(x, "$`") {
+			keep = append(keep, x)
+		}
+	}
+	return strings.Join(keep, " ")
+}
+
+// sentences splits text where a sentence ends: a full stop, a question or
+// an exclamation mark before a space and a capital, so "Veo 3.1" and "e.g.
+// a photo" stay whole.
+func sentences(s string) []string {
+	var out []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if !strings.ContainsRune(".!?", rune(s[i])) || i+2 >= len(s) || s[i+1] != ' ' {
+			continue
+		}
+		if r, _ := utf8.DecodeRuneInString(s[i+2:]); unicode.IsUpper(r) {
+			out = append(out, strings.TrimSpace(s[start:i+1]))
+			start = i + 2
+		}
+	}
+	if rest := strings.TrimSpace(s[start:]); rest != "" {
+		out = append(out, rest)
+	}
+	return out
 }
 
 func day(t time.Time) time.Time {
 	y, m, d := t.UTC().Date()
 	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+}
+
+// IsLongSKU reports whether a video SKU is for a long video only, as
+// HeyGen's long_duration_seconds_768p is (PriceHints.Long).
+func IsLongSKU(name string) bool {
+	return slices.Contains(strings.Split(name, "_"), "long")
 }
 
 // checkPrice warns when the overlay's price hints name what no offer bills or
@@ -309,12 +383,19 @@ func checkPrice(model string, h PriceHints, offers []Offer, warn func(string, ..
 		})
 	}
 	for _, billable := range slices.Sorted(maps.Keys(h.Tokens)) {
-		if !bills(func(p Price) bool { return p.Billable == billable && p.Unit == "token" }) {
+		billed := func(p Price) bool { return p.Billable == billable && p.Unit == "token" }
+		if !bills(billed) && !slices.ContainsFunc(h.Unlisted, billed) {
 			warn("model %s: price.tokens.%s, but no offer bills %s in tokens", model, billable, billable)
 		}
-		for _, res := range slices.Sorted(maps.Keys(h.Tokens[billable])) {
-			if res != Any && !offered("resolution", res) {
-				warn("model %s: price.tokens.%s.%s, but no offer has that resolution", model, billable, res)
+		// An output is counted by the resolution it is made at, an input by
+		// the Input detail it is read at.
+		param, what := "resolution", "resolution"
+		if strings.HasPrefix(billable, "input_") {
+			param, what = "media_resolution", "Input detail"
+		}
+		for _, key := range slices.Sorted(maps.Keys(h.Tokens[billable])) {
+			if key != Any && !offered(param, key) {
+				warn("model %s: price.tokens.%s.%s, but no offer has that %s", model, billable, key, what)
 			}
 		}
 	}
@@ -323,15 +404,45 @@ func checkPrice(model string, h PriceHints, offers []Offer, warn func(string, ..
 			warn("model %s: price.openai_tokens.%s, but no offer has that quality", model, quality)
 		}
 	}
+	for _, quality := range slices.Sorted(maps.Keys(h.OpenAITokenFactor)) {
+		if !offered("quality", quality) {
+			warn("model %s: price.openai_token_factor.%s, but no offer has that quality", model, quality)
+		}
+	}
+	hasSKU := func(name string) bool {
+		return slices.ContainsFunc(offers, func(of Offer) bool {
+			return slices.ContainsFunc(of.Routes, func(r Route) bool { _, ok := r.SKUs[name]; return ok })
+		})
+	}
 	for _, variant := range slices.Sorted(maps.Keys(h.Variants)) {
-		if !bills(func(p Price) bool { return p.Variant == variant }) {
-			warn("model %s: price.variants.%s, but no offer has that variant", model, variant)
+		if !bills(func(p Price) bool { return p.Variant == variant }) && !hasSKU(variant) {
+			warn("model %s: price.variants.%s, but no offer has that variant or SKU", model, variant)
 		}
 	}
 	for _, billable := range slices.Sorted(maps.Keys(h.Skip)) {
 		if !bills(func(p Price) bool { return p.Billable == billable }) {
 			warn("model %s: price.skip.%s, but no offer bills it", model, billable)
 		}
+	}
+	// An unlisted line is needed while some route lists prices without it;
+	// once OpenRouter lists it everywhere, the overlay's copy only waits to
+	// go stale.
+	for _, u := range h.Unlisted {
+		needed := slices.ContainsFunc(offers, func(of Offer) bool {
+			return slices.ContainsFunc(of.Routes, func(r Route) bool {
+				return len(r.Prices) > 0 && !slices.ContainsFunc(r.Prices, func(p Price) bool { return p.Billable == u.Billable && p.Unit == u.Unit })
+			})
+		})
+		if !needed {
+			warn("model %s: price.unlisted %s per %s, but no route lists prices without it", model, u.Billable, u.Unit)
+		}
+	}
+	if h.Long != nil && !slices.ContainsFunc(offers, func(of Offer) bool {
+		return slices.ContainsFunc(of.Routes, func(r Route) bool {
+			return slices.ContainsFunc(slices.Collect(maps.Keys(r.SKUs)), IsLongSKU)
+		})
+	}) {
+		warn("model %s: price.long, but no offer has a long SKU", model)
 	}
 	for _, res := range slices.Sorted(maps.Keys(h.Sizes)) {
 		if !offered("resolution", res) {

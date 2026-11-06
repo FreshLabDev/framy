@@ -53,8 +53,13 @@ type ChatRun struct {
 	// GenerateAt is when Generate was pressed; zero before.
 	GenerateAt time.Time
 	Stopped    bool
-	// ResultMessageID is the message the result went out in; zero before.
+	// ResultMessageID is the message the result went out in; zero before,
+	// and zero while a video sent to a large group is still being re-encoded
+	// and has no id yet (see ResultFileUniqueID).
 	ResultMessageID int64
+	// ResultFileUniqueID is the file the result went out as, which tells its
+	// message from others when that had no id when sent; empty before.
+	ResultFileUniqueID string
 	// InlineMessageID is the answer to a guest message (Guest mode): every
 	// message of the run is that one, changed by this id. ChatID is then the
 	// chat framy was summoned into, which nothing is sent to.
@@ -78,14 +83,16 @@ type ChatRun struct {
 	OfferID  string
 	Settings map[string]any
 	Created  time.Time
+	// Finished is when the job ended; zero while it runs.
+	Finished time.Time
 }
 
 const chatRunColumns = `
 	r.job_id, r.chat_id, r.thread_id, r.command_message_id, COALESCE(r.preview_message_id, 0),
 	r.preview_ephemeral, r.command_ephemeral, COALESCE(r.panel_message_id, 0), r.lang,
 	r.taken, r.album, r.note, r.clip_file_id, r.clip_bytes, r.clip_seconds, r.stage, r.generate_at, r.stopped,
-	COALESCE(r.result_message_id, 0), COALESCE(r.inline_message_id, ''), j.user_id, j.prompt, j.free, j.kind, j.status, COALESCE(j.error_class, ''), COALESCE(j.error, ''), COALESCE(m.name, o.name, j.model_id),
-	j.offer_id, j.settings, j.created_at`
+	COALESCE(r.result_message_id, 0), COALESCE(r.result_file_unique_id, ''), COALESCE(r.inline_message_id, ''), j.user_id, j.prompt, j.free, j.kind, j.status, COALESCE(j.error_class, ''), COALESCE(j.error, ''), COALESCE(m.name, o.name, j.model_id),
+	j.offer_id, j.settings, j.created_at, j.finished_at`
 
 const chatRunFrom = `
 	FROM chat_run r JOIN job j ON j.id = r.job_id
@@ -94,14 +101,17 @@ const chatRunFrom = `
 
 func scanChatRun(row pgx.Row) (ChatRun, error) {
 	var r ChatRun
-	var at *time.Time
+	var at, finished *time.Time
 	err := row.Scan(&r.JobID, &r.ChatID, &r.ThreadID, &r.CommandMessageID, &r.PreviewMessageID,
 		&r.PreviewEphemeral, &r.CommandEphemeral, &r.PanelMessageID, &r.Lang,
 		&r.Taken, &r.Album, &r.Note, &r.ClipFileID, &r.ClipBytes, &r.ClipSeconds, &r.Stage, &at, &r.Stopped,
-		&r.ResultMessageID, &r.InlineMessageID, &r.UserID, &r.Prompt, &r.Free, &r.Kind, &r.Status, &r.ErrorClass, &r.Error, &r.Model,
-		&r.OfferID, &r.Settings, &r.Created)
+		&r.ResultMessageID, &r.ResultFileUniqueID, &r.InlineMessageID, &r.UserID, &r.Prompt, &r.Free, &r.Kind, &r.Status, &r.ErrorClass, &r.Error, &r.Model,
+		&r.OfferID, &r.Settings, &r.Created, &finished)
 	if at != nil {
 		r.GenerateAt = *at
+	}
+	if finished != nil {
+		r.Finished = *finished
 	}
 	return r, err
 }
@@ -124,9 +134,11 @@ func (s *Store) AddChatRun(ctx context.Context, r ChatRun) error {
 }
 
 // ChatRun reads the run of job id, or ErrNoRun. A run in another bot's chat
-// is none of this stack's.
+// is none of this stack's, and a run of a deleted job is none at all: no
+// press works it and no card shows it (DeletedChatRuns).
 func (s *Store) ChatRun(ctx context.Context, jobID int64) (ChatRun, error) {
-	r, err := scanChatRun(s.pool.QueryRow(ctx, `SELECT `+chatRunColumns+chatRunFrom+` WHERE r.job_id = $1 AND r.stack = $2`, jobID, s.stack))
+	r, err := scanChatRun(s.pool.QueryRow(ctx, `SELECT `+chatRunColumns+chatRunFrom+`
+		WHERE r.job_id = $1 AND r.stack = $2 AND j.deleted_at IS NULL`, jobID, s.stack))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ChatRun{}, ErrNoRun
 	}
@@ -137,23 +149,65 @@ func (s *Store) ChatRun(ctx context.Context, jobID int64) (ChatRun, error) {
 }
 
 // OpenChatRuns are the runs a chat of this stack's bot still has to be told
-// about: a preview or the generating loop, oldest first.
+// about: a preview or the generating loop of a job not deleted, oldest
+// first.
 func (s *Store) OpenChatRuns(ctx context.Context) ([]ChatRun, error) {
-	rows, err := s.pool.Query(ctx, `SELECT `+chatRunColumns+chatRunFrom+`
-		WHERE r.stage IN ('preview', 'generating') AND r.stack = $1 ORDER BY r.job_id`, s.stack)
+	out, err := s.chatRuns(ctx, `r.stage IN ('preview', 'generating') AND r.stack = $1 AND j.deleted_at IS NULL ORDER BY r.job_id`)
 	if err != nil {
 		return nil, fmt.Errorf("open chat runs: %w", err)
+	}
+	return out, nil
+}
+
+// DeletedChatRuns are this stack's runs whose job was deleted, alone on the
+// site or with the account, oldest first and at most 64. Deleting a job
+// drops its run at once unless its preview or loop is still in the chat:
+// that run waits here for the bot to take the message down and drop it.
+// open keeps to those, which the index of open runs finds at once. Without
+// it the runs that moved on in the moment their job went come too, to be
+// dropped; finding them reads every run of the stack's, which a delivered
+// result keeps for good, so it is a look to take now and then only.
+func (s *Store) DeletedChatRuns(ctx context.Context, open bool) ([]ChatRun, error) {
+	where := `j.deleted_at IS NOT NULL AND r.stack = $1 ORDER BY r.job_id LIMIT 64`
+	if open {
+		where = `r.stage IN ('preview', 'generating') AND ` + where
+	}
+	out, err := s.chatRuns(ctx, where)
+	if err != nil {
+		return nil, fmt.Errorf("chat runs of deleted jobs: %w", err)
+	}
+	return out, nil
+}
+
+// chatRuns reads the runs that rest picks and orders, with this stack as
+// $1.
+func (s *Store) chatRuns(ctx context.Context, rest string) ([]ChatRun, error) {
+	rows, err := s.pool.Query(ctx, `SELECT `+chatRunColumns+chatRunFrom+` WHERE `+rest, s.stack)
+	if err != nil {
+		return nil, err
 	}
 	defer rows.Close()
 	var out []ChatRun
 	for rows.Next() {
 		r, err := scanChatRun(rows)
 		if err != nil {
-			return nil, fmt.Errorf("open chat runs: %w", err)
+			return nil, err
 		}
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// DropChatRun deletes this stack's run of a deleted job and tells whether
+// it was still there; the run of a job that was not deleted stays.
+func (s *Store) DropChatRun(ctx context.Context, jobID int64) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+		DELETE FROM chat_run r USING job j
+		WHERE r.job_id = $1 AND r.stack = $2 AND j.id = r.job_id AND j.deleted_at IS NOT NULL`, jobID, s.stack)
+	if err != nil {
+		return false, fmt.Errorf("drop the chat run of job %d: %w", jobID, err)
+	}
+	return tag.RowsAffected() == 1, nil
 }
 
 // MoveChatRun moves the run of job id from stage from to stage to, and tells
@@ -275,6 +329,20 @@ func (s *Store) FinishChatRun(ctx context.Context, jobID int64, stage string, re
 		WHERE job_id = $1 AND stage = 'generating'`, jobID, stage, res.MessageID, res.FileID, res.FileUniqueID, res.FileType)
 	if err != nil {
 		return false, fmt.Errorf("finish the chat run of job %d: %w", jobID, err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// FoundResultMessage records the message of a result that had no id when
+// it was sent: a video Telegram was still re-encoding for a large group, now
+// found by a press on it. A result whose message is known keeps it. It tells
+// whether the id was recorded.
+func (s *Store) FoundResultMessage(ctx context.Context, jobID, messageID int64) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE chat_run SET result_message_id = $2, updated_at = now()
+		WHERE job_id = $1 AND stage = 'done' AND result_message_id IS NULL AND $2 > 0`, jobID, messageID)
+	if err != nil {
+		return false, fmt.Errorf("record the result message of job %d: %w", jobID, err)
 	}
 	return tag.RowsAffected() == 1, nil
 }

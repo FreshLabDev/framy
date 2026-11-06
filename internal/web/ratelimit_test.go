@@ -141,6 +141,41 @@ func TestStricterClassesAreByPathAndOption(t *testing.T) {
 	}
 }
 
+// A route people reach by following a link sends them on to a page that
+// can say they were turned away, instead of a bare 429 page with no way
+// back. It is still counted as refused, and only its own class does this.
+func TestOnLimitSendsTheBrowserOn(t *testing.T) {
+	wide := perSecond(1000, 1000)
+	s := newSite(t, Config{Now: newClock().Now, Limits: Limits{ClassDefault: {IP: wide}, ClassAuth: {IP: perMinute(1, 2)}}})
+	s.HandleFunc("GET /auth/start-ish", func(w http.ResponseWriter, _ *http.Request) {
+		s.reached.Add(1)
+		w.WriteHeader(http.StatusSeeOther)
+	}, OnLimit("/?sign_in=unavailable"))
+	before := limitedCount(t, ClassAuth)
+	for i := 1; i <= 2; i++ {
+		if rr := s.get(t, "/auth/start-ish"); rr.Code != http.StatusSeeOther || rr.Header().Get("Location") != "" {
+			t.Fatalf("request %d within the burst: %d %q", i, rr.Code, rr.Header().Get("Location"))
+		}
+	}
+	rr := s.get(t, "/auth/start-ish")
+	if rr.Code != http.StatusSeeOther || rr.Header().Get("Location") != "/?sign_in=unavailable" {
+		t.Fatalf("over the limit: %d -> %q, want a redirect to the site", rr.Code, rr.Header().Get("Location"))
+	}
+	if rr.Header().Get("Cache-Control") != "no-store" {
+		t.Errorf("the redirect is cacheable: %v", rr.Header())
+	}
+	if s.reached.Load() != 2 {
+		t.Errorf("%d requests reached the handler, want 2", s.reached.Load())
+	}
+	if got := limitedCount(t, ClassAuth); got != before+1 {
+		t.Errorf("framy_http_rate_limited_total{class=auth}: %d -> %d", before, got)
+	}
+	// A route of the class without the option still answers 429.
+	if rr := s.do(t, req{method: "POST", target: "/auth/login"}); rr.Code != http.StatusTooManyRequests {
+		t.Errorf("a route without OnLimit: %d, want 429", rr.Code)
+	}
+}
+
 func TestStrictClassesAreStricterThanTheDefault(t *testing.T) {
 	d := DefaultLimits()
 	for _, c := range []Class{ClassAuth, ClassUpload, ClassJob} {
@@ -274,5 +309,29 @@ func TestBucketSetHasABound(t *testing.T) {
 		if set.size() > 50 {
 			t.Fatalf("size %d passed the bound", set.size())
 		}
+	}
+}
+
+func TestFullBucketSetKeepsThoseWhoUsedTheirAllowanceUp(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	set := newBucketSet(perSecond(0.001, 3))
+	set.max = 100
+	// One visitor has spent everything.
+	for i := 0; i < 3; i++ {
+		set.take("spent", now)
+	}
+	if ok, _ := set.take("spent", now); ok {
+		t.Fatal("the bucket gave a fourth token")
+	}
+	// Many addresses, each having made one request, fill the set.
+	for i := 0; i < 500; i++ {
+		set.take(fmt.Sprintf("k%d", i), now)
+		if set.size() > 100 {
+			t.Fatalf("size %d passed the bound", set.size())
+		}
+	}
+	// Filling it did not hand the spent visitor a fresh allowance.
+	if ok, _ := set.take("spent", now); ok {
+		t.Fatal("a full set gave a visitor over the limit a fresh bucket")
 	}
 }

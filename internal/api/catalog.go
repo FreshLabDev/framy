@@ -155,7 +155,9 @@ type catalogOfferJSON struct {
 	// long a clip may be.
 	Inputs catalog.Inputs `json:"inputs"`
 	// TypicalSeconds is how long a run typically takes, from Generate to the
-	// result; absent until the offer has enough runs to say.
+	// result: the offer's runs, else its model's, else its family's of the
+	// same tier on its provider; absent until one of them has enough runs
+	// to say.
 	TypicalSeconds int `json:"typical_seconds,omitempty"`
 }
 
@@ -196,11 +198,7 @@ func (a *API) catalogRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	typical := a.catalog.typicalSeconds()
-	user, signedIn := a.cfg.Person(r)
-	if !signedIn {
-		user = 0
-	}
-	lang := a.language(ctx, r, user)
+	lang := a.language(ctx, r, a.anyone(r))
 	out := catalogJSON{
 		Models: make([]catalogModelJSON, 0, len(models)), Recommend: recommendJSON(models), Free: freeAllowanceJSON(),
 	}

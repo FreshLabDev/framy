@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 name: Task
 description: Something to build or change in framy
-projects: ["FreshLabDev/3"]
+projects: ["FreshLabDev/4"]
 body:
   - type: textarea
     id: what

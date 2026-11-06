@@ -3,6 +3,7 @@ package api
 
 import (
 	"context"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -85,10 +86,11 @@ type estimateJSON struct {
 	Label     string  `json:"label"`
 	// RateDate is the day of the rate; absent for USD.
 	RateDate string `json:"rate_date,omitempty"`
-	// Discount is the share OpenRouter takes off the listed price, 0.15 for
-	// 15%, and the figures above are after it. ListUSD, ListAmount and
-	// ListLabel are the listed price of the figure Label speaks of, for a
-	// price shown struck through. All absent without a discount.
+	// Discount is the share OpenRouter takes off the listed price of the
+	// figure Label speaks of, 0.15 for 15%, and the figures above are after
+	// it. ListUSD, ListAmount and ListLabel are that listed price, for a
+	// price shown struck through. All absent without a discount, and where
+	// the figure is all at a rate the discount leaves out.
 	Discount   float64 `json:"discount,omitempty"`
 	ListUSD    float64 `json:"list_usd,omitempty"`
 	ListAmount float64 `json:"list_amount,omitempty"`
@@ -98,6 +100,8 @@ type estimateJSON struct {
 type errorJSON struct {
 	Class   string `json:"class"`
 	Message string `json:"message,omitempty"`
+	// FromProvider: Message is the provider's own words, not framy's line.
+	FromProvider bool `json:"from_provider,omitempty"`
 }
 
 type resultJSON struct {
@@ -106,8 +110,11 @@ type resultJSON struct {
 	Bytes       int64  `json:"bytes"`
 	Width       int    `json:"width,omitempty"`
 	Height      int    `json:"height,omitempty"`
-	// Seconds is a clip's length; absent for a picture.
+	// Seconds is a clip's length; absent for a picture. FPS is an input
+	// clip's frame rate, which prices an upscale of a part of it; absent
+	// for a result and where it is not known.
 	Seconds float64 `json:"seconds,omitempty"`
+	FPS     float64 `json:"fps,omitempty"`
 	// Segments is where each part of a joined clip begins, in seconds from
 	// its start, the first at 0: the clip it went on from, then each run
 	// after it. The player marks them. Absent for any other file, and for a
@@ -184,7 +191,7 @@ func filesJSON(files []Result, links map[int64]storage.FileLinks, download bool)
 	for _, r := range files {
 		l := links[r.ID]
 		v := resultJSON{ID: r.ID, ContentType: r.ContentType, Bytes: r.Bytes, Width: r.Width, Height: r.Height,
-			Seconds: r.Seconds, Segments: r.Segments, URL: l.URL}
+			Seconds: r.Seconds, FPS: r.FPS, Segments: r.Segments, URL: l.URL}
 		if download {
 			v.Download = l.Download
 		}
@@ -229,7 +236,8 @@ func (a *API) renderOne(s State, lang string, links map[int64]storage.FileLinks)
 		v.Cost = &m
 	}
 	if s.ErrorClass != "" {
-		v.Error = &errorJSON{Class: string(s.ErrorClass), Message: publicMessage(s.ErrorClass, s.Error)}
+		msg := publicMessage(s.ErrorClass, s.Error)
+		v.Error = &errorJSON{Class: string(s.ErrorClass), Message: msg, FromProvider: s.Said && msg != ""}
 	}
 	if s.Status == jobs.Done {
 		v.Results = filesJSON(s.Results, links, true)
@@ -282,12 +290,23 @@ func estimateJSONOf(usd float64, est *price.Estimate, code string, perUSD float6
 		e.Label = fx.Format(e.Amount, code, lang)
 	}
 	if est != nil && est.Discount > 0 && kind != price.Unknown {
-		e.Discount, e.ListUSD = est.Discount, est.ListUSD
+		shown, list := usd, est.ListUSD
 		if kind == price.UpTo {
-			e.ListUSD = est.ListMaxUSD
+			shown, list = maxUSD, est.ListMaxUSD
 		}
-		e.ListAmount = e.ListUSD * perUSD
-		e.ListLabel = fx.Format(e.ListAmount, code, lang)
+		// The share off the figure shown: the route's discount, less where
+		// part of the figure is at a rate the discount leaves out, as
+		// HeyGen's past 15 s, and none where all of it is. A listed price
+		// equal to the one billed is not shown struck through.
+		off := 1 - shown/list
+		if math.Abs(off-est.Discount) < 1e-9 {
+			off = est.Discount
+		}
+		if list > 0 && off >= 0.005 {
+			e.Discount, e.ListUSD = off, list
+			e.ListAmount = e.ListUSD * perUSD
+			e.ListLabel = fx.Format(e.ListAmount, code, lang)
+		}
 	}
 	return e
 }
@@ -298,7 +317,7 @@ func estimateJSONOf(usd float64, est *price.Estimate, code string, perUSD float6
 // a path, so only its class goes out.
 var showable = map[jobs.Class]bool{
 	jobs.RateLimited: true, jobs.Unavailable: true, jobs.Money: true, jobs.Moderation: true,
-	jobs.Refused: true, jobs.Faces: true, jobs.Sound: true, jobs.Invalid: true, jobs.Key: true, jobs.Timeout: true, jobs.Interrupted: true,
+	jobs.Refused: true, jobs.Faces: true, jobs.Sound: true, jobs.Region: true, jobs.Invalid: true, jobs.Key: true, jobs.Timeout: true, jobs.Interrupted: true,
 	jobs.Storage: true, jobs.NoAdapter: true, jobs.ProviderFailed: true,
 }
 

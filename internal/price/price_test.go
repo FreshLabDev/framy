@@ -83,7 +83,9 @@ type set = map[string]any
 func images(n int) []Image { return slices.Repeat([]Image{{Width: 1024, Height: 1024}}, n) }
 
 func TestEstimates(t *testing.T) {
-	clip := &Video{Seconds: 5, Width: 1280, Height: 720}
+	clip := &Video{Seconds: 5, Width: 1280, Height: 720, FPS: 24}
+	// 720p and 1080p in Black Forest Labs' megapixels of 1,048,576 pixels.
+	const hd, fhd = 1280.0 * 720 / (1 << 20), 1920.0 * 1080 / (1 << 20)
 	for _, tc := range []struct {
 		name     string
 		offer    string
@@ -102,33 +104,60 @@ func TestEstimates(t *testing.T) {
 		// OpenRouter's example: high at 16:9 is 1536×864 and $0.13.
 		{"gpt-image-2 on OpenRouter at 16:9", "openrouter:openai/gpt-image-2", Request{Settings: set{"aspect_ratio": "16:9", "quality": "high"}}, 4312 * 3e-5, 0, About},
 		{"gpt-image-2.5 with no quality chosen", "openai:gpt-image-2.5-sunburst", Request{Settings: set{"size": "1024x1024"}}, 196 * 3e-5, 7024 * 3e-5, UpTo},
+		// OpenAI's calculator: 2.6 takes 2.5's tokens times 4.2 at low and
+		// 3.3 at medium, rounded, and the same from high up.
+		{"gpt-image-2.6 low square", "openai:gpt-image-2.6-flare", Request{Settings: set{"size": "1024x1024", "quality": "low"}}, 823 * 3e-5, 0, About},
+		{"gpt-image-2.6 medium square", "openai:gpt-image-2.6-sunburst", Request{Settings: set{"size": "1024x1024", "quality": "medium"}}, 1449 * 3e-5, 0, About},
+		{"gpt-image-2.6 high square", "openai:gpt-image-2.6-sunburst", Request{Settings: set{"size": "1024x1024", "quality": "high"}}, 1756 * 3e-5, 0, About},
+		{"gpt-image-2.6 on OpenRouter at 16:9", "openrouter:openai/gpt-image-2.6-flare", Request{Settings: set{"aspect_ratio": "16:9", "quality": "low"}}, 504 * 3e-5, 0, About},
+		{"gpt-image-2.6 with no quality chosen", "openrouter:openai/gpt-image-2.6-sunburst", Request{Settings: set{"aspect_ratio": "1:1"}}, 823 * 3e-5, 7024 * 3e-5, UpTo},
 
 		// Google's pricing page: Nano Banana 2.1 at 1K is $0.0336, at 4K $0.113.
 		{"nano banana direct 1K", "gemini:gemini-nano-banana-2.1", Request{Settings: set{"resolution": "1K"}}, 1120 * 3e-5, 0, About},
 		{"nano banana on OpenRouter 4K", "openrouter:google/gemini-nano-banana-2.1", Request{Settings: set{"resolution": "4K"}}, 3780 * 3e-5, 0, About},
 		// Three upstreams; Vertex in the US asks $66 a million instead of $60.
 		{"nano banana 2 at three upstreams", "openrouter:google/gemini-3.1-flash-image", Request{Settings: set{"resolution": "1K"}}, 1120 * 6e-5, 1120 * 6.6e-5, About},
-		{"nano banana pro with a reference", "openrouter:google/gemini-3-pro-image", Request{Settings: set{"resolution": "2K"}, Images: images(1)}, 1120*1.2e-4 + 560*2e-6, 0, About},
+		// An input picture takes 1,120 tokens at Google's default Input
+		// detail on every Nano Banana, and OpenRouter bills the prompt at the
+		// rate of its /api/v1/models (price.unlisted).
+		{"nano banana pro with a reference", "openrouter:google/gemini-3-pro-image", Request{Settings: set{"resolution": "2K"}, Images: images(1)}, 1120*1.2e-4 + 1120*2e-6, 0, About},
+		{"nano banana pro at low detail", "gemini:gemini-3-pro-image", Request{Settings: set{"resolution": "2K", "media_resolution": "low"}, Images: images(2)}, 1120*1.2e-4 + 2*280*2e-6, 0, About},
+		{"nano banana direct with 14 references", "gemini:gemini-nano-banana-2.1", Request{Settings: set{"resolution": "1K"}, Images: images(14)}, 1120*3e-5 + 14*1120*1.5e-6, 0, About},
+		{"nano banana on OpenRouter with a reference", "openrouter:google/gemini-nano-banana-2.1", Request{Settings: set{"resolution": "1K"}, Prompt: "кот в шляпе", Images: images(1)}, 1120*3e-5 + 1120*1.5e-6 + 6*1.5e-6, 0, About},
+		{"nano banana 2 lite with frames", "openrouter:google/gemini-3.1-flash-lite-image", Request{Settings: set{"resolution": "1K"}, Images: images(3)}, 1120*3e-5 + 3*1120*2.5e-7, 0, About},
+		// A second of video is a frame and its sound: 70 + 32 tokens, 280 + 32
+		// at high detail; a clip is rounded up to whole seconds.
+		{"nano banana from a clip", "gemini:gemini-nano-banana-2.1", Request{Settings: set{"resolution": "1K"}, Video: &Video{Seconds: 5.3, Width: 1280, Height: 720}}, 1120*3e-5 + 6*102*1.5e-6, 0, About},
+		{"nano banana from a clip at high detail", "gemini:gemini-3.1-flash-image", Request{Settings: set{"resolution": "1K", "media_resolution": "high"}, Video: &Video{Seconds: 5, Width: 1280, Height: 720}}, 1120*6e-5 + 5*312*5e-7, 0, About},
 		{"mai flash with a prompt", "openrouter:microsoft/mai-image-2.6-flash", Request{Settings: set{"aspect_ratio": "1:1"}, Prompt: "кот в шляпе"}, 1024*1.9e-5 + 6*1.75e-6, 0, About},
 		// Measured live: a 1024x1024 photo took about 1,100 input tokens, a
 		// 2048x1152 one about 2,470; the overlay sets 1,100 a megapixel.
 		{"mai flash editing a square photo", "openrouter:microsoft/mai-image-2.6-flash", Request{Settings: set{"aspect_ratio": "1:1"}, Images: images(1)}, 1024*1.9e-5 + 1154*2.5e-6, 0, About},
 		{"mai flash editing a wide photo", "openrouter:microsoft/mai-image-2.6-flash", Request{Settings: set{"aspect_ratio": "1:1"}, Images: []Image{{Width: 2048, Height: 1152}}}, 1024*1.9e-5 + 2596*2.5e-6, 0, About},
-		// Job 40 on the test bot: a 1280×853 photo took 1,080 tokens at $8 a
-		// million, beside 158 of a low 1536×1024 output.
+		// Job 53 of the shared schema, a run of the test bot: a 1280×853
+		// photo took 1,080 tokens at $8 a million, beside 158 of a low
+		// 1536×1024 output.
 		{"gpt image flare editing a photo", "openrouter:openai/gpt-image-2.5-flare", Request{Settings: set{"aspect_ratio": "3:2", "quality": "low"}, Images: []Image{{Width: 1280, Height: 853}}}, 158*3e-5 + 1080*8e-6, 0, About},
 
 		{"flux 3 at 1K", "openrouter:black-forest-labs/flux-3-image", Request{Settings: set{"resolution": "1K"}}, 0.048, 0, Exact},
 		{"flux 3 at 4K", "openrouter:black-forest-labs/flux-3-image", Request{Settings: set{"resolution": "4K"}}, 0.607, 0, Exact},
 		{"flux 2 pro by the megapixel", "openrouter:black-forest-labs/flux.2-pro", Request{Settings: set{"aspect_ratio": "1:1"}}, 0.03 * 1.048576, 0, About},
+		// OpenRouter lists only the output of FLUX.2 Pro and Max; their pages
+		// give the references' rate (price.unlisted).
+		{"flux 2 pro editing two photos", "openrouter:black-forest-labs/flux.2-pro", Request{Settings: set{"aspect_ratio": "1:1"}, Images: []Image{{Width: 2048, Height: 1536}, {Width: 1024, Height: 1024}}}, 0.03*1.048576 + 0.015*(3.145728+1.048576), 0, About},
+		{"flux 2 max editing a photo", "openrouter:black-forest-labs/flux.2-max", Request{Settings: set{"aspect_ratio": "1:1"}, Images: images(1)}, (0.07 + 0.03) * 1.048576, 0, About},
+		{"flux 2 flex lists its input", "openrouter:black-forest-labs/flux.2-flex", Request{Settings: set{"aspect_ratio": "1:1"}, Images: images(1)}, 0.06 * 2 * 1.048576, 0, About},
+		{"flux 2 klein bills the output alone", "openrouter:black-forest-labs/flux.2-klein-4b", Request{Settings: set{"aspect_ratio": "1:1"}, Images: images(4)}, 0.014 * 1.048576, 0, About},
 		// docs/research/images.md, 5.2: 8 references at 2K cost 0.06 + 8 × 0.07.
 		{"k3 edit at 2K with 8 references", "openrouter:krea/k3-edit", Request{Settings: set{"resolution": "2K"}, Images: images(8)}, 0.62, 0, Exact},
 		{"k3 edit at 1K with 8 references", "openrouter:krea/k3-edit", Request{Settings: set{"resolution": "1K"}, Images: images(8)}, 0.19, 0, Exact},
 		{"krea without style references", "openrouter:krea/krea-2-medium", Request{Settings: set{"resolution": "1K"}}, 0.03, 0, Exact},
 		{"recraft styles once per request", "openrouter:recraft/recraft-v4-styles", Request{Images: images(1)}, 0.04, 0, Exact},
 		{"grok low at 2K with a reference", "openrouter:x-ai/grok-imagine-image-2.0", Request{Settings: set{"quality": "low", "resolution": "2K"}, Images: images(1)}, 0.07, 0, Exact},
-		// What high_resolution is, Seedream does not say.
-		{"seedream pro", "openrouter:bytedance-seed/seedream-5-0-pro", Request{Settings: set{"resolution": "1K"}, Images: images(1)}, 0.048, 0.093, UpTo},
+		// OpenRouter's high_resolution line is above 2.36 MP: 2K, not 1K.
+		{"seedream pro at 1K", "openrouter:bytedance-seed/seedream-5-0-pro", Request{Settings: set{"resolution": "1K"}, Images: images(1)}, 0.048, 0, Exact},
+		{"seedream pro at 2K", "openrouter:bytedance-seed/seedream-5-0-pro", Request{Settings: set{"resolution": "2K"}, Images: images(1)}, 0.093, 0, Exact},
+		{"seedream pro with no resolution chosen", "openrouter:bytedance-seed/seedream-5-0-pro", Request{Images: images(1)}, 0.048, 0.093, UpTo},
 		{"riverflow 2.5 is a floor", "openrouter:sourceful/riverflow-v2.5-pro", Request{Settings: set{"resolution": "2K"}}, 0.15, 0.15, From},
 		{"riverflow 2 without super-resolution references", "openrouter:sourceful/riverflow-v2-pro", Request{Settings: set{"resolution": "1K"}, Images: images(2)}, 0.15, 0, Exact},
 
@@ -168,11 +197,11 @@ func TestEstimates(t *testing.T) {
 		{"hailuo 3 with a reference", "openrouter:minimax/hailuo-3", Request{Settings: set{"duration": 5}, Images: images(1)}, 0.65, 0, Exact},
 		{"hailuo 3 with seven references", "openrouter:minimax/hailuo-3", Request{Settings: set{"duration": 5}, Images: images(7)}, 0.73, 0, Exact},
 		// A reference clip's seconds are billed at the output's rate, rounded
-		// up to a hundredth: job 44 on the test bot, a 14.948 s clip and 5 s
+		// up to a hundredth: job 47 of the shared schema, a 14.948 s clip and 5 s
 		// of 480p on Wan 3.0, cost (5 + 14.95) × $0.05 less 15%.
 		{"wan 3.0 with a reference clip", "openrouter:alibaba/wan-3.0", Request{Settings: set{"resolution": "480p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": true}, Video: &Video{Seconds: 14.948, Width: 1920, Height: 1080}}, 19.95 * 0.05, 0, About},
 		{"wan 3.0 with two clips", "openrouter:alibaba/wan-3.0", Request{Settings: set{"resolution": "720p", "aspect_ratio": "16:9", "duration": 5}, Video: clip, Clips: []float64{3, 4.001}}, 12.01 * 0.1, 0, About},
-		// HeyGen with a clip takes its reference rate for both: job 47.
+		// HeyGen with a clip takes its reference rate for both: job 33.
 		{"heygen with a reference clip", "openrouter:heygen/heygen-video-1", Request{Settings: set{"resolution": "480p", "aspect_ratio": "16:9", "duration": 5}, Video: &Video{Seconds: 14.948, Width: 1920, Height: 1080}}, 19.95 * 0.07, 0, About},
 		{"hailuo 3 with a reference clip", "openrouter:minimax/hailuo-3", Request{Settings: set{"duration": 5}, Video: &Video{Seconds: 2, Width: 1280, Height: 720}}, 7 * 0.13, 0, About},
 		{"flux 3 video at 1080p", "openrouter:black-forest-labs/flux-3-video", Request{Settings: set{"resolution": "1080p", "duration": 5}}, 1.45, 0, Exact},
@@ -181,7 +210,18 @@ func TestEstimates(t *testing.T) {
 		{"aleph's minimum", "openrouter:runway/aleph-2", Request{Video: &Video{Seconds: 1, Width: 1280, Height: 720}}, 0.56, 0, About},
 		{"aleph on 5 s", "openrouter:runway/aleph-2", Request{Video: clip}, 1.40, 0, About},
 		{"the free video edit", "openrouter:black-forest-labs/flux-video-edit", Request{Video: clip}, 0.15, 0, Exact},
-		{"upscale by two", "openrouter:black-forest-labs/flux-video-upscale", Request{Settings: set{"upscale_factor": 2}, Video: clip}, 0.9216 * 4 * 5 * 0.035, 0.9216 * 4 * 5 * 0.05, UpTo},
+		// Black Forest Labs bills the delivered video by the megapixel-second,
+		// a megapixel being 1,048,576 pixels, at 24 fps and pro rata above.
+		// creativity picks the rate: 0 is Precise, 1 Creative.
+		{"upscale by two, precise", "openrouter:black-forest-labs/flux-video-upscale", Request{Settings: set{"upscale_factor": 2, "creativity": 0.0}, Video: clip}, hd * 4 * 5 * 0.035, 0, About},
+		{"upscale by two, creative", "openrouter:black-forest-labs/flux-video-upscale", Request{Settings: set{"upscale_factor": 2, "creativity": 1.0}, Video: clip}, hd * 4 * 5 * 0.05, 0, About},
+		{"upscale of a 48 fps clip", "openrouter:black-forest-labs/flux-video-upscale", Request{Settings: set{"upscale_factor": 1.5, "creativity": 0.0}, Video: &Video{Seconds: 4, Width: 1920, Height: 1080, FPS: 48}}, fhd * 2.25 * 4 * 2 * 0.035, 0, About},
+		// framy keeps a clip at up to 60 frames a second, so a faster one, as
+		// the browser reads it before Create, is billed at 60.
+		{"upscale of a 120 fps clip", "openrouter:black-forest-labs/flux-video-upscale", Request{Settings: set{"upscale_factor": 2, "creativity": 1.0}, Video: &Video{Seconds: 2, Width: 1280, Height: 720, FPS: 120}}, hd * 4 * 2 * 2.5 * 0.05, 0, About},
+		// A frame rate ffprobe did not give: up to the 60 framy keeps.
+		{"upscale of a clip of no known rate", "openrouter:black-forest-labs/flux-video-upscale", Request{Settings: set{"upscale_factor": 2, "creativity": 0.0}, Video: &Video{Seconds: 5, Width: 1280, Height: 720}}, hd * 4 * 5 * 0.035, hd * 4 * 5 * 2.5 * 0.035, UpTo},
+		{"upscale with nothing chosen", "openrouter:black-forest-labs/flux-video-upscale", Request{Video: clip}, hd * 1.5 * 1.5 * 5 * 0.035, hd * 9 * 5 * 0.05, UpTo},
 		// Omni picks 3 to 10 s at 5,792 tokens a second of 720p.
 		{"omni at 720p", "gemini:gemini-omni-1.1-flash", Request{Settings: set{"resolution": "720p"}}, 5792 * 3 * 1.75e-5, 5792 * 10 * 1.75e-5, UpTo},
 		// Extending a 5 s clip may come back, and be billed, as 15 s.
@@ -198,6 +238,53 @@ func TestEstimates(t *testing.T) {
 				t.Errorf("estimate = $%.6f up to $%.6f, %s; want $%.6f up to $%.6f, %s\nlines %+v\nunknown %v", e.USD, e.MaxUSD, e.Kind, tc.usd, want, tc.kind, e.Lines, e.Unknown)
 			}
 		})
+	}
+}
+
+// HeyGen Video bills a video over 15 s at its long SKUs, which OpenRouter's
+// page calls "Video Output (over 15 s)" and leaves out of the 50% discount.
+// Whether the long rate is for the seconds past 15 or for the whole video,
+// no run has shown: the likely price takes the first, the most the dearer.
+func TestHeyGenPastFifteenSeconds(t *testing.T) {
+	m, of := offer(t, "openrouter:heygen/heygen-video-1")
+	of.Routes = slices.Clone(of.Routes)
+	of.Routes[0].Discount = 0.5
+	for _, tc := range []struct {
+		name     string
+		req      Request
+		usd, max float64
+		list     float64
+		kind     Kind
+	}{
+		// Check 13: 5 s of 768p was billed $0.09. The long SKU is for longer
+		// videos only, so it no longer makes this a range.
+		{"5 s", Request{Settings: set{"resolution": "768p", "duration": 5}}, 0.09, 0.09, 0.18, Exact},
+		{"15 s", Request{Settings: set{"resolution": "768p", "duration": 15}}, 0.27, 0.27, 0.54, Exact},
+		{"20 s", Request{Settings: set{"resolution": "768p", "duration": 20}}, 0.27 + 5*0.075, 20 * 0.075, 0.54 + 5*0.075, UpTo},
+		{"30 s at 1080p", Request{Settings: set{"resolution": "1080p", "duration": 30}}, 0.75 + 15*0.105, 30 * 0.105, 1.5 + 15*0.105, UpTo},
+		// A reference clip is billed at the plain reference rate beside the
+		// output, as below 15 s.
+		{"20 s with a clip", Request{Settings: set{"resolution": "480p", "duration": 20}, Video: &Video{Seconds: 5, Width: 1280, Height: 720}}, (15+5)*0.035 + 5*0.045, 20*0.045 + 5*0.035, (15+5)*0.07 + 5*0.045, UpTo},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := Of(m, of, tc.req)
+			if !near(e.USD, tc.usd) || !near(e.MaxUSD, tc.max) || !near(e.ListUSD, tc.list) || e.Kind != tc.kind {
+				t.Errorf("estimate = $%.6f up to $%.6f (listed $%.6f), %s; want $%.6f up to $%.6f (listed $%.6f), %s\nlines %+v", e.USD, e.MaxUSD, e.ListUSD, e.Kind, tc.usd, tc.max, tc.list, tc.kind, e.Lines)
+			}
+			if e.ListMaxUSD < e.MaxUSD {
+				t.Errorf("listed most $%.6f below the most $%.6f", e.ListMaxUSD, e.MaxUSD)
+			}
+		})
+	}
+
+	// Without the hint nothing says when the long SKU applies: it is a
+	// maybe, and every run is a range up to its rate.
+	bare := m
+	hints := *m.Traits.Price
+	hints.Long = nil
+	bare.Traits.Price = &hints
+	if e := Of(bare, of, Request{Settings: set{"resolution": "768p", "duration": 5}}); e.Kind != UpTo || !near(e.MaxUSD, 5*0.075*0.5) {
+		t.Errorf("without price.long = %+v", e)
 	}
 }
 
@@ -265,11 +352,11 @@ func TestTheTestBotsRuns(t *testing.T) {
 		actual      float64
 		within      float64
 	}{
-		{"job 44", "openrouter:alibaba/wan-3.0", 0.15, Request{Settings: set{"resolution": "480p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": true}, Video: &Video{Seconds: 14.948, Width: 1920, Height: 1080}}, 0.847875, 0.001},
-		{"job 47", "openrouter:heygen/heygen-video-1", 0.5, Request{Settings: set{"resolution": "480p", "aspect_ratio": "16:9", "duration": 5}, Video: &Video{Seconds: 14.948, Width: 1920, Height: 1080}}, 0.698215, 0.001},
+		{"job 47", "openrouter:alibaba/wan-3.0", 0.15, Request{Settings: set{"resolution": "480p", "aspect_ratio": "16:9", "duration": 5, "generate_audio": true}, Video: &Video{Seconds: 14.948, Width: 1920, Height: 1080}}, 0.847875, 0.001},
+		{"job 33", "openrouter:heygen/heygen-video-1", 0.5, Request{Settings: set{"resolution": "480p", "aspect_ratio": "16:9", "duration": 5}, Video: &Video{Seconds: 14.948, Width: 1920, Height: 1080}}, 0.698215, 0.001},
 		// No ratio was sent, so OpenAI made 1536×1024 where framy counts a
 		// square, which costs more.
-		{"job 40", "openrouter:openai/gpt-image-2.5-flare", 0, Request{Settings: set{"n": 1, "quality": "low"}, Prompt: strings.Repeat("я", 32), Images: []Image{{Width: 1280, Height: 853}}}, 0.01351, 0.1},
+		{"job 53", "openrouter:openai/gpt-image-2.5-flare", 0, Request{Settings: set{"n": 1, "quality": "low"}, Prompt: strings.Repeat("я", 32), Images: []Image{{Width: 1280, Height: 853}}}, 0.01351, 0.1},
 	} {
 		m, of := offer(t, tc.offer)
 		of.Routes = slices.Clone(of.Routes)
@@ -283,7 +370,7 @@ func TestTheTestBotsRuns(t *testing.T) {
 	}
 }
 
-// The counts of the forum post that worked the formula out, and job 40.
+// The counts of the forum post that worked the formula out, and job 53.
 func TestOpenAIInputTokens(t *testing.T) {
 	for _, tc := range []struct{ w, h, want int }{
 		{256, 256, 256}, {384, 384, 576}, {512, 512, 1024}, {768, 768, 1024},
@@ -313,6 +400,8 @@ func TestPublishedPrices(t *testing.T) {
 		{"openai:gpt-image-2", set{"size": "1024x1536", "quality": "medium"}, 0.041, 0.001},
 		{"openai:gpt-image-2", set{"size": "1536x1024", "quality": "high"}, 0.165, 0.001},
 		{"openrouter:openai/gpt-image-2", set{"aspect_ratio": "16:9", "quality": "high"}, 0.13, 0.01},
+		// OpenAI's calculator for GPT Image 2.6 at low 1024×1024: $0.02469.
+		{"openai:gpt-image-2.6-sunburst", set{"size": "1024x1024", "quality": "low"}, 0.02469, 0.00001},
 		// Tencent's 20,000 tokens at 4K at OpenRouter's rate.
 		{"openrouter:tencent/hy-image-v3.5-preview", set{"resolution": "4K"}, 0.032, 0.001},
 	} {
@@ -362,10 +451,65 @@ func TestCheckReadsTheWholeCatalog(t *testing.T) {
 		Prices: []catalog.Price{{Billable: "output_hologram", Unit: "image", CostUSD: 1}},
 		SKUs:   map[string]string{"cents_per_vibe": "3"},
 	}}}}}}}
-	if got := Check(broken); len(got) != 2 {
-		t.Fatalf("check = %v, want the billable and the SKU", got)
+	if got := Check(broken); len(got) != 3 || !strings.Contains(got[2], "no price before the run") {
+		t.Fatalf("check = %v, want the billable, the SKU and the price it leaves unknown", got)
+	}
+	// A GPT Image OpenRouter adds before the overlay knows it: its tokens are
+	// counted by nothing, and the price would be "known after the run".
+	uncounted := catalog.Snapshot{Models: []catalog.Model{{ID: "openai/gpt-image-9", Offers: []catalog.Offer{{ID: "openrouter:openai/gpt-image-9", Routes: []catalog.Route{
+		{Prices: []catalog.Price{{Billable: "input_text", Unit: "token", CostUSD: 5e-6}, {Billable: "output_image", Unit: "token", CostUSD: 3e-5}}},
+		{Prices: []catalog.Price{{Billable: "output_image", Unit: "token", CostUSD: 3e-5}}},
+	}}}}}}
+	if got := Check(uncounted); len(got) != 1 || !strings.Contains(got[0], "openrouter:openai/gpt-image-9 has no price before the run at its default settings: the tokens of the output image") {
+		t.Fatalf("check = %v, want one line of the uncounted output", got)
+	}
+	uncounted.Models[0].Traits.Price = &catalog.PriceHints{OpenAITokens: map[string]int{"low": 16}}
+	if got := Check(uncounted); len(got) != 0 {
+		t.Fatalf("check with a count = %v", got)
 	}
 }
+
+// A model that only shows "$?" or leaves a part out says so in the sync's
+// log, before someone sees it in the picker.
+func TestCheckFindsWhatGoesUnpriced(t *testing.T) {
+	refs := map[string]catalog.Param{"input_references": {Type: catalog.Range, Min: ptr(0.0), Max: ptr(4.0)}}
+	for _, tc := range []struct {
+		name  string
+		model catalog.Model
+		want  []string
+	}{
+		// GPT Image 2.6 on 4 November: tokens of the output image and no
+		// count of them in the overlay.
+		{"output tokens without a count", catalog.Model{ID: "openai/gpt-image-9", Offers: []catalog.Offer{{ID: "openrouter:openai/gpt-image-9", Kind: catalog.Image, Routes: []catalog.Route{{
+			Prices: []catalog.Price{{Billable: "output_image", Unit: "token", CostUSD: 3e-5}},
+		}}}}}, []string{"openrouter:openai/gpt-image-9 has no price before the run at its default settings: the tokens of the output image"}},
+		{"input tokens without a count", catalog.Model{ID: "google/gemini-9-image", Traits: catalog.Traits{Price: &catalog.PriceHints{Tokens: map[string]map[string]int{"output_image": {"*": 1120}}}}, Offers: []catalog.Offer{{ID: "gemini:gemini-9-image", Kind: catalog.Image, Params: refs, Routes: []catalog.Route{{
+			Prices: []catalog.Price{{Billable: "output_image", Unit: "token", CostUSD: 3e-5}, {Billable: "input_image", Unit: "token", CostUSD: 1e-6}, {Billable: "output_text", Unit: "token", CostUSD: 1e-5}},
+		}}}}}, []string{"gemini:gemini-9-image cannot price a reference: the tokens of the input images"}},
+		{"a SKU word nobody named", catalog.Model{ID: "bfl/upscale", Traits: catalog.Traits{SourceVideo: &catalog.SourceVideo{Required: true, KeepsLength: true}}, Offers: []catalog.Offer{{ID: "openrouter:bfl/upscale", Kind: catalog.Video, Routes: []catalog.Route{{
+			SKUs: map[string]string{"cents_per_megapixel_second_precise": "3.5", "cents_per_megapixel_second_creative": "5"},
+		}}}}}, []string{
+			"openrouter:bfl/upscale: SKU cents_per_megapixel_second_creative says creative, which the estimate does not read; name its settings in price.variants",
+			"openrouter:bfl/upscale: SKU cents_per_megapixel_second_precise says precise, which the estimate does not read; name its settings in price.variants",
+		}},
+		{"a long SKU without its length", catalog.Model{ID: "heygen/x", Offers: []catalog.Offer{{ID: "openrouter:heygen/x", Kind: catalog.Video, Params: map[string]catalog.Param{"duration": {Type: catalog.Enum, Values: []any{5.0, 20.0}}}, Routes: []catalog.Route{{
+			SKUs: map[string]string{"duration_seconds": "0.02", "long_duration_seconds": "0.045"},
+		}}}}}, []string{"openrouter:heygen/x: SKU long_duration_seconds is for long videos; say from how long in price.long"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Check(catalog.Snapshot{Models: []catalog.Model{tc.model}})
+			var want []string
+			for _, w := range tc.want {
+				want = append(want, "price: "+w)
+			}
+			if !slices.Equal(got, want) {
+				t.Errorf("check = %q\nwant    %q", got, want)
+			}
+		})
+	}
+}
+
+func ptr[T any](v T) *T { return &v }
 
 // Every offer people can pick gets an estimate for its first settings,
 // whatever they are, and only the known gaps have no price before the run.
@@ -452,5 +596,60 @@ func TestDiscountPicksTheCheapestRoute(t *testing.T) {
 	}
 	if e.ListMaxUSD < e.MaxUSD {
 		t.Fatalf("listed most %v below the most %v", e.ListMaxUSD, e.MaxUSD)
+	}
+}
+
+// side reads a resolution as the side of its square, in pixels.
+func TestSide(t *testing.T) {
+	for res, want := range map[string]float64{"1k": 1024, "1.5k": 1536, "2k": 2048, "4k": 4096, "768": 768, "0.5k": 512} {
+		if got, ok := side(res); !ok || got != want {
+			t.Errorf("side(%q) = %v, %v; want %v", res, got, ok, want)
+		}
+	}
+	for _, res := range []string{"", "k", "0k", "-1k", "big", "1080p"} {
+		if got, ok := side(res); ok {
+			t.Errorf("side(%q) = %v; want no side", res, got)
+		}
+	}
+}
+
+// A price by the megapixel follows the size the run makes. FLUX.2 on
+// OpenRouter takes only an aspect ratio, and is priced at 1024×1024 for
+// each; a model that also took a resolution or a size would be priced at
+// it, not at the 1 MP default, so a 4K picture never comes out at the price
+// of a 1K one.
+func TestMegapixelsFollowTheChosenSize(t *testing.T) {
+	m, of := offer(t, "openrouter:black-forest-labs/flux.2-pro")
+	const rate = 0.03
+	for _, ar := range []string{"1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "21:9"} {
+		if e := Of(m, of, Request{Settings: set{"aspect_ratio": ar}}); !near(e.USD, rate*1.048576) || e.Kind != About {
+			t.Errorf("flux 2 pro at %s = $%.6f %s, want $%.6f about", ar, e.USD, e.Kind, rate*1.048576)
+		}
+	}
+
+	sized := of
+	sized.Params = map[string]catalog.Param{}
+	for k, v := range of.Params {
+		sized.Params[k] = v
+	}
+	sized.Params["resolution"] = catalog.Param{Type: catalog.Enum, Values: []any{"1K", "1.5K", "2K", "4K"}}
+	sized.Params["size"] = catalog.Param{Type: catalog.Enum, Values: []any{"1024x1024", "2048x1152"}}
+	for _, c := range []struct {
+		settings set
+		pixels   float64
+	}{
+		{set{}, 1024 * 1024},
+		{set{"resolution": "1K"}, 1024 * 1024},
+		{set{"resolution": "1.5K"}, 1536 * 1536},
+		{set{"resolution": "2K"}, 2048 * 2048},
+		{set{"resolution": "4K"}, 4096 * 4096},
+		// A size is the pixels themselves, ahead of a resolution.
+		{set{"size": "2048x1152"}, 2048 * 1152},
+		{set{"size": "2048X1152", "resolution": "4K"}, 2048 * 1152},
+	} {
+		e := Of(m, sized, Request{Settings: c.settings})
+		if want := rate * c.pixels / 1e6; !near(e.USD, want) {
+			t.Errorf("%v: $%.6f, want $%.6f (%.2f MP)", c.settings, e.USD, want, c.pixels/1e6)
+		}
 	}
 }

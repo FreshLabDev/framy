@@ -1,16 +1,18 @@
 // The settings: the person's keys, what is left free, the default models,
 // the DM, the currency, the language and the account. Each change goes to
 // the server first; the sheet shows what it said.
-import { $, $$, h, ic } from "./dom.js";
-import { t, lang, fmtNum, fmtIn, fmtTime } from "./i18n.js";
+import { $, $$, h, ic, keepFocus } from "./dom.js";
+import { t, lang, fmtNum, fmtIn, fmtInSecs, fmtTime, fmtCurrency } from "./i18n.js";
 import { api } from "./api.js";
-import { S, connection, autoModel, ownDefault } from "./state.js";
+import { S, connection, autoModel, ownDefault, reopenText } from "./state.js";
 import { C, PNAME, provMark, vname } from "./catalog.js";
 import { openPicker } from "./picker.js";
 import { clearPrices } from "./price.js";
 import { openSheet, closeSheets, toast, ask } from "./ui.js";
-import { anim, morph, opt, placeSegs } from "./motion.js";
-import { signOut, forget, refreshMe } from "./run.js";
+import { anim, morph, opt, placeSegs, DUR } from "./motion.js";
+import { signOut, signOutAll, forget, refreshMe } from "./run.js";
+import { launchGone } from "./errors.js";
+import { keepDraft } from "./draft.js";
 import { LANGS, CURRENCIES } from "assets:lists";
 
 const PROVIDERS = ["openrouter", "openai", "gemini"];
@@ -18,6 +20,7 @@ const PROVIDERS = ["openrouter", "openai", "gemini"];
 const KEYS_AT = { openrouter: "https://openrouter.ai/settings/keys", openai: "https://platform.openai.com/api-keys", gemini: "https://aistudio.google.com/apikey" };
 const LOOK = { openrouter: "sk-or-v1-…", openai: "sk-…", gemini: "AIza…" };
 export const OAUTH_START = "/oauth/openrouter/start";
+const OAUTH_TICKET = "/oauth/openrouter/ticket";
 // How a connect through OpenRouter ended (internal/oauth, Result).
 const OAUTH = new Set(["connected", "cancelled", "expired", "refused", "unavailable", "signin"]);
 // What a run showed about a key; Check asks the provider again once it is fixed.
@@ -37,7 +40,7 @@ export function mountPrefs() {
   // Back from OpenRouter with the browser's Back button: the page is the one it left.
   addEventListener("pageshow", (e) => { if (e.persisted && KS.openrouter?.going) update(() => { KS.openrouter.going = false; }); });
   return h("section", { class: "sheet", id: "prefs", hidden: true, "aria-label": t("prefs.title"), role: "dialog", "aria-modal": "true" },
-    h("header", {}, h("h3", {}, t("prefs.title")), h("button", { type: "button", class: "x", "data-close": "" }, t("pick.done"))),
+    h("header", { role: "none" }, h("h3", {}, t("prefs.title")), h("button", { type: "button", class: "x", "data-close": "" }, t("pick.done"))),
     h("div", { class: "body", id: "prefsBody" }));
 }
 
@@ -54,7 +57,7 @@ export function openPrefs(p) {
   openSheet("#prefs");
   // Keys may have changed in another tab or in the bot: the sheet redraws when the answer is in.
   if (fresh) refreshMe();
-  if (fresh) $$("#prefsBody > *").slice(0, 8).forEach((el, i) => anim(el, [{ opacity: 0, transform: "translateY(8px)" }, { opacity: 1, transform: "none" }], { duration: 300, delay: 90 + i * 30, fill: "backwards" }));
+  if (fresh) $$("#prefsBody > *").slice(0, 8).forEach((el, i) => anim(el, [{ opacity: 0, transform: "translateY(8px)" }, { opacity: 1, transform: "none" }], { duration: DUR.m, delay: 90 + i * 30, fill: "backwards" }));
   if (!p) return;
   setTimeout(() => {
     const r = $(`#prefsBody [data-p="${p}"]`);
@@ -65,8 +68,8 @@ export function openPrefs(p) {
   }, 120);
 }
 
-const MORPH = { dur: 340, enter: (el, i) => anim(el, [{ opacity: 0, transform: "translateY(6px)" }, { opacity: 1, transform: "none" }], { duration: 260, delay: 80 + i * 30, fill: "backwards" }),
-  leave: (g) => anim(g, [{ opacity: 1 }, { opacity: 0 }], { duration: 160, fill: "forwards" }) };
+const MORPH = { dur: DUR.m, enter: (el, i) => anim(el, [{ opacity: 0, transform: "translateY(6px)" }, { opacity: 1, transform: "none" }], { duration: DUR.s, delay: 80 + i * 30, fill: "backwards" }),
+  leave: (g) => anim(g, [{ opacity: 1 }, { opacity: 0 }], { duration: DUR.xs, fill: "forwards" }) };
 // A change of the sheet: rows glide to their new places, new ones rise.
 function update(fn) {
   const body = $("#prefsBody");
@@ -95,9 +98,6 @@ function size(bytes) {
   if (mb >= 1024) return t("unit.gb", { n: fmtNum(mb / 1024, { maximumFractionDigits: 1 }) });
   return t("unit.mb", { n: fmtNum(mb, { maximumFractionDigits: mb < 10 ? 1 : 0 }) });
 }
-function curName(c) {
-  try { return new Intl.DisplayNames([lang], { type: "currency" }).of(c) || c; } catch { return c; }
-}
 
 /* Keys. */
 // The server's own check of a paste (internal/keys): 20 to 512 printable
@@ -107,8 +107,9 @@ const shaped = (v) => v.length >= 20 && v.length <= 512 && /^[\x21-\x7e]+$/.test
 function keyErr(p, code, saving) {
   const P = PNAME[p] || p;
   switch (code) {
-    case "bad_key": case "key_rejected": case "key_forbidden": case "key_unreadable": case "keys_off": return t("key." + code, { provider: P });
-    case "check_unavailable": return t(saving ? "key.check_unavailable" : "key.recheck_unavailable", { provider: P });
+    // key_in_use: a video sent with the key still needs it, so the key stays.
+    case "bad_key": case "key_rejected": case "key_forbidden": case "key_region": case "key_unreadable": case "key_in_use": case "keys_off": return t("key." + code, { provider: P });
+    case "check_unavailable": return t(saving ? "key.check_unavailable" : "key.recheck_unavailable", { provider: P, in: fmtInSecs(ks(p).retry || RETRY_S) });
     case "network": return t("err.network");
     case "http_429": return t("err.busy");
     default: return t("key.failed", { provider: P });
@@ -132,8 +133,8 @@ async function save(p, value) {
     update(() => { Object.assign(k, { busy: false, edit: false, draft: "", revoked: false, wait: 0 }); });
     meChanged();
   } catch (e) {
-    if (e.code === "sign_in") return lost();
-    update(() => { k.busy = false; k.err = e.code; if (e.code === "check_unavailable") waitFor(p, e.retryAfter || 10); });
+    if (gone(e)) return lost(e);
+    update(() => { k.busy = false; k.err = e.code; if (e.code === "check_unavailable") waitFor(p, e.retryAfter || RETRY_S); });
   }
 }
 // POST /api/connections/{provider}/check: Check. A refused key comes back as invalid.
@@ -146,10 +147,10 @@ async function recheck(p) {
     update(() => { k.busy = false; });
     meChanged();
   } catch (e) {
-    if (e.code === "sign_in") return lost();
+    if (gone(e)) return lost(e);
     // Gone meanwhile, from another tab or the bot: the list is read again.
     if (e.code === "not_found") { k.busy = false; await refreshMe(); update(); return; }
-    update(() => { k.busy = false; k.err = e.code; if (e.code === "key_unreadable") k.edit = true; if (e.code === "check_unavailable") waitFor(p, e.retryAfter || 10); });
+    update(() => { k.busy = false; k.err = e.code; if (e.code === "key_unreadable") k.edit = true; if (e.code === "check_unavailable") waitFor(p, e.retryAfter || RETRY_S); });
   }
 }
 // DELETE /api/connections/{provider}: framy forgets the key. The provider
@@ -159,7 +160,7 @@ async function disconnect(p) {
   if (k.busy) return;
   try { await api(`/api/connections/${p}`, { method: "DELETE" }); }
   catch (e) {
-    if (e.code === "sign_in") return lost();
+    if (gone(e)) return lost(e);
     if (e.code !== "not_found") { toast(keyErr(p, e.code)); return; }
   }
   S.meV++;
@@ -168,9 +169,12 @@ async function disconnect(p) {
   meChanged();
 }
 // A check the provider did not answer may be tried again after Retry-After:
-// the button counts down where it stands.
+// the button counts down where it stands, and the message says the same wait.
+// RETRY_S stands in when the answer had no Retry-After.
+const RETRY_S = 10;
 function waitFor(p, secs) {
   const k = ks(p);
+  k.retry = secs;
   k.wait = Date.now() + secs * 1000;
   clearInterval(k.tick);
   const tick = () => {
@@ -193,21 +197,37 @@ function edit(p) {
 /* OpenRouter by OAuth. The site leaves for openrouter.ai and comes back to
    /?connect=openrouter&result=…; the Mini App opens it in the browser and
    reads /api/me again when the person is back. */
-function oauthStart() {
+// The Mini App's link carries a ticket of five minutes, which stands in for
+// a second sign-in in the browser (oauth.Connector.Ticket). It is asked for
+// as soon as Connect shows: Telegram opens a link only straight from a tap,
+// not after a request. Without one the browser asks to sign in, as before.
+const TICKET_FRESH = 4 * 60e3;
+let ticket = null, ticketing = false;
+function askTicket() {
+  if (!S.mini || !S.signed || ticketing || (ticket && Date.now() - ticket.at < TICKET_FRESH)) return;
+  ticketing = true;
+  api(OAUTH_TICKET, { method: "POST" }).then((r) => { if (r?.url) ticket = { url: r.url, at: Date.now() }; })
+    .catch(() => {}).finally(() => { ticketing = false; });
+}
+async function oauthStart() {
   const k = ks("openrouter");
   if (S.mini) {
-    const url = location.origin + OAUTH_START;
+    const url = ticket && Date.now() - ticket.at < TICKET_FRESH ? ticket.url : location.origin + OAUTH_START;
+    ticket = null;
     if (S.tg?.openLink) S.tg.openLink(url); else open(url, "_blank", "noopener");
     update(() => { Object.assign(k, { away: true, said: null }); });
     return;
   }
   update(() => { Object.assign(k, { going: true, said: null }); });
   try { sessionStorage.setItem("framy.draft", $("#prompt").value); } catch {}
+  await keepDraft();
   location.assign(OAUTH_START);
 }
-// The site, back with the result in its address.
-export function oauthResult(res) {
+// The site, back with the result in its address. A connect the Mini App
+// started ends in a browser that may know nobody: its framy is in Telegram.
+export function oauthResult(res, tg = false) {
   res = OAUTH.has(res) ? res : "unavailable";
+  if (tg) { toast(t("oauth." + res) + " " + t("oauth.tg_back"), { ms: 12000 }); if (S.signed && res === "connected") openPrefs(); return; }
   if (res === "signin" || !S.signed) { toast(t("oauth.signin"), { ms: 8000 }); return; }
   if (res === "connected") { toast(t("oauth.connected")); openPrefs(); return; }
   ks("openrouter").said = t("oauth." + res);
@@ -241,20 +261,27 @@ function keyRows(p) {
       h("button", { type: "button", disabled: !!k.busy, onclick: () => disconnect(p) }, t("key.disconnect")));
     if (problem || (k.err && !k.edit)) r.classList.add("bad");
   } else if (p === "openrouter") {
+    askTicket();
     const paste = h("button", { type: "button", class: "link-t", onclick: () => edit(p) }, t("key.paste_link"));
     r = row(k.away ? t("key.away") : [t(S.mini ? "key.or_sub_mini" : "key.or_sub") + " ", paste],
       k.away ? h("button", { type: "button", class: "fixw", onclick: oauthStart }, t("key.open_again"))
         : h("button", { type: "button", class: "primary fixw", disabled: !!k.going, onclick: oauthStart }, ic(S.mini ? "out" : "plus"), h("span", {}, t(k.going ? "key.going" : "key.connect"))));
-    // A long line: on a narrow sheet the button goes under it.
-    r.classList.add("two");
   } else {
-    r = row(t("key.paste_sub"), k.edit ? null : h("button", { type: "button", class: "primary", onclick: () => edit(p) }, ic("plus"), h("span", {}, t("key.add"))));
+    // What the key needs to make anything, since the check on save cannot
+    // see it: credits at OpenAI, a project with billing at AI Studio.
+    r = row(t("key." + p + "_sub"), k.edit ? null : h("button", { type: "button", class: "primary", onclick: () => edit(p) }, ic("plus"), h("span", {}, t("key.add"))));
   }
   r.dataset.p = p;
   out.push(r);
   if (k.edit) {
-    const input = h("input", { type: "password", name: "key-" + p, autocomplete: "off", autocapitalize: "off", spellcheck: "false", placeholder: LOOK[p],
-      "aria-label": t("key.field", { provider: P }), "aria-invalid": String(!!k.err), value: k.draft || "" });
+    // A key is no password of the site: password managers are asked not to
+    // offer or keep it. What was pasted comes back as the field's value, never
+    // as an attribute, so it does not stand in the page's markup for anything
+    // that reads it (an extension, a page translator, a report of the page).
+    const input = h("input", { type: "password", autocomplete: "off", autocapitalize: "off", spellcheck: "false", placeholder: LOOK[p],
+      "data-1p-ignore": "", "data-lpignore": "true", "data-bwignore": "", "data-form-type": "other",
+      "aria-label": t("key.field", { provider: P }), "aria-invalid": String(!!k.err) });
+    input.value = k.draft || "";
     input.addEventListener("input", () => { k.draft = input.value; });
     out.push(h("form", { class: "kform", "data-k": "pk-" + p, onsubmit: (e) => { e.preventDefault(); save(p, input.value); } }, input,
       waitBtn(p, t("key.check"), { class: "primary", type: "submit" }),
@@ -266,9 +293,11 @@ function keyRows(p) {
   return out;
 }
 
+// A row of the settings: its mark, its title and line, and its buttons, which a narrow sheet puts under
+// the text in every row, the same place each time. A switch stays at the end of its row.
 function sheetRow(k, mark, title, sub, ...btns) {
   const bs = btns.filter(Boolean);
-  return h("div", { class: "srow" + (bs.length > 1 || bs[0]?.tagName === "SELECT" ? " two" : ""), "data-k": "p-" + k },
+  return h("div", { class: "srow" + (bs.some((b) => !b.classList.contains("tog")) ? " btns" : ""), "data-k": "p-" + k },
     mark, h("div", { class: "l" }, h("b", {}, title), h("span", {}, sub)), ...bs);
 }
 
@@ -308,7 +337,7 @@ async function setDefault(kind, id) {
   if (prefsOpen()) update(); else openPrefs();
   try { S.me = await patchMe({ default_models: { [kind]: id } }); }
   catch (e) {
-    if (e.code === "sign_in") return lost();
+    if (gone(e)) return lost(e);
     S.me.default_models = was;
     toast(e.code === "network" ? t("err.network") : t("prefs.not_saved"));
   }
@@ -327,7 +356,7 @@ async function setDeliver(on) {
   update();
   try { S.me = await patchMe({ deliver_to_telegram: on }); }
   catch (e) {
-    if (e.code === "sign_in") return lost();
+    if (gone(e)) return lost(e);
     S.me.deliver_to_telegram = !on;
     toast(e.code === "network" ? t("err.network") : t("prefs.not_saved"));
   }
@@ -335,16 +364,32 @@ async function setDeliver(on) {
 }
 
 /* Currency and language: PATCH /api/me. */
+// The arrows choose a currency at every press, so the saves go one at a
+// time: a choice made while one is saving waits for it, and only the newest
+// is sent. Sent together, they could be answered, or kept, out of order, and
+// the page and the account end on different currencies.
+// c is a currency, or "" for Auto: by the country, else the language, as before any pick.
+let curNext = null, curSaving = false;
 async function setCurrency(c) {
-  if (!S.me || S.me.currency === c) return;
-  const was = S.me.currency;
-  S.me.currency = c;
+  if (!S.me || (c ? S.me.currency_chosen && S.me.currency === c : !S.me.currency_chosen)) return;
+  const was = { currency: S.me.currency, currency_chosen: S.me.currency_chosen };
+  Object.assign(S.me, { currency: c || S.me.currency_auto || S.me.currency, currency_chosen: !!c });
+  curNext = c;
   renderPrefs();
-  try { S.me = await patchMe({ currency: c }); }
-  catch (e) {
-    if (e.code === "sign_in") return lost();
-    S.me.currency = was;
-    toast(e.code === "network" ? t("err.network") : t("prefs.not_saved"));
+  if (curSaving) return;
+  curSaving = true;
+  let me = null, err = null;
+  while (curNext !== null) {
+    const want = curNext;
+    curNext = null;
+    try { me = await patchMe({ currency: want }); err = null; } catch (e) { err = e; }
+  }
+  curSaving = false;
+  if (err && gone(err)) return lost(err);
+  if (me) S.me = me;
+  if (err) {
+    if (!me) Object.assign(S.me, was);
+    toast(err.code === "network" ? t("err.network") : t("prefs.not_saved"));
   }
   clearPrices();
   meChanged();
@@ -356,7 +401,7 @@ async function setLanguage(code) {
   let me;
   try { me = await patchMe({ language: code }); }
   catch (e) {
-    if (e.code === "sign_in") return lost();
+    if (gone(e)) return lost(e);
     toast(e.code === "network" ? t("err.network") : t("prefs.not_saved"));
     update();
     return;
@@ -365,10 +410,11 @@ async function setLanguage(code) {
   const to = me.language || code || lang;
   if (to === lang) { meChanged(); update(); return; }
   try {
-    localStorage.setItem("framy.lang", to);
+    localStorage.setItem("framy.language", to);
     sessionStorage.setItem("framy.prefs", "1");
     sessionStorage.setItem("framy.draft", $("#prompt").value);
   } catch {}
+  await keepDraft();
   location.reload();
 }
 
@@ -380,7 +426,7 @@ async function deleteAccount() {
   update(() => { ACC = "busy"; });
   try { await api("/api/me", { method: "DELETE", body: { confirm: true } }); }
   catch (e) {
-    if (e.code === "sign_in") { ACC = null; return lost(); }
+    if (gone(e)) { ACC = null; return lost(e); }
     if (e.code === "jobs_active") { update(() => { ACC = null; }); await activeJobs(); return; }
     // Files that did not go, or an answer that never came: the account is
     // there, and the next press goes on from what is left.
@@ -394,32 +440,53 @@ async function deleteAccount() {
   forget();
   toast(t("prefs.deleted"), { ms: 6000 });
 }
-// What still runs: the waiting jobs can be cancelled; the started ones finish.
+// What still runs: the waiting jobs can be cancelled; the started ones finish,
+// an image in minutes and a video in up to the run's hour. Without the list
+// both are said.
 async function activeJobs() {
-  let jobs = [];
+  let jobs = null;
   try { jobs = (await api("/api/jobs?limit=100")).jobs || []; } catch {}
-  const queued = jobs.filter((j) => j.status === "queued"), running = jobs.some((j) => j.status === "running");
+  const queued = (jobs || []).filter((j) => j.status === "queued"), running = (jobs || []).filter((j) => j.status === "running");
+  const kinds = new Set(running.length ? running.map((j) => j.kind) : ["image", "video"]);
+  const started = [kinds.has("image") ? t("prefs.wait_image") : "", kinds.has("video") ? t("prefs.wait_video") : ""];
+  const says = (...lines) => [...lines, t("prefs.wait_then")].filter(Boolean).join(" ");
   if (!queued.length) {
-    await ask({ title: t("prefs.wait_q"), text: t("prefs.wait_started"), yes: t("prefs.got_it"), one: true });
+    await ask({ title: t("prefs.wait_q"), text: says(...started), yes: t("prefs.got_it"), one: true });
     return;
   }
-  if (!(await ask({ title: t("prefs.wait_q"), text: t("prefs.wait_queued"), yes: t("prefs.cancel_waiting"), no: t("prefs.wait") }))) return;
+  const text = says(t("prefs.wait_queued"), ...(running.length ? started : []));
+  if (!(await ask({ title: t("prefs.wait_q"), text, yes: t("prefs.cancel_waiting"), no: t("prefs.wait") }))) return;
   await Promise.all(queued.map((j) => api(`/api/jobs/${j.id}/cancel`, { method: "POST" }).catch(() => null)));
   // Nothing else running: the deletion the person agreed to goes on.
-  if (!running) { update(() => { ACC = "fail"; }); return deleteAccount(); }
-  await ask({ title: t("prefs.wait_q"), text: t("prefs.wait_started"), yes: t("prefs.got_it"), one: true });
+  if (!running.length) { update(() => { ACC = "fail"; }); return deleteAccount(); }
+  await ask({ title: t("prefs.wait_q"), text: says(...started), yes: t("prefs.got_it"), one: true });
 }
-// The session ended under the sheet.
-function lost() {
+// The session ended under the sheet, or in the Mini App its launch did (launchGone).
+const gone = (e) => e.code === "sign_in" || !!launchGone(e);
+function lost(e) {
   closeSheets(true);
-  forget();
-  toast(t("err.sign_in"), { ms: 6000 });
+  forget(true);
+  toast(S.mini ? reopenText() : t(launchGone(e) || "err.sign_in"), { ms: 6000 });
 }
 
-export function renderPrefs() {
+// Whose account this is, by the name and picture of the Telegram sign-in:
+// a key saved here goes to this account. The site signs out here; the Mini
+// App is signed in by Telegram for as long as it is open.
+function whoRow() {
+  const me = S.me, name = (me.name || "").trim();
+  const av = me.photo_url ? h("img", { class: "av", src: me.photo_url, alt: "", referrerpolicy: "no-referrer" }) : h("span", { class: "av", "aria-hidden": "true" }, (name || "?").slice(0, 1).toUpperCase());
+  if (S.mini) return sheetRow("out", av, name || t("prefs.signed_tg"), name ? t("prefs.signed_tg") : "");
+  return sheetRow("out", av, name || t("prefs.signed_tg"), t("prefs.signed_sub"),
+    h("button", { type: "button", onclick: async () => { await signOut(); if (!S.signed) closeSheets(); } }, t("auth.signout")),
+    h("button", { type: "button", onclick: async () => { await signOutAll(); if (!S.signed) closeSheets(); } }, t("auth.signout_all")));
+}
+
+// The sheet is drawn anew on every change: the control the keyboard was on,
+// and a form being typed in, keep the focus.
+export function renderPrefs() { keepFocus(drawPrefs); }
+function drawPrefs() {
   const body = $("#prefsBody");
   if (!body || !S.me) return;
-  // A form being typed in keeps its focus across a redraw.
   const typing = document.activeElement?.closest?.("#prefsBody .kform")?.dataset.k;
   const st = S.me.storage;
   // Automatic until the person picks one in framy, whatever the other bots of the family hold.
@@ -439,17 +506,18 @@ export function renderPrefs() {
     h("div", { class: "group", "data-k": "g-tg" }, t("prefs.telegram")),
     deliverRow(),
     h("div", { class: "group", "data-k": "g-cur" }, t("prefs.currency")),
-    h("div", { class: "seg wrapping cur", role: "radiogroup", "aria-label": t("prefs.currency"), "data-seg": "cur", "data-dur": 360, "data-k": "s-cur" },
-      CURRENCIES.map((c) => opt({ key: "cur", v: c, on: S.me.currency === c, pick: () => setCurrency(c) }, c, h("small", {}, curName(c))))),
+    h("div", { class: "seg wrapping cur", role: "radiogroup", "aria-label": t("prefs.currency"), "data-seg": "cur", "data-dur": DUR.m, "data-k": "s-cur" },
+      opt({ key: "cur", v: "auto", on: !S.me.currency_chosen, pick: () => setCurrency("") }, t("val.auto"), h("small", {}, S.me.currency_auto || "")),
+      CURRENCIES.map((c) => opt({ key: "cur", v: c, on: !!S.me.currency_chosen && S.me.currency === c, pick: () => setCurrency(c) }, c, h("small", {}, fmtCurrency(c))))),
     h("p", { class: "note", "data-k": "n-cur" }, t("prefs.currency_note")),
     h("div", { class: "group", "data-k": "g-lang" }, t("prefs.language")),
     sheetRow("lang", ic("info"), t("prefs.lang_row"), t("prefs.lang_sub"), sel),
     h("div", { class: "group", "data-k": "g-acc" }, t("prefs.account")),
     st ? sheetRow("store", ic("stack"), t("prefs.stored", { n: fmtNum(st.files) }), t("prefs.stored_sub", { size: size(st.bytes) })) : null,
-    S.mini ? null : sheetRow("out", ic("out"), t("prefs.signed_tg"), t("prefs.signed_sub"),
-      h("button", { type: "button", onclick: async () => { await signOut(); if (!S.signed) closeSheets(); } }, t("auth.signout"))),
+    whoRow(),
     sheetRow("del", ic("trash"), t("prefs.delete"), accSub,
-      h("button", { type: "button", class: "danger", disabled: ACC === "busy", onclick: deleteAccount }, t(ACC === "busy" ? "prefs.deleting_btn" : ACC === "fail" ? "prefs.delete_again" : "prefs.delete_btn"))));
+      h("button", { type: "button", class: "danger", disabled: ACC === "busy", onclick: deleteAccount }, ic("trash"),
+        h("span", {}, t(ACC === "busy" ? "prefs.deleting_btn" : ACC === "fail" ? "prefs.delete_again" : "prefs.delete_btn")))));
   placeSegs($("#prefs"));
   if (typing) $(`#prefsBody [data-k="${typing}"] input`)?.focus({ preventScroll: true });
 }

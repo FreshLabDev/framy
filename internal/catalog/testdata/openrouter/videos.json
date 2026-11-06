@@ -64,6 +64,7 @@
    "supported_resolutions": [
     "480p",
     "768p",
+    "1080p",
     "2K"
    ],
    "supported_aspect_ratios": [
@@ -86,7 +87,22 @@
     12,
     13,
     14,
-    15
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30
    ],
    "supported_frame_images": [
     "first_frame"
@@ -99,10 +115,16 @@
     "duration_seconds_2k": "0.1",
     "duration_seconds_480p": "0.02",
     "duration_seconds_768p": "0.036",
+    "duration_seconds_1080p": "0.1",
     "reference_input_images": "0.04",
+    "long_duration_seconds_2k": "0.105",
+    "long_duration_seconds_480p": "0.045",
+    "long_duration_seconds_768p": "0.075",
+    "long_duration_seconds_1080p": "0.105",
     "reference_duration_seconds_2k": "0.18",
     "reference_duration_seconds_480p": "0.07",
-    "reference_duration_seconds_768p": "0.1"
+    "reference_duration_seconds_768p": "0.1",
+    "reference_duration_seconds_1080p": "0.18"
    },
    "allowed_passthrough_parameters": [
     "prompt_enhancement"

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package r2 talks to a Cloudflare R2 bucket through its S3 API: put,
-// head and delete an object, and presign a GET or a PUT. framy keeps every
+// head, list and delete objects, and presign a GET or a PUT. framy keeps every
 // input and result there (docs/design.md, Storage and retention).
 //
 // The credentials go into signatures only. A presigned URL is a bearer
@@ -17,6 +17,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -171,6 +172,46 @@ func (c *Client) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 	return resp.Body, nil
 }
 
+// List names every object whose key begins with prefix, in key order, as
+// many pages of ListObjectsV2 as it takes.
+func (c *Client) List(ctx context.Context, prefix string) ([]string, error) {
+	var keys []string
+	token := ""
+	for {
+		u := *c.base
+		u.Path = u.Path + "/" + c.bucket
+		u.RawPath = encode(u.Path, false)
+		q := url.Values{"list-type": {"2"}, "prefix": {prefix}}
+		if token != "" {
+			q.Set("continuation-token", token)
+		}
+		u.RawQuery = q.Encode()
+		resp, err := c.call(ctx, http.MethodGet, &u, prefix, true, nil)
+		if err != nil {
+			return keys, err
+		}
+		var page struct {
+			Contents []struct {
+				Key string `xml:"Key"`
+			} `xml:"Contents"`
+			IsTruncated           bool   `xml:"IsTruncated"`
+			NextContinuationToken string `xml:"NextContinuationToken"`
+		}
+		err = xml.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&page)
+		resp.Body.Close()
+		if err != nil {
+			return keys, fmt.Errorf("r2: list %s: %w", prefix, err)
+		}
+		for _, o := range page.Contents {
+			keys = append(keys, o.Key)
+		}
+		if !page.IsTruncated || page.NextContinuationToken == "" {
+			return keys, nil
+		}
+		token = page.NextContinuationToken
+	}
+}
+
 // PresignGet links to key for ttl. disposition, when set, comes back as the
 // Content-Disposition of the answer: "attachment; filename=…" makes a
 // browser or Telegram's downloadFile save it.
@@ -195,25 +236,37 @@ func (c *Client) PresignGetAt(key string, at time.Time, ttl time.Duration, dispo
 	if at.Add(ttl).Before(c.now()) {
 		return "", fmt.Errorf("r2: a link signed at %s for %s has expired", at.UTC().Format(time.RFC3339), ttl)
 	}
-	return c.presignAt(http.MethodGet, u, at, ttl)
+	return c.presignAt(http.MethodGet, u, at, ttl, nil)
 }
 
-// PresignPut lets the holder upload to key for ttl, as the site does with a
-// video, straight into the bucket.
-func (c *Client) PresignPut(key string, ttl time.Duration) (string, error) {
-	return c.presignAt(http.MethodPut, c.object(key), c.now(), ttl)
+// PresignPut lets the holder upload a body of exactly size bytes to key for
+// ttl, as the site does with a clip, straight into the bucket. The length is
+// signed, so R2 refuses a body of any other size: the link holds what the
+// client said it would send, and no more, however often it is used.
+func (c *Client) PresignPut(key string, size int64, ttl time.Duration) (string, error) {
+	if size < 1 {
+		return "", fmt.Errorf("r2: a presigned PUT carries at least a byte, not %d", size)
+	}
+	return c.presignAt(http.MethodPut, c.object(key), c.now(), ttl, map[string]string{"content-length": strconv.FormatInt(size, 10)})
 }
 
-func (c *Client) presignAt(method string, u *url.URL, at time.Time, ttl time.Duration) (string, error) {
+func (c *Client) presignAt(method string, u *url.URL, at time.Time, ttl time.Duration, headers map[string]string) (string, error) {
 	if ttl < time.Second || ttl > MaxPresign {
 		return "", fmt.Errorf("r2: a presigned URL lives from a second to %s, not %s", MaxPresign, ttl)
 	}
-	return c.signer.presign(method, u, at, ttl), nil
+	return c.signer.presign(method, u, at, ttl, headers), nil
 }
 
-// do makes a signed call, again after a 5xx, a 429 or a network error. The
-// answer's body is read and closed unless keep, when the caller closes it.
+// do makes a signed call on key, again after a 5xx, a 429 or a network
+// error. The answer's body is read and closed unless keep, when the caller
+// closes it.
 func (c *Client) do(ctx context.Context, method, key string, keep bool, prepare func(*http.Request), extra ...string) (*http.Response, error) {
+	return c.call(ctx, method, c.object(key), key, keep, prepare, extra...)
+}
+
+// call is do on the URL u; name stands for it in errors, which never hold
+// a URL.
+func (c *Client) call(ctx context.Context, method string, u *url.URL, name string, keep bool, prepare func(*http.Request), extra ...string) (*http.Response, error) {
 	var last error
 	for attempt := range c.attempts {
 		if attempt > 0 {
@@ -224,7 +277,7 @@ func (c *Client) do(ctx context.Context, method, key string, keep bool, prepare 
 			case <-time.After(wait):
 			}
 		}
-		req, err := http.NewRequestWithContext(ctx, method, c.object(key).String(), nil)
+		req, err := http.NewRequestWithContext(ctx, method, u.String(), nil)
 		if err != nil {
 			return nil, err
 		}
@@ -240,7 +293,7 @@ func (c *Client) do(ctx context.Context, method, key string, keep bool, prepare 
 			}
 			// The error names the URL, which holds no credentials: the
 			// signature is in a header.
-			last = fmt.Errorf("r2: %s %s: %w", method, key, err)
+			last = fmt.Errorf("r2: %s %s: %w", method, name, err)
 			continue
 		}
 		if resp.StatusCode/100 == 2 {
@@ -252,7 +305,7 @@ func (c *Client) do(ctx context.Context, method, key string, keep bool, prepare 
 		}
 		e := readError(resp)
 		if resp.StatusCode == http.StatusNotFound {
-			return nil, fmt.Errorf("%w: %s", ErrNotFound, key)
+			return nil, fmt.Errorf("%w: %s", ErrNotFound, name)
 		}
 		if !e.Temporary() {
 			return nil, e

@@ -55,9 +55,7 @@ func ParseSiteURL(raw string) (string, error) {
 	switch u.Scheme {
 	case "https":
 	case "http":
-		switch u.Hostname() {
-		case "localhost", "127.0.0.1", "::1":
-		default:
+		if !localHost(u.Hostname()) {
 			return "", errors.New("must be https, except for localhost")
 		}
 	default:

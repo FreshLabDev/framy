@@ -18,7 +18,111 @@ export function h(tag, attrs = {}, ...kids) {
   return el;
 }
 
+/* The page draws a block again on every change, so after one the control in
+   focus is a new element, and the old one took the focus away with it: the
+   browser starts again from the top of the page. The control in focus is
+   remembered in words that last a redraw: an option by its group and value,
+   anything else by its id, or by the keyed block (data-k) or the block with
+   an id it is in, its kind and its place there. When a redraw takes it away,
+   its new self gets the focus, and a person on the keyboard goes on from
+   where they were. */
+const FOCUSABLE = "button, input, select, textarea, a[href], [tabindex]";
+const live = (el) => el.isConnected && !el.closest(".mirror, [inert], [aria-hidden='true']");
+// The controls of a keyed block of one kind, the block itself first when it is one.
+const controls = (k, tag) => (k ? [k, ...k.querySelectorAll(FOCUSABLE)].filter((x) => x.tagName === tag && x.matches(FOCUSABLE)) : []);
+export function focusKey(el) {
+  if (!el?.isConnected || el === document.body) return null;
+  const g = el.getAttribute("role") === "radio" && el.closest("[data-seg]");
+  if (g) return { seg: g.dataset.seg, v: el.dataset.v };
+  if (el.id) return { id: el.id };
+  const k = el.closest("[data-k], [id]");
+  if (!k) return null;
+  return { in: k.dataset.k != null ? `[data-k="${CSS.escape(k.dataset.k)}"]` : "#" + CSS.escape(k.id), i: controls(k, el.tagName).indexOf(el), tag: el.tagName };
+}
+export function refocus(key) {
+  if (!key) return false;
+  const first = (sel) => [...document.querySelectorAll(sel)].find(live);
+  let el = null;
+  if (key.seg) {
+    const rs = [...(first(`[data-seg="${CSS.escape(key.seg)}"]`)?.querySelectorAll(':scope > [role="radio"]') || [])];
+    el = rs.find((r) => r.dataset.v === key.v) || rs.find((r) => r.getAttribute("aria-checked") === "true") || rs.find((r) => r.tabIndex === 0);
+  } else if (key.in) {
+    const all = controls(first(key.in), key.tag);
+    el = all[Math.min(Math.max(0, key.i), all.length - 1)];
+  } else el = document.getElementById(key.id);
+  if (!el || !live(el) || el.disabled || !el.getClientRects().length) return false;
+  el.focus({ preventScroll: true });
+  return document.activeElement === el;
+}
+// held: the control in focus. A blur that leaves it on the page (a click
+// elsewhere, Escape) lets it go; a redraw that removes it does not.
+let held = null;
+document.addEventListener("focusin", (e) => { held = { el: e.target, key: focusKey(e.target) }; });
+document.addEventListener("focusout", (e) => {
+  const el = e.target;
+  queueMicrotask(() => { if (held?.el === el && live(el) && document.activeElement !== el) held = null; });
+});
+new MutationObserver(() => {
+  if (!held || live(held.el)) return;
+  const a = document.activeElement;
+  if (a && a !== document.body && a !== held.el) { held = null; return; }
+  // Gone for good (a removed file, a setting the new model has not): a
+  // second after it went, the focus is not pulled back to its like from
+  // wherever the person is by then.
+  held.gone ??= performance.now();
+  if (performance.now() - held.gone > 1000) { held = null; return; }
+  refocus(held.key);
+}).observe(document.documentElement, { childList: true, subtree: true });
+/* Focus across a redraw that a caller asks for, and a control found again
+   once a layer closes. A block drawn anew replaces the control a person
+   was on with the keyboard, and the browser puts the focus back at the start
+   of the page. markOf says how to find that control again: an option by its
+   group and value, else its id or key, else its kind and name under the
+   nearest block with one. A button that now says something else is another
+   button, and gets no focus it did not have. Copies that are leaving or only
+   paint (aria-hidden) never count. */
+const q = (s) => `"${CSS.escape(s)}"`;
+export function markOf(el) {
+  if (!el?.isConnected || el === document.body || el === document.documentElement) return null;
+  const seg = el.parentElement;
+  if (el.dataset.v != null && seg?.dataset.seg) return { sel: `[data-seg=${q(seg.dataset.seg)}] > [data-v=${q(el.dataset.v)}]` };
+  if (el.id) return { sel: "#" + CSS.escape(el.id) };
+  if (el.dataset.k) return { sel: `[data-k=${q(el.dataset.k)}]` };
+  const up = el.parentElement?.closest("[data-k], [id]");
+  if (!up) return null;
+  let sig = el.localName;
+  if (el.classList[0]) sig += `.${CSS.escape(el.classList[0])}`;
+  const lab = el.getAttribute("aria-label");
+  if (lab) sig += `[aria-label=${q(lab)}]`;
+  return { up: up.id ? "#" + CSS.escape(up.id) : `[data-k=${q(up.dataset.k)}]`, sig, i: [...up.querySelectorAll(sig)].indexOf(el), text: lab ? null : el.textContent };
+}
+export function findMark(m) {
+  if (!m) return null;
+  if (m.sel) return $$(m.sel).find(live) || null;
+  const up = $$(m.up).find(live);
+  if (!up) return null;
+  const all = $$(m.sig, up).filter(live);
+  return (m.text != null ? all.find((el) => el.textContent === m.text) : all[m.i]) || null;
+}
+// keepFocus runs a redraw; a control that had the focus and was drawn anew
+// gets it back in its new form. Nested calls leave it to the outer one.
+let keeping = 0;
+export function keepFocus(fn) {
+  if (keeping) return fn();
+  const was = document.activeElement, m = markOf(was);
+  keeping++;
+  try { return fn(); } finally {
+    keeping--;
+    const now = document.activeElement;
+    if (m && !was.isConnected && (!now || now === document.body)) findMark(m)?.focus({ preventScroll: true });
+  }
+}
+
 export const isPhone = () => !matchMedia("(min-width: 960px)").matches;
+// A low window, a phone on its side or a page zoomed in, has no room for the composer as a dock at the
+// foot of the screen: there it stands in the page over the stage (html.flow, set by the composer).
+export const inFlow = () => document.documentElement.classList.contains("flow");
+export const docked = () => isPhone() && !inFlow();
 export const isWide = () => matchMedia("(min-width: 900px)").matches;
 export const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
@@ -69,6 +173,8 @@ const ICONS = {
   trash: "M7 1H13V3H18V5H2V3H7ZM4 6H16V19H4ZM6 8V17H8V8ZM12 8V17H14V8Z",
   expand: "M1 1H8V3H3V8H1ZM12 1H19V8H17V3H12ZM1 12H3V17H8V19H1ZM17 12H19V19H12V17H17Z",
   shrink: "M6 1H8V8H1V6H6ZM12 1H14V6H19V8H12ZM1 12H8V19H6V14H1ZM12 12H19V14H14V19H12Z",
+  dice: "M2 2H18V18H2ZM4 4V16H16V4ZM6 6H9V9H6ZM11 11H14V14H11Z",
+  without: "M1 3H19V17H1ZM3 5V15H17V5ZM5 9H15V11H5Z",
 };
 const NS = "http://www.w3.org/2000/svg";
 export function ic(name, cls) {

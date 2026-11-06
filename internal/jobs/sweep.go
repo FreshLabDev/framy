@@ -26,9 +26,14 @@ func (w *sweepWorker) Work(ctx context.Context, _ *river.Job[sweepArgs]) error {
 }
 
 // sweep ends what nobody else will:
-//   - drafts not confirmed within 10 minutes;
+//   - drafts left unconfirmed and unchanged for 10 minutes;
 //   - jobs River gave up on without working them, as it does with a job
 //     whose worker died on its last attempt.
+//
+// It runs on River's leader and ends the jobs of both stacks, so that one
+// stopped stack's job holds no slot of the free allowance. Its failures go
+// into this process's metrics only for its own stack's jobs: each process's
+// counters are its own stack's, and another's is in the log.
 func (q *Queue) sweep(ctx context.Context) (int64, error) {
 	var (
 		n      int64
@@ -38,7 +43,7 @@ func (q *Queue) sweep(ctx context.Context) (int64, error) {
 		failed = failed[:0]
 		tag, err := tx.Exec(ctx, `
 			UPDATE job SET status='cancelled', error_class='draft_expired', finished_at=now(), updated_at=now()
-			WHERE status='draft' AND created_at <= now() - make_interval(secs => $1)`, draftTTL.Seconds())
+			WHERE status='draft' AND updated_at <= now() - make_interval(secs => $1)`, draftTTL.Seconds())
 		if err != nil {
 			return err
 		}
@@ -50,29 +55,36 @@ func (q *Queue) sweep(ctx context.Context) (int64, error) {
 			FROM river_job r
 			WHERE r.id = j.river_job_id AND j.status IN ('queued', 'running')
 			  AND r.state IN ('completed', 'cancelled', 'discarded')
-			RETURNING j.id, j.user_id, j.error_class`)
+			RETURNING j.id, j.user_id, j.stack, j.error_class`)
 		if err != nil {
 			return err
 		}
-		people := map[int64]bool{}
+		// The leader sweeps both stacks; a slot that frees is its own stack's.
+		type person struct {
+			user  int64
+			stack string
+		}
+		people := map[person]bool{}
 		for rows.Next() {
 			var id, user int64
-			var class string
-			if err := rows.Scan(&id, &user, &class); err != nil {
+			var stack, class string
+			if err := rows.Scan(&id, &user, &stack, &class); err != nil {
 				rows.Close()
 				return err
 			}
-			q.log.Warn("job ended by the sweep; River gave up on it", "job", id)
-			failed = append(failed, class)
-			people[user] = true
+			q.log.Warn("job ended by the sweep; River gave up on it", "job", id, "stack", stack, "class", class)
+			if stack == q.cfg.Stack {
+				failed = append(failed, class)
+			}
+			people[person{user, stack}] = true
 			n++
 		}
 		rows.Close()
 		if err := rows.Err(); err != nil {
 			return err
 		}
-		for user := range people {
-			if err := q.wake(ctx, tx, user); err != nil {
+		for p := range people {
+			if err := q.wake(ctx, tx, p.user, p.stack); err != nil {
 				return err
 			}
 		}
@@ -83,5 +95,32 @@ func (q *Queue) sweep(ctx context.Context) (int64, error) {
 			metrics.JobFailures.Inc(class)
 		}
 	}
+	return n, err
+}
+
+// ClearDrafts clears the drafts that ended without running, as a deleted
+// job is cleared: the prompt, the settings and the chat go, and so do their
+// rows of job_input, so the sweep of uploads no job took
+// (storage.Store.SweepUploads) deletes the files only they took next.
+// Nobody can come back to such a draft: Generate refuses it, and its
+// preview is gone. A draft whose preview the chat has not closed yet waits
+// for it, up to two days, after which Telegram would not let the bot delete
+// the preview anyway. It returns how many drafts it cleared.
+func (q *Queue) ClearDrafts(ctx context.Context) (int64, error) {
+	var n int64
+	err := q.pool.QueryRow(ctx, `
+		WITH cleared AS (
+			UPDATE job j SET deleted_at = now(), prompt = '', settings = '{}', error = NULL, grounding = NULL,
+			       chat_id = NULL, message_id = NULL, updated_at = now()
+			WHERE j.status = 'cancelled' AND j.queued_at IS NULL AND j.deleted_at IS NULL
+			  AND (j.finished_at <= now() - interval '2 days' OR NOT EXISTS (
+			    SELECT 1 FROM chat_run r WHERE r.job_id = j.id AND r.stage IN ('preview', 'generating')))
+			RETURNING j.id
+		), inputs AS (
+			DELETE FROM job_input WHERE job_id IN (SELECT id FROM cleared)
+		), runs AS (
+			DELETE FROM chat_run WHERE job_id IN (SELECT id FROM cleared)
+		)
+		SELECT count(*) FROM cleared`).Scan(&n)
 	return n, err
 }

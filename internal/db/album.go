@@ -7,8 +7,10 @@ import (
 	"time"
 )
 
-// The kinds of an album item. A live photo is a photo; a document is kept
-// only when it is an image or a video.
+// The kinds of an album item: what /img can take of it. A photo is a still
+// picture: a photo, a live photo's still frame, or an image sent as a file.
+// A document is a video sent as a file; any other file is not kept. Before
+// 5 November 2026 an image sent as a file was kept as a document too.
 const (
 	AlbumPhoto    = "photo"
 	AlbumVideo    = "video"

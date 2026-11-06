@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/FreshLabDev/tg"
 
@@ -166,5 +167,106 @@ func TestLanguageGoesThroughCore(t *testing.T) {
 	}
 	if got, err := store.ChatLang(ctx, -1001); err != nil || got != "" {
 		t.Fatalf("after Automatic: %q, %v", got, err)
+	}
+}
+
+// A process's connections carry its name, so production and the test bot
+// are told apart in pg_stat_activity, and a statement or a transaction left
+// open has an end. DATABASE_URL may say otherwise.
+func TestConnectNamesAndBoundsItsConnections(t *testing.T) {
+	testStore(t)
+	ctx := context.Background()
+	raw := os.Getenv("FRAMY_TEST_DATABASE_URL")
+	show := func(s *Store, name string) string {
+		t.Helper()
+		var v string
+		if err := s.pool.QueryRow(ctx, `SELECT current_setting($1)`, name).Scan(&v); err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	test, err := Connect(ctx, raw, WithStack("test"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer test.Close()
+	for name, want := range map[string]string{
+		"application_name": "framy-test", "statement_timeout": "30s", "idle_in_transaction_session_timeout": "10min", "search_path": "framy",
+	} {
+		if got := show(test, name); got != want {
+			t.Errorf("%s = %q, want %q", name, got, want)
+		}
+	}
+	if c := test.pool.Config(); c.MaxConns != 8 || c.MaxConnIdleTime != 5*time.Minute {
+		t.Errorf("pool: %d connections, idle %s", c.MaxConns, c.MaxConnIdleTime)
+	}
+
+	prod, err := Connect(ctx, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer prod.Close()
+	if got := show(prod, "application_name"); got != "framy" {
+		t.Errorf("production's connections are %q", got)
+	}
+
+	sep := "?"
+	if strings.Contains(raw, "?") {
+		sep = "&"
+	}
+	own, err := Connect(ctx, raw+sep+"statement_timeout=5000&pool_max_conns=3&application_name=framy-debug")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer own.Close()
+	if got := show(own, "statement_timeout"); got != "5s" {
+		t.Errorf("the URL's statement_timeout gave %q", got)
+	}
+	if got := show(own, "application_name"); got != "framy-debug" {
+		t.Errorf("the URL's application_name gave %q", got)
+	}
+	if c := own.pool.Config(); c.MaxConns != 3 {
+		t.Errorf("the URL's pool_max_conns gave %d", c.MaxConns)
+	}
+}
+
+// The wait for another process's migrations outlasts the statement timeout,
+// which is back on the connection afterwards.
+func TestMigrateWaitsForTheLockPastTheStatementTimeout(t *testing.T) {
+	testStore(t)
+	ctx := context.Background()
+	raw := os.Getenv("FRAMY_TEST_DATABASE_URL")
+	sep := "?"
+	if strings.Contains(raw, "?") {
+		sep = "&"
+	}
+	store, err := Connect(ctx, raw+sep+"statement_timeout=500&pool_max_conns=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	other, err := Connect(ctx, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	holder, err := other.pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := holder.Exec(ctx, `SELECT pg_advisory_lock($1)`, migrationLockKey); err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		time.Sleep(1500 * time.Millisecond)
+		_, _ = holder.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, migrationLockKey)
+		holder.Release()
+	}()
+	if err := store.Migrate(ctx, migrations.FS); err != nil {
+		t.Fatalf("migrate behind another's lock: %v", err)
+	}
+	var v string
+	if err := store.pool.QueryRow(ctx, `SELECT current_setting('statement_timeout')`).Scan(&v); err != nil || v != "500ms" {
+		t.Errorf("after the migrations the statement timeout is %q: %v", v, err)
 	}
 }

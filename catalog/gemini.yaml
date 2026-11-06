@@ -15,7 +15,8 @@
 #
 # Settings every image model shares: output_format is response_format's
 # mime_type, PNG when absent; media_resolution is how finely Gemini reads the
-# attached pictures and videos, sent on each of them. google_search grounds
+# attached pictures and videos, sent on each of them. ultra_high is for
+# pictures only, so a video goes with high then. google_search grounds
 # the picture in Google Search, image_search in Google Image Search, and a
 # run with either brings Google's search suggestions, which framy keeps with
 # the job and must show beside the result (docs/design.md, Search grounding).
@@ -23,7 +24,8 @@
 # prompt, which goes inline; the overlay says how many.
 #
 # Not described: gemini-2.5-flash-image, which is on Google's deprecation
-# page, and the *-preview ids, shut down on 25 June 2026.
+# page and shuts down on 15 March 2027, and the preview ids Google shut down
+# on 25 June 2026.
 
 provider: gemini
 
@@ -41,7 +43,8 @@ models:
       n: {type: range, min: 1, max: 1}
       # Up to 10 objects and 4 characters.
       input_references: {type: range, min: 0, max: 14}
-      thinking_level: {type: enum, values: [minimal, medium, high]}
+      # Google's own level when the field is left out is medium.
+      thinking_level: {type: enum, values: [minimal, medium, high], default: medium}
       google_search: {type: boolean}
       image_search: {type: boolean}
       output_format: {type: enum, values: [png, jpeg]}
@@ -65,7 +68,7 @@ models:
         values: ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9", "1:4", "4:1", "1:8", "8:1"]
       n: {type: range, min: 1, max: 1}
       input_references: {type: range, min: 0, max: 14}
-      thinking_level: {type: enum, values: [minimal, high]}
+      thinking_level: {type: enum, values: [minimal, high], default: minimal}
       google_search: {type: boolean}
       image_search: {type: boolean}
       output_format: {type: enum, values: [png, jpeg]}
@@ -89,7 +92,7 @@ models:
         values: ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9", "1:4", "4:1", "1:8", "8:1"]
       n: {type: range, min: 1, max: 1}
       input_references: {type: range, min: 0, max: 14}
-      thinking_level: {type: enum, values: [minimal, high]}
+      thinking_level: {type: enum, values: [minimal, high], default: minimal}
       # Lite has no search grounding.
       output_format: {type: enum, values: [png, jpeg]}
       media_resolution: {type: enum, values: [low, medium, high, ultra_high]}

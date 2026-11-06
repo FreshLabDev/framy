@@ -100,6 +100,38 @@ func TestACommandCarryingAKeyShowsNoPanel(t *testing.T) {
 	}
 }
 
+// The answer opens the settings at the provider the key looks like it is
+// for, where it belongs: the Mini App's, signed in. A key of a provider framy
+// takes none of opens them at the top.
+func TestTheAnswerOpensTheSettingsAtTheKey(t *testing.T) {
+	for _, tc := range []struct{ key, url, label string }{
+		{openRouterKey, testSite + "/?settings=openrouter", "Connect OpenRouter"},
+		{geminiKey, testSite + "/?settings=gemini", "Connect AI Studio"},
+		{"sk-ant-api03-" + strings.Repeat("Ab1_", 10), testSite + "/?settings=", "Open framy"},
+	} {
+		b, _, client := newBotWith(WithSiteURL(testSite))
+		if err := b.onMessage(context.Background(), message(dmChat, 7, tc.key)); err != nil {
+			t.Fatal(err)
+		}
+		got := client.last()
+		if got.markup == nil || len(got.markup.InlineKeyboard) != 1 || len(got.markup.InlineKeyboard[0]) != 1 {
+			t.Errorf("%s: markup %+v", tc.label, got.markup)
+			continue
+		}
+		if b := got.markup.InlineKeyboard[0][0]; b.WebApp == nil || b.WebApp.URL != tc.url || b.Text != tc.label {
+			t.Errorf("%s: button %+v", tc.label, b)
+		}
+	}
+	// Without a site there is nowhere to send the person: the text says it.
+	b, _, client := newBot()
+	if err := b.onMessage(context.Background(), message(dmChat, 7, openAIKey)); err != nil {
+		t.Fatal(err)
+	}
+	if got := client.last(); got.markup != nil {
+		t.Errorf("no site: markup %+v", got.markup)
+	}
+}
+
 func TestTheAnswerIsInThePersonsLanguage(t *testing.T) {
 	for _, lang := range i18n.Codes() {
 		b, store, client := newBot()

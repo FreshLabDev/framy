@@ -146,6 +146,16 @@ func mustQuery(t *testing.T, raw string) url.Values {
 	return u.Query()
 }
 
+// The address the rate limit of the two routes sends a browser to is the
+// one the frontend reads a result from.
+func TestResultURLIsWhatTheSiteReads(t *testing.T) {
+	h := newHarness(t)
+	c := h.newConnector(Config{})
+	if got := c.ResultURL(Unavailable); got != "/?connect=openrouter&result=unavailable" {
+		t.Errorf("ResultURL(Unavailable) = %q", got)
+	}
+}
+
 func TestStartForNobodyGoesToSignInAndBack(t *testing.T) {
 	h := newHarness(t)
 	rr := h.browser(0).get(StartPath)
@@ -297,6 +307,9 @@ func withState(t *testing.T, target, state string) string {
 	return u.RequestURI()
 }
 
+// A callback with a state other than the cookie's answers a flow this
+// browser no longer holds, or none at all: it is refused, and it leaves the
+// cookie's flow to its own callback, which still connects.
 func TestAWrongStateIsRefused(t *testing.T) {
 	stranger, err := randomToken()
 	if err != nil {
@@ -304,7 +317,6 @@ func TestAWrongStateIsRefused(t *testing.T) {
 	}
 	for name, wrong := range map[string]func(right string) string{
 		"another state": func(string) string { return stranger },
-		"no state":      func(string) string { return "" },
 		"the last character": func(right string) string {
 			return right[:len(right)-1] + map[bool]string{true: "B", false: "A"}[strings.HasSuffix(right, "A")]
 		},
@@ -316,12 +328,33 @@ func TestAWrongStateIsRefused(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			refusal(t, Expired, func(h *harness, b *browser, target string) (*browser, string) {
-				right, _ := callbackParams(t, target)
-				return b, withState(t, target, wrong(right))
-			})
+			h := newHarness(t)
+			b := h.browser(ann)
+			target := b.approve(b.start())
+			right, code := callbackParams(t, target)
+			if got := b.callback(withState(t, target, wrong(right))); got != Expired {
+				t.Fatalf("result %q, want %q", got, Expired)
+			}
+			if got := h.keys.saved(); len(got) != 0 {
+				t.Errorf("saved %+v", got)
+			}
+			if _, exchanges, _ := h.or.counts(); exchanges != 0 {
+				t.Errorf("OpenRouter was asked to exchange %d times", exchanges)
+			}
+			if b.jar[cookieName] != right || h.store.count() != 1 {
+				t.Fatal("the cookie's flow went with a callback of another")
+			}
+			h.assertNoSecrets(code, h.store.peek(t, right).Verifier)
+			if got := b.callback(target); got != Connected {
+				t.Fatalf("the flow's own callback after: %q", got)
+			}
 		})
 	}
+	// A code without a state is the cookie's flow answered wrongly: it is
+	// spent.
+	refusal(t, Expired, func(h *harness, b *browser, target string) (*browser, string) {
+		return b, withState(t, target, "")
+	})
 }
 
 func TestAStateWithoutTheCookieIsRefused(t *testing.T) {
@@ -333,13 +366,25 @@ func TestAStateWithoutTheCookieIsRefused(t *testing.T) {
 	})
 }
 
+// A browser whose cookie is of another state, one it made up or one of its
+// own flow, opens the person's callback: nothing is exchanged, and the
+// person's flow is still theirs to finish.
 func TestACookieOfAnUnknownStateIsRefused(t *testing.T) {
-	refusal(t, Expired, func(h *harness, b *browser, target string) (*browser, string) {
-		stranger := h.browser(ann)
-		forged, _ := randomToken()
-		stranger.jar[cookieName] = forged
-		return stranger, target
-	})
+	h := newHarness(t)
+	b := h.browser(ann)
+	target := b.approve(b.start())
+	stranger := h.browser(ann)
+	forged, _ := randomToken()
+	stranger.jar[cookieName] = forged
+	if got := stranger.callback(target); got != Expired {
+		t.Fatalf("result %q, want %q", got, Expired)
+	}
+	if _, exchanges, _ := h.or.counts(); exchanges != 0 || len(h.keys.saved()) != 0 {
+		t.Fatalf("%d exchanges, %d keys saved", exchanges, len(h.keys.saved()))
+	}
+	if got := b.callback(target); got != Connected {
+		t.Fatalf("the person's own callback after: %q", got)
+	}
 }
 
 func TestTheStateOfAnotherPersonIsRefused(t *testing.T) {
@@ -422,25 +467,38 @@ func TestAFlowExpiresAfterTenMinutes(t *testing.T) {
 	}
 }
 
+// Two tabs: the second start replaces the first flow and the cookie. The
+// first tab's callback is Expired, and leaves the second's flow to finish,
+// in either order.
 func TestStartingAgainReplacesTheEarlierFlow(t *testing.T) {
-	h := newHarness(t)
-	b := h.browser(ann)
-	first := b.approve(b.start())
-	// The cookie of the first start is overwritten by the second.
-	second := b.approve(b.start())
-	if h.store.count() != 1 {
-		t.Fatalf("%d flows for one person", h.store.count())
-	}
-	if got := b.callback(first); got != Expired {
-		t.Errorf("the replaced flow: %q", got)
-	}
-	// The mismatch spent the new flow too: a stale tab costs a restart, and
-	// never a key. Starting once more works.
-	if got := b.callback(second); got != Expired {
-		t.Errorf("the second flow after the first was refused: %q", got)
-	}
-	if got, _ := b.connect(); got != Connected {
-		t.Errorf("a fresh start: %q", got)
+	for _, order := range []string{"the old tab first", "the new tab first"} {
+		t.Run(order, func(t *testing.T) {
+			h := newHarness(t)
+			b := h.browser(ann)
+			first := b.approve(b.start())
+			second := b.approve(b.start())
+			if h.store.count() != 1 {
+				t.Fatalf("%d flows for one person", h.store.count())
+			}
+			if order == "the new tab first" {
+				if got := b.callback(second); got != Connected {
+					t.Fatalf("the new flow: %q", got)
+				}
+				if got := b.callback(first); got != Expired {
+					t.Fatalf("the replaced flow: %q", got)
+				}
+			} else {
+				if got := b.callback(first); got != Expired {
+					t.Fatalf("the replaced flow: %q", got)
+				}
+				if got := b.callback(second); got != Connected {
+					t.Fatalf("the new flow after the old tab's callback: %q", got)
+				}
+			}
+			if got := len(h.keys.saved()); got != 1 {
+				t.Errorf("saved %d keys", got)
+			}
+		})
 	}
 }
 
@@ -471,6 +529,45 @@ func TestACancelledAuthorizationEndsWithoutAnExchange(t *testing.T) {
 			}
 			h.assertNoSecrets("a+secret+words", "a secret words")
 		})
+	}
+}
+
+// OpenRouter does not send the state back when the person denies access
+// (its OAuth guide, the state parameter of /auth), so a cancel comes without
+// one. It is still a cancel, not a connect that expired: an answer without a
+// code saves nothing, and the cookie and the person are checked as ever.
+func TestACancelWithoutTheStateIsACancel(t *testing.T) {
+	for name, tc := range map[string]struct {
+		query string
+		wait  time.Duration
+		want  Result
+	}{
+		"access denied":        {query: "?error=access_denied", want: Cancelled},
+		"nothing at all":       {query: "", want: Cancelled},
+		"another error":        {query: "?error=server_error", want: Refused},
+		"after ten minutes":    {query: "?error=access_denied", wait: time.Hour, want: Cancelled},
+		"a code with no state": {query: "?code=or-code-x", want: Expired},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			b := h.browser(ann)
+			b.start()
+			h.clock.Advance(tc.wait)
+			if got := b.callback(CallbackPath + tc.query); got != tc.want {
+				t.Fatalf("result %q, want %q", got, tc.want)
+			}
+			if _, exchanges, _ := h.or.counts(); exchanges != 0 {
+				t.Error("OpenRouter was asked to exchange")
+			}
+			if h.store.count() != 0 || len(h.keys.saved()) != 0 {
+				t.Error("the flow outlived the callback, or a key was saved")
+			}
+		})
+	}
+	// Without the cookie of a flow it is no cancel of anyone's: nothing to end.
+	h := newHarness(t)
+	if got := h.browser(ann).callback(CallbackPath + "?error=access_denied"); got != Expired {
+		t.Errorf("a cancel in a browser that started nothing: %q", got)
 	}
 }
 

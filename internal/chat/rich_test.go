@@ -174,7 +174,8 @@ func TestAModelTheRunCannotTakeIsRefused(t *testing.T) {
 }
 
 // A setting is picked by its name, and the card comes back with the
-// settings open, the pick marked and in their title.
+// settings open, the pick marked and in their title. A button sent before
+// the values were hashed, which numbers the value, still works.
 func TestASettingPickKeepsTheSettingsOpen(t *testing.T) {
 	h := panelHarness(t)
 	if err := h.press(1, 7, pick("google/nano-banana-pro")); err != nil {
@@ -193,14 +194,14 @@ func TestASettingPickKeepsTheSettingsOpen(t *testing.T) {
 		t.Fatalf("calls = %+v", h.tg.calls)
 	}
 	body := edits[0].text
-	if !strings.Contains(body, "<details open><summary>Settings: <b>Auto · 2K · ×1</b></summary>") ||
-		!strings.Contains(body, `<tg-button type="callback_data" style="primary" data="j:1:Sresolution.1">2K</tg-button>`) {
+	if !strings.Contains(body, "<details open><summary>Settings: <b>Auto · 2K</b></summary>") ||
+		!strings.Contains(body, `<tg-button type="callback_data" style="primary" data="j:1:Sresolution#`+valueHash("2K")+`">2K</tg-button>`) {
 		t.Fatalf("preview = %s", body)
 	}
 	// The same value again changes nothing.
 	h.tg.reset()
 	revised := len(h.queue.revised)
-	if err := h.press(1, 7, actPickSetting+"resolution.1"); err != nil {
+	if err := h.press(1, 7, actPickSetting+"resolution#"+valueHash("2K")); err != nil {
 		t.Fatal(err)
 	}
 	if len(h.queue.revised) != revised || len(h.tg.calls) != 0 {
@@ -208,9 +209,50 @@ func TestASettingPickKeepsTheSettingsOpen(t *testing.T) {
 	}
 }
 
+// A setting's button means the value it showed: the hourly sync may put a
+// new value before it while the preview is up, and the press still picks
+// it, not its new neighbour. One the model no longer has changes nothing,
+// and the settings come back as they are now, with a line saying so.
+func TestASettingPressMeansTheValueItShowed(t *testing.T) {
+	h := panelHarness(t)
+	if err := h.press(1, 7, pick("google/nano-banana-pro")); err != nil {
+		t.Fatal(err)
+	}
+	wide := actPickSetting + "aspect_ratio#" + valueHash("16:9")
+	if body := h.tg.methods("editMessageRich")[0].text; !strings.Contains(body, `data="j:1:`+wide+`">16:9<`) {
+		t.Fatalf("preview = %s", body)
+	}
+	// Both offers of the model share these parameters.
+	h.store.models[0].Offers[0].Params["aspect_ratio"] = catalog.Param{Type: catalog.Enum, Values: []any{"auto", "1:1", "21:9", "16:9", "9:16"}}
+	h.tg.reset()
+	if err := h.press(1, 7, wide); err != nil {
+		t.Fatal(err)
+	}
+	if n := h.queue.revised[len(h.queue.revised)-1]; n.Settings["aspect_ratio"] != "16:9" {
+		t.Fatalf("revision = %+v", n.Settings)
+	}
+	h.tg.reset()
+	revised := len(h.queue.revised)
+	if err := h.press(1, 7, actPickSetting+"aspect_ratio#"+valueHash("4:3")); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.queue.revised) != revised {
+		t.Fatalf("revised: %+v", h.queue.revised[revised:])
+	}
+	edits := h.tg.methods("editMessageRich")
+	if len(edits) != 1 || !strings.Contains(edits[0].text, "<details open><summary>Settings: <b>16:9 · 1K</b></summary>") ||
+		!strings.Contains(edits[0].text, ">21:9<") || strings.Contains(edits[0].text, ">4:3<") {
+		t.Fatalf("calls = %+v", h.tg.calls)
+	}
+	if !reflect.DeepEqual(h.tg.answers, []string{i18n.T("en", "run.setting_gone")}) {
+		t.Fatalf("answers = %q", h.tg.answers)
+	}
+}
+
 // The settings are the composer's first ones: a size only where there is
-// neither an aspect ratio nor a resolution, the counts up to four, a long
-// list of lengths cut to the round ones, and sound as two words.
+// neither an aspect ratio nor a resolution, the counts up to four where
+// results may be several, a long list of lengths cut to the round ones,
+// and sound as two words.
 func TestTheSettingsAreTheComposers(t *testing.T) {
 	image := catalog.Offer{Kind: catalog.Image, Params: map[string]catalog.Param{
 		"aspect_ratio": {Type: catalog.Enum, Values: []any{"1:1", "16:9"}},
@@ -228,11 +270,24 @@ func TestTheSettingsAreTheComposers(t *testing.T) {
 		}
 		return out
 	}
-	if got := names(settingsOf(image)); !reflect.DeepEqual(got, []string{"aspect_ratio", "quality", "background", "n"}) {
+	sets := settingsOf(image, true)
+	if got := names(sets); !reflect.DeepEqual(got, []string{"aspect_ratio", "quality", "background", "n"}) {
 		t.Fatalf("settings = %v", got)
 	}
+	if !reflect.DeepEqual(sets[3].values, []any{1, 2, 3, 4}) {
+		t.Fatalf("counts = %v", sets[3].values)
+	}
+	// One result is the rule where they may not be several.
+	if got := names(settingsOf(image, false)); !reflect.DeepEqual(got, []string{"aspect_ratio", "quality", "background"}) {
+		t.Fatalf("settings = %v", got)
+	}
+	// An upstream of OpenRouter that makes two at once makes the counts two.
+	image.Routes = []catalog.Route{{Provider: "a", Params: map[string]catalog.Param{"n": {Type: catalog.Range, Max: num(2)}}}}
+	if sets := settingsOf(image, true); !reflect.DeepEqual(sets[3].values, []any{1, 2}) {
+		t.Fatalf("counts = %v", sets[3].values)
+	}
 	delete(image.Params, "aspect_ratio")
-	if got := names(settingsOf(image)); got[len(got)-1] != "size" {
+	if got := names(settingsOf(image, true)); got[len(got)-1] != "size" {
 		t.Fatalf("settings = %v", got)
 	}
 
@@ -245,7 +300,7 @@ func TestTheSettingsAreTheComposers(t *testing.T) {
 		"generate_audio": {Type: catalog.Boolean},
 		"size":           {Type: catalog.Enum, Values: []any{"1280x720", "720x1280"}},
 	}}
-	sets := settingsOf(video)
+	sets = settingsOf(video, true)
 	if got := names(sets); !reflect.DeepEqual(got, []string{"duration", "generate_audio"}) {
 		t.Fatalf("settings = %v", got)
 	}
@@ -255,7 +310,7 @@ func TestTheSettingsAreTheComposers(t *testing.T) {
 	d := draft{pay: payKey, offer: video, settings: map[string]any{"duration": 10, "generate_audio": true}}
 	body := richSettings("en", 1, d, false)
 	if !strings.HasPrefix(body, "<details><summary>Settings: <b>"+i18n.T("en", "web.unit.s", "n", "10")+" · "+i18n.T("en", "web.val.with_sound")+"</b></summary>") ||
-		!strings.Contains(body, `data="j:1:Sgenerate_audio.0">`+i18n.T("en", "web.val.no_sound")+"<") {
+		!strings.Contains(body, `data="j:1:Sgenerate_audio#`+valueHash(false)+`">`+i18n.T("en", "web.val.no_sound")+"<") {
 		t.Fatalf("settings = %s", body)
 	}
 	// A free run has its settings fixed.
@@ -280,6 +335,37 @@ func TestGenerateSaysWhatTheRunCosts(t *testing.T) {
 	d.pay = payFree
 	if got := richKeyboard("en", 1, d).InlineKeyboard[0][0].Text; got != i18n.T("en", "run.generate") {
 		t.Fatalf("generate = %q", got)
+	}
+}
+
+// The local price says what the dollars say: a ceiling or a floor stays
+// one in hryvnias, and only an exact price in dollars is "about" in them.
+// The buttons show the local figure alone, so it must carry the bound.
+func TestTheLocalPriceKeepsTheDollarsSign(t *testing.T) {
+	q := fx.Quote{Code: "UAH", PerUSD: 41.5}
+	for _, c := range []struct {
+		e          price.Estimate
+		usd, local string
+	}{
+		{price.Estimate{Kind: price.Exact, USD: 0.18}, "", "≈ "},
+		{price.Estimate{Kind: price.About, USD: 0.18}, "≈ ", "≈ "},
+		{price.Estimate{Kind: price.UpTo, USD: 0.05, MaxUSD: 0.18}, "≤ ", "≤ "},
+		{price.Estimate{Kind: price.From, USD: 0.18}, "≥ ", "≥ "},
+	} {
+		usd, local, code := cardPrice("uk", c.e, q)
+		if want := c.usd + fx.Format(0.18, fx.USD, "uk"); usd != want {
+			t.Errorf("%s: usd = %q, want %q", c.e.Kind, usd, want)
+		}
+		if want := c.local + fx.Format(0.18*41.5, "UAH", "uk"); local != want {
+			t.Errorf("%s: local = %q, want %q", c.e.Kind, local, want)
+		}
+		if want := c.local + fx.FormatCode(0.18*41.5, "UAH", "uk"); code != want {
+			t.Errorf("%s: code = %q, want %q", c.e.Kind, code, want)
+		}
+		d := draft{pay: payKey, offer: catalog.Offer{Kind: catalog.Image}, taken: 1, estimate: c.e, quote: q}
+		if got, want := richKeyboard("uk", 1, d).InlineKeyboard[0][0].Text, i18n.T("uk", "run.generate")+" · "+local; got != want {
+			t.Errorf("%s: generate = %q, want %q", c.e.Kind, got, want)
+		}
 	}
 }
 
@@ -347,11 +433,11 @@ func TestAVideoPicksItsModelAndSettings(t *testing.T) {
 		t.Fatalf("revision = %s, estimate %+v", settings, n.Estimate)
 	}
 	body := h.tg.methods("editMessageRich")[0].text
-	if !strings.Contains(body, "Settings: <b>") || !strings.Contains(body, `data="j:1:Sduration.1"`) {
+	if !strings.Contains(body, "Settings: <b>") || !strings.Contains(body, `data="j:1:Sduration#`+valueHash(10)+`"`) {
 		t.Fatalf("preview = %s", body)
 	}
 	h.tg.reset()
-	if err := h.press(1, 7, actPickSetting+"duration.1"); err != nil {
+	if err := h.press(1, 7, actPickSetting+"duration#"+valueHash(10)); err != nil {
 		t.Fatal(err)
 	}
 	settings, _ = json.Marshal(h.queue.revised[len(h.queue.revised)-1].Settings)

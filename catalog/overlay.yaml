@@ -57,21 +57,34 @@ tiers: [mini, lite, turbo, klein, fast, flash, flare, medium, std, flex, large, 
 recommend:
   image: [microsoft/mai-image-2.6-flash, google/gemini-nano-banana-2.1, openai/gpt-image-2.5-flare]
   many_photos: [black-forest-labs/flux-3-image-klein, google/gemini-nano-banana-2.1, openai/gpt-image-2.5-flare]
-  # Seedance 2.0 Mini replaced Veo 3.1 Fast, which Google is closing (owner, 28 October).
+  # Seedance 2.0 Mini replaced Veo 3.1 Fast (owner, 28 October), when Google
+  # seemed to be closing it. It is not: Vertex keeps it to May 2027 at least.
   video: [heygen/heygen-video-1, bytedance/seedance-2.0-mini, kwaivgi/kling-v3.0-pro]
   video_edit: [black-forest-labs/flux-video-edit, runway/aleph-2, bytedance/seedance-2.5]
 
+# A pattern is for a reason true of every id it can match, as a chat model
+# wrapped around GPT Image. A reason about particular models names them, so
+# it hides no model nobody has looked at, such as Google's next preview.
 hide:
-  - match: google/*-preview
+  - match: google/gemini-3-pro-image-preview
+    why: a preview id Google shut down on 25 June 2026; the released model is listed
+  - match: google/gemini-3.1-flash-image-preview
     why: a preview id Google shut down on 25 June 2026; the released model is listed
   - match: openai/gpt-5*-image*
     why: a chat model wrapped around GPT Image; the image models are listed themselves
   - match: openai/gpt-image-1*
-    why: OpenAI shut gpt-image-1 down on 23 October 2026 and closes gpt-image-1-mini on 1 December 2026
+    why: OpenAI shut gpt-image-1 down on 23 October 2026 and closes gpt-image-1-mini and gpt-image-1.5 on 1 December 2026
   - match: meta/muse-image
     why: listed on the Images API with no endpoint; runs only through chat completions
   - match: openrouter/auto*
     why: a router, not a model
+
+# Values left out of every model whose id matches, so a new version comes
+# without them too.
+exclude:
+  - match: openai/gpt-image-*
+    values: {quality: [auto], aspect_ratio: [auto]}
+    why: OpenAI decides the quality and the shape of an auto run, so its price is known only after it
 
 models:
   # Images.
@@ -81,23 +94,48 @@ models:
   # price.openai_input_patches: an input image takes a token a 32 px patch,
   # at most 1,536, by the count worked out on OpenAI's forum; a 1280×853
   # photo took 1,080 on the test bot.
+  #
+  # GPT Image 2.6 (4 November 2026) has 2.5's base and rates, and the
+  # calculator multiplies its tokens by 4.2 at low quality and 3.3 at
+  # medium: $0.025 and $0.043 for 1024×1024, where 2.5 costs $0.006 and
+  # $0.013. OpenAI says nothing of its input tokens, so they are 2.5's and
+  # the estimate stays "about". Its GIF output has no published price: left
+  # out. Not featured before a blind test, so the family still opens on 2.5,
+  # which stays current for its price.
+  openai/gpt-image-2.6-sunburst:
+    family: {id: gpt-image, gen: "2.6", tier: sunburst, label: 2.6 Sunburst}
+    offers: [openai:gpt-image-2.6-sunburst]
+    effort: {parameter: quality, values: [low, medium, high, xhigh, max]}
+    exclude: {output_format: [gif]}
+    price:
+      openai_tokens: {low: 16, medium: 24, high: 48, xhigh: 64, max: 96}
+      openai_token_factor: {low: 4.2, medium: 3.3}
+      openai_input_patches: 1536
+
+  openai/gpt-image-2.6-flare:
+    family: {id: gpt-image, gen: "2.6", tier: flare, label: 2.6 Flare}
+    offers: [openai:gpt-image-2.6-flare]
+    effort: {parameter: quality, values: [low, medium, high, xhigh, max]}
+    exclude: {output_format: [gif]}
+    price:
+      openai_tokens: {low: 16, medium: 24, high: 48, xhigh: 64, max: 96}
+      openai_token_factor: {low: 4.2, medium: 3.3}
+      openai_input_patches: 1536
+
   openai/gpt-image-2.5-sunburst:
-    family: {id: gpt-image, gen: "2.5", tier: sunburst, label: 2.5 Sunburst}
+    family: {id: gpt-image, gen: "2.5", tier: sunburst, label: 2.5 Sunburst, keep: "a quarter to a third of 2.6's price at low and medium quality, and OpenAI still sells it"}
     offers: [openai:gpt-image-2.5-sunburst]
     featured: true
     effort: {parameter: quality, values: [low, medium, high, xhigh, max]}
-    # Neither price can be known before the run.
-    exclude: {quality: [auto], aspect_ratio: [auto]}
     price:
       openai_tokens: {low: 16, medium: 24, high: 48, xhigh: 64, max: 96}
       openai_input_patches: 1536
 
   openai/gpt-image-2.5-flare:
-    family: {id: gpt-image, gen: "2.5", tier: flare, label: 2.5 Flare}
+    family: {id: gpt-image, gen: "2.5", tier: flare, label: 2.5 Flare, keep: "a quarter to a third of 2.6's price at low and medium quality, and OpenAI still sells it"}
     offers: [openai:gpt-image-2.5-flare]
     featured: true
     effort: {parameter: quality, values: [low, medium, high, xhigh, max]}
-    exclude: {quality: [auto], aspect_ratio: [auto]}
     price:
       openai_tokens: {low: 16, medium: 24, high: 48, xhigh: 64, max: 96}
       openai_input_patches: 1536
@@ -105,13 +143,20 @@ models:
   openai/gpt-image-2:
     family: {id: gpt-image, gen: "2", tier: std, label: "2"}
     offers: [openai:gpt-image-2]
-    exclude: {quality: [auto], aspect_ratio: [auto]}
     price:
       openai_tokens: {low: 16, medium: 48, high: 96}
       openai_input_patches: 1536
 
   # price.tokens of the Gemini models is Google's count of tokens per image,
-  # by resolution (docs/research/images.md, section 4.1).
+  # by resolution (docs/research/images.md, section 4.1). An input is counted
+  # by its Input detail (media_resolution, Google's media resolution guide):
+  # a picture takes 280, 560, 1120 or 2240 tokens from low to ultra_high, and
+  # 1120 at the default; a second of video takes a frame, 70 tokens up to
+  # medium and by default, 280 at high, and its sound 32 by Google's token
+  # guide (25 by the media resolution guide; the larger is kept).
+  # OpenRouter's Images API lists only the output of 2.1, 3.1 Flash and Lite,
+  # and no text: price.unlisted adds the prompt and completion rates of the
+  # model in OpenRouter's /api/v1/models, the same as Google's own.
   google/gemini-nano-banana-2.1:
     family: {id: nano-banana, gen: "2.1", tier: flash, label: "2.1"}
     offers: [gemini:gemini-nano-banana-2.1]
@@ -125,7 +170,14 @@ models:
     price:
       # The guide says 2,520 tokens at 4K; the pricing page, which bills,
       # says 3,780 ($0.113).
-      tokens: {output_image: {1K: 1120, 2K: 1680, 4K: 3780}}
+      tokens:
+        output_image: {1K: 1120, 2K: 1680, 4K: 3780}
+        input_image: {"*": 1120, low: 280, medium: 560, high: 1120, ultra_high: 2240}
+        input_video: {"*": 102, low: 102, medium: 102, high: 312, ultra_high: 312}
+      unlisted:
+        - {billable: input_text, unit: token, cost_usd: 0.0000015}
+        - {billable: input_image, unit: token, cost_usd: 0.0000015}
+        - {billable: output_text, unit: token, cost_usd: 0.0000075}
 
   # Deprecated on 6 October 2026 with no shutdown day.
   google/gemini-3.1-flash-image:
@@ -139,7 +191,14 @@ models:
     # tokens of the clip stay a few cents.
     references: {video: 1, video_clip: {max_seconds: 60, max_mb: 50}}
     price:
-      tokens: {output_image: {"512": 747, 1K: 1120, 2K: 1680, 4K: 2520}}
+      tokens:
+        output_image: {"512": 747, 1K: 1120, 2K: 1680, 4K: 2520}
+        input_image: {"*": 1120, low: 280, medium: 560, high: 1120, ultra_high: 2240}
+        input_video: {"*": 102, low: 102, medium: 102, high: 312, ultra_high: 312}
+      unlisted:
+        - {billable: input_text, unit: token, cost_usd: 0.0000005}
+        - {billable: input_image, unit: token, cost_usd: 0.0000005}
+        - {billable: output_text, unit: token, cost_usd: 0.000003}
 
   google/gemini-3.1-flash-lite-image:
     name: Nano Banana 2 Lite
@@ -151,7 +210,14 @@ models:
     # tokens of the clip stay a few cents.
     references: {video: 1, video_clip: {max_seconds: 60, max_mb: 50}}
     price:
-      tokens: {output_image: {1K: 1120}}
+      tokens:
+        output_image: {1K: 1120}
+        input_image: {"*": 1120, low: 280, medium: 560, high: 1120, ultra_high: 2240}
+        input_video: {"*": 102, low: 102, medium: 102, high: 312, ultra_high: 312}
+      unlisted:
+        - {billable: input_text, unit: token, cost_usd: 0.00000025}
+        - {billable: input_image, unit: token, cost_usd: 0.00000025}
+        - {billable: output_text, unit: token, cost_usd: 0.0000015}
 
   google/gemini-3-pro-image:
     name: Nano Banana Pro
@@ -161,10 +227,16 @@ models:
     price:
       tokens:
         output_image: {1K: 1120, 2K: 1120, 4K: 2000}
-        input_image: {"*": 560}
+        input_image: {"*": 1120, low: 280, medium: 560, high: 1120, ultra_high: 2240}
+      # OpenRouter lists the input pictures of Pro, but not the text.
+      unlisted:
+        - {billable: input_text, unit: token, cost_usd: 0.000002}
+        - {billable: output_text, unit: token, cost_usd: 0.000012}
 
+  # The Gemini API's deprecations page and Vertex agree (5 November 2026).
   google/gemini-2.5-flash-image:
-    hide: on Google's deprecation page, and its own pages disagree on the shutdown date
+    hide: on Google's deprecation page; it shuts down on 15 March 2027, with Nano Banana 2 Lite in its place
+    deprecated: {shuts_down: "2027-03-15", successor: google/gemini-3.1-flash-lite-image}
 
   # Microsoft publishes no token count. About 1,024 a 1024x1024 image is
   # Artificial Analysis's price per image divided by the rate, on all four
@@ -251,10 +323,15 @@ models:
     featured: true
 
   # ByteDance takes 10 references on 5.0 Pro and Flash; OpenRouter lists 14.
+  # OpenRouter bills Pro's high_resolution line above 2,360,000 output
+  # pixels (its pricing_json, output_tier_pixel_threshold). 1K is about one
+  # megapixel at every aspect ratio and 2K about four, so 2K is that line.
   bytedance-seed/seedream-5-0-pro:
     family: {id: seedream, gen: "5", tier: pro, label: 5.0 Pro}
     featured: true
     references: {image: 10}
+    price:
+      variants: {high_resolution: {resolution: 2K}}
 
   # Up to 20 references, which are not billed. Tencent's price table counts
   # 15,000 tokens an image at 1K and 2K and 20,000 at 4K; 1.5K lies between
@@ -285,11 +362,20 @@ models:
     price:
       from: the price grows with reasoning, resolution and the image's complexity
 
-  # Variants with nothing to add but their place in the picker.
+  # OpenRouter lists only the output of Max and Pro, but Black Forest Labs
+  # bills the references too, as the models' pages on OpenRouter say: "$0.03
+  # for each megapixel on the input" at Max, $0.015 at Pro. Flex lists its
+  # input line; Klein bills the output alone.
   black-forest-labs/flux.2-max:
     family: {id: flux, gen: "2", tier: max, label: 2 Max}
+    price:
+      unlisted: [{billable: input_image, unit: megapixel, cost_usd: 0.03}]
   black-forest-labs/flux.2-pro:
     family: {id: flux, gen: "2", tier: pro, label: 2 Pro}
+    price:
+      unlisted: [{billable: input_image, unit: megapixel, cost_usd: 0.015}]
+
+  # Variants with nothing to add but their place in the picker.
   black-forest-labs/flux.2-flex:
     family: {id: flux, gen: "2", tier: flex, label: 2 Flex}
   black-forest-labs/flux.2-klein-4b:
@@ -348,31 +434,34 @@ models:
   # of input for the model and the maker publishes the number. The rest
   # waits for a paid run.
 
-  # Google closed the Veo 3.1 ids of the Gemini API on 22 October 2026 and
-  # names Omni instead; the Vertex ids OpenRouter runs retire "17 November
-  # 2026 or later".
+  # Not deprecated: Google closed the Veo 3.1 ids of the Gemini API on 22
+  # October 2026, but OpenRouter runs Veo on Vertex, where 3.1 and 3.1 Fast
+  # are GA and retire "May 4, 2027 or later", a date Google says it never
+  # moves earlier, and Lite is a Preview with no date (Vertex model pages,
+  # 5 November 2026).
+  #
+  # With reference images Veo 3.1 and 3.1 Fast make 8 s only: "reference
+  # image to video only supports 8 seconds" (Vertex, 3.1), "Must be 8 when
+  # using reference images" (Gemini API, both).
 
   google/veo-3.1:
-    deprecated: {successor: google/gemini-omni-1.1-flash}
     family: {id: veo, gen: "3.1", tier: std, label: "3.1"}
     featured: true
-    references: {image: 3}
+    references: {image: 3, image_durations: [8]}
     faces: adults
     passthrough:
       negativePrompt: {type: text}
 
   google/veo-3.1-fast:
-    deprecated: {successor: google/gemini-omni-1.1-flash}
     family: {id: veo, gen: "3.1", tier: fast, label: 3.1 Fast}
     featured: true
-    references: {image: 3}
+    references: {image: 3, image_durations: [8]}
     faces: adults
     passthrough:
       negativePrompt: {type: text}
 
   # Lite takes no reference images.
   google/veo-3.1-lite:
-    deprecated: {successor: google/gemini-omni-1.1-flash}
     family: {id: veo, gen: "3.1", tier: lite, label: 3.1 Lite}
     featured: true
     faces: adults
@@ -499,9 +588,11 @@ models:
     passthrough:
       negative_prompt: {type: text}
 
+  # No reference images: OpenRouter runs 2.6 as text to video and image to
+  # video only (those are its SKUs, and the start frame its only picture),
+  # and Alibaba's reference mode of 2.6 takes videos.
   alibaba/wan-2.6:
     family: {id: wan, gen: "2.6", tier: std, label: "2.6"}
-    references: {image: 5}
     passthrough:
       negative_prompt: {type: text}
 
@@ -521,8 +612,12 @@ models:
   heygen/heygen-video-1:
     featured: true
     free: true
-    # OpenRouter's page: "Reference Image Input (after first 2)".
-    price: {free_images: 2}
+    # OpenRouter's page: "Reference Image Input (after first 2)", and the
+    # long_* SKUs are "Video Output (over 15 s)", marked as left out of the
+    # discount.
+    price:
+      free_images: 2
+      long: {after_seconds: 15, undiscounted: true}
     references:
       image: 9
       video: 3
@@ -579,9 +674,21 @@ models:
     free: true
     source_video: {required: true, min_seconds: 0.7, max_seconds: 15, max_mib: 50, keeps_length: true}
 
+  # BFL's flagship video, here for its note. It continues a clip at BFL
+  # (v2v, up to 15 s), and framy sends it none: OpenRouter prices a
+  # continuation and documents no field for the clip, and its rates run
+  # backwards, 41 cents a second at 720p against 31 at 2K
+  # (docs/research/makers.md).
+  black-forest-labs/flux-3-video: {}
+
   # A source up to 20 s, 50 MB and 2560x1440.
   black-forest-labs/flux-video-upscale:
     source_video: {required: true, max_seconds: 20, max_mib: 50, keeps_length: true}
+    # Black Forest Labs: creativity 0 is Precise, 1 is Creative.
+    price:
+      variants:
+        cents_per_megapixel_second_precise: {creativity: 0}
+        cents_per_megapixel_second_creative: {creativity: 1}
 
   heygen/avatar-iv:
     hide: a talking head from a photo and a voice; the composer takes no voice yet
@@ -618,8 +725,12 @@ models:
       audio_clip: {max_seconds: 15}
     # MiniMax and OpenRouter's page: the first 5 reference images are free.
     price: {free_images: 5}
+  # OpenRouter offers 2.3 at 1080p only, and lists 6 and 10 s. MiniMax
+  # makes 1080P at 6 s only and 10 s at 768P only (its API reference), so
+  # 10 s would fail or come back smaller at the 1080p price.
   minimax/hailuo-2.3:
     family: {id: hailuo, gen: "2.3", tier: std, label: "2.3"}
+    exclude: {duration: [10]}
   bytedance/seedance-1-5-pro:
     family: {id: seedance, gen: "1.5", tier: pro, label: 1.5 Pro}
     deprecated: {shuts_down: "2026-11-11", successor: bytedance/seedance-2.0-mini}

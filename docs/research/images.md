@@ -57,7 +57,7 @@ Interactions API [О]: `POST https://generativelanguage.googleapis.com/v1beta/in
 | `model` | `gemini-nano-banana-2.1`, `gemini-3.1-flash-image`, `gemini-3.1-flash-lite-image`, `gemini-3-pro-image`, `gemini-2.5-flash-image` |
 | `input` | строка или массив блоков `{"type":"text","text":...}`, `{"type":"image","mime_type":...,"data":<base64>}`, видео (`uri`) |
 | `response_format` | `{"type":"image","mime_type":"image/png"|"image/jpeg","aspect_ratio":"16:9","image_size":"2K"}`; text+image: массив `[{"type":"text"},{"type":"image"}]` |
-| `image_size` | `512px` (только 3.1 Flash Image), `1K`, `2K`, `4K`; заглавная K обязательна, "1k" отклоняется; по умолчанию 1K |
+| `image_size` | `512` (только 3.1 Flash Image), `1K`, `2K`, `4K`; заглавная K обязательна, "1k" отклоняется; по умолчанию 1K. Значения по справочнику Interactions API (https://ai.google.dev/api/interactions-api, `ImageResponseFormat.image_size`); "512px" в гайде только в тексте, примера кода с ним нет (5 ноября 2026). Подтвердит первый настоящий запуск на 512 |
 | `aspect_ratio` | по умолчанию как у входной картинки, иначе 1:1; значения в разделе 5 и 4.2 |
 | `generation_config.thinking_level` | `minimal`, `medium`, `high` у Nano Banana 2.1 (по умолчанию `medium`); `minimal`, `high` у 3.1 Flash Image и Lite (по умолчанию `minimal`) |
 | `tools` | `[{"type":"google_search"}]`, опционально `"search_types":["web_search","image_search"]` |
@@ -91,6 +91,7 @@ Images API [OR]: `POST https://openrouter.ai/api/v1/images`. Поля: `model`, 
 
 | Модель | Статус | Что умеет | Цена |
 |---|---|---|---|
+| `gpt-image-2.6-sunburst`, `gpt-image-2.6-flare` | актуальны, вышли 2026-11-04 | то же, что 2.5, плюс `complexity` (low, medium, high; по умолчанию high, без доплаты), правка по разметке, SVG и анимированный GIF только в generations | те же тарифы, что у 2.5, но токенов на low и medium больше (раздел 3.1) [О] |
 | `gpt-image-2.5-sunburst` | актуальна, снапшот 2026-09-08 | T2I, edit, до 16 референсов, маска, прозрачный фон, quality до `max`, n до 10, стрим | токены: вход картинок $8/М (кэш $2/М), выход $30/М, вход текста $5/М (кэш $1,25/М); batch выход $15/М [О] |
 | `gpt-image-2.5-flare` | актуальна, снапшот 2026-09-08 | то же, быстрая версия | те же тарифы [О] |
 | `gpt-image-2` | актуальна, снапшот 2026-04-21 | T2I, edit, 16 референсов, маска, quality low/medium/high, прозрачность в preview | те же тарифы [О] |
@@ -106,12 +107,17 @@ Images API [OR]: `POST https://openrouter.ai/api/v1/images`. Поля: `model`, 
 
 ```
 base = { gpt-image-2:   low 16, medium 48, high 96,
-         gpt-image-2.5: low 16, medium 24, high 48, xhigh 64, max 96 }
+         gpt-image-2.5: low 16, medium 24, high 48, xhigh 64, max 96,
+         gpt-image-2.6: как у 2.5 }
 i = max(w,h); a = min(w,h); o = base[model][quality]
 s = o / (i/a); u = round(s)   (ровно .5 округляется к чётному: l + l%2)
 d = (w>=h ? o : u) * (w>=h ? u : o)
 tokens = ceil( d * (2_000_000 + w*h) / 4_000_000 )
+у gpt-image-2.6: tokens = round(tokens * c[quality]),
+                 c = { low 4.2, medium 3.3, high 1, xhigh 1, max 1 }
 ```
+
+Множитель 2.6 взят из того же калькулятора (5 ноября 2026); страница гайда показывает для 2.6 low 1024x1024 823 токена и $0,02469, формула даёт столько же. Во framy это `openai_token_factor` в overlay. Про входные токены 2.6 OpenAI ничего не пишет, framy считает их как у 2.5.
 
 Цена выхода одной картинки, USD, без входных токенов [О, по формуле]:
 
@@ -121,6 +127,7 @@ tokens = ceil( d * (2_000_000 + w*h) / 4_000_000 )
 | 2.5: 1536x1024 или 1024x1536 | 0,0047 | 0,0103 | 0,0412 | 0,0738 | 0,1646 |
 | 2.5: 2048x2048 (2K) | 0,0119 | 0,0268 | 0,1070 | 0,1903 | 0,4282 |
 | 2.5: 3840x2160 (4K) | 0,0111 | 0,0260 | 0,1001 | 0,1779 | 0,4003 |
+| 2.6: 1024x1024 | 0,0247 (823) | 0,0435 (1449) | 0,0527 (1756) | 0,0937 (3122) | 0,2107 (7024) |
 | gpt-image-2: 1024x1024 | 0,0059 | 0,0527 | 0,2107 | - | - |
 | gpt-image-2: 2048x2048 | 0,0119 | 0,1070 | 0,4282 | - | - |
 
@@ -128,7 +135,7 @@ tokens = ceil( d * (2_000_000 + w*h) / 4_000_000 )
 - Уровень medium у 2.5 (439 токенов) в 4 раза дешевле medium у gpt-image-2 (1756). high у 2.5 стоит как medium у gpt-image-2, max у 2.5 как high у gpt-image-2.
 - Широкий формат иногда дешевле квадрата.
 - `quality=auto` и `size=auto` дают непредсказуемую цену: в интерфейсе запретить или показывать худший случай.
-- Входные токены считаются отдельно: текст $5/М (короткий промпт около $0,0005) и токены входных картинок $8/М при edit. Сколько токенов на одну входную картинку у gpt-image-2/2.5, OpenAI официально не публикует; точное число приходит в `usage.input_tokens_details.image_tokens`. Формулу вывели на форуме OpenAI (тема «OpenAI must document the input image pricing of gpt-image-2», апрель 2026) [В]: токен за патч 32 px, не больше 1536 патчей, картинка с длинной стороной меньше 1024 сначала увеличивается до 1024 (не больше чем вдвое), холст длиннее 3:1 считается как 3:1. Запуск на тестовом боте 30.10.2026 с ней совпал: gpt-image-2.5-flare, фото 1280x853 дало 1080 токенов. framy считает по ней (`openai_input_patches` в overlay).
+- Входные токены считаются отдельно: текст $5/М (короткий промпт около $0,0005) и токены входных картинок $8/М при edit. Сколько токенов на одну входную картинку у gpt-image-2/2.5, OpenAI официально не публикует; точное число приходит в `usage.input_tokens_details.image_tokens`. Формулу вывели на форуме OpenAI (тема «OpenAI must document the input image pricing of gpt-image-2», апрель 2026) [В]: токен за патч 32 px, не больше 1536 патчей, картинка с длинной стороной меньше 1024 сначала увеличивается до 1024 (не больше чем вдвое), холст длиннее 3:1 считается как 3:1. Запуск на тестовом боте 30.10.2026 с ней совпал: gpt-image-2.5-flare, фото 1280x853 дало 1080 токенов. framy считает по ней (`openai_input_patches` в overlay). Тот же запуск сходится и по счёту OpenRouter, до нано-доллара: 1080 токенов входной картинки ($0,00864), 158 токенов выхода 1536×1024 при low ($0,00474) и 25 токенов текста ($0,000125) дают $0,013505. Расхождение в 8%, которое видно, если считать выход квадратом (196 токенов), даёт не формула входа: без aspect_ratio модель сама оставила форму фото, а оценку сделали для 1024×1024. Теперь настройки всегда приходят с форматом (в OpenRouter у OpenAI нет `auto`), и оценка считает тот же выход, что будет отправлен.
 - Кэш входа ($2/М) работает только через Responses API, не через `/images/edits`.
 - Batch (`/v1/batch`) вдвое дешевле, для интерактива не подходит.
 
@@ -147,6 +154,7 @@ tokens = ceil( d * (2_000_000 + w*h) / 4_000_000 )
 - Токены на картинку: 1K = 1120, 2K = 1680, 4K = 2520 (3.1 Flash); у Pro 1K и 2K = 1120, 4K = 2000; 3.1 Flash 512px = 747.
 - Расхождение: для Nano Banana 2.1 гайд даёт 4K = 2520 токенов ($0,0756), страница цен пишет 3780 токенов и $0,113. Платить по странице цен: в UI $0,113.
 - Вход картинки: у Pro задокументировано 560 токенов ($0,0011 за картинку); у остальных не нашёл [?].
+  Уточнено 5 ноября по гайду Google о media resolution (aistudio.google.com/docs/media-resolution): у Gemini 3 и новее картинка стоит 280, 560, 1120 или 2240 токенов от `low` до `ultra_high`, по умолчанию 1120; 560 у Pro был уровень `medium`. Видео идёт кадр в секунду: 70 токенов до `medium` и по умолчанию, 280 на `high`; звук 32 токена в секунду по гайду о токенах (aistudio.google.com/docs/tokens: «около 100 в секунду» по умолчанию и «около 300» на high), а гайд о media resolution пишет 25: берём большее. Оценка framy берёт эти числа для всех четырёх Nano Banana.
 - Batch Google вдвое дешевле (1K у 2.1 $0,0168), но только в `generateContent`, срок до 24 часов.
 - Расхождение по `gemini-2.5-flash-image`: страница цен "выключат 2026-10-02", страница deprecations "2027-03-15". Новые проекты на неё не переводить.
 - Превью-ID (`gemini-3.1-flash-image-preview`, `gemini-3-pro-image-preview`) по deprecations выключены 2026-06-25; на OpenRouter висят дубли: не включать.
@@ -247,7 +255,7 @@ refs это диапазон `input_references` (0 = можно только т�
 | `bytedance-seed/seedream-4.5` | 0,04 при любом размере | 0 | n до 10 |
 | `bytedance-seed/seedream-5-0-flash` | 0,018 (1K и 2K) | 0 | |
 | `bytedance-seed/seedream-5-0-lite` | 0,035 (2K и 4K) | 0 | n до 4 |
-| `bytedance-seed/seedream-5-0-pro` | 0,045 по умолчанию, 0,09 (вариант `high_resolution`) | 0,003 за ref | какой размер = `high_resolution`, не раскрыто [?] |
+| `bytedance-seed/seedream-5-0-pro` | 0,045 по умолчанию, 0,09 (вариант `high_resolution`) | 0,003 за ref | `high_resolution` берётся выше 2 360 000 пикселей результата, то есть за 2K; 1K по базовой цене (`output_tier_pixel_threshold` в pricing_json на странице модели в OpenRouter, 5 ноября 2026) |
 | `krea/krea-2-medium-turbo` | 0,015 | - | со стилевыми референсами 0,0175, с мудбордами 0,02 |
 | `krea/krea-2-medium` | 0,03 | - | 0,035 / 0,04 |
 | `krea/krea-2-large` | 0,06 | - | 0,065 / 0,07 |

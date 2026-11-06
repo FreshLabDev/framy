@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -24,6 +25,8 @@ type fakeVideos struct {
 	hold   chan struct{}
 	asked  []videoCall
 	tokens int
+	// sizes are the clips' sizes links were asked for.
+	sizes []int64
 }
 
 // videoCall is one call of a Videos method, as it was asked.
@@ -35,9 +38,13 @@ type videoCall struct {
 	cut   *media.Cut
 }
 
-func (v *fakeVideos) VideoUpload(userID int64) (storage.VideoUpload, error) {
+func (v *fakeVideos) VideoUpload(userID, size int64) (storage.VideoUpload, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
+	v.sizes = append(v.sizes, size)
+	if size > 512<<20 {
+		return storage.VideoUpload{MaxBytes: 512 << 20}, storage.ErrTooBig
+	}
 	v.tokens++
 	token := fmt.Sprintf("%032x", v.tokens)
 	return storage.VideoUpload{
@@ -148,7 +155,7 @@ func waitClip(t *testing.T, r *rig, user int64, task string) (int, map[string]an
 
 func TestAClipIsPutByLinkAndTaken(t *testing.T) {
 	r, v := videoRig(t)
-	resp := r.post(alice, "/api/videos/uploads", "", "")
+	resp := r.post(alice, "/api/videos/uploads", "", `{"bytes":8000000}`)
 	up := jsonOf(t, resp)
 	token, _ := up["token"].(string)
 	if resp.StatusCode != http.StatusCreated || len(token) != 32 || up["max_bytes"] != float64(512<<20) || up["max_seconds"] != 60.0 {
@@ -276,8 +283,34 @@ func TestAClipRequestIsChecked(t *testing.T) {
 			t.Errorf("%s: %d %v", c.name, resp.StatusCode, m)
 		}
 	}
-	if resp := r.post(0, "/api/videos/uploads", "", ""); resp.StatusCode != http.StatusUnauthorized {
+	if resp := r.post(0, "/api/videos/uploads", "", `{"bytes":1}`); resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("an upload without a person: %d", resp.StatusCode)
+	}
+	// The link is made for the clip's size: one that names none, or a size
+	// over the limit, gets no link.
+	for _, c := range []struct {
+		body   string
+		status int
+		code   string
+	}{
+		{"", http.StatusBadRequest, "bad_request"},
+		{`{}`, http.StatusBadRequest, "bad_request"},
+		{`{"bytes":0}`, http.StatusBadRequest, "bad_request"},
+		{`{"bytes":-5}`, http.StatusBadRequest, "bad_request"},
+		{`{"bytes":"big"}`, http.StatusBadRequest, "bad_request"},
+		{`{"bytes":600000000}`, http.StatusRequestEntityTooLarge, "too_large"},
+	} {
+		resp := r.post(alice, "/api/videos/uploads", "", c.body)
+		m := jsonOf(t, resp)
+		if resp.StatusCode != c.status || m["error"] != c.code || (c.code == "too_large" && m["max_bytes"] != float64(512<<20)) {
+			t.Errorf("%s: %d %v", c.body, resp.StatusCode, m)
+		}
+	}
+	v.mu.Lock()
+	sizes := v.sizes
+	v.mu.Unlock()
+	if !slices.Equal(sizes, []int64{600000000}) {
+		t.Errorf("links asked for %v", sizes)
 	}
 	if n := len(v.calls()); n != 0 {
 		t.Errorf("a bad request reached the store %d times", n)

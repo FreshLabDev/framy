@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/FreshLabDev/framy/internal/catalog"
+	"github.com/FreshLabDev/framy/internal/free"
 	"github.com/FreshLabDev/framy/internal/jobs"
 	"github.com/FreshLabDev/framy/internal/price"
 )
@@ -34,8 +35,9 @@ type State struct {
 
 	ErrorClass jobs.Class
 	// Error is what the provider said, in its own words, or framy's line
-	// when it said nothing of its own.
+	// when it said nothing of its own; Said tells which.
 	Error   string
+	Said    bool
 	RetryAt *time.Time
 
 	EstimateUSD *float64
@@ -89,6 +91,9 @@ type Filter struct {
 	Kind catalog.Kind
 	// Query is a part of the prompt, any case; empty for every job.
 	Query string
+	// Failed keeps only the jobs that ended without a result: failed,
+	// cancelled or expired.
+	Failed bool
 	// Before is the id of the last job of the previous page, 0 for the
 	// first.
 	Before int64
@@ -102,8 +107,11 @@ type Result struct {
 	Bytes       int64
 	Width       int
 	Height      int
-	// Seconds is a clip's length, 0 for a picture and where it is not known.
+	// Seconds and FPS are a clip's length and frame rate, 0 for a picture
+	// and where they are not known. FPS is read for a job's inputs only,
+	// which the composer may cut and price again.
 	Seconds float64
+	FPS     float64
 	// Segments is where each part of a joined clip begins, in seconds from
 	// its start; nil for any other file, and for a clip joined before
 	// framy kept them.
@@ -117,9 +125,10 @@ type InputAsset struct {
 	Width       int
 	Height      int
 	Bytes       int64
-	// Seconds is a clip's length as ffprobe read it, 0 for a picture and
-	// where it is not known.
+	// Seconds and FPS are a clip's length and frame rate as ffprobe read
+	// them, 0 for a picture and where they are not known.
 	Seconds float64
+	FPS     float64
 }
 
 // ErrActive: the job is queued or running, or, for the account, some job is.
@@ -151,8 +160,9 @@ type data interface {
 	Remove(ctx context.Context, userID, id int64) error
 	// Active reports whether the person has a job queued or running.
 	Active(ctx context.Context, userID int64) (bool, error)
-	// Forget removes what framy keeps of the person, once their files are
-	// gone: ErrActive while a job is queued or running.
+	// Forget removes what framy keeps of the person but their files, which
+	// the deletion takes before and after it: ErrActive while a job is
+	// queued or running.
 	Forget(ctx context.Context, userID int64) error
 }
 
@@ -163,7 +173,7 @@ type pgData struct{ pool *pgxpool.Pool }
 const stateColumns = `id, event_seq, status, kind, offer_id, free, error_class, COALESCE(provider_message, error), retry_at,
 	estimate_usd::float8, estimate, actual_usd::float8,
 	currency, fx_rate::float8, fx_date, created_at, finished_at, grounding,
-	model_id, prompt, settings, surface, COALESCE(batch, ''), batch_frames`
+	model_id, prompt, settings, surface, COALESCE(batch, ''), batch_frames, provider_message IS NOT NULL`
 
 func scanState(row pgx.Row) (State, error) {
 	var (
@@ -180,7 +190,7 @@ func scanState(row pgx.Row) (State, error) {
 		&s.ID, &s.Seq, &s.Status, &s.Kind, &s.Offer, &s.Free, &errCls, &errText, &s.RetryAt,
 		&s.EstimateUSD, &estim, &s.ActualUSD,
 		&cur, &rate, &s.FXDate, &s.CreatedAt, &s.FinishedAt, &ground,
-		&s.Model, &s.Prompt, &settings, &s.Surface, &s.Batch, &s.BatchFrames)
+		&s.Model, &s.Prompt, &settings, &s.Surface, &s.Batch, &s.BatchFrames, &s.Said)
 	if err != nil {
 		return State{}, err
 	}
@@ -253,8 +263,9 @@ func (d pgData) List(ctx context.Context, userID int64, f Filter) ([]State, erro
 		  AND ($2 = '' OR kind = $2)
 		  AND ($3 = '' OR prompt ILIKE '%' || $3 || '%' ESCAPE '\')
 		  AND ($4 = 0 OR id < $4)
+		  AND (NOT $6 OR status IN ('failed', 'cancelled', 'expired'))
 		ORDER BY id DESC
-		LIMIT $5`, userID, string(f.Kind), likeEscape(f.Query), f.Before, f.Limit)
+		LIMIT $5`, userID, string(f.Kind), likeEscape(f.Query), f.Before, f.Limit, f.Failed)
 	if err != nil {
 		return nil, fmt.Errorf("read the history: %w", err)
 	}
@@ -293,10 +304,11 @@ func (d pgData) files(ctx context.Context, userID int64, states []State) error {
 			job int64
 			Result
 		}
-		return x, r.Scan(&x.job, &x.ID, &x.ContentType, &x.Bytes, &x.Width, &x.Height, &x.Seconds)
+		return x, r.Scan(&x.job, &x.ID, &x.ContentType, &x.Bytes, &x.Width, &x.Height, &x.Seconds, &x.FPS)
 	}
 	rows, err := d.pool.Query(ctx, `
-		SELECT i.job_id, a.id, a.content_type, a.bytes, COALESCE(a.width, 0), COALESCE(a.height, 0), COALESCE(a.seconds, 0)::float8
+		SELECT i.job_id, a.id, a.content_type, a.bytes, COALESCE(a.width, 0), COALESCE(a.height, 0), COALESCE(a.seconds, 0)::float8,
+		       COALESCE(a.fps, 0)::float8
 		FROM job_input i JOIN asset a ON a.id = i.asset_id AND a.user_id = $2
 		WHERE i.job_id = ANY($1)
 		ORDER BY i.job_id, i.position`, ids, userID)
@@ -365,7 +377,8 @@ func (d pgData) Inputs(ctx context.Context, userID int64, ids []int64) ([]InputA
 		return nil, nil
 	}
 	rows, err := d.pool.Query(ctx, `
-		SELECT u.id, a.content_type, COALESCE(a.width, 0), COALESCE(a.height, 0), a.bytes, COALESCE(a.seconds, 0)::float8
+		SELECT u.id, a.content_type, COALESCE(a.width, 0), COALESCE(a.height, 0), a.bytes, COALESCE(a.seconds, 0)::float8,
+		       COALESCE(a.fps, 0)::float8
 		FROM unnest($2::bigint[]) WITH ORDINALITY AS u(id, ord)
 		JOIN asset a ON a.id = u.id AND a.user_id = $1
 		ORDER BY u.ord`, userID, ids)
@@ -374,7 +387,7 @@ func (d pgData) Inputs(ctx context.Context, userID int64, ids []int64) ([]InputA
 	}
 	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (InputAsset, error) {
 		var x InputAsset
-		return x, r.Scan(&x.ID, &x.ContentType, &x.Width, &x.Height, &x.Bytes, &x.Seconds)
+		return x, r.Scan(&x.ID, &x.ContentType, &x.Width, &x.Height, &x.Bytes, &x.Seconds, &x.FPS)
 	})
 }
 
@@ -385,15 +398,15 @@ func (d pgData) Continuation(ctx context.Context, userID, id int64) (Continuatio
 	err := d.pool.QueryRow(ctx, `
 		SELECT j.model_id, j.provider, COALESCE(j.provider_job_id, ''), j.status, j.free,
 		       r.id, COALESCE(r.content_type, ''), COALESCE(r.width, 0), COALESCE(r.height, 0), COALESCE(r.bytes, 0),
-		       COALESCE(r.seconds, 0)::float8
+		       COALESCE(r.seconds, 0)::float8, COALESCE(r.fps, 0)::float8
 		FROM job j
 		LEFT JOIN LATERAL (
-		  SELECT a.id, a.content_type, a.width, a.height, a.bytes, a.seconds FROM asset a
+		  SELECT a.id, a.content_type, a.width, a.height, a.bytes, a.seconds, a.fps FROM asset a
 		  WHERE a.job_id = j.id AND a.kind = 'result' AND a.content_type LIKE 'video/%'
 		  ORDER BY a.id LIMIT 1) r ON true
 		WHERE j.id = $1 AND j.user_id = $2 AND j.deleted_at IS NULL`, id, userID).Scan(
 		&c.ModelID, &c.Provider, &c.ProviderJobID, &c.Status, &c.Free,
-		&videoID, &v.ContentType, &v.Width, &v.Height, &v.Bytes, &v.Seconds)
+		&videoID, &v.ContentType, &v.Width, &v.Height, &v.Bytes, &v.Seconds, &v.FPS)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Continuation{}, ErrNotFound
 	}
@@ -409,9 +422,11 @@ func (d pgData) Continuation(ctx context.Context, userID, id int64) (Continuatio
 
 // cleared is what a deleted job keeps: its kind, offer, payer, status,
 // costs and times, which the free allowance, its budget and the per-person
-// limits count. Everything the person wrote or got goes.
-const cleared = `deleted_at = now(), prompt = '', settings = '{}', error = NULL, grounding = NULL,
-	chat_id = NULL, message_id = NULL, updated_at = now()`
+// limits count. A deleted account's job loses the payer too, once the
+// allowance is done with it (forgetAt). Everything the person wrote or got goes, the provider's own
+// words about a refusal too: they may quote the prompt or describe a photo.
+const cleared = `deleted_at = now(), prompt = '', settings = '{}', error = NULL, provider_message = NULL,
+	grounding = NULL, chat_id = NULL, message_id = NULL, updated_at = now()`
 
 func (d pgData) Remove(ctx context.Context, userID, id int64) error {
 	return pgx.BeginFunc(ctx, d.pool, func(tx pgx.Tx) error {
@@ -434,7 +449,14 @@ func (d pgData) Remove(ctx context.Context, userID, id int64) error {
 			}
 			return ErrNotFound
 		}
-		for _, stmt := range []string{`DELETE FROM job_input WHERE job_id = $1`, `DELETE FROM chat_run WHERE job_id = $1`} {
+		// A result sent to the DM stays there; framy forgets which message
+		// it was.
+		for _, stmt := range []string{
+			`DELETE FROM job_input WHERE job_id = $1`,
+			dropRuns + `job_id = $1`,
+			keepOpenRuns + `job_id = $1`,
+			`UPDATE site_delivery SET message_id = NULL WHERE job_id = $1`,
+		} {
 			if _, err := tx.Exec(ctx, stmt, id); err != nil {
 				return fmt.Errorf("delete job %d: %w", id, err)
 			}
@@ -442,6 +464,15 @@ func (d pgData) Remove(ctx context.Context, userID, id int64) error {
 		return nil
 	})
 }
+
+// A deleted job's chat run goes with it, unless its preview or loop is
+// still in the chat: then the bot takes the message down and drops the run
+// (chat.Flow.takeDown), and only the clip it pointed at goes now. The run of
+// a result already sent goes at once; the result stays in its chat.
+const (
+	dropRuns     = `DELETE FROM chat_run WHERE stage NOT IN ('preview', 'generating') AND `
+	keepOpenRuns = `UPDATE chat_run SET clip_file_id = '', updated_at = now() WHERE `
+)
 
 func (d pgData) Active(ctx context.Context, userID int64) (bool, error) {
 	var active bool
@@ -453,16 +484,22 @@ func (d pgData) Active(ctx context.Context, userID int64) (bool, error) {
 }
 
 // Forget is the account's rows, in one transaction under the lock a job
-// takes to start, so a run the queue is about to claim is either seen here
-// and refused or starts after: drafts are cancelled, every job that ended is
-// cleared as Remove clears one, and the keys, the pending connections to
-// OpenRouter, the profile (currency, name and photo) and the photos of
-// albums framy saw the person send in a chat are deleted. The sessions go
-// through Config.Revoke, which also drops what internal/auth remembers of
-// them. The person stays in core: that row is the family's, not framy's.
+// takes to be created, queued and claimed (jobs.LockPerson), so a run made
+// or started meanwhile, in the bot or another tab, is either seen here and
+// refused or comes after, from a person who came back: drafts are cancelled,
+// every job that ended is cleared as Remove clears one, the ids of the DM
+// messages framy sent the site's results in are dropped, and the keys, the
+// pending connections to OpenRouter, the profile (currency, name and photo)
+// and the photos of albums framy saw the person send in a chat are deleted.
+// Every job of the person's is given its forget_at: the moment its row stops
+// saying whose it was (forgetAt). The jobs are cleared first: their rows are what a result being sent to the
+// DM holds (db.SentSiteResult), so its chat run is either written before and
+// dropped here, or not written at all. The sessions go through
+// Config.Revoke, which also drops what internal/auth remembers of them.
+// The person stays in core: that row is the family's, not framy's.
 func (d pgData) Forget(ctx context.Context, userID int64) error {
 	return pgx.BeginFunc(ctx, d.pool, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('framy.job.person:' || $1::bigint::text, 0))`, userID); err != nil {
+		if err := jobs.LockPerson(ctx, tx, userID); err != nil {
 			return err
 		}
 		var active bool
@@ -474,9 +511,11 @@ func (d pgData) Forget(ctx context.Context, userID int64) error {
 		}
 		for _, stmt := range []string{
 			`UPDATE job SET status = 'cancelled', finished_at = now(), updated_at = now() WHERE user_id = $1 AND status = 'draft'`,
-			`DELETE FROM chat_run WHERE job_id IN (SELECT id FROM job WHERE user_id = $1)`,
-			`DELETE FROM job_input WHERE job_id IN (SELECT id FROM job WHERE user_id = $1)`,
 			`UPDATE job SET ` + cleared + ` WHERE user_id = $1 AND deleted_at IS NULL AND finished_at IS NOT NULL`,
+			dropRuns + `job_id IN (SELECT id FROM job WHERE user_id = $1)`,
+			keepOpenRuns + `job_id IN (SELECT id FROM job WHERE user_id = $1)`,
+			`DELETE FROM job_input WHERE job_id IN (SELECT id FROM job WHERE user_id = $1)`,
+			`UPDATE site_delivery SET message_id = NULL WHERE job_id IN (SELECT id FROM job WHERE user_id = $1) AND message_id IS NOT NULL`,
 			`DELETE FROM connection WHERE user_id = $1`,
 			`DELETE FROM oauth_state WHERE user_id = $1`,
 			`DELETE FROM profile WHERE user_id = $1`,
@@ -486,6 +525,22 @@ func (d pgData) Forget(ctx context.Context, userID int64) error {
 				return fmt.Errorf("forget %d: %w", userID, err)
 			}
 		}
+		if _, err := tx.Exec(ctx, forgetAt, userID, free.VideoWindow.Seconds(), free.ImageWindow.Seconds()); err != nil {
+			return fmt.Errorf("forget %d: %w", userID, err)
+		}
 		return nil
 	})
 }
+
+// forgetAt is when a deleted account's job stops saying whose it was. A
+// free run keeps the person's id while the allowance counts it, until it
+// leaves the window of its kind, so a person who deletes the account and
+// comes back does not get the free runs of the last day or week back; any
+// other job lets it go at once. db.Store.ForgetJobs takes the id off when
+// the time comes, within the hour.
+const forgetAt = `
+	UPDATE job SET forget_at = CASE
+		WHEN free AND queued_at IS NOT NULL
+		THEN GREATEST(now(), queued_at + make_interval(secs => CASE kind WHEN 'video' THEN $2::float8 ELSE $3::float8 END))
+		ELSE now() END
+	WHERE user_id = $1`

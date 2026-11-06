@@ -7,6 +7,7 @@
 package jobs
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -126,8 +127,9 @@ type fakeProvider struct {
 	inFlight map[int64]int
 	most     map[int64]int
 	kept     map[int64]int
-	// onKeep, when set, sees the context results are kept with.
-	onKeep func(context.Context, Job)
+	// onKeep, when set, sees the context results are kept with, and its
+	// error is the copy's.
+	onKeep func(context.Context, Job) error
 }
 
 func newFake() *fakeProvider {
@@ -168,7 +170,9 @@ func (f *fakeProvider) Keep(ctx context.Context, j Job, results []Result) error 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.onKeep != nil {
-		f.onKeep(ctx, j)
+		if err := f.onKeep(ctx, j); err != nil {
+			return err
+		}
 	}
 	f.kept[j.ID] += len(results)
 	return nil
@@ -301,6 +305,59 @@ func TestADraftIsRevisedInPlace(t *testing.T) {
 	}
 	if err := q.Revise(ctx, id, job(alice, imageOffer)); !errors.Is(err, ErrNotDraft) {
 		t.Fatalf("a queued job revised: %v", err)
+	}
+}
+
+// An edit of the command gives a draft new words and their price, and
+// nothing else; a job past its draft, or one its person deleted, keeps its
+// words.
+func TestADraftTakesNewWords(t *testing.T) {
+	q, pool := testQueue(t, newFake())
+	ctx := context.Background()
+	n := job(alice, imageOffer)
+	n.DedupeKey = TelegramUpdate(45)
+	n.Settings = map[string]any{"quality": "high"}
+	n.Free = true
+	n.Estimate = &price.Estimate{Kind: price.About, USD: 0.1}
+	id, _, err := q.Draft(ctx, n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Reprompt(ctx, id, "a fox in the rain", &price.Estimate{Kind: price.About, USD: 0.3}); err != nil {
+		t.Fatal(err)
+	}
+	j := get(t, q, id)
+	if j.Prompt != "a fox in the rain" || j.OfferID != imageOffer.ID || j.Settings["quality"] != "high" || !j.Free || j.Status != Draft {
+		t.Fatalf("reprompted = %+v", j)
+	}
+	if usd := scalar[float64](t, pool, `SELECT estimate_usd::float8 FROM framy.job WHERE id=$1`, id); usd != 0.3 {
+		t.Fatalf("estimate = %v", usd)
+	}
+	if usd := scalar[float64](t, pool, `SELECT (estimate->>'usd')::float8 FROM framy.job WHERE id=$1`, id); usd != 0.3 {
+		t.Fatalf("estimate shown = %v", usd)
+	}
+
+	gone := job(alice, imageOffer)
+	gone.DedupeKey = TelegramUpdate(46)
+	deleted, _, err := q.Draft(ctx, gone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE framy.job SET deleted_at = now() WHERE id = $1`, deleted); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Reprompt(ctx, deleted, "a fox in the rain", nil); !errors.Is(err, ErrNotDraft) {
+		t.Fatalf("a deleted draft reprompted: %v", err)
+	}
+
+	if err := q.Generate(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Reprompt(ctx, id, "a wolf", nil); !errors.Is(err, ErrNotDraft) {
+		t.Fatalf("a queued job reprompted: %v", err)
+	}
+	if j := get(t, q, id); j.Prompt != "a fox in the rain" {
+		t.Fatalf("a queued job's words = %q", j.Prompt)
 	}
 }
 
@@ -506,6 +563,91 @@ func TestAFinishedJobHasItsEstimateAndItsCost(t *testing.T) {
 	}
 }
 
+// A picture that came broken does not take the others with it: the run is
+// done with the ones that came whole, its cost kept, and the log says what
+// was lost.
+func TestARunThatLostAPictureKeepsTheOthers(t *testing.T) {
+	p := newFake()
+	p.submit = func(context.Context, Job) (Submission, error) {
+		sub := done(0.06)
+		sub.Outcome.Lost = errors.New("image 2 of the answer: illegal base64 data at input byte 0")
+		return sub, nil
+	}
+	q, pool := testQueue(t, p)
+	var logged bytes.Buffer
+	q.log = slog.New(slog.NewTextHandler(&logged, nil))
+	id := enqueue(t, q, job(alice, imageOffer))
+	if err := q.work(context.Background(), id); err != nil {
+		t.Fatal(err)
+	}
+	j := get(t, q, id)
+	if j.Status != Done || j.ActualUSD == nil || *j.ActualUSD != 0.06 || scalar[int](t, pool, `SELECT results FROM framy.job WHERE id=$1`, id) != 1 {
+		t.Fatalf("job: %s, actual %v", j.Status, j.ActualUSD)
+	}
+	if !strings.Contains(logged.String(), "image 2 of the answer") {
+		t.Errorf("the log does not say what was lost:\n%s", logged.String())
+	}
+}
+
+// A run the hour ends while its poll keeps failing may be paid: it ends as
+// a timeout, not as a provider that did not answer, which would say nothing
+// was charged, and keeps the cost the provider gave, if any.
+func TestARunPastTheHourIsATimeoutWithItsCost(t *testing.T) {
+	p := newFake()
+	p.submit = func(context.Context, Job) (Submission, error) { return Submission{ProviderJobID: "vid-1"}, nil }
+	p.poll = func(context.Context, Job) (Outcome, error) {
+		cost := 0.509518
+		return Outcome{CostUSD: &cost}, &Error{Class: Unavailable, Err: errors.New("poll the video: Google answered 503")}
+	}
+	q, _ := testQueue(t, p)
+	id := enqueue(t, q, job(alice, videoOffer))
+	ctx := context.Background()
+	for range 2 {
+		// The submit, then a poll within the hour: asked again later.
+		_ = q.work(ctx, id)
+	}
+	if j := get(t, q, id); j.Status != Running || j.ActualUSD != nil || p.count(p.polls, id) != 1 {
+		t.Fatalf("within the hour: %s, actual %v, %d polls", j.Status, j.ActualUSD, p.count(p.polls, id))
+	}
+	q.now = func() time.Time { return time.Now().Add(RunDeadline + time.Minute) }
+	if err := q.work(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	j := get(t, q, id)
+	if j.Status != Expired || j.ErrorClass != Timeout || j.ActualUSD == nil || *j.ActualUSD != 0.509518 {
+		t.Fatalf("past the hour: %s %s, actual %v", j.Status, j.ErrorClass, j.ActualUSD)
+	}
+}
+
+// A video the provider finished and framy could not fetch by the hour's
+// deadline was made and billed: it ends as storage, a result that was not
+// kept, with its cost, and not as a run that took over an hour.
+func TestAFinishedVideoThatCouldNotBeFetchedEndsAsStorage(t *testing.T) {
+	p := newFake()
+	p.submit = func(context.Context, Job) (Submission, error) { return Submission{ProviderJobID: "vid-1"}, nil }
+	p.poll = func(context.Context, Job) (Outcome, error) {
+		cost := 0.5
+		return Outcome{CostUSD: &cost, Ready: true}, errors.New("download the video: openrouter 500")
+	}
+	q, _ := testQueue(t, p)
+	id := enqueue(t, q, job(alice, videoOffer))
+	ctx := context.Background()
+	for range 2 {
+		_ = q.work(ctx, id)
+	}
+	if j := get(t, q, id); j.Status != Running || j.ActualUSD != nil {
+		t.Fatalf("within the hour: %s, actual %v", j.Status, j.ActualUSD)
+	}
+	q.now = func() time.Time { return time.Now().Add(RunDeadline + time.Minute) }
+	if err := q.work(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	j := get(t, q, id)
+	if j.Status != Failed || j.ErrorClass != Storage || j.ActualUSD == nil || *j.ActualUSD != 0.5 {
+		t.Fatalf("past the hour: %s %s, actual %v", j.Status, j.ErrorClass, j.ActualUSD)
+	}
+}
+
 func TestAJobKeepsTheRateItsPriceWasShownWith(t *testing.T) {
 	q, pool := testQueue(t, newFake())
 	n := job(alice, imageOffer)
@@ -614,6 +756,63 @@ func TestOnlyARefusalBeforeTheRunIsRetried(t *testing.T) {
 		}
 	})
 
+	// A run the provider took and ended without a result brings its words in
+	// the outcome, as a refusal inside a 200 or a failed video does.
+	t.Run("the provider's words in a run that ended", func(t *testing.T) {
+		p := newFake()
+		cost := 0.004
+		p.submit = func(context.Context, Job) (Submission, error) {
+			return Submission{Outcome: &Outcome{CostUSD: &cost, Err: &Error{Class: Moderation,
+				Err: said("gemini declined the run (NO_IMAGE): the model answered in text: Which fox?", "Which fox?")}}}, nil
+		}
+		q, pool := testQueue(t, p)
+		id := enqueue(t, q, job(alice, imageOffer))
+		for range 2 {
+			if err := q.work(ctx, id); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var line, words string
+		if err := pool.QueryRow(ctx, `SELECT error, provider_message FROM framy.job WHERE id=$1`, id).Scan(&line, &words); err != nil {
+			t.Fatal(err)
+		}
+		if j := get(t, q, id); j.Status != Failed || j.ErrorClass != Moderation || j.ActualUSD == nil || *j.ActualUSD != cost ||
+			line != "moderation: gemini declined the run (NO_IMAGE): the model answered in text: Which fox?" || words != "Which fox?" {
+			t.Fatalf("%s %s, error %q, provider_message %q", j.Status, j.ErrorClass, line, words)
+		}
+	})
+
+	t.Run("a wait longer than framy's ends the run at once", func(t *testing.T) {
+		p := newFake()
+		p.submit = func(context.Context, Job) (Submission, error) {
+			return Submission{}, &Error{Class: RateLimited, RetryAfter: 24 * time.Hour, Err: errors.New("gemini 429: quota exceeded")}
+		}
+		q, pool := testQueue(t, p)
+		id := enqueue(t, q, job(alice, imageOffer))
+		if err := q.work(ctx, id); err != nil {
+			t.Fatalf("after a 429 that asks for a day: %v, want the end", err)
+		}
+		line := scalar[string](t, pool, `SELECT error FROM framy.job WHERE id=$1`, id)
+		if j := get(t, q, id); j.Status != Failed || j.ErrorClass != RateLimited || p.count(p.submits, id) != 1 || !strings.Contains(line, "asked to wait 24h0m0s") {
+			t.Fatalf("%s %s after %d requests, error %q; want failed rate_limited after one", j.Status, j.ErrorClass, p.count(p.submits, id), line)
+		}
+	})
+
+	t.Run("a refusal waits at most framy's longest wait", func(t *testing.T) {
+		p := newFake()
+		p.submit = func(context.Context, Job) (Submission, error) {
+			return Submission{}, &Error{Class: Unavailable, RetryAfter: maxRetryWait}
+		}
+		q, _ := testQueue(t, p)
+		id := enqueue(t, q, job(alice, imageOffer))
+		if err := q.work(ctx, id); !isSnooze(err) {
+			t.Fatalf("after a 503 that asks for %s: %v, want a snooze", maxRetryWait, err)
+		}
+		if j := get(t, q, id); j.Status != Queued || j.RetryAt == nil || time.Until(*j.RetryAt) > maxRetryWait {
+			t.Fatalf("%s, retry at %v; want queued within %s", j.Status, j.RetryAt, maxRetryWait)
+		}
+	})
+
 	t.Run("a refusal that waits has the provider's words until the next request", func(t *testing.T) {
 		p := newFake()
 		refuse := true
@@ -657,6 +856,30 @@ func TestOnlyARefusalBeforeTheRunIsRetried(t *testing.T) {
 		}
 		if j := get(t, q, id); j.Status != Failed || j.ErrorClass != Unavailable || j.Submits != maxSubmits {
 			t.Fatalf("%s %s after %d submits", j.Status, j.ErrorClass, j.Submits)
+		}
+	})
+
+	// A model that failed to make the picture is asked fewer times: the
+	// adapter caps the tries, and the queue keeps to the cap.
+	t.Run("a refusal that allows fewer tries", func(t *testing.T) {
+		p := newFake()
+		p.submit = func(context.Context, Job) (Submission, error) {
+			return Submission{}, &Error{Class: Unavailable, Tries: 3, Err: said("openrouter 502: Generation failed", "Generation failed")}
+		}
+		q, pool := testQueue(t, p)
+		id := enqueue(t, q, job(alice, imageOffer))
+		for range maxSubmits {
+			_ = q.work(ctx, id)
+			if _, err := pool.Exec(ctx, `UPDATE framy.job SET retry_at=now() WHERE id=$1`, id); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if j := get(t, q, id); j.Status != Failed || j.ErrorClass != Unavailable || j.Submits != 3 {
+			t.Fatalf("%s %s after %d submits, want failed after 3", j.Status, j.ErrorClass, j.Submits)
+		}
+		var words *string
+		if err := pool.QueryRow(ctx, `SELECT provider_message FROM framy.job WHERE id=$1`, id).Scan(&words); err != nil || words == nil || *words != "Generation failed" {
+			t.Fatalf("the provider's words: %v, %v", words, err)
 		}
 	})
 }
@@ -793,9 +1016,25 @@ func TestTheSweep(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	given := enqueue(t, q, job(bob, imageOffer))
-	if _, err := pool.Exec(ctx, `UPDATE framy.job SET created_at = now() - interval '11 minutes' WHERE id = $1`, stale); err != nil {
+	// A draft made 11 minutes ago and last changed 9 minutes ago is a
+	// person still choosing: its 10 minutes count from the change, and
+	// start again with the next one.
+	worked, _, err := q.Draft(ctx, job(alice, imageOffer))
+	if err != nil {
 		t.Fatal(err)
+	}
+	given := enqueue(t, q, job(bob, imageOffer))
+	if _, err := pool.Exec(ctx, `UPDATE framy.job SET created_at = now() - interval '11 minutes', updated_at = now() - interval '11 minutes' WHERE id = $1`, stale); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE framy.job SET created_at = now() - interval '11 minutes', updated_at = now() - interval '9 minutes' WHERE id = $1`, worked); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Revise(ctx, worked, job(alice, imageOffer)); err != nil {
+		t.Fatalf("a draft made 11 minutes ago and changed 9 minutes ago was not revised: %v", err)
+	}
+	if err := q.Revise(ctx, stale, job(alice, imageOffer)); !errors.Is(err, ErrNotDraft) {
+		t.Fatalf("a draft left alone for 11 minutes was revised: %v", err)
 	}
 	// A job rescued on its last attempt: River discards it unworked.
 	if _, err := pool.Exec(ctx, `UPDATE framy.river_job SET state='discarded', finalized_at=now()
@@ -808,10 +1047,52 @@ func TestTheSweep(t *testing.T) {
 	if n, err := q.sweep(ctx); err != nil || n != 2 {
 		t.Fatalf("sweep = %d, %v; want 2", n, err)
 	}
-	for id, want := range map[int64]Status{stale: Cancelled, fresh: Draft, given: Failed} {
+	for id, want := range map[int64]Status{stale: Cancelled, fresh: Draft, worked: Draft, given: Failed} {
 		if j := get(t, q, id); j.Status != want {
 			t.Errorf("job %d: %s, want %s", id, j.Status, want)
 		}
+	}
+	if err := q.Generate(ctx, worked); err != nil {
+		t.Fatalf("Generate on a draft just changed: %v", err)
+	}
+}
+
+// A video out at the provider is only asked about, and holds none of the
+// person's two slots: their picture starts while two videos are being
+// made, and a video that has its run's id wakes the next job at once.
+func TestVideosAtTheProviderHoldNoSlot(t *testing.T) {
+	ctx := context.Background()
+	p := newFake()
+	p.submit = func(_ context.Context, j Job) (Submission, error) {
+		if j.Kind == catalog.Video {
+			return Submission{ProviderJobID: fmt.Sprintf("gen-%d", j.ID)}, nil
+		}
+		return done(0.02), nil
+	}
+	q, pool := testQueue(t, p)
+	v1 := enqueue(t, q, job(alice, videoOffer))
+	v2 := enqueue(t, q, job(alice, videoOffer))
+	for _, id := range []int64{v1, v2} {
+		if err := q.work(ctx, id); !isSnooze(err) {
+			t.Fatalf("video %d sent: %v, want a snooze until its first poll", id, err)
+		}
+	}
+	img := enqueue(t, q, job(alice, imageOffer))
+	if err := q.work(ctx, img); err != nil {
+		t.Fatalf("the picture behind two videos at the provider: %v", err)
+	}
+	if j := get(t, q, img); j.Status != Done {
+		t.Fatalf("the picture: %s, want done", j.Status)
+	}
+
+	// Two pictures being made still fill the slots.
+	if _, err := pool.Exec(ctx, `UPDATE framy.job SET status='running', started_at=now() WHERE id IN ($1, $2)`,
+		enqueue(t, q, job(alice, imageOffer)), enqueue(t, q, job(alice, imageOffer))); err != nil {
+		t.Fatal(err)
+	}
+	third := enqueue(t, q, job(alice, imageOffer))
+	if err := q.work(ctx, third); !isSnooze(err) || get(t, q, third).Status != Queued {
+		t.Fatalf("a third picture beside two being made: %v, %s", err, get(t, q, third).Status)
 	}
 }
 
@@ -837,5 +1118,116 @@ func TestAPersonsJobsStartInOrder(t *testing.T) {
 	}
 	if j := get(t, q, ids[2]); j.Status != Done {
 		t.Fatalf("the third job: %s", j.Status)
+	}
+}
+
+// A draft that ended without running keeps nothing of the person's: once
+// its preview is closed, its prompt, settings and chat are cleared and the
+// places of its files go, so the sweep of uploads deletes the files. A
+// draft still open, one whose preview the chat has not closed yet, and a
+// run that was queued stay as they are.
+func TestADraftThatNeverRanLetsItsFilesGo(t *testing.T) {
+	q, pool := testQueue(t, newFake())
+	ctx := context.Background()
+	file := func() int64 {
+		var id int64
+		err := pool.QueryRow(ctx, `
+			INSERT INTO framy.asset (user_id, kind, object_key, content_type, bytes, sha256)
+			VALUES ($1, 'upload', $2, 'image/jpeg', 10, 'x') RETURNING id`, alice, fmt.Sprintf("u/%d/in/%d", alice, time.Now().UnixNano())).Scan(&id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	draft := func(inputs ...int64) int64 {
+		n := job(alice, imageOffer)
+		n.Inputs, n.Settings = inputs, map[string]any{"aspect_ratio": "1:1"}
+		id, _, err := q.Draft(ctx, n)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	preview := func(id int64, stage string) {
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO framy.chat_run (job_id, chat_id, command_message_id, lang, stage) VALUES ($1, $2, 1, 'en', $3)`, id, alice, stage); err != nil {
+			t.Fatal(err)
+		}
+	}
+	shared := file()
+	closed, open, stale, live := draft(file(), shared), draft(file()), draft(file()), draft(file())
+	n := job(alice, imageOffer)
+	n.Inputs = []int64{shared}
+	ran := enqueue(t, q, n)
+	for _, id := range []int64{closed, open, stale, ran} {
+		if err := q.Cancel(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	preview(closed, "gone")
+	preview(open, "preview")
+	preview(stale, "preview")
+	preview(live, "preview")
+	if _, err := pool.Exec(ctx, `UPDATE framy.job SET finished_at = now() - interval '3 days' WHERE id = $1`, stale); err != nil {
+		t.Fatal(err)
+	}
+
+	if n, err := q.ClearDrafts(ctx); err != nil || n != 2 {
+		t.Fatalf("cleared %d: %v", n, err)
+	}
+	type row struct {
+		deleted       bool
+		prompt        string
+		inputs, runs  int
+		settingsEmpty bool
+	}
+	read := func(id int64) row {
+		t.Helper()
+		var r row
+		if err := pool.QueryRow(ctx, `
+			SELECT deleted_at IS NOT NULL, prompt, settings = '{}',
+			       (SELECT count(*) FROM framy.job_input WHERE job_id = j.id), (SELECT count(*) FROM framy.chat_run WHERE job_id = j.id)
+			FROM framy.job j WHERE id = $1`, id).Scan(&r.deleted, &r.prompt, &r.settingsEmpty, &r.inputs, &r.runs); err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	for _, id := range []int64{closed, stale} {
+		if r := read(id); !r.deleted || r.prompt != "" || !r.settingsEmpty || r.inputs != 0 || r.runs != 0 {
+			t.Errorf("the draft %d that never ran keeps %+v", id, r)
+		}
+	}
+	for id, inputs := range map[int64]int{open: 1, live: 1, ran: 1} {
+		if r := read(id); r.deleted || r.prompt == "" || r.inputs != inputs {
+			t.Errorf("job %d was cleared: %+v", id, r)
+		}
+	}
+	// The upload a queued run shares with a cleared draft stays taken.
+	var taken bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM framy.job_input WHERE asset_id = $1)`, shared).Scan(&taken); err != nil || !taken {
+		t.Errorf("the shared upload is no longer taken: %v", err)
+	}
+	if n, err := q.ClearDrafts(ctx); err != nil || n != 0 {
+		t.Errorf("a second pass cleared %d: %v", n, err)
+	}
+}
+
+// A deleted account's job that no longer says whose it was (035) reads as
+// one, and a Generate pressed on it starts nothing.
+func TestAJobWithoutAPersonStartsNothing(t *testing.T) {
+	q, pool := testQueue(t, newFake())
+	ctx := context.Background()
+	draft, _, err := q.Draft(ctx, job(alice, imageOffer))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE framy.job SET status = 'cancelled', finished_at = now(), deleted_at = now(), user_id = NULL WHERE id = $1`, draft); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Generate(ctx, draft); !errors.Is(err, ErrNotDraft) {
+		t.Fatalf("Generate = %v, want ErrNotDraft", err)
+	}
+	if j := get(t, q, draft); j.UserID != 0 || j.Status != Cancelled {
+		t.Errorf("read as %+v", j)
 	}
 }

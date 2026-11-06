@@ -2,13 +2,18 @@
 name: CI
 
 on:
+  # The two long-lived branches on push, and any other branch through its
+  # pull request: with every branch on push, a pull request's branch ran
+  # the whole of CI twice for each commit.
   push:
-    branches: ["**"]
+    branches: [dev, main]
   pull_request:
-  # Weekly, so a new advisory against a dependency or the standard library is
-  # noticed while nothing is being pushed.
+  # Weekly, so a new advisory against a dependency, the standard library or a
+  # package of the image is noticed while nothing is being pushed.
   schedule:
     - cron: "23 5 * * 1"
+  # By hand, to scan the published image now (job published).
+  workflow_dispatch:
   # release.yml runs this before it publishes anything.
   workflow_call:
 
@@ -19,10 +24,16 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Each job stops at about three times what it usually takes, so a hung
+# Chrome, database or docker gives the runner back within the half hour, not
+# after GitHub's six hours, and a release waiting on CI fails instead of
+# hanging. go test's own timeout is shorter, so a hung test ends with its
+# goroutines printed.
 jobs:
   test:
     name: Build, vet, test
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -44,18 +55,41 @@ jobs:
           fi
       - name: Build
         run: go build ./...
+      # Every build tag of the repository, so a test that runs only by hand
+      # (live providers, the real R2 buckets) still compiles when it is
+      # needed.
       - name: Vet
         run: |
           go vet ./...
           go vet -tags=integration ./...
           go vet -tags=live ./...
+          go vet -tags=r2live ./...
           go vet -tags=browser ./...
       - name: Test
         run: go test -race ./...
 
+  # v0.1.0-alpha.2 added migration 030 and its notes did not say so.
+  changelog:
+    name: Changelog names every migration
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Migrations since the last release are in the changelog
+        run: .github/scripts/changelog-migrations.sh
+
   web:
     name: Site assets and browser tests
     runs-on: ubuntu-latest
+    # The browser tests have 26 minutes of their own, below: they took 6 min
+    # 39 s on 5 November and 19 min 55 s on 6 November, after the review's
+    # fixes brought their tests, which was 5 s short of the 20 they had. The
+    # job's 30 leave the upload of the failed pages its time. Watch the time
+    # in the log: the next minutes should come from splitting the suite over
+    # jobs, not from a longer timeout.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -73,13 +107,33 @@ jobs:
             echo "$changed"
             exit 1
           fi
-      # The runner has Google Chrome.
+      # Chrome at a fixed version, not whichever the runner image carries this
+      # week: a test that starts failing then failed for a change of ours.
+      # Raise it on purpose, to a version of Chrome for Testing.
+      - uses: browser-actions/setup-chrome@48ad923757ca74d66703209fe939badbdf80f2f4 # v2.2.0
+        id: chrome
+        with:
+          chrome-version: 157.0.8103.38
+      # A failed test keeps its page (screenshot, document, what it reported)
+      # in FRAMY_BROWSER_ARTIFACTS, uploaded below.
       - name: Browser tests
-        run: go test -tags=browser -run Browser -v ./internal/web/
+        env:
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
+          FRAMY_BROWSER_ARTIFACTS: ${{ runner.temp }}/browser
+        run: go test -tags=browser -run Browser -v -timeout 26m ./internal/web/
+      - name: Pages of the failed browser tests
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: browser-failures
+          path: ${{ runner.temp }}/browser
+          if-no-files-found: ignore
+          retention-days: 14
 
   database:
     name: Database tests
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:17-alpine
@@ -107,6 +161,7 @@ jobs:
   govulncheck:
     name: Vulnerability scan
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -121,6 +176,7 @@ jobs:
   image:
     name: Docker build and media
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:17-alpine
@@ -141,32 +197,74 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Build image
+        id: build
         run: docker build -t framy:ci .
       - name: Media tests in the image
         # Photos are normalized, and the loops encoded, by the ffmpeg framy
         # ships, not the runner's, so the tests run inside the image and must
-        # not skip.
+        # not skip. The release runs them again in the image it publishes.
         env:
           FRAMY_TEST_DATABASE_URL: postgres://framy:framy@localhost:5432/framy_test?sslmode=disable
-        run: |
-          bin="$RUNNER_TEMP/bin"
-          mkdir -p "$bin"
-          CGO_ENABLED=0 go test -c -o "$bin/media.test" ./internal/media
-          CGO_ENABLED=0 go test -c -tags=integration -o "$bin/storage.test" ./internal/storage
-          CGO_ENABLED=0 go test -c -o "$bin/anim.test" ./internal/anim
-          for pkg in media storage anim; do
-            docker run --rm --network host --entrypoint "/t/$pkg.test" \
-              -e FRAMY_MEDIA_TESTS=1 -e FRAMY_TEST_DATABASE_URL \
-              -v "$bin:/t:ro" -v "$PWD:/src:ro" -w "/src/internal/$pkg" \
-              framy:ci -test.v -test.count=1
-          done
+        run: .github/scripts/media-tests.sh framy:ci
       - name: Validate Compose
         # The local stack, the test bot's and production's.
         run: |
           cp .env.example .env
           mkdir -p secrets && touch secrets/bot-token
           docker compose config >/dev/null
-          printf 'FRAMY_IMAGE=framy:ci\nFRAMY_CORE_PASSWORD=x\n' > deploy/ws04-test/.env
+          printf 'FRAMY_IMAGE=framy:ci\nR2_ACCOUNT_ID=x\nTRUSTED_PROXIES=172.20.0.0/16\nBOT_API_TOKEN=2:x\n' > deploy/ws04-test/.env
           docker compose -f deploy/ws04-test/compose.yaml config >/dev/null
-          printf 'FRAMY_IMAGE=framy:ci\nFRAMY_CORE_PASSWORD=x\nR2_ACCOUNT_ID=x\nTRUSTED_PROXIES=172.20.0.0/16\nBOT_API_TOKEN=1:x\n' > deploy/ws04/.env
+          printf 'FRAMY_IMAGE=framy:ci\nR2_ACCOUNT_ID=x\nTRUSTED_PROXIES=172.20.0.0/16\nBOT_API_TOKEN=1:x\n' > deploy/ws04/.env
           docker compose -f deploy/ws04/compose.yaml config >/dev/null
+      # The packages of the image's Alpine, ffmpeg and the libraries that
+      # decode people's files among them, against the advisories of the day.
+      # Only a vulnerability with a fix fails, high or critical: that is what
+      # a change can act on. Last and whenever the image was built, so a
+      # finding hides no other step's result. docs/releases.md, When the
+      # image scan fails.
+      - name: Scan the image's packages
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: docker:framy:ci
+          config: .grype.yaml
+          only-fixed: true
+          severity-cutoff: high
+          output-format: table
+
+  # The image of the newest release on main, which production runs. It is
+  # never built again under its tag, so a fix Alpine ships after a release
+  # reaches production only with the next one; this says when one is due.
+  # Weekly and by hand, never in a release's own CI, where it would hold back
+  # the very release that brings the fix.
+  published:
+    name: Published image
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      # Production runs main (docs/versioning.md), so its release is the
+      # newest tag reachable from main, not a pre-release that has reached
+      # only dev and the test bot.
+      - name: Find the release production runs
+        id: release
+        run: |
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          tag="$(git describe --tags --abbrev=0 --match 'v*' origin/main 2>/dev/null || true)"
+          if [ -z "${tag}" ]; then
+            echo "main has no release tag yet"
+            exit 1
+          fi
+          echo "Scanning ${tag}, the newest release on main"
+          echo "image=ghcr.io/${GITHUB_REPOSITORY,,}:${tag}" >>"$GITHUB_OUTPUT"
+      - name: Scan the published image
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: registry:${{ steps.release.outputs.image }}
+          config: .grype.yaml
+          only-fixed: true
+          severity-cutoff: high
+          output-format: table

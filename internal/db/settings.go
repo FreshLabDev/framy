@@ -7,9 +7,16 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/FreshLabDev/framy/internal/catalog"
 )
+
+// execer is a pool or a transaction: a setter below runs alone or as one
+// change of several (ChangeSettings).
+type execer interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
 
 // Settings are framy's settings of a person beside the currency
 // (migrations/025_settings.sql). The zero Settings but Deliver is a person
@@ -50,11 +57,15 @@ func (s *Store) Settings(ctx context.Context, userID int64) (Settings, error) {
 // SetDefaultModel keeps the model the composer opens on for a kind; "" goes
 // back to framy's default. The id is not checked against the catalog here.
 func (s *Store) SetDefaultModel(ctx context.Context, userID int64, kind catalog.Kind, modelID string) error {
+	return setDefaultModel(ctx, s.pool, userID, kind, modelID)
+}
+
+func setDefaultModel(ctx context.Context, q execer, userID int64, kind catalog.Kind, modelID string) error {
 	column := map[catalog.Kind]string{catalog.Image: "default_image_model", catalog.Video: "default_video_model"}[kind]
 	if column == "" {
 		return fmt.Errorf("default model of %d: no default for %q", userID, kind)
 	}
-	_, err := s.pool.Exec(ctx, `
+	_, err := q.Exec(ctx, `
 		INSERT INTO profile (user_id, `+column+`) VALUES ($1, NULLIF($2, ''))
 		ON CONFLICT (user_id) DO UPDATE SET `+column+` = EXCLUDED.`+column+`, updated_at = now()`, userID, modelID)
 	if err != nil {
@@ -65,7 +76,11 @@ func (s *Store) SetDefaultModel(ctx context.Context, userID int64, kind catalog.
 
 // SetDelivery says whether the site's results go to the person's DM.
 func (s *Store) SetDelivery(ctx context.Context, userID int64, on bool) error {
-	_, err := s.pool.Exec(ctx, `
+	return setDelivery(ctx, s.pool, userID, on)
+}
+
+func setDelivery(ctx context.Context, q execer, userID int64, on bool) error {
+	_, err := q.Exec(ctx, `
 		INSERT INTO profile (user_id, deliver_to_telegram) VALUES ($1, $2)
 		ON CONFLICT (user_id) DO UPDATE SET deliver_to_telegram = EXCLUDED.deliver_to_telegram, updated_at = now()`,
 		userID, on)
@@ -73,6 +88,48 @@ func (s *Store) SetDelivery(ctx context.Context, userID int64, on bool) error {
 		return fmt.Errorf("set the delivery of %d: %w", userID, err)
 	}
 	return nil
+}
+
+// SettingsChange is one save of the site's settings. A nil field stays as
+// it is; an empty string goes back to the default, as each setter has it.
+type SettingsChange struct {
+	Currency, Language         *string
+	DefaultImage, DefaultVideo *string
+	Deliver                    *bool
+}
+
+// ChangeSettings keeps every field of c in one transaction: all of them, or
+// none when one cannot be kept, so the person never has half a save.
+func (s *Store) ChangeSettings(ctx context.Context, userID int64, c SettingsChange) error {
+	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		if c.Currency != nil {
+			if err := setCurrency(ctx, tx, userID, *c.Currency); err != nil {
+				return err
+			}
+		}
+		if c.Language != nil {
+			var err error
+			if *c.Language == "" {
+				err = clearUserLang(ctx, tx, userID)
+			} else {
+				err = setUserLang(ctx, tx, userID, *c.Language)
+			}
+			if err != nil {
+				return err
+			}
+		}
+		for kind, id := range map[catalog.Kind]*string{catalog.Image: c.DefaultImage, catalog.Video: c.DefaultVideo} {
+			if id != nil {
+				if err := setDefaultModel(ctx, tx, userID, kind, *id); err != nil {
+					return err
+				}
+			}
+		}
+		if c.Deliver != nil {
+			return setDelivery(ctx, tx, userID, *c.Deliver)
+		}
+		return nil
+	})
 }
 
 // Spent is what the runs on one of the person's keys cost, by the
@@ -83,7 +140,8 @@ type Spent struct {
 
 // Spent sums the actual cost of the person's runs on each of their keys, by
 // provider: the jobs not on the free allowance, created since the key was
-// saved, whose cost is known. A provider with no such run is absent.
+// saved, whose cost is known. A provider with no such run is absent. The
+// 30 days are the ones web.key.spent names.
 func (s *Store) Spent(ctx context.Context, userID int64) (map[string]Spent, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT c.provider, sum(j.actual_usd),

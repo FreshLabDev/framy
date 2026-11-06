@@ -19,13 +19,16 @@
 //     class), so probing costs something. A run that failed otherwise, was
 //     cancelled or expired takes nothing. A draft waits for "Generate" and
 //     takes nothing until then.
-//   - The budget counts what a run costs framy: the estimate saved with the
-//     job while it is queued or running, the actual cost once it ended, and
-//     the estimate for a run that ended without a cost on the books but may
-//     have been paid (done with no reported cost, expired, or failed as a
-//     timeout, an interruption or an unreadable answer). A run that failed
-//     before anything went out costs nothing. The day is the UTC day of the
-//     moment the run was queued.
+//   - The budget counts what a run costs framy: the most its estimate says
+//     it can cost while it is queued or running (the top of an "up to"
+//     price), the actual cost once it ended, and that most for a run that
+//     ended without a cost on the books but may have been paid (done with no
+//     reported cost, expired, or failed as a timeout, an interruption, an
+//     unreadable answer, results that could not be kept after the request
+//     went out, or a refusal for its content after the provider took the
+//     run, as a video it made and then held back). A run that failed before
+//     anything went out costs nothing.
+//     The day is the UTC day of the moment the run was queued.
 package free
 
 import (
@@ -49,7 +52,9 @@ import (
 
 // MoneyPause is how long the free tier stays closed after a free run failed
 // for lack of money: framy's key is out of credit or over its limit, and the
-// next run would only fail the same way.
+// next run would only fail the same way. The site says it and closes the
+// free tier as long on its side (errors.js MONEY_PAUSE_MIN, held equal by
+// TestTheSiteSaysTheServersNumbers).
 const MoneyPause = 15 * time.Minute
 
 // DefaultDailyBudgetUSD is the owner's budget (27 October): about 50 free
@@ -221,11 +226,17 @@ func (a *Allowance) taken(ctx context.Context, c conn, userID int64, kind catalo
 	return pgx.CollectRows(rows, pgx.RowTo[time.Time])
 }
 
+// most is the most a job can cost by its estimate: the top of an "up to"
+// price, else the price.
+const most = `COALESCE(GREATEST(estimate_usd, (estimate->>'max_usd')::numeric), 0)`
+
 // cost is what a free job has cost framy, or will: see the package comment.
 const cost = `CASE
-	WHEN status IN ('queued', 'running') THEN COALESCE(estimate_usd, 0)
+	WHEN status IN ('queued', 'running') THEN ` + most + `
 	WHEN actual_usd IS NOT NULL THEN actual_usd
-	WHEN status IN ('done', 'expired') OR error_class IN ('timeout', 'interrupted', 'provider') THEN COALESCE(estimate_usd, 0)
+	WHEN status IN ('done', 'expired') OR error_class IN ('timeout', 'interrupted', 'provider')
+	     OR (error_class = 'storage' AND submitted_at IS NOT NULL)
+	     OR (error_class = 'moderation' AND provider_job_id IS NOT NULL) THEN ` + most + `
 	ELSE 0
 END`
 
@@ -234,7 +245,7 @@ END`
 func (a *Allowance) spend(ctx context.Context, c conn, day time.Time) (spent, inFlight int64, err error) {
 	err = c.QueryRow(ctx, `
 		SELECT COALESCE(sum(`+cost+`) * 1000000, 0)::bigint,
-		       COALESCE(sum(CASE WHEN status IN ('queued', 'running') THEN COALESCE(estimate_usd, 0) END) * 1000000, 0)::bigint
+		       COALESCE(sum(CASE WHEN status IN ('queued', 'running') THEN `+most+` END) * 1000000, 0)::bigint
 		FROM job
 		WHERE free AND queued_at >= $1 AND queued_at < $2`, day, day.Add(24*time.Hour)).Scan(&spent, &inFlight)
 	return spent, inFlight, err

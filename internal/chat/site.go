@@ -7,8 +7,8 @@ import (
 	"errors"
 	"html"
 	"math"
-	"os"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,14 +36,15 @@ const (
 	albumItems = 10
 )
 
-// runSite sends the site's results to the DMs until ctx ends.
-func (f *Flow) runSite(ctx context.Context) {
+// runSite sends the site's results to the DMs until stop ends, under work,
+// which outlives stop by the grace a send in flight has to finish (Run).
+func (f *Flow) runSite(stop, work context.Context) {
 	tick := time.NewTicker(siteEvery)
 	defer tick.Stop()
 	for {
-		f.sendSite(ctx)
+		f.sendSiteUntil(stop, work)
 		select {
-		case <-ctx.Done():
+		case <-stop.Done():
 			return
 		case <-tick.C:
 		}
@@ -52,7 +53,13 @@ func (f *Flow) runSite(ctx context.Context) {
 
 // sendSite sends every result the site made since the last round, a press
 // of several frames as one album.
-func (f *Flow) sendSite(ctx context.Context) {
+func (f *Flow) sendSite(ctx context.Context) { f.sendSiteUntil(ctx, ctx) }
+
+// sendSiteUntil is sendSite under ctx, which outlives stop: once stop ends,
+// a press not yet claimed is left for the next process, which sends it,
+// and one being sent finishes. Cut short, its claim would stay 'sending'
+// and the person would never get it.
+func (f *Flow) sendSiteUntil(stop, ctx context.Context) {
 	results, err := f.cfg.Store.SiteResults(ctx, f.now().Add(-siteWithin), siteBatch)
 	if err != nil {
 		if ctx.Err() == nil {
@@ -60,13 +67,18 @@ func (f *Flow) sendSite(ctx context.Context) {
 		}
 		return
 	}
+	f.forgetSiteRetries()
+	// One person's DM that Telegram asked to wait for holds up nobody else's.
+	ctx = noWait(ctx)
 	var wg sync.WaitGroup
 	slot := make(chan struct{}, following)
 	for _, press := range pressesOf(results, len(results) == siteBatch) {
 		wg.Go(func() {
 			slot <- struct{}{}
 			defer func() { <-slot }()
-			f.sendSitePress(ctx, press)
+			if stop.Err() == nil {
+				f.sendSitePress(ctx, press)
+			}
 		})
 	}
 	wg.Wait()
@@ -96,6 +108,13 @@ func pressesOf(results []db.SiteResult, full bool) [][]db.SiteResult {
 // sendSitePress claims the results of one press and sends them, at most
 // once: one alone as any result, several as one album.
 func (f *Flow) sendSitePress(ctx context.Context, press []db.SiteResult) {
+	if f.pace.held(press[0].UserID) {
+		// Telegram asked to wait: a round after the hold sends it.
+		return
+	}
+	if !f.siteDue(press) {
+		return
+	}
 	var claimed []db.SiteResult
 	for _, r := range press {
 		ok, err := f.cfg.Store.ClaimSiteResult(ctx, r.JobID)
@@ -118,10 +137,32 @@ func (f *Flow) sendSitePress(ctx context.Context, press []db.SiteResult) {
 }
 
 // releaseSite gives back the claims on results nothing of which went out,
-// so a later round tries again.
+// so a later round tries again: once its wait is over when Telegram asked
+// to wait, else retryFirst later, then twice as long each time up to
+// retryMost, as a result in a chat is (deliver.go, giveUp). Their hour
+// still bounds it: a result that ended over siteWithin ago is not read
+// again, and stays on the site. Before, any failure was tried again every
+// round, the file read and a video readied each time.
 func (f *Flow) releaseSite(ctx context.Context, why string, err error, rs ...db.SiteResult) {
-	if ctx.Err() == nil {
+	switch {
+	case ctx.Err() != nil:
+		// A stop is no failure of the results.
+	case tg.IsTooManyRequests(err), errors.Is(err, errHeld):
 		f.log.Warn(why, "jobs", jobIDs(rs), "error", err)
+	default:
+		tries := 0
+		for _, r := range rs {
+			if v, ok := f.siteRetries.Load(r.JobID); ok {
+				tries = max(tries, v.(retry).tries)
+			}
+		}
+		tries++
+		wait := retryAfter(tries)
+		next := f.now().Add(wait)
+		for _, r := range rs {
+			f.siteRetries.Store(r.JobID, retry{tries: tries, next: next})
+		}
+		f.log.Warn(why, "jobs", jobIDs(rs), "tries", tries, "again_in", wait, "error", err)
 	}
 	for _, r := range rs {
 		if err := f.cfg.Store.ReleaseSiteResult(context.WithoutCancel(ctx), r.JobID); err != nil {
@@ -130,9 +171,35 @@ func (f *Flow) releaseSite(ctx context.Context, why string, err error, rs ...db.
 	}
 }
 
+// siteDue tells whether the press may be tried now: none of its results
+// waits for its next try.
+func (f *Flow) siteDue(press []db.SiteResult) bool {
+	now := f.now()
+	for _, r := range press {
+		if v, ok := f.siteRetries.Load(r.JobID); ok && now.Before(v.(retry).next) {
+			return false
+		}
+	}
+	return true
+}
+
+// forgetSiteRetries forgets the results whose next try is over siteWithin
+// past: no round reads them any more, since each ended before its first
+// failure. A result that went or ended is forgotten as it does.
+func (f *Flow) forgetSiteRetries() {
+	now := f.now()
+	f.siteRetries.Range(func(k, v any) bool {
+		if now.Sub(v.(retry).next) > siteWithin {
+			f.siteRetries.Delete(k)
+		}
+		return true
+	})
+}
+
 // endSite records that the claimed results will not be sent.
 func (f *Flow) endSite(ctx context.Context, state string, rs ...db.SiteResult) {
 	for _, r := range rs {
+		f.siteRetries.Delete(r.JobID)
 		if err := f.cfg.Store.EndSiteResult(context.WithoutCancel(ctx), r.JobID, state); err != nil {
 			f.log.Warn("site result not ended", "job", r.JobID, "state", state, "error", err)
 		}
@@ -161,7 +228,7 @@ func (f *Flow) mayWrite(ctx context.Context, video bool, rs ...db.SiteResult) bo
 	switch {
 	case err == nil:
 		return true
-	case mayNotWrite(err):
+	case refused(err):
 		f.log.Info("site result not sent: the bot may not write to the person", "jobs", jobIDs(rs))
 		f.endSite(ctx, db.DeliveryClosed, rs...)
 	default:
@@ -232,8 +299,7 @@ func (f *Flow) sendSiteResult(ctx context.Context, r db.SiteResult) {
 	}
 	if err != nil {
 		if ctx.Err() == nil {
-			f.log.Error("site result not sent", "job", r.JobID, "error", err)
-			f.endSite(ctx, db.DeliveryFailed, r)
+			f.notSent(ctx, err, r)
 		}
 		return
 	}
@@ -244,6 +310,7 @@ func (f *Flow) sendSiteResult(ctx context.Context, r db.SiteResult) {
 
 // sentSite records the result as sent in res.
 func (f *Flow) sentSite(ctx context.Context, r db.SiteResult, lang string, res db.ChatResult) {
+	f.siteRetries.Delete(r.JobID)
 	run := db.ChatRun{JobID: r.JobID, ChatID: r.UserID, Lang: lang}
 	if err := f.cfg.Store.SentSiteResult(context.WithoutCancel(ctx), run, res); err != nil {
 		f.log.Error("site result not recorded as sent", "job", r.JobID, "error", err)
@@ -339,12 +406,13 @@ func (f *Flow) sendSiteAlbum(ctx context.Context, press []db.SiteResult) {
 		msgs, err = f.postAlbum(ctx, sending[0].UserID, assets, caption)
 	}
 	if err == nil && len(msgs) < len(frames) {
-		err = errors.New("sendMediaGroup returned fewer messages than it was sent")
+		// Telegram answered, so the album may be in the DM: the answer is
+		// the call's, and the press is not sent again.
+		err = callFailure{errors.New("sendMediaGroup returned fewer messages than it was sent")}
 	}
 	if err != nil {
 		if ctx.Err() == nil {
-			f.log.Error("site result not sent", "jobs", jobIDs(sending), "error", err)
-			f.endSite(ctx, db.DeliveryFailed, sending...)
+			f.notSent(ctx, err, sending...)
 		}
 		return
 	}
@@ -359,6 +427,11 @@ func (f *Flow) sendSiteAlbum(ctx context.Context, press []db.SiteResult) {
 // albumCaption is the caption of a press's album: what the frames share
 // once, the prompt as a quote and the model under it, and what differs a
 // line per frame, numbered as Telegram numbers the album's items.
+//
+// It always fits Telegram's caption (maxCaption): ten frames with prompts
+// of their own and long model names would not, and Telegram would refuse
+// the whole album. The prompts give way, every frame's alike, while the
+// numbers and the models stay whole; the site keeps each prompt whole.
 func albumCaption(frames []frame) string {
 	samePrompt, sameModel := true, true
 	for _, fr := range frames[1:] {
@@ -368,17 +441,38 @@ func albumCaption(frames []frame) string {
 	if samePrompt && sameModel {
 		return resultCaption(frames[0].r.Prompt, frames[0].r.Model)
 	}
+	// most is how much of a prompt is shown when there is room for it.
+	most := captionPrompt
+	if !samePrompt {
+		most = albumPrompt
+	}
+	caption := albumLines(frames, samePrompt, sameModel, most)
+	if captionLen(caption) <= maxCaption {
+		return caption
+	}
+	// The most of each prompt that fits: a caption only grows with it.
+	cut := sort.Search(most, func(n int) bool { return captionLen(albumLines(frames, samePrompt, sameModel, n+1)) > maxCaption })
+	if caption = albumLines(frames, samePrompt, sameModel, cut); captionLen(caption) > maxCaption {
+		// Model names alone over 1024 characters: an album with no caption
+		// still comes, where one Telegram refused would not.
+		return ""
+	}
+	return caption
+}
+
+// albumLines is albumCaption with at most cut characters of each prompt.
+func albumLines(frames []frame, samePrompt, sameModel bool, cut int) string {
 	parts := make([]string, 0, len(frames)+2)
 	if samePrompt {
-		parts = append(parts, promptQuote(frames[0].r.Prompt))
+		parts = append(parts, promptQuoteCut(frames[0].r.Prompt, cut))
 	}
 	for i, fr := range frames {
 		line := "<b>" + strconv.Itoa(i+1) + "</b>"
 		if !sameModel {
 			line += " " + html.EscapeString(fr.r.Model)
 		}
-		if !samePrompt {
-			line += " · " + html.EscapeString(shortPrompt(fr.r.Prompt))
+		if p := shortPrompt(fr.r.Prompt, cut); !samePrompt && p != "" {
+			line += " · " + html.EscapeString(p)
 		}
 		parts = append(parts, line)
 	}
@@ -388,25 +482,45 @@ func albumCaption(frames []frame) string {
 	return lines(parts...)
 }
 
-// albumPrompt is how much of a frame's own prompt its line shows: six
-// lines of it stay well inside a caption's 1024 characters.
+// albumPrompt is the most of a frame's own prompt its line shows, when the
+// caption has room for it.
 const albumPrompt = 120
 
-// shortPrompt is the prompt on one line, cut to albumPrompt characters.
-func shortPrompt(prompt string) string {
-	prompt = strings.Join(strings.Fields(prompt), " ")
-	if utf8.RuneCountInString(prompt) > albumPrompt {
-		prompt = strings.TrimSpace(string([]rune(prompt)[:albumPrompt])) + "…"
+// shortPrompt is the prompt on one line, cut to cut characters; with none,
+// it is empty.
+func shortPrompt(prompt string, cut int) string {
+	prompt = oneLine(prompt)
+	if cut <= 0 {
+		return ""
+	}
+	if utf8.RuneCountInString(prompt) > cut {
+		prompt = strings.TrimSpace(string([]rune(prompt)[:cut])) + "…"
 	}
 	return prompt
 }
 
-// mayNotWrite tells a refusal that says the bot may not write to the
-// person: a 403 (never started, blocked, deactivated) or a 400 (the chat
-// is unknown to the bot). Nothing sent there would arrive.
-func mayNotWrite(err error) bool {
-	var apiErr *tg.APIError
-	return errors.As(err, &apiErr) && (apiErr.ErrorCode == 403 || apiErr.ErrorCode == 400)
+// oneLine is s with every run of spaces and line breaks one space.
+func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// notSent records results whose send failed, by what the failure says of
+// them, since a result goes to the DM at most once. Telegram asking to
+// wait (429) took nothing: they are given back and go once the wait is
+// over. A failure before Telegram was called, the file unread from the
+// bucket or a video not readied, or a call that never reached the Bot API
+// server took nothing either: they are given back and tried again later
+// (releaseSite). Before, either lost them for good, and the person never
+// got them in the DM. Anything else Telegram refused, which a second try
+// would not change, or may have delivered: they are not sent again.
+func (f *Flow) notSent(ctx context.Context, err error, rs ...db.SiteResult) {
+	switch {
+	case tg.IsTooManyRequests(err), errors.Is(err, errHeld):
+		f.releaseSite(ctx, "site result held back: Telegram asked to wait", err, rs...)
+	case unsent(err):
+		f.releaseSite(ctx, "site result not sent; it goes again later", err, rs...)
+	default:
+		f.log.Error("site result not sent", "jobs", jobIDs(rs), "error", err)
+		f.endSite(ctx, db.DeliveryFailed, rs...)
+	}
 }
 
 // postAlbum sends pictures as one album, the caption on the first, and
@@ -419,25 +533,29 @@ func (f *Flow) postAlbum(ctx context.Context, chatID int64, assets []storage.Ass
 	for _, a := range assets {
 		photos = photos && photoFits(a)
 	}
-	items := make([]tg.InputMedia, 0, len(assets))
-	for i, a := range assets {
-		body, err := f.cfg.Files.Open(ctx, a)
-		if err != nil {
-			return nil, err
+	return sendFiles(f, func(o *outbox) ([]tg.Message, error) {
+		items := make([]tg.InputMedia, 0, len(assets))
+		for i, a := range assets {
+			body, err := f.cfg.Files.Open(ctx, a)
+			if err != nil {
+				return nil, err
+			}
+			file, err := o.file(body, "framy"+extOf(a.ContentType))
+			if err != nil {
+				return nil, err
+			}
+			var text string
+			if i == 0 {
+				text = caption
+			}
+			if photos {
+				items = append(items, tg.InputMediaPhoto{Media: file, Caption: text})
+			} else {
+				items = append(items, tg.InputMediaDocument{Media: file, Caption: text})
+			}
 		}
-		defer body.Close()
-		file := tg.InputFileUpload{Filename: "framy" + extOf(a.ContentType), Data: body}
-		var text string
-		if i == 0 {
-			text = caption
-		}
-		if photos {
-			items = append(items, tg.InputMediaPhoto{Media: file, Caption: text})
-		} else {
-			items = append(items, tg.InputMediaDocument{Media: file, Caption: text})
-		}
-	}
-	return f.sendGroup(ctx, chatID, items)
+		return f.sendGroup(ctx, chatID, items)
+	})
 }
 
 // sendGroup sends an album and returns its messages.
@@ -447,7 +565,8 @@ func (f *Flow) sendGroup(ctx context.Context, chatID int64, items []tg.InputMedi
 		return nil, err
 	}
 	if len(msgs) == 0 {
-		return nil, errors.New("sendMediaGroup returned no message")
+		// An answer, however odd, is the call's: the album may have gone.
+		return nil, callFailure{errors.New("sendMediaGroup returned no message")}
 	}
 	return msgs, nil
 }
@@ -476,29 +595,27 @@ func (f *Flow) postVideoAlbum(ctx context.Context, chatID int64, assets []storag
 		videos = append(videos, ready{v: v, streams: streams, cover: f.coverOf(ctx, dir, a.ID)})
 	}
 	send := func(covers bool) ([]tg.Message, error) {
-		items := make([]tg.InputMedia, 0, len(videos))
-		for i, r := range videos {
-			body, err := os.Open(r.v.Path)
-			if err != nil {
-				return nil, err
-			}
-			defer body.Close()
-			item := tg.InputMediaVideo{Media: tg.InputFileUpload{Filename: "framy.mp4", Data: body},
-				Width: r.v.Width, Height: r.v.Height, Duration: int(math.Ceil(r.v.Seconds)), SupportsStreaming: r.streams}
-			if covers && r.cover != "" {
-				c, err := os.Open(r.cover)
+		return sendFiles(f, func(o *outbox) ([]tg.Message, error) {
+			items := make([]tg.InputMedia, 0, len(videos))
+			for i, r := range videos {
+				file, err := o.fileAt(r.v.Path, "framy.mp4")
 				if err != nil {
 					return nil, err
 				}
-				defer c.Close()
-				item.Cover = tg.InputFileUpload{Filename: "cover.jpg", Data: c}
+				item := tg.InputMediaVideo{Media: file,
+					Width: r.v.Width, Height: r.v.Height, Duration: int(math.Ceil(r.v.Seconds)), SupportsStreaming: r.streams}
+				if covers && r.cover != "" {
+					if item.Cover, err = o.fileAt(r.cover, "cover.jpg"); err != nil {
+						return nil, err
+					}
+				}
+				if i == 0 {
+					item.Caption = caption
+				}
+				items = append(items, item)
 			}
-			if i == 0 {
-				item.Caption = caption
-			}
-			items = append(items, item)
-		}
-		return f.sendGroup(ctx, chatID, items)
+			return f.sendGroup(ctx, chatID, items)
+		})
 	}
 	msgs, err := send(true)
 	var apiErr *tg.APIError

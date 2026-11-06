@@ -2,6 +2,7 @@
 package openai
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -12,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -509,7 +511,7 @@ func TestErrorsAreToldApart(t *testing.T) {
 		{"a project without the model", 403, `{"error":{"message":"Project ` + "`proj_abc`" + ` does not have access to model ` + "`gpt-image-2.5-sunburst`" + `","type":"invalid_request_error","param":null,"code":"model_not_found"}}`, nil, jobs.Key, 0},
 		{"a key without the scope", 403, `{"error":{"message":"You have insufficient permissions for this operation. Missing scopes: api.model.request.","type":"invalid_request_error","code":null}}`, nil, jobs.Key, 0},
 		{"a model the key may not use", 404, `{"error":{"message":"The model ` + "`gpt-image-2.5-flare`" + ` does not exist or you do not have access to it.","type":"invalid_request_error","param":null,"code":"model_not_found"}}`, nil, jobs.Key, 0},
-		{"a region OpenAI does not serve", 403, `{"error":{"code":"unsupported_country_region_territory","message":"Country, region, or territory not supported","param":null,"type":"request_forbidden"}}`, nil, jobs.ProviderFailed, 0},
+		{"a region OpenAI does not serve", 403, `{"error":{"code":"unsupported_country_region_territory","message":"Country, region, or territory not supported","param":null,"type":"request_forbidden"}}`, nil, jobs.Region, 0},
 		{"no credit", 429, `{"error":{"message":"You exceeded your current quota, please check your plan and billing details.","type":"insufficient_quota","param":null,"code":"insufficient_quota"}}`, nil, jobs.Money, 0},
 		{"no credit, by the code", 429, `{"error":{"message":"Your credit balance is too low.","type":"invalid_request_error","code":"credit_balance_exhausted"}}`, nil, jobs.Money, 0},
 		{"the organization's spend limit", 429, `{"error":{"message":"You have reached your organization's monthly spend limit.","type":"invalid_request_error","code":"organization_spend_limit_exceeded"}}`, []string{"Retry-After", "60"}, jobs.Money, 0},
@@ -528,6 +530,13 @@ func TestErrorsAreToldApart(t *testing.T) {
 		{"a gateway timeout", 504, `<html>Gateway Time-out</html>`, nil, jobs.Timeout, 0},
 		{"Cloudflare's timeout", 524, `<html>A timeout occurred</html>`, nil, jobs.Timeout, 0},
 		{"a request timeout", 408, `{"error":{"message":"Request timed out","type":"timeout"}}`, nil, jobs.Timeout, 0},
+		// Cloudflare could not hand the request to OpenAI: nothing ran.
+		{"Cloudflare: the origin is down", 521, `<html>Web server is down</html>`, nil, jobs.Unavailable, 0},
+		{"Cloudflare: the connection timed out", 522, `<html>Connection timed out</html>`, nil, jobs.Unavailable, 0},
+		{"Cloudflare: the origin is unreachable", 523, `<html>Origin is unreachable</html>`, nil, jobs.Unavailable, 0},
+		{"Cloudflare: the TLS handshake failed", 525, `<html>SSL handshake failed</html>`, nil, jobs.Unavailable, 0},
+		{"Cloudflare: the origin's certificate", 526, `<html>Invalid SSL certificate</html>`, nil, jobs.Unavailable, 0},
+		{"Cloudflare: an unknown error", 520, `<html>Web server is returning an unknown error</html>`, nil, jobs.ProviderFailed, 0},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			p, _ := serve(t, reply(c.status, c.body, c.headers...))
@@ -538,6 +547,11 @@ func TestErrorsAreToldApart(t *testing.T) {
 			}
 			if d := pe.RetryAfter - c.wait; d < -2*time.Second || d > 2*time.Second {
 				t.Errorf("retry after %s, want %s", pe.RetryAfter, c.wait)
+			}
+			// A page that is not OpenAI's, such as Cloudflare's, has no words
+			// of OpenAI's: the status's name in the job's line is framy's.
+			if notOpenAIs := strings.HasPrefix(c.body, "<"); notOpenAIs != (pe.Said() == "") {
+				t.Errorf("said %q", pe.Said())
 			}
 			for _, secret := range []string{testKey, "sk-proj"} {
 				if strings.Contains(err.Error(), secret) {
@@ -693,6 +707,23 @@ func TestTheAnswerIsReadCarefully(t *testing.T) {
 			t.Errorf("outcome %+v: a paid run with a broken image fails and keeps its cost", out)
 		}
 	})
+	// The run is billed in full: a broken picture does not take the good
+	// ones with it.
+	t.Run("one broken picture of three", func(t *testing.T) {
+		good := `{"b64_json":"` + base64.StdEncoding.EncodeToString(png) + `"}`
+		p, _ := serve(t, reply(200, `{"created":1,"output_format":"png","data":[`+good+`,`+good+`,{"b64_json":"%%%"}],"usage":{"input_tokens":5,"output_tokens":300,"input_tokens_details":{"text_tokens":5,"image_tokens":0}}}`))
+		sub, err := p.Submit(context.Background(), job(t, map[string]any{"size": "1024x1024", "quality": "medium", "n": 3.0}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := sub.Outcome
+		if out.Err != nil || len(out.Results) != 2 || out.CostUSD == nil {
+			t.Fatalf("outcome %+v: want the two good pictures and the cost", out)
+		}
+		if out.Lost == nil || !strings.Contains(out.Lost.Error(), "image 3") {
+			t.Errorf("lost %v, want what happened to image 3", out.Lost)
+		}
+	})
 	t.Run("an answer with no image keeps the cost", func(t *testing.T) {
 		p, _ := serve(t, reply(200, images(5, 0, 100)))
 		sub, err := p.Submit(context.Background(), job(t, medium()))
@@ -722,14 +753,41 @@ func TestTheAnswerIsReadCarefully(t *testing.T) {
 	})
 }
 
+// Ten 4K images make an answer of 300 MB, and four workers may read one each:
+// the answer is read one image at a time, never held whole beside its
+// strings and its bytes.
+func TestALargeAnswerIsReadAnImageAtATime(t *testing.T) {
+	const n, size = 6, 3 << 20
+	files := make([][]byte, n)
+	for i := range files {
+		files[i] = append(append([]byte{}, png...), bytes.Repeat([]byte{byte(i)}, size-len(png))...)
+	}
+	body := images(10, 0, 100, files...)
+	p, _ := serve(t, reply(200, body))
+	j := job(t, medium())
+
+	runtime.GC()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	sub, err := p.Submit(context.Background(), j)
+	runtime.ReadMemStats(&after)
+	if err != nil || len(sub.Outcome.Results) != n || sub.Outcome.CostUSD == nil {
+		t.Fatalf("outcome %+v, %v", sub.Outcome, err)
+	}
+	spent := int64(after.TotalAlloc-before.TotalAlloc) - n*size
+	if spent > int64(len(body)) {
+		t.Errorf("a %d MiB answer allocated %d MiB beside its images", len(body)>>20, spent>>20)
+	}
+}
+
 func TestTheCostIsEachKindOfTokenAtItsOwnRate(t *testing.T) {
 	_, of := realOffer(t, flare)
 	r, err := ratesOf(of, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.text != 5e-6 || r.image != 8e-6 || r.output != 30e-6 {
-		t.Fatalf("rates %+v: the catalog says $5, $8 and $30 per million", r)
+	if r.text != 5e-6 || r.image != 8e-6 || r.output != 30e-6 || r.outputText != 30e-6 {
+		t.Fatalf("rates %+v: the catalog says $5, $8 and $30 per million, and no rate for text out", r)
 	}
 	type d = struct {
 		TextTokens  int64 `json:"text_tokens"`
@@ -746,6 +804,9 @@ func TestTheCostIsEachKindOfTokenAtItsOwnRate(t *testing.T) {
 		{"all three", usage{InputTokens: 1500, OutputTokens: 439, InputTokensDetails: &d{TextTokens: 100, ImageTokens: 1400}}, 100*5e-6 + 1400*8e-6 + 439*30e-6},
 		{"input with no details is the dearer rate", usage{InputTokens: 1000}, 1000 * 8e-6},
 		{"input the details miss is the dearer rate", usage{InputTokens: 1000, InputTokensDetails: &d{TextTokens: 100, ImageTokens: 600}}, 100*5e-6 + 600*8e-6 + 300*8e-6},
+		// OpenAI lists no rate for the text these models write: it counts
+		// at the image's.
+		{"text out with no rate of its own", usage{OutputTokens: 500, OutputTokensDetails: &d{TextTokens: 60, ImageTokens: 440}}, 500 * 30e-6},
 		{"nothing", usage{}, 0},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -756,6 +817,50 @@ func TestTheCostIsEachKindOfTokenAtItsOwnRate(t *testing.T) {
 	}
 	if got := *r.cost(usage{OutputTokens: 439}); got != 0.01317 {
 		t.Errorf("cost %v: binary noise left in", got)
+	}
+}
+
+// A model whose price lists text output (output_text) has the text it wrote
+// priced at that rate, the image at the image's, and output the details do
+// not account for at the dearer of the two.
+func TestTextTheModelWroteIsPricedAtItsOwnRate(t *testing.T) {
+	_, of := realOffer(t, flare)
+	of.Routes[0].Prices = append(slices.Clone(of.Routes[0].Prices), catalog.Price{Billable: "output_text", Unit: "token", CostUSD: 10e-6})
+	r, err := ratesOf(of, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type d = struct {
+		TextTokens  int64 `json:"text_tokens"`
+		ImageTokens int64 `json:"image_tokens"`
+	}
+	for _, c := range []struct {
+		name string
+		u    usage
+		want float64
+	}{
+		{"text and image out", usage{OutputTokens: 500, OutputTokensDetails: &d{TextTokens: 60, ImageTokens: 440}}, 60*10e-6 + 440*30e-6},
+		{"output the details miss", usage{OutputTokens: 500, OutputTokensDetails: &d{TextTokens: 60, ImageTokens: 400}}, 60*10e-6 + 400*30e-6 + 40*30e-6},
+		{"no details", usage{OutputTokens: 500}, 500 * 30e-6},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := r.cost(c.u); got == nil || !near(*got, c.want) {
+				t.Errorf("cost %v, want %v", got, c.want)
+			}
+		})
+	}
+
+	// The same from an answer, as OpenAI writes the details.
+	p, _ := serve(t, reply(200, `{"created":1,"output_format":"png","data":[{"b64_json":"`+base64.StdEncoding.EncodeToString(png)+`"}],`+
+		`"usage":{"input_tokens":5,"output_tokens":500,"input_tokens_details":{"text_tokens":5,"image_tokens":0},"output_tokens_details":{"text_tokens":60,"image_tokens":440}}}`))
+	j := job(t, medium())
+	j.Offer = of
+	sub, err := p.Submit(context.Background(), j)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := sub.Outcome.CostUSD, 5*5e-6+60*10e-6+440*30e-6; got == nil || !near(*got, want) {
+		t.Errorf("cost of the answer %v, want %v", got, want)
 	}
 }
 

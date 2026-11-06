@@ -60,6 +60,9 @@ type fakeData struct {
 	// afterRead runs once, right after a read has taken its answer and
 	// before the reader has it: a change landing in that gap.
 	afterRead func()
+	// beforeForget runs once as Forget starts: what lands while the
+	// account's files are being deleted.
+	beforeForget func()
 }
 
 func newFakeData() *fakeData {
@@ -167,6 +170,7 @@ func (d *fakeData) List(_ context.Context, userID int64, f Filter) ([]State, err
 		case f.Kind != "" && s.Kind != f.Kind:
 		case f.Query != "" && !strings.Contains(strings.ToLower(s.Prompt), strings.ToLower(f.Query)):
 		case f.Before != 0 && id >= f.Before:
+		case f.Failed && s.Status != jobs.Failed && s.Status != jobs.Cancelled && s.Status != jobs.Expired:
 		default:
 			out = append(out, s)
 		}
@@ -205,6 +209,13 @@ func (d *fakeData) Active(_ context.Context, userID int64) (bool, error) {
 }
 
 func (d *fakeData) Forget(ctx context.Context, userID int64) error {
+	d.mu.Lock()
+	hook := d.beforeForget
+	d.beforeForget = nil
+	d.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
 	if active, _ := d.Active(ctx, userID); active {
 		return ErrActive
 	}
@@ -363,6 +374,8 @@ type fakeStore struct {
 	// person's runs cost, by provider.
 	settings map[int64]db.Settings
 	spent    map[int64]map[string]db.Spent
+	// changeErr fails a save of the settings, which then keeps nothing.
+	changeErr error
 }
 
 func newFakeStore() *fakeStore {
@@ -402,19 +415,39 @@ func (s *fakeStore) UserLang(_ context.Context, userID int64) (string, error) {
 	return s.lang[userID], nil
 }
 
-func (s *fakeStore) SetCurrency(_ context.Context, userID int64, code string) error {
-	if code == "" {
-		delete(s.chosen, userID)
-	} else {
-		s.chosen[userID] = code
+// ChangeSettings keeps the whole change, or nothing of it when changeErr is
+// set, as the database's transaction does.
+func (s *fakeStore) ChangeSettings(ctx context.Context, userID int64, c db.SettingsChange) error {
+	if s.changeErr != nil {
+		return s.changeErr
 	}
-	return nil
-}
-
-func (s *fakeStore) SetUserLang(_ context.Context, userID int64, lang string) error {
-	s.lang[userID] = lang
+	if c.Currency != nil {
+		if *c.Currency == "" {
+			delete(s.chosen, userID)
+		} else {
+			s.chosen[userID] = *c.Currency
+		}
+	}
+	if c.Language != nil {
+		if *c.Language == "" {
+			_ = s.ClearUserLang(ctx, userID)
+		} else {
+			s.lang[userID] = *c.Language
+			st := s.settingsOf(userID)
+			st.LanguagePicked = true
+			s.settings[userID] = st
+		}
+	}
 	st := s.settingsOf(userID)
-	st.LanguagePicked = true
+	if c.DefaultImage != nil {
+		st.DefaultImage = *c.DefaultImage
+	}
+	if c.DefaultVideo != nil {
+		st.DefaultVideo = *c.DefaultVideo
+	}
+	if c.Deliver != nil {
+		st.Deliver = *c.Deliver
+	}
 	s.settings[userID] = st
 	return nil
 }
@@ -439,24 +472,6 @@ func (s *fakeStore) settingsOf(userID int64) db.Settings {
 
 func (s *fakeStore) Settings(_ context.Context, userID int64) (db.Settings, error) {
 	return s.settingsOf(userID), nil
-}
-
-func (s *fakeStore) SetDefaultModel(_ context.Context, userID int64, kind catalog.Kind, modelID string) error {
-	st := s.settingsOf(userID)
-	if kind == catalog.Video {
-		st.DefaultVideo = modelID
-	} else {
-		st.DefaultImage = modelID
-	}
-	s.settings[userID] = st
-	return nil
-}
-
-func (s *fakeStore) SetDelivery(_ context.Context, userID int64, on bool) error {
-	st := s.settingsOf(userID)
-	st.Deliver = on
-	s.settings[userID] = st
-	return nil
 }
 
 func (s *fakeStore) Spent(_ context.Context, userID int64) (map[string]db.Spent, error) {
@@ -515,10 +530,31 @@ type fakeUploads struct {
 	got   []byte
 	user  int64
 	block chan struct{}
-	calls int
+	// calls are the uploads that reached the conversion, and reading those
+	// whose body is coming in now.
+	calls   int
+	reading int
 }
 
-func (u *fakeUploads) Upload(ctx context.Context, userID int64, r io.Reader) (storage.Asset, error) {
+// Upload reads the body as storage does, passes the gate, and converts:
+// it waits for block, when there is one, holding the gate's room.
+func (u *fakeUploads) Upload(ctx context.Context, userID int64, r io.Reader, gate storage.Gate) (storage.Asset, error) {
+	u.mu.Lock()
+	u.reading++
+	u.mu.Unlock()
+	b, rerr := io.ReadAll(r)
+	u.mu.Lock()
+	u.reading--
+	u.got, u.user = b, userID
+	u.mu.Unlock()
+	if rerr != nil {
+		return storage.Asset{}, rerr
+	}
+	release, err := gate(ctx)
+	if err != nil {
+		return storage.Asset{}, err
+	}
+	defer release()
 	u.mu.Lock()
 	block, err, a := u.block, u.err, u.asset
 	u.calls++
@@ -529,13 +565,6 @@ func (u *fakeUploads) Upload(ctx context.Context, userID int64, r io.Reader) (st
 		case <-ctx.Done():
 			return storage.Asset{}, ctx.Err()
 		}
-	}
-	b, rerr := io.ReadAll(r)
-	u.mu.Lock()
-	u.got, u.user = b, userID
-	u.mu.Unlock()
-	if rerr != nil {
-		return storage.Asset{}, rerr
 	}
 	return a, err
 }
@@ -595,6 +624,26 @@ type fakeFiles struct {
 	all     []int64
 	usage   storage.Usage
 	allLeft int
+	// kept is when each of a person's files was kept, by user; DeleteAll
+	// takes those kept by its before.
+	kept map[int64][]time.Time
+}
+
+// keep gives user a file kept now.
+func (f *fakeFiles) keep(user int64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.kept == nil {
+		f.kept = map[int64][]time.Time{}
+	}
+	f.kept[user] = append(f.kept[user], time.Now())
+}
+
+// left is how many files user still has.
+func (f *fakeFiles) left(user int64) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.kept[user])
 }
 
 func (f *fakeFiles) DeleteJobFiles(_ context.Context, _, jobID int64) (int, error) {
@@ -604,11 +653,24 @@ func (f *fakeFiles) DeleteJobFiles(_ context.Context, _, jobID int64) (int, erro
 	return 1, f.err
 }
 
-func (f *fakeFiles) DeleteAll(_ context.Context, userID int64, _ time.Time) (int, error) {
+func (f *fakeFiles) DeleteAll(_ context.Context, userID int64, before time.Time) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.all = append(f.all, userID)
-	return 3, f.err
+	if f.err != nil {
+		return 0, f.err
+	}
+	var later []time.Time
+	for _, at := range f.kept[userID] {
+		if at.After(before) {
+			later = append(later, at)
+		}
+	}
+	n := len(f.kept[userID]) - len(later)
+	if f.kept != nil {
+		f.kept[userID] = later
+	}
+	return n, nil
 }
 
 func (f *fakeFiles) Usage(context.Context, int64) (storage.Usage, error) {
@@ -716,9 +778,12 @@ func newRig(t *testing.T, opts ...func(*rigOptions)) *rig {
 			r.revoked = append(r.revoked, userID)
 			return nil
 		},
-		Person: func(req *http.Request) (int64, bool) {
+		Person: func(req *http.Request) (int64, bool, error) {
+			if req.Header.Get("X-Test-User") == "down" {
+				return 0, false, errors.New("the sessions are unreadable")
+			}
 			id, err := strconv.ParseInt(req.Header.Get("X-Test-User"), 10, 64)
-			return id, err == nil
+			return id, err == nil, nil
 		},
 		Ping: time.Hour, WriteTimeout: 500 * time.Millisecond, data: r.data,
 	}

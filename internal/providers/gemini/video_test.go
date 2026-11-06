@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/jobs"
@@ -349,6 +350,9 @@ func TestAVideoThatEndsWithoutOneSaysWhy(t *testing.T) {
 		class  jobs.Class
 		reason string
 		text   string
+		// cost is what the run keeps: Google bills the usage of a run that
+		// ended without a video.
+		cost *float64
 	}{
 		"a blocked prompt": {
 			poll:  `{"id":"v1_x","status":"failed","errors":[{"code":"prohibited_content","message":"The prompt violates the usage policies."}]}`,
@@ -371,8 +375,12 @@ func TestAVideoThatEndsWithoutOneSaysWhy(t *testing.T) {
 			class: jobs.ProviderFailed,
 		},
 		"waiting for an action": {
-			poll:  `{"id":"v1_x","status":"requires_action"}`,
-			class: jobs.ProviderFailed,
+			poll:  `{"id":"v1_x","status":"requires_action","usage":` + omniUsage + `}`,
+			class: jobs.ProviderFailed, cost: ptr(omniCost),
+		},
+		"waiting to be continued": {
+			poll:  `{"id":"v1_x","status":"requires_continuation","usage":` + omniUsage + `}`,
+			class: jobs.ProviderFailed, cost: ptr(omniCost),
 		},
 		"a video with no data": {
 			poll:  finished(`{"type":"video","mime_type":"video/mp4"}`),
@@ -390,6 +398,9 @@ func TestAVideoThatEndsWithoutOneSaysWhy(t *testing.T) {
 			out := poll(t, p, j)
 			if out.Err == nil || out.Err.Class != c.class {
 				t.Fatalf("outcome %+v, want class %s", out, c.class)
+			}
+			if c.cost != nil && (out.CostUSD == nil || !near(*out.CostUSD, *c.cost)) {
+				t.Errorf("cost %v, want %v", out.CostUSD, *c.cost)
 			}
 			if c.reason == "" {
 				return
@@ -484,6 +495,68 @@ func TestAVideoLeftAsAFileIsFetchedFromTheBase(t *testing.T) {
 	g.polls = []func(http.ResponseWriter){reply(200, finished(`{"type":"video","uri":"https://x/elsewhere/video.mp4"}`))}
 	if out := poll(t, p, j); out.Err == nil || out.Err.Class != jobs.ProviderFailed {
 		t.Errorf("outcome %+v", out)
+	}
+}
+
+// A paid video that Google is slow to hand over is asked for again, not
+// dropped as a run that cost nothing.
+func TestAVideoThatCannotBeFetchedYetIsAskedForAgain(t *testing.T) {
+	answers := []struct {
+		status int
+		body   string
+		class  jobs.Class
+	}{
+		{503, `{"error":{"code":"service_unavailable","message":"Down."}}`, jobs.Unavailable},
+		{429, `{"error":{"code":"rate_limit_exceeded","message":"Slow down. Please retry in 40s."}}`, jobs.RateLimited},
+		{504, `{"error":{"code":"deadline_exceeded","message":"Too slow."}}`, jobs.Timeout},
+	}
+	served := 0
+	g := &googleVideo{
+		polls: []func(http.ResponseWriter){reply(200, finished(`{"type":"video","uri":"https://x/v1beta/files/abc-123:download?alt=media"}`))},
+		file: func(w http.ResponseWriter, r *http.Request) {
+			if served < len(answers) {
+				reply(answers[served].status, answers[served].body)(w)
+				served++
+				return
+			}
+			w.Header().Set("Content-Type", "video/mp4")
+			_, _ = w.Write(mp4)
+		},
+	}
+	p := serveVideo(t, g)
+	j := omniJob(t, nil)
+	j.ProviderJobID = "v1_x"
+	for _, a := range answers {
+		out, err := p.Poll(context.Background(), j)
+		if err == nil {
+			t.Fatalf("a %d on the download ended the run: %+v", a.status, out)
+		}
+		if pe := classOf(t, err); pe.Class != a.class {
+			t.Errorf("a %d is %s, want %s", a.status, pe.Class, a.class)
+		} else if a.status == 429 && pe.RetryAfter != 40*time.Second {
+			t.Errorf("Google's wait is %s", pe.RetryAfter)
+		}
+		// The cost goes beside the error, with Ready, for a run the hour
+		// ends first: it was made and is paid.
+		if !out.Ready || out.CostUSD == nil || !near(*out.CostUSD, omniCost) || len(out.Results) != 0 {
+			t.Errorf("a %d: beside the error %+v, want Ready and the cost", a.status, out)
+		}
+	}
+	out := poll(t, p, j)
+	if out.Err != nil || len(out.Results) != 1 || string(out.Results[0].Data) != string(mp4) {
+		t.Fatalf("the fourth poll: %+v", out)
+	}
+	if out.CostUSD == nil || !near(*out.CostUSD, omniCost) {
+		t.Errorf("cost %v, want %v", out.CostUSD, omniCost)
+	}
+
+	// A key that stopped working is a verdict: the run ends with its cost.
+	g.file = func(w http.ResponseWriter, r *http.Request) {
+		reply(401, `{"error":{"code":"unauthenticated","message":"API key expired."}}`)(w)
+	}
+	out = poll(t, p, j)
+	if out.Err == nil || out.Err.Class != jobs.Key || out.CostUSD == nil {
+		t.Errorf("a revoked key on the download: %+v", out)
 	}
 }
 
@@ -600,6 +673,22 @@ func TestOutputFormatAndInputDetail(t *testing.T) {
 	if _, ok := u.body["media_resolution"]; ok {
 		t.Errorf("media_resolution at the top")
 	}
+
+	// ultra_high is for pictures only: a clip beside the picture goes with
+	// high, its finest, and a lower level as it is.
+	clip := jobs.Input{ContentType: "video/mp4", URL: "data:video/mp4;base64," + base64.StdEncoding.EncodeToString(mp4)}
+	for level, want := range map[string]string{"ultra_high": "high", "medium": "medium"} {
+		if _, err := p.Submit(context.Background(), job(t, map[string]any{"media_resolution": level}, ref, clip)); err != nil {
+			t.Fatal(err)
+		}
+		input, _ := u.body["input"].([]any)
+		if b := input[1].(map[string]any); b["resolution"] != level {
+			t.Errorf("%s: the picture went with %v", level, b["resolution"])
+		}
+		if b := input[2].(map[string]any); b["type"] != "video" || b["resolution"] != want {
+			t.Errorf("%s: the clip went with %v, want %s", level, b["resolution"], want)
+		}
+	}
 }
 
 func TestAVideoBesideTheImagePrompt(t *testing.T) {
@@ -661,3 +750,72 @@ func TestCostByModality(t *testing.T) {
 }
 
 func ptr(f float64) *float64 { return &f }
+
+// A clip to edit goes inline, tens of MiB of it. A request a deadline or a
+// stop cuts off while it is still being written gave Google nothing to start
+// a run from: it is unavailable and may go again. One that went out whole
+// and got no answer may have started a paid run, and is left to the queue to
+// call a timeout. Google answers over HTTP/2, whose transport reports the
+// request written on a path of its own, so both protocols are asked. The cut
+// comes once the server has read what it reads, not at a set time, so a slow
+// machine cannot turn a whole request into a cut one.
+func TestARequestCutOffBeforeItsEndSentNothing(t *testing.T) {
+	clip := append(append([]byte{}, mp4...), make([]byte, 16<<20)...)
+	in := jobs.Input{ContentType: "video/mp4", URL: "data:video/mp4;base64," + base64.StdEncoding.EncodeToString(clip)}
+	for name, c := range map[string]struct {
+		read      func(io.Reader)
+		h2        bool
+		classed   bool
+		wantClass jobs.Class
+	}{
+		"cut off while being written":         {read: func(r io.Reader) { _, _ = io.CopyN(io.Discard, r, 64<<10) }, classed: true, wantClass: jobs.Unavailable},
+		"written whole, no answer":            {read: func(r io.Reader) { _, _ = io.Copy(io.Discard, r) }},
+		"cut off while being written, HTTP/2": {read: func(r io.Reader) { _, _ = io.CopyN(io.Discard, r, 64<<10) }, h2: true, classed: true, wantClass: jobs.Unavailable},
+		"written whole, no answer, HTTP/2":    {read: func(r io.Reader) { _, _ = io.Copy(io.Discard, r) }, h2: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			read, release := make(chan struct{}), make(chan struct{})
+			srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if c.h2 != (r.ProtoMajor == 2) {
+					t.Errorf("the request came over %s", r.Proto)
+				}
+				c.read(r.Body)
+				close(read)
+				select {
+				case <-release:
+				case <-r.Context().Done():
+				}
+			}))
+			if c.h2 {
+				srv.EnableHTTP2 = true
+				srv.StartTLS()
+			} else {
+				srv.Start()
+			}
+			t.Cleanup(srv.Close)
+			t.Cleanup(func() { close(release) })
+			p := New(Config{Base: srv.URL + "/v1beta", HTTP: srv.Client(), Key: func(context.Context, jobs.Job) (string, error) { return testKey, nil }})
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+			go func() {
+				select {
+				case <-read:
+					// The rest of a cut request is stuck in the buffers by now.
+					time.Sleep(300 * time.Millisecond)
+					cancel()
+				case <-ctx.Done():
+				}
+			}()
+			_, err := p.Submit(ctx, omniJob(t, nil, in))
+			var pe *jobs.Error
+			switch {
+			case err == nil:
+				t.Fatal("no error")
+			case c.classed && (!errors.As(err, &pe) || pe.Class != c.wantClass):
+				t.Errorf("%v, want class %s", err, c.wantClass)
+			case !c.classed && errors.As(err, &pe):
+				t.Errorf("classified as %s (%v); the queue reads the deadline or the stop", pe.Class, err)
+			}
+		})
+	}
+}

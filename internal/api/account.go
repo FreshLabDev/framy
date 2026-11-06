@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/FreshLabDev/framy/internal/catalog"
+	"github.com/FreshLabDev/framy/internal/db"
 	"github.com/FreshLabDev/framy/internal/fx"
 	"github.com/FreshLabDev/framy/internal/i18n"
 	"github.com/FreshLabDev/framy/internal/keys"
@@ -75,6 +76,10 @@ func (a *API) keyError(w http.ResponseWriter, r *http.Request, provider string, 
 		e = newError(http.StatusUnprocessableEntity, codeKeyRejected, "the provider does not accept this key")
 	case errors.Is(err, keys.ErrForbidden):
 		e = newError(http.StatusUnprocessableEntity, codeKeyForbidden, "the provider accepts the key but refuses it the list of models; give the key that permission")
+	case errors.Is(err, keys.ErrRegion):
+		// framy's server, not the key: no Retry-After, since waiting does
+		// not change where the server is.
+		e = newError(http.StatusServiceUnavailable, codeKeyRegion, "the provider does not serve the country framy's server is in, so framy cannot check or use the key")
 	case errors.Is(err, keys.ErrUnavailable):
 		e = newError(http.StatusServiceUnavailable, codeCheckUnavailable, "the provider did not answer the check; try again")
 		e.retryAfter = 10 * time.Second
@@ -82,6 +87,8 @@ func (a *API) keyError(w http.ResponseWriter, r *http.Request, provider string, 
 		e = newError(http.StatusNotFound, codeNotFound, "no key of this provider is connected")
 	case errors.Is(err, keys.ErrUnreadable):
 		e = newError(http.StatusConflict, codeKeyUnreadable, "the stored key cannot be read; paste it again")
+	case errors.Is(err, keys.ErrInUse):
+		e = newError(http.StatusConflict, codeKeyInUse, "a video sent with this key is still being made, and framy needs the key to fetch it; disconnect it once the video is in")
 	default:
 		a.internal(w, r, err)
 		return
@@ -123,7 +130,8 @@ func (a *API) saveConnection(w http.ResponseWriter, r *http.Request) {
 }
 
 // deleteConnection answers DELETE /api/connections/{provider}: the key is
-// gone from framy. Revoking it at the provider is the person's step.
+// gone from framy. Revoking it at the provider is the person's step. A key a
+// video sent within the hour still needs is kept, with key_in_use.
 func (a *API) deleteConnection(w http.ResponseWriter, r *http.Request) {
 	user, ok := a.person(w, r)
 	if !ok {
@@ -188,7 +196,8 @@ type settingsRequest struct {
 // settings answers PATCH /api/me: the person's currency, language, default
 // models and DM, and the answer is /api/me as it is after. The language is
 // the family's: core keeps it for every bot, as picking it in any of them
-// does. Every field is checked before any is kept.
+// does. Every field is checked before any is kept, and they are kept in one
+// transaction, so a save that fails changes nothing.
 func (a *API) settings(w http.ResponseWriter, r *http.Request) {
 	user, ok := a.person(w, r)
 	if !ok {
@@ -228,37 +237,14 @@ func (a *API) settings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if req.Currency != nil {
-		if err := a.cfg.Store.SetCurrency(ctx, user, *req.Currency); err != nil {
-			a.internal(w, r, err)
-			return
-		}
-	}
-	if req.Language != nil {
-		var err error
-		if *req.Language == "" {
-			err = a.cfg.Store.ClearUserLang(ctx, user)
-		} else {
-			err = a.cfg.Store.SetUserLang(ctx, user, *req.Language)
-		}
-		if err != nil {
-			a.internal(w, r, err)
-			return
-		}
-	}
-	for _, kind := range []catalog.Kind{catalog.Image, catalog.Video} {
-		if id := defaults[kind]; id != nil {
-			if err := a.cfg.Store.SetDefaultModel(ctx, user, kind, *id); err != nil {
-				a.internal(w, r, err)
-				return
-			}
-		}
-	}
-	if req.DeliverToTelegram != nil {
-		if err := a.cfg.Store.SetDelivery(ctx, user, *req.DeliverToTelegram); err != nil {
-			a.internal(w, r, err)
-			return
-		}
+	err := a.cfg.Store.ChangeSettings(ctx, user, db.SettingsChange{
+		Currency: req.Currency, Language: req.Language,
+		DefaultImage: defaults[catalog.Image], DefaultVideo: defaults[catalog.Video],
+		Deliver: req.DeliverToTelegram,
+	})
+	if err != nil {
+		a.internal(w, r, err)
+		return
 	}
 	a.me(w, r)
 }
@@ -309,14 +295,10 @@ func (a *API) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	// A client that leaves does not stop the deletion half way.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), accountDeadline)
 	defer cancel()
-	started := a.now()
-	if a.cfg.Files != nil {
-		n, err := a.cfg.Files.DeleteAll(ctx, user, started)
-		if err != nil {
-			a.log.Error("delete the files of an account", "deleted", n, "error", err)
-			newError(http.StatusServiceUnavailable, codeStorageDown, "not every file could be deleted just now; try again to delete the rest").write(w)
-			return
-		}
+	// The files go first, so a storage that fails leaves the account whole
+	// for a second try.
+	if !a.deleteFiles(ctx, w, user, a.now()) {
+		return
 	}
 	switch err := a.data.Forget(ctx, user); {
 	case errors.Is(err, ErrActive):
@@ -324,6 +306,15 @@ func (a *API) deleteAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	case err != nil:
 		a.internal(w, r, err)
+		return
+	}
+	// A run pressed in the bot or another tab after the check above and
+	// ended before Forget kept its results after the first pass, and Forget
+	// has just cleared its job: they go now. Forget held the lock a job
+	// takes to be made and found nothing queued or running, so whatever is
+	// kept from here on is a new run of a person who came back, and stays.
+	// A failure here leaves the sessions, and a second try carries on.
+	if !a.deleteFiles(ctx, w, user, a.now()) {
 		return
 	}
 	if err := a.cfg.Store.ClearUserLang(ctx, user); err != nil {
@@ -335,4 +326,19 @@ func (a *API) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	a.log.Info("account deleted")
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// deleteFiles deletes the person's files kept by before and answers 503
+// when the storage would not let every one go.
+func (a *API) deleteFiles(ctx context.Context, w http.ResponseWriter, user int64, before time.Time) bool {
+	if a.cfg.Files == nil {
+		return true
+	}
+	n, err := a.cfg.Files.DeleteAll(ctx, user, before)
+	if err != nil {
+		a.log.Error("delete the files of an account", "deleted", n, "error", err)
+		newError(http.StatusServiceUnavailable, codeStorageDown, "not every file could be deleted just now; try again to delete the rest").write(w)
+		return false
+	}
+	return true
 }

@@ -3,11 +3,14 @@ package bot
 
 import (
 	"context"
-	"strings"
+	"slices"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/FreshLabDev/tg"
+
+	"github.com/FreshLabDev/framy/internal/chat"
 )
 
 // fakeFlow records what the bot passes to the flow of /img.
@@ -15,10 +18,14 @@ type fakeFlow struct {
 	mu        sync.Mutex
 	commands  []flowCommand
 	plain     []string
+	replies   []string
 	callbacks []string
 	inline    []string
 	guests    []string
+	mentions  []string
+	anonymous []string
 	open      int
+	edits     []flowCommand
 }
 
 type flowCommand struct{ command, prompt string }
@@ -29,15 +36,32 @@ func (f *fakeFlow) Command(_ context.Context, _ *tg.Message, command, prompt str
 	f.commands = append(f.commands, flowCommand{command, prompt})
 }
 
+func (f *fakeFlow) Mention(_ context.Context, _ *tg.Message, prompt string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.mentions = append(f.mentions, prompt)
+}
+
+func (f *fakeFlow) Anonymous(_ context.Context, m *tg.Message) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.anonymous = append(f.anonymous, m.Text+m.Caption)
+}
+
 func (f *fakeFlow) Plain(_ context.Context, m *tg.Message) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.plain = append(f.plain, m.Text+m.Caption)
 }
 
-func (f *fakeFlow) Owns(data string) bool {
-	return strings.HasPrefix(data, "j:") || strings.HasPrefix(data, "d:")
+func (f *fakeFlow) Reply(_ context.Context, m *tg.Message) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.replies = append(f.replies, m.Text)
 }
+
+// Owns is the flow's own, so the routing tested here is the one framy runs.
+func (f *fakeFlow) Owns(data string) bool { return chat.Owns(data) }
 
 func (f *fakeFlow) Callback(_ context.Context, cq *tg.CallbackQuery) {
 	f.mu.Lock()
@@ -63,6 +87,12 @@ func (f *fakeFlow) GuestOpen(context.Context, *tg.Message) {
 	f.open++
 }
 
+func (f *fakeFlow) Edited(_ context.Context, _ *tg.Message, command, prompt string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.edits = append(f.edits, flowCommand{command, prompt})
+}
+
 // framy streams no drafts: a Stop on one, which framy does not ask
 // Telegram for, touches nobody and reaches nothing.
 func TestAStopOnADraftIsLeftAlone(t *testing.T) {
@@ -71,6 +101,36 @@ func TestAStopOnADraftIsLeftAlone(t *testing.T) {
 	b.handle(context.Background(), tg.Update{UpdateID: 1, StoppedMessageGeneration: &tg.MessageGenerationStopped{Chat: dmChat, DraftID: 41}})
 	if len(store.touches) != 0 || len(client.calls) != 0 || len(flow.callbacks) != 0 {
 		t.Fatalf("touches %+v, calls %+v, callbacks %v", store.touches, client.calls, flow.callbacks)
+	}
+}
+
+// The bot's own panels and the flow's buttons never take each other's
+// presses: every panel button stays the bot's, and the flow's two kinds of
+// press, a run's button and the DM's question, are the flow's.
+func TestThePanelsAndTheFlowEachKeepTheirPresses(t *testing.T) {
+	for _, action := range []string{actHome, actHelp, actAbout, actLang, actLang + ":uk", actLangAuto, actGroupLang + ":uk", actGroupAuto, actClose} {
+		data := cb(longOwner, action)
+		if chat.Owns(data) {
+			t.Errorf("the flow takes the panel's %q", data)
+		}
+		if _, _, ok := parseMenuCB(data); !ok {
+			t.Errorf("the panel does not read its own %q", data)
+		}
+	}
+	for _, data := range []string{"j:5:go", "d:10:i"} {
+		if !chat.Owns(data) {
+			t.Errorf("the flow does not take %q", data)
+		}
+		flow := &fakeFlow{}
+		b, _, client := newBotWith(WithFlow(flow))
+		cq := callback(groupChat, 7, 7, "", 99)
+		cq.Data = data
+		if err := b.onCallback(context.Background(), cq); err != nil {
+			t.Fatal(err)
+		}
+		if len(flow.callbacks) != 1 || flow.callbacks[0] != data || len(client.calls) != 0 {
+			t.Errorf("%q: flow got %v, the bot sent %+v", data, flow.callbacks, client.calls)
+		}
 	}
 }
 
@@ -92,6 +152,37 @@ func TestAnInlineQueryGoesToTheFlow(t *testing.T) {
 	b.handle(context.Background(), tg.Update{UpdateID: 2, InlineQuery: &tg.InlineQuery{ID: "q", From: tg.User{ID: 7}}})
 	if len(client.calls) != 0 || len(client.answers) != 0 {
 		t.Fatalf("the bot answered %+v %+v", client.calls, client.answers)
+	}
+}
+
+// Telegram sends an inline query for every letter typed: core hears of the
+// person once a minute, not once a letter. Before, typing "a fox in the
+// snow" wrote to core 16 times.
+func TestTypingAnInlineQueryTouchesOnceAMinute(t *testing.T) {
+	flow := &fakeFlow{}
+	b, store, _ := newBotWith(WithFlow(flow))
+	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+	b.now = func() time.Time { return now }
+	typed := ""
+	for i, r := range "a fox" {
+		typed += string(r)
+		b.handle(context.Background(), tg.Update{UpdateID: int64(i + 1), InlineQuery: &tg.InlineQuery{ID: "q", From: tg.User{ID: 7}, Query: typed}})
+		now = now.Add(time.Second)
+	}
+	// Someone else typing at the same time is their own.
+	b.handle(context.Background(), tg.Update{UpdateID: 10, InlineQuery: &tg.InlineQuery{ID: "q", From: tg.User{ID: 8}, Query: "a"}})
+	if len(flow.inline) != 6 || len(store.touches) != 2 {
+		t.Fatalf("flow got %v, touches %+v", flow.inline, store.touches)
+	}
+	// A message is no inline query: its sender is touched as always.
+	b.handle(context.Background(), tg.Update{UpdateID: 11, Message: &tg.Message{MessageID: 1, From: &tg.User{ID: 7}, Chat: dmChat, Text: "hi"}})
+	if len(store.touches) != 3 {
+		t.Fatalf("touches %+v", store.touches)
+	}
+	now = now.Add(time.Minute)
+	b.handle(context.Background(), tg.Update{UpdateID: 12, InlineQuery: &tg.InlineQuery{ID: "q", From: tg.User{ID: 7}, Query: "a fox!"}})
+	if want := (touch{7, 0}); len(store.touches) != 4 || store.touches[3] != want {
+		t.Fatalf("a minute later: touches %+v", store.touches)
 	}
 }
 
@@ -158,6 +249,64 @@ func TestImgAndEditGoToTheFlow(t *testing.T) {
 		case tc.want != nil && (len(flow.commands) != 1 || flow.commands[0] != *tc.want):
 			t.Errorf("%q gave %+v, want %+v", tc.text+tc.caption, flow.commands, *tc.want)
 		}
+	}
+}
+
+// "@framytest_bot a fox" at the start of a group message is /img by name,
+// as it is in a chat framy is not in. A mention later on is talk about
+// framy, another bot's name is not framy's, and a result posted through
+// framy's inline mode asks for nothing.
+func TestAMentionInAGroupGoesToTheFlow(t *testing.T) {
+	flow := &fakeFlow{}
+	b, _, client := newBotWith(WithFlow(flow))
+	ctx := context.Background()
+	for _, tc := range []struct {
+		text, caption string
+		raw           string
+		want          []string
+	}{
+		{text: "@framytest_bot a fox in the snow", want: []string{"a fox in the snow"}},
+		{text: "  @FramyTest_Bot, a fox", want: []string{"a fox"}},
+		{text: "@framytest_bot: make it\nnight", want: []string{"make it\nnight"}},
+		{caption: "@framytest_bot make it snow", want: []string{"make it snow"}},
+		// Only the mention: the flow says what to write.
+		{text: "@framytest_bot", want: []string{""}},
+		{text: "hey @framytest_bot a fox"},
+		{text: "@framytest_bot2 a fox"},
+		{text: "@framytest_botanist a fox"},
+		{text: "@other_bot a fox"},
+		{text: "a fox"},
+		{text: "@framytest_bot a fox", raw: `{"via_bot":{"id":1}}`},
+	} {
+		flow.mentions, flow.commands = nil, nil
+		m := message(groupChat, 7, tc.text)
+		m.Caption = tc.caption
+		if tc.raw != "" {
+			m.Raw = []byte(tc.raw)
+		}
+		if err := b.onMessage(ctx, m); err != nil {
+			t.Fatalf("%q: %v", tc.text+tc.caption, err)
+		}
+		if !slices.Equal(flow.mentions, tc.want) || len(flow.commands) != 0 {
+			t.Errorf("%q gave %q (commands %+v), want %q", tc.text+tc.caption, flow.mentions, flow.commands, tc.want)
+		}
+	}
+	if len(client.calls) != 0 {
+		t.Errorf("the bot answered itself: %+v", client.calls)
+	}
+	// In the DM a message needs no mention: it is a plain one.
+	flow.mentions = nil
+	if err := b.onMessage(ctx, message(dmChat, 7, "@framytest_bot a fox")); err != nil {
+		t.Fatal(err)
+	}
+	if len(flow.mentions) != 0 || len(flow.plain) != 1 {
+		t.Errorf("DM: mentions %q, plain %q", flow.mentions, flow.plain)
+	}
+	// A bot's message is never a request.
+	m := message(groupChat, 7, "@framytest_bot a fox")
+	m.From.IsBot = true
+	if err := b.onMessage(ctx, m); err != nil || len(flow.mentions) != 0 {
+		t.Errorf("a bot: %v, %q", err, flow.mentions)
 	}
 }
 
@@ -235,6 +384,54 @@ func TestAPlainDirectMessageGoesToTheFlow(t *testing.T) {
 	}
 }
 
+// In a group, words that answer one of framy's own messages go to the flow,
+// which takes them when they answer a result of the sender's; chatter, a
+// reply to someone else, another bot's command and a bot's words do not.
+func TestAGroupsReplyToFramyGoesToTheFlow(t *testing.T) {
+	flow := &fakeFlow{}
+	b, _, _ := newBotWith(WithFlow(flow))
+	toFramy := func(m *tg.Message) *tg.Message {
+		m.ReplyToMessage = &tg.Message{MessageID: 5, Chat: groupChat, From: &tg.User{ID: selfID, IsBot: true}}
+		return m
+	}
+	for _, tc := range []struct {
+		name    string
+		m       *tg.Message
+		reaches bool
+	}{
+		{"words to framy", toFramy(message(groupChat, 7, "make it brighter")), true},
+		{"chatter", message(groupChat, 7, "make it brighter"), false},
+		{"words to a person", func() *tg.Message {
+			m := message(groupChat, 7, "make it brighter")
+			m.ReplyToMessage = &tg.Message{MessageID: 5, Chat: groupChat, From: &tg.User{ID: 8}}
+			return m
+		}(), false},
+		{"another bot's command", toFramy(message(groupChat, 7, "/foo@other_bot bar")), false},
+		{"a bot", toFramy(&tg.Message{MessageID: 13, Chat: groupChat, From: &tg.User{ID: 8, IsBot: true}, Text: "a fox"}), false},
+		{"a command", toFramy(message(groupChat, 7, "/img make it brighter")), false},
+	} {
+		flow.replies = nil
+		if err := b.onMessage(context.Background(), tc.m); err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if got := len(flow.replies) == 1; got != tc.reaches {
+			t.Errorf("%s: reached the flow %v, want %v", tc.name, flow.replies, tc.reaches)
+		}
+		if len(flow.plain) != 0 {
+			t.Fatalf("%s: taken as a direct message", tc.name)
+		}
+	}
+	// Asked by name, a reply to framy is a request as /img is: the mention
+	// wins.
+	flow.replies, flow.mentions = nil, nil
+	if err := b.onMessage(context.Background(), toFramy(message(groupChat, 7, "@framytest_bot make it night"))); err != nil {
+		t.Fatal(err)
+	}
+	if len(flow.replies) != 0 || !slices.Equal(flow.mentions, []string{"make it night"}) {
+		t.Errorf("a named reply: replies %q, mentions %q", flow.replies, flow.mentions)
+	}
+}
+
 // Without a flow a plain message stays unanswered, as before.
 func TestWithoutAFlowAPlainMessageIsLeftUnanswered(t *testing.T) {
 	b, _, client := newBot()
@@ -243,5 +440,84 @@ func TestWithoutAFlowAPlainMessageIsLeftUnanswered(t *testing.T) {
 	}
 	if len(client.calls) != 0 {
 		t.Fatalf("sent %+v", client.calls)
+	}
+}
+
+// A message sent on behalf of a chat names no person: an anonymous admin
+// writes as the group (from is GroupAnonymousBot), and a person may post as
+// a channel. /img, /edit and the mention from them are told why nothing is
+// made, rather than met with silence; anything else from them, and a
+// channel's post forwarded into its discussion group, is left alone.
+func TestAMessageSentAsAChatIsToldWhyNothingIsMade(t *testing.T) {
+	flow := &fakeFlow{}
+	b, _, client := newBotWith(WithFlow(flow))
+	anonymous := &tg.User{ID: 1087968824, IsBot: true, FirstName: "Group", Username: "GroupAnonymousBot"}
+	asChannel := &tg.User{ID: 136817688, IsBot: true, FirstName: "Channel", Username: "Channel_Bot"}
+	telegram := &tg.User{ID: 777000, FirstName: "Telegram"}
+	for _, tc := range []struct {
+		from   *tg.User
+		text   string
+		raw    string
+		answer bool
+	}{
+		{anonymous, "/img a fox", `{"sender_chat":{"id":-100,"type":"supergroup"}}`, true},
+		{anonymous, "/edit@framytest_bot make it night", `{"sender_chat":{"id":-100,"type":"supergroup"}}`, true},
+		{asChannel, "@framytest_bot a fox", `{"sender_chat":{"id":-200,"type":"channel"}}`, true},
+		{anonymous, "/img@other_bot a fox", `{"sender_chat":{"id":-100,"type":"supergroup"}}`, false},
+		{anonymous, "a fox", `{"sender_chat":{"id":-100,"type":"supergroup"}}`, false},
+		{anonymous, "/start", `{"sender_chat":{"id":-100,"type":"supergroup"}}`, false},
+		{telegram, "/img a fox", `{"sender_chat":{"id":-200,"type":"channel"},"is_automatic_forward":true}`, false},
+	} {
+		flow.anonymous, flow.commands, flow.mentions = nil, nil, nil
+		m := message(groupChat, 7, tc.text)
+		m.From, m.Raw = tc.from, []byte(tc.raw)
+		if err := b.onMessage(context.Background(), m); err != nil {
+			t.Fatalf("%q: %v", tc.text, err)
+		}
+		if (len(flow.anonymous) == 1) != tc.answer || len(flow.commands) != 0 || len(flow.mentions) != 0 {
+			t.Errorf("%q from %s: told %q, commands %+v, mentions %q", tc.text, tc.from.Username, flow.anonymous, flow.commands, flow.mentions)
+		}
+	}
+	if len(client.calls) != 0 {
+		t.Errorf("the bot answered itself: %+v", client.calls)
+	}
+}
+
+// An edit of a message that asks framy for a run goes to the flow with the
+// words it reads now, as a new message would: /img and /edit by name,
+// framy's mention in a group, a plain direct message. Chatter, other
+// commands, another bot's, a bot's and an anonymous admin's edits do not,
+// nor a key, which the guard deletes. No edit is touched.
+func TestAnEditOfARequestGoesToTheFlow(t *testing.T) {
+	flow := &fakeFlow{}
+	b, store, _ := newBotWith(WithFlow(flow))
+	anonymous := message(groupChat, 1087968824, "/img a fox")
+	anonymous.Raw = []byte(`{"sender_chat":{"id":-100,"type":"supergroup"}}`)
+	for _, tc := range []struct {
+		name string
+		m    *tg.Message
+		want []flowCommand
+	}{
+		{"/img", message(groupChat, 7, "/img a fox"), []flowCommand{{"img", "a fox"}}},
+		{"/edit by name", message(groupChat, 7, "/edit@framytest_bot make it night"), []flowCommand{{"edit", "make it night"}}},
+		{"the mention", message(groupChat, 7, "@framytest_bot, a fox"), []flowCommand{{"", "a fox"}}},
+		{"a photo's caption", &tg.Message{MessageID: 11, Chat: dmChat, From: &tg.User{ID: 7}, Caption: "make it night", Photo: []tg.Photo{{FileID: "p"}}}, []flowCommand{{"", "make it night"}}},
+		{"a direct message", message(dmChat, 7, "a fox in the snow"), []flowCommand{{"", "a fox in the snow"}}},
+		{"chatter", message(groupChat, 7, "a fox in the snow"), nil},
+		{"another command", message(dmChat, 7, "/start"), nil},
+		{"an unknown command", message(dmChat, 7, "/foo bar"), nil},
+		{"another bot's command", message(groupChat, 7, "/img@other_bot a fox"), nil},
+		{"a bot", &tg.Message{MessageID: 13, Chat: dmChat, From: &tg.User{ID: 8, IsBot: true}, Text: "a fox"}, nil},
+		{"an anonymous admin", anonymous, nil},
+		{"a key", message(dmChat, 7, "a fox "+openRouterKey), nil},
+	} {
+		flow.edits = nil
+		b.handle(context.Background(), tg.Update{UpdateID: 1, EditedMessage: tc.m})
+		if !slices.Equal(flow.edits, tc.want) {
+			t.Errorf("%s: the flow got %+v, want %+v", tc.name, flow.edits, tc.want)
+		}
+	}
+	if len(store.touches) != 0 || len(flow.commands) != 0 || len(flow.plain) != 0 || len(flow.mentions) != 0 {
+		t.Errorf("an edit was taken as new: touches %+v, commands %+v, plain %v, mentions %v", store.touches, flow.commands, flow.plain, flow.mentions)
 	}
 }

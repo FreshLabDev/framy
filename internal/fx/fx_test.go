@@ -159,7 +159,7 @@ func TestCurrencyAPIOnTakesTheFirstFileOfTheDay(t *testing.T) {
 
 func TestCross(t *testing.T) {
 	nbu := NBUDay{Date: day("2026-10-27"), UAH: map[string]float64{USD: 45.5382, EUR: 50.9527, PLN: 11.5669}}
-	usd := USDDay{Date: day("2026-10-26"), PerUSD: map[string]float64{UAH: 45.67066934, EUR: 0.89509869, PLN: 3.9416428, BYN: 2.94785894}}
+	usd := USDDay{Date: day("2026-10-27"), PerUSD: map[string]float64{UAH: 45.67066934, EUR: 0.89509869, PLN: 3.9416428, BYN: 2.94785894}}
 	rates := FromNBU(nbu, &usd)
 	by := map[string]Rate{}
 	for _, r := range rates {
@@ -193,6 +193,13 @@ func TestCross(t *testing.T) {
 	}
 	if got := FromNBU(nbu, nil); len(got) != 3 || slices.ContainsFunc(got, func(r Rate) bool { return r.Code == BYN }) {
 		t.Errorf("without currency-api: %+v", got)
+	}
+	// currency-api's file of the day before gives the NBU's day no BYN: its
+	// rate is not of that day.
+	before := usd
+	before.Date = day("2026-10-26")
+	if got := FromNBU(nbu, &before); len(got) != 3 {
+		t.Errorf("with the day before's file: %+v", got)
 	}
 
 	alone := FromCurrencyAPI(usd)
@@ -264,6 +271,54 @@ func TestFormat(t *testing.T) {
 	}
 }
 
+// Every language writes an amount as the browser's Intl writes it on the
+// same page (CLDR): the decimal mark, the thousands and where the sign goes.
+// zł and Br stay after the number everywhere.
+func TestFormatFollowsEachLanguage(t *testing.T) {
+	const nb, nnb = "\u00a0", "\u202f"
+	for _, tc := range []struct {
+		lang       string
+		small, big string // 0.0234 and 12345.5 in euro
+		thousand   string // 1234.5 in euro
+	}{
+		{"en", "€0.024", "€12,345.50", "€1,234.50"},
+		{"zh", "€0.024", "€12,345.50", "€1,234.50"},
+		{"ru", "0,024" + nb + "€", "12" + nb + "345,50" + nb + "€", "1" + nb + "234,50" + nb + "€"},
+		{"uk", "0,024" + nb + "€", "12" + nb + "345,50" + nb + "€", "1" + nb + "234,50" + nb + "€"},
+		{"fr", "0,024" + nb + "€", "12" + nnb + "345,50" + nb + "€", "1" + nnb + "234,50" + nb + "€"},
+		{"pl", "0,024" + nb + "€", "12" + nb + "345,50" + nb + "€", "1234,50" + nb + "€"},
+		{"be", "0,024" + nb + "€", "12" + nb + "345,50" + nb + "€", "1234,50" + nb + "€"},
+		{"es", "0,024" + nb + "€", "12.345,50" + nb + "€", "1234,50" + nb + "€"},
+		{"it", "0,024" + nb + "€", "12.345,50" + nb + "€", "1234,50" + nb + "€"},
+		{"de", "0,024" + nb + "€", "12.345,50" + nb + "€", "1.234,50" + nb + "€"},
+		{"ca", "0,024" + nb + "€", "12.345,50" + nb + "€", "1.234,50" + nb + "€"},
+		{"tr", "€0,024", "€12.345,50", "€1.234,50"},
+		{"sv", "0,024" + nb + "€", "12" + nb + "345,50" + nb + "€", "1" + nb + "234,50" + nb + "€"},
+	} {
+		for _, c := range []struct {
+			amount float64
+			want   string
+		}{{0.0234, tc.small}, {12345.5, tc.big}, {1234.5, tc.thousand}} {
+			if got := Format(c.amount, EUR, tc.lang); got != c.want {
+				t.Errorf("Format(%v, EUR, %s) = %q, want %q", c.amount, tc.lang, got, c.want)
+			}
+		}
+	}
+	for _, tc := range []struct {
+		amount           float64
+		code, lang, want string
+	}{
+		{0.077, PLN, "tr", "0,077" + nb + "zł"},
+		{1234.5, BYN, "en", "1,234.50" + nb + "Br"},
+		{1234.5, UAH, "tr", "₴1.234,50"},
+		{1234567.891, UAH, "uk", "1" + nb + "234" + nb + "567,90" + nb + "₴"},
+	} {
+		if got := Format(tc.amount, tc.code, tc.lang); got != tc.want {
+			t.Errorf("Format(%v, %s, %s) = %q, want %q", tc.amount, tc.code, tc.lang, got, tc.want)
+		}
+	}
+}
+
 func TestFormatCodePutsTheCodeAfterTheNumber(t *testing.T) {
 	for _, tc := range []struct {
 		amount     float64
@@ -273,6 +328,8 @@ func TestFormatCodePutsTheCodeAfterTheNumber(t *testing.T) {
 		{18.004, UAH, "uk", "18,01 UAH"},
 		{0.5, UAH, "en", "0.50 UAH"},
 		{2.049, "RUB", "ru", "2,05 RUB"},
+		{1234.5, UAH, "uk", "1 234,50 UAH"},
+		{1234.5, EUR, "tr", "1.234,50 EUR"},
 	} {
 		if got := FormatCode(tc.amount, tc.code, tc.lang); got != tc.want {
 			t.Errorf("FormatCode(%v, %s, %s) = %q, want %q", tc.amount, tc.code, tc.lang, got, tc.want)
@@ -378,30 +435,24 @@ func (m *memStore) SaveRates(_ context.Context, rates []Rate) error {
 	return nil
 }
 
-func (m *memStore) RatesDate(context.Context) (time.Time, error) {
-	count := map[time.Time]int{}
-	for _, r := range m.rows {
-		count[r.Date]++
+func (m *memStore) RatesDate(ctx context.Context, codes []string) (time.Time, error) {
+	days, _ := m.RateDays(ctx, codes, time.Time{}, time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC))
+	if len(days) == 0 {
+		return time.Time{}, nil
 	}
-	var latest time.Time
-	for d, n := range count {
-		if n == len(Stored) && d.After(latest) {
-			latest = d
-		}
-	}
-	return latest, nil
+	return days[len(days)-1], nil
 }
 
-func (m *memStore) RateDays(_ context.Context, from, to time.Time) ([]time.Time, error) {
+func (m *memStore) RateDays(_ context.Context, codes []string, from, to time.Time) ([]time.Time, error) {
 	count := map[time.Time]int{}
 	for _, r := range m.rows {
-		if !r.Date.Before(from) && !r.Date.After(to) {
+		if slices.Contains(codes, r.Code) && !r.Date.Before(from) && !r.Date.After(to) {
 			count[r.Date]++
 		}
 	}
 	var days []time.Time
 	for d, n := range count {
-		if n == len(Stored) {
+		if n == len(codes) {
 			days = append(days, d)
 		}
 	}
@@ -489,30 +540,61 @@ func TestStep(t *testing.T) {
 	ctx := context.Background()
 	var logs bytes.Buffer
 	src := source("2026-10-28", "2026-10-27")
+	src.onDay("2026-10-26", 45.4, false)
 	src.onDay("2026-10-27", 45.5382, false)
 	store := &memStore{}
 	now := kyiv("2026-10-27 15:40")
 	s := &Syncer{Source: src, Store: store, Log: logTo(&logs), Now: func() time.Time { return now }}
 
-	// Behind: the rates are fetched, and the next step is at midnight. On a
-	// first start in the afternoon, today is read by date beside tomorrow.
+	// Behind: the NBU's next day is fetched, and the next step is at
+	// midnight. On a first start in the afternoon, today and yesterday are
+	// read by date beside it, BYN with them.
 	if wait := s.Step(ctx); wait != kyiv("2026-10-28 00:00").Sub(now) {
 		t.Fatalf("wait after a sync = %s", wait)
 	}
-	if src.requests != 2 || store.saves != 2 || !store.complete("2026-10-27") || !store.complete("2026-10-28") {
+	if src.requests != 1 || store.saves != 3 || !store.complete("2026-10-26") || !store.complete("2026-10-27") {
 		t.Fatalf("requests %d, saves %d, rows %v", src.requests, store.saves, store.rows)
+	}
+	// Tomorrow has the NBU's rows and no BYN: currency-api's newest file is
+	// today's, and its rate is not put under tomorrow.
+	if _, ok := store.rows["2026-10-28"+BYN]; ok || store.rows["2026-10-28"+USD].Source != NBU {
+		t.Fatalf("tomorrow's rows = %v", store.rows)
 	}
 	// Up to date: a restart asks no one.
 	asked := len(src.asked)
-	if wait := s.Step(ctx); wait != kyiv("2026-10-28 00:00").Sub(now) || src.requests != 2 || len(src.asked) != asked {
+	if wait := s.Step(ctx); wait != kyiv("2026-10-28 00:00").Sub(now) || src.requests != 1 || len(src.asked) != asked {
 		t.Fatalf("an up-to-date step asked again: wait %s, requests %d, days %v", wait, src.requests, src.asked)
+	}
+
+	// At midnight Kyiv tomorrow's BYN cannot be out yet: the next step is
+	// half an hour past midnight UTC, and no one is asked before.
+	now = kyiv("2026-10-28 00:00")
+	if wait := s.Step(ctx); wait != 150*time.Minute || src.requests != 1 || len(src.asked) != asked {
+		t.Fatalf("at midnight: wait %s, requests %d, days %v", wait, src.requests, src.asked)
+	}
+	// It can be out but is not: currency-api alone is asked again in an
+	// hour, without a warning, as its job often runs hours late.
+	now = kyiv("2026-10-28 02:30")
+	if wait := s.Step(ctx); wait != time.Hour || !slices.Equal(src.asked[asked:], []string{"usd 2026-10-28"}) {
+		t.Fatalf("before the file: wait %s, days %v", wait, src.asked[asked:])
+	}
+	// Out: BYN of the 28th, anchored on the NBU's USD of the 28th.
+	src.onDay("2026-10-28", 45.5382, false)
+	now = kyiv("2026-10-28 08:10")
+	if wait := s.Step(ctx); wait != kyiv("2026-10-28 15:35").Sub(now) || !store.complete("2026-10-28") {
+		t.Fatalf("with the file: wait %s, rows %v", wait, store.rows)
+	}
+	if r := store.rows["2026-10-28"+BYN]; !near(r.UAHPerUnit, 45.5382/2.95) || r.Source != CurrencyAPI {
+		t.Fatalf("BYN of the 28th = %+v", r)
+	}
+	if strings.Contains(logs.String(), `"level":"WARN"`) || strings.Contains(logs.String(), `"level":"ERROR"`) {
+		t.Fatalf("logs: %s", logs.String())
 	}
 
 	// The NBU has not published the next day yet: ask again in an hour.
 	now = kyiv("2026-10-28 15:40")
-	src.nbu.Date = day("2026-10-28")
-	if wait := s.Step(ctx); wait != time.Hour {
-		t.Fatalf("wait while the NBU is behind = %s", wait)
+	if wait := s.Step(ctx); wait != time.Hour || src.requests != 2 {
+		t.Fatalf("wait while the NBU is behind = %s, requests %d", wait, src.requests)
 	}
 
 	// Both sources down: retry soon, keep what is saved.
@@ -549,20 +631,20 @@ func TestStepFillsTheDaysMissed(t *testing.T) {
 	first := NBUDay{Date: day("2025-12-31"), UAH: map[string]float64{USD: 41.9, EUR: 49, PLN: 11.6}}
 	kept := NBUDay{Date: day("2026-10-28"), UAH: map[string]float64{USD: 45.5923, EUR: 50.7666, PLN: 11.5261}}
 	byn := USDDay{Date: day("2026-10-28"), PerUSD: map[string]float64{BYN: 2.94}}
-	for _, d := range []NBUDay{first, kept} {
-		if err := store.SaveRates(ctx, FromNBU(d, &byn)); err != nil {
-			t.Fatal(err)
-		}
+	// A hole older than fillDays stays: the last day of 2025 has no BYN.
+	if err := store.SaveRates(ctx, FromNBU(first, nil)); err != nil {
+		t.Fatal(err)
 	}
-	// A hole older than fillDays stays.
-	delete(store.rows, "2025-12-31"+BYN)
+	if err := store.SaveRates(ctx, FromNBU(kept, &byn)); err != nil {
+		t.Fatal(err)
+	}
 	now := kyiv("2026-10-31 10:00")
 	s := &Syncer{Source: src, Store: store, Log: logTo(&logs), Now: func() time.Time { return now }}
 
 	if wait := s.Step(ctx); wait != kyiv("2026-10-31 15:35").Sub(now) {
 		t.Fatalf("wait = %s", wait)
 	}
-	for _, d := range []string{"2026-10-29", "2026-10-30", "2026-10-31", "2026-11-02"} {
+	for _, d := range []string{"2026-10-29", "2026-10-30", "2026-10-31"} {
 		if !store.complete(d) {
 			t.Fatalf("%s not filled: %v", d, store.rows)
 		}
@@ -574,29 +656,40 @@ func TestStepFillsTheDaysMissed(t *testing.T) {
 	if r := store.rows["2026-10-30"+BYN]; !near(r.UAHPerUnit, 45.5293/2.95) || r.Source != CurrencyAPI {
 		t.Fatalf("BYN of the 30th = %+v", r)
 	}
-	// Sunday has the NBU's rows and waits for BYN.
-	if store.complete("2026-11-01") || store.rows["2026-11-01"+USD].Source != NBU {
-		t.Fatalf("Sunday = %v", store.rows)
+	// Sunday and Monday have the NBU's rows and wait for BYN: currency-api
+	// has no file of them yet, and Saturday's is not theirs.
+	for _, d := range []string{"2026-11-01", "2026-11-02"} {
+		if store.complete(d) || store.rows[d+USD].Source != NBU {
+			t.Fatalf("%s = %v", d, store.rows)
+		}
 	}
 	if slices.ContainsFunc(src.asked, func(a string) bool { return strings.HasSuffix(a, "2025-12-31") }) {
 		t.Fatalf("a day older than fillDays was asked: %v", src.asked)
 	}
 
-	// The next step asks only for Sunday, and fills it once currency-api has it.
+	// A step before Sunday's file can be out asks no one.
 	src.asked = nil
-	if s.Step(ctx); !slices.Equal(src.asked, []string{"nbu 2026-11-01", "usd 2026-11-01"}) {
+	if s.Step(ctx); len(src.asked) != 0 {
 		t.Fatalf("asked %v", src.asked)
 	}
+	// On Sunday morning currency-api alone is asked for Sunday, and the day
+	// is filled once it has the file.
+	now = kyiv("2026-11-01 09:00")
+	if wait := s.Step(ctx); wait != time.Hour || !slices.Equal(src.asked, []string{"usd 2026-11-01"}) {
+		t.Fatalf("wait %s, asked %v", wait, src.asked)
+	}
 	src.onDay("2026-11-01", 45.5293, false)
-	s.Step(ctx)
-	if !store.complete("2026-11-01") {
-		t.Fatal("Sunday not filled once currency-api had it")
-	}
 	src.asked = nil
-	if s.Step(ctx); len(src.asked) != 0 || src.requests != 2 {
-		t.Fatalf("nothing missing, yet asked %v, requests %d", src.asked, src.requests)
+	s.Step(ctx)
+	if !store.complete("2026-11-01") || !slices.Equal(src.asked, []string{"usd 2026-11-01", "nbu 2026-11-01"}) {
+		t.Fatalf("Sunday not filled once currency-api had it: asked %v", src.asked)
 	}
-	if strings.Contains(logs.String(), `"level":"ERROR"`) {
+	// Monday's file cannot be out yet: no one is asked.
+	src.asked = nil
+	if s.Step(ctx); len(src.asked) != 0 || src.requests != 1 {
+		t.Fatalf("nothing to ask, yet asked %v, requests %d", src.asked, src.requests)
+	}
+	if strings.Contains(logs.String(), `"level":"ERROR"`) || strings.Contains(logs.String(), `"level":"WARN"`) {
 		t.Fatalf("logs: %s", logs.String())
 	}
 }
@@ -608,7 +701,9 @@ func TestAMissedDayFallsBackToCurrencyAPI(t *testing.T) {
 	src.onDay("2026-10-29", 45.5923, false)
 	delete(src.nbuOn, "2026-10-29")
 	store := &memStore{}
-	if err := store.SaveRates(ctx, FromNBU(NBUDay{Date: day("2026-10-28"), UAH: src.nbu.UAH}, &src.usd)); err != nil {
+	kept := src.usd
+	kept.Date = day("2026-10-28")
+	if err := store.SaveRates(ctx, FromNBU(NBUDay{Date: day("2026-10-28"), UAH: src.nbu.UAH}, &kept)); err != nil {
 		t.Fatal(err)
 	}
 	s := &Syncer{Source: src, Store: store, Log: logTo(&bytes.Buffer{}), Now: func() time.Time { return kyiv("2026-10-29 16:00") }}
@@ -666,18 +761,37 @@ func TestNBUFailureFallsBackWithoutAnError(t *testing.T) {
 	}
 }
 
-func TestCurrencyAPIDownLeavesTheDayIncomplete(t *testing.T) {
+// currency-api down: the days keep the NBU's rows, BYN is asked again in an
+// hour, and the NBU is not asked again.
+func TestCurrencyAPIDownLeavesBYNWaiting(t *testing.T) {
+	ctx := context.Background()
+	var logs bytes.Buffer
 	src := source("2026-10-28", "2026-10-27")
 	src.usdErr = errors.New("cdn down")
+	src.onDay("2026-10-27", 45.5382, true)
 	store := &memStore{}
-	s := &Syncer{Source: src, Store: store, Log: logTo(&bytes.Buffer{}), Now: func() time.Time { return kyiv("2026-10-27 16:00") }}
-	if wait := s.Step(context.Background()); wait != 15*time.Minute {
+	if err := store.SaveRates(ctx, FromNBU(NBUDay{Date: day("2026-10-26"), UAH: src.nbu.UAH}, &USDDay{Date: day("2026-10-26"), PerUSD: src.usd.PerUSD})); err != nil {
+		t.Fatal(err)
+	}
+	now := kyiv("2026-10-27 16:00")
+	s := &Syncer{Source: src, Store: store, Log: logTo(&logs), Now: func() time.Time { return now }}
+	if wait := s.Step(ctx); wait != bynRetry {
 		t.Fatalf("wait = %s", wait)
 	}
-	if got, _ := store.RatesDate(context.Background()); !got.IsZero() {
+	if got, _ := store.RatesDate(ctx, Stored); !got.Equal(day("2026-10-26")) {
 		t.Fatalf("a day without BYN counted as complete: %s", got)
 	}
-	if len(store.rows) != 3 {
-		t.Fatalf("the NBU's rows were not kept: %d", len(store.rows))
+	if got, _ := store.RatesDate(ctx, NBUCodes); !got.Equal(day("2026-10-28")) || len(store.rows) != 10 {
+		t.Fatalf("the NBU's rows were not kept: %s, %d rows", got, len(store.rows))
+	}
+	// A day on, the 27th is still asked at each step, now with a warning,
+	// and the 28th, fresh, every hour.
+	now = kyiv("2026-10-28 16:00")
+	src.asked = nil
+	if wait := s.Step(ctx); wait != time.Hour || !slices.Equal(src.asked, []string{"usd 2026-10-27", "usd 2026-10-28"}) {
+		t.Fatalf("a day on: wait %s, asked %v", wait, src.asked)
+	}
+	if !strings.Contains(logs.String(), "fx day still without BYN") || strings.Count(logs.String(), `"level":"WARN"`) != 1 {
+		t.Fatalf("logs: %s", logs.String())
 	}
 }

@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/jpeg"
 	"image/png"
 	"io"
 	"log/slog"
@@ -24,6 +25,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -183,11 +185,11 @@ func sum(b []byte) string {
 func TestAnIPhonePhotoIsKeptNormalized(t *testing.T) {
 	c := converter(t)
 	h := newHarness(t, storage.Config{Media: c})
-	a, err := h.store.Upload(context.Background(), alice, bytes.NewReader(fixture(t, "iphone.heic")))
+	a, err := h.store.Upload(context.Background(), alice, bytes.NewReader(fixture(t, "iphone.heic")), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.ContentType != "image/jpeg" || a.Width != 1200 || a.Height != 1600 || !strings.HasPrefix(a.Key, "u/3001/in/") || !strings.HasSuffix(a.Key, ".jpg") {
+	if a.ContentType != "image/jpeg" || a.Width != 1200 || a.Height != 1600 || !strings.HasPrefix(a.Key, "in/") || !strings.HasSuffix(a.Key, ".jpg") {
 		t.Errorf("%+v", a)
 	}
 	o, ok := h.bucket.Get(a.Key)
@@ -206,29 +208,118 @@ func TestAnIPhonePhotoIsKeptNormalized(t *testing.T) {
 		t.Errorf("usage %+v %v", u, err)
 	}
 	// An AVIF and a PNG with alpha come through too.
-	avif, err := h.store.Upload(context.Background(), alice, bytes.NewReader(fixture(t, "tiled.avif")))
+	avif, err := h.store.Upload(context.Background(), alice, bytes.NewReader(fixture(t, "tiled.avif")), nil)
 	if err != nil || avif.ContentType != "image/jpeg" || avif.Width != 1600 {
 		t.Errorf("the AVIF: %+v %v", avif, err)
 	}
-	alpha, err := h.store.Upload(context.Background(), alice, bytes.NewReader(pngBytes(t, 64, 48, 100)))
+	alpha, err := h.store.Upload(context.Background(), alice, bytes.NewReader(pngBytes(t, 64, 48, 100)), nil)
 	if err != nil || alpha.ContentType != "image/png" || !strings.HasSuffix(alpha.Key, ".png") {
 		t.Errorf("the PNG with alpha: %+v %v", alpha, err)
 	}
 	h.workIsEmpty(t)
 }
 
+// A photo's bytes come in first, however slowly; only its conversion waits
+// at the gate, and gives the room back once ffmpeg is done. A gate that
+// turns the photo away keeps nothing.
+func TestOnlyTheConversionOfAnUploadPassesTheGate(t *testing.T) {
+	c := converter(t)
+	h := newHarness(t, storage.Config{Media: c})
+	ctx := context.Background()
+	body := &watchedReader{r: bytes.NewReader(pngBytes(t, 64, 48, 255))}
+	var read, released bool
+	gate := func(context.Context) (func(), error) {
+		read = body.done
+		return func() { released = true }, nil
+	}
+	a, err := h.store.Upload(ctx, alice, body, gate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !read || !released || a.ID == 0 {
+		t.Errorf("read before the gate %v, released %v, %+v", read, released, a)
+	}
+	busy := errors.New("busy")
+	if _, err := h.store.Upload(ctx, alice, bytes.NewReader(pngBytes(t, 64, 48, 255)), func(context.Context) (func(), error) { return nil, busy }); !errors.Is(err, busy) {
+		t.Errorf("a closed gate: %v", err)
+	}
+	if u, _ := h.store.Usage(ctx, alice); u.Files != 1 {
+		t.Errorf("files kept: %+v", u)
+	}
+	h.workIsEmpty(t)
+}
+
+// watchedReader tells when its reader has given everything.
+type watchedReader struct {
+	r    io.Reader
+	done bool
+}
+
+func (w *watchedReader) Read(p []byte) (int, error) {
+	n, err := w.r.Read(p)
+	if err == io.EOF {
+		w.done = true
+	}
+	return n, err
+}
+
+// A 4K result taken as an input comes out upload-sized: the long side at
+// 2048 px, JPEG, or PNG when it has alpha; and nothing is left in work.
+func TestShrinkMakesAPictureUploadSized(t *testing.T) {
+	c := converter(t)
+	h := newHarness(t, storage.Config{Media: c})
+	ctx := context.Background()
+	for _, tc := range []struct {
+		alpha uint8
+		want  string
+	}{{255, "image/jpeg"}, {100, "image/png"}} {
+		big := noisyPNG(t, 4096, 2304, tc.alpha)
+		data, contentType, err := h.store.Shrink(ctx, big)
+		if err != nil || contentType != tc.want || len(data) >= len(big) {
+			t.Fatalf("alpha %d: %s, %d bytes from %d, %v", tc.alpha, contentType, len(data), len(big), err)
+		}
+		info, err := media.Inspect(bytes.NewReader(data), int64(len(data)))
+		if err != nil || info.Width != 2048 || info.Height != 1152 {
+			t.Errorf("alpha %d: %+v %v", tc.alpha, info, err)
+		}
+	}
+	if _, _, err := h.store.Shrink(ctx, []byte("<html>not a picture</html>")); err == nil {
+		t.Error("html shrunk")
+	}
+	h.workIsEmpty(t)
+}
+
+// noisyPNG is a picture as large as a model's: noise, which PNG cannot
+// squeeze as it does a gradient.
+func noisyPNG(t *testing.T, w, h int, alpha uint8) []byte {
+	t.Helper()
+	img := image.NewNRGBA(image.Rect(0, 0, w, h))
+	x := uint32(1)
+	for i := 0; i < len(img.Pix); i += 4 {
+		x ^= x << 13
+		x ^= x >> 17
+		x ^= x << 5
+		img.Pix[i], img.Pix[i+1], img.Pix[i+2], img.Pix[i+3] = uint8(x), uint8(x>>8), uint8(x>>16), alpha
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
 func TestWhatIsNotAPhotoIsNotKept(t *testing.T) {
 	c := converter(t)
 	h := newHarness(t, storage.Config{Media: c, MaxUpload: 1 << 20})
 	ctx := context.Background()
-	if _, err := h.store.Upload(ctx, alice, strings.NewReader("<html>not a photo</html>")); !errors.Is(err, media.ErrUnsupported) {
+	if _, err := h.store.Upload(ctx, alice, strings.NewReader("<html>not a photo</html>"), nil); !errors.Is(err, media.ErrUnsupported) {
 		t.Errorf("html: %v", err)
 	}
-	if _, err := h.store.Upload(ctx, alice, bytes.NewReader(make([]byte, 2<<20))); !errors.Is(err, storage.ErrTooBig) {
+	if _, err := h.store.Upload(ctx, alice, bytes.NewReader(make([]byte, 2<<20)), nil); !errors.Is(err, storage.ErrTooBig) {
 		t.Errorf("2 MB over a 1 MB limit: %v", err)
 	}
 	// A body that breaks off is not a photo either.
-	if _, err := h.store.Upload(ctx, alice, io.MultiReader(bytes.NewReader(fixture(t, "exif.jpg")[:100]), errReader{})); err == nil {
+	if _, err := h.store.Upload(ctx, alice, io.MultiReader(bytes.NewReader(fixture(t, "exif.jpg")[:100]), errReader{}), nil); err == nil {
 		t.Error("a cut upload was kept")
 	}
 	if keys := h.bucket.Keys(); len(keys) != 0 {
@@ -373,7 +464,7 @@ func TestAResultOutlivesItsProviderLink(t *testing.T) {
 	}
 	// The provider's link is gone; the results are not.
 	links.Close()
-	img, vid := "u/3001/out/"+strconv.FormatInt(id, 10)+"-0.png", "u/3001/out/"+strconv.FormatInt(id, 10)+"-1.mp4"
+	img, vid := "out/"+strconv.FormatInt(id, 10)+"-0.png", "out/"+strconv.FormatInt(id, 10)+"-1.mp4"
 	if o, ok := h.bucket.Get(img); !ok || !bytes.Equal(o.Data, made) || o.ContentType != "image/png" {
 		t.Errorf("the image result: %v %q", ok, o.ContentType)
 	}
@@ -444,6 +535,36 @@ func TestAResultOutlivesItsProviderLink(t *testing.T) {
 	h.workIsEmpty(t)
 }
 
+// A picture's provider fetches the inputs during its call; a video's may
+// start the run when its own queue lets it, so the links to a video run's
+// inputs live as long as framy waits for the run.
+func TestAVideoRunsInputsLiveAsLongAsTheRun(t *testing.T) {
+	h := newHarness(t, storage.Config{})
+	ctx := context.Background()
+	in := upload(t, h, alice, "u/3001/in/frame.png", pngBytes(t, 8, 8, 255))
+	q, err := jobs.NewQueue(h.pool, jobs.Config{Providers: map[string]jobs.Provider{"openrouter": &provider{}}, Sink: h.store, Inputs: h.store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _, err := q.Draft(ctx, jobs.New{UserID: alice, Surface: jobs.Group, Offer: offer, Prompt: "x", Inputs: []int64{in}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for kind, want := range map[catalog.Kind]string{catalog.Image: "900", catalog.Video: "3900"} {
+		got, err := h.store.Inputs(ctx, jobs.Job{ID: id, UserID: alice, Kind: kind})
+		if err != nil || len(got) != 1 {
+			t.Fatalf("%s: %v %v", kind, got, err)
+		}
+		u, err := url.Parse(got[0].URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if exp := u.Query().Get("X-Amz-Expires"); exp != want {
+			t.Errorf("a %s run's input lives %s s, want %s", kind, exp, want)
+		}
+	}
+}
+
 func TestADeletedInputFailsTheJobBeforeItIsPaid(t *testing.T) {
 	h := newHarness(t, storage.Config{})
 	ctx := context.Background()
@@ -512,6 +633,12 @@ func TestJobInputsAreTheDraftsFilesInOrder(t *testing.T) {
 	if none, err := h.store.JobInputs(ctx, id+1); err != nil || len(none) != 0 {
 		t.Fatalf("another job's = %+v, %v", none, err)
 	}
+	// The run's links carry each file's size, which a video's request gets
+	// time by.
+	links, err := h.store.Inputs(ctx, jobs.Job{ID: id})
+	if err != nil || len(links) != 2 || links[0].Bytes != got[0].Bytes || links[1].Bytes != got[1].Bytes || links[0].Bytes == 0 {
+		t.Fatalf("links = %+v, %v", links, err)
+	}
 }
 
 func TestAJobTakesOnlyThePersonsOwnFiles(t *testing.T) {
@@ -573,8 +700,58 @@ func TestAResultThatIsNotMediaIsRefused(t *testing.T) {
 	h.workIsEmpty(t)
 }
 
+// A provider that names the wrong type does not give the file the wrong
+// extension and type: the bytes decide, from the answer and from a link.
+func TestAResultIsKeptAsItsBytesSay(t *testing.T) {
+	h := newHarness(t, storage.Config{})
+	ctx := context.Background()
+	var jobID int64
+	if err := h.pool.QueryRow(ctx, `
+		INSERT INTO framy.job (user_id, surface, offer_id, model_id, provider, kind, status, finished_at)
+		VALUES ($1, 'site', $2, 'test/image', 'openrouter', 'image', 'done', now()) RETURNING id`, alice, offer.ID).Scan(&jobID); err != nil {
+		t.Fatal(err)
+	}
+	var jpg bytes.Buffer
+	if err := jpeg.Encode(&jpg, image.NewGray(image.Rect(0, 0, 12, 9)), nil); err != nil {
+		t.Fatal(err)
+	}
+	links := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(jpg.Bytes())
+	}))
+	defer links.Close()
+	err := h.store.Keep(ctx, jobs.Job{ID: jobID, UserID: alice}, []jobs.Result{
+		{ContentType: "image/png", Data: jpg.Bytes()},
+		{ContentType: "image/webp", URL: links.URL},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := h.store.Results(ctx, jobID)
+	if err != nil || len(got) != 2 {
+		t.Fatalf("%v %v", got, err)
+	}
+	for _, a := range got {
+		o, ok := h.bucket.Get(a.Key)
+		if a.ContentType != "image/jpeg" || !strings.HasSuffix(a.Key, ".jpg") || a.Width != 12 || !ok || o.ContentType != "image/jpeg" {
+			t.Errorf("kept %s as %s (%dx%d), served as %q", a.Key, a.ContentType, a.Width, a.Height, o.ContentType)
+		}
+	}
+}
+
 func TestTheOperatorHearsWhenTheBucketPassesAStep(t *testing.T) {
-	h := newHarness(t, storage.Config{AlertStep: 1000})
+	var clockMu sync.Mutex
+	clock := time.Now()
+	later := func() {
+		clockMu.Lock()
+		clock = clock.Add(time.Minute)
+		clockMu.Unlock()
+	}
+	h := newHarness(t, storage.Config{AlertStep: 1000, Now: func() time.Time {
+		clockMu.Lock()
+		defer clockMu.Unlock()
+		return clock
+	}})
 	ctx := context.Background()
 	var jobID int64
 	if err := h.pool.QueryRow(ctx, `
@@ -605,15 +782,31 @@ func TestTheOperatorHearsWhenTheBucketPassesAStep(t *testing.T) {
 	if told() != 0 {
 		t.Fatal("told below the step")
 	}
+	// The bucket is summed once a minute at most: the write that passes
+	// the step within the minute tells nothing, and with no write after it
+	// the minute's catch-up tells it.
 	keep(3) // past 1000 bytes
+	if told() != 0 {
+		t.Fatalf("summed twice in a minute: told %v", h.told)
+	}
+	h.store.CatchUpBucket(ctx)
+	if told() != 0 {
+		t.Fatalf("caught up within the minute: told %v", h.told)
+	}
+	later()
+	h.store.CatchUpBucket(ctx)
 	if told() != 1 || !strings.Contains(h.told[0], "R2 bucket") {
 		t.Fatalf("told %d times: %v", told(), h.told)
 	}
-	keep(3) // the same results again: no new step
+	later()
+	keep(3) // the same results again: nothing added, no new step
+	h.store.CatchUpBucket(ctx)
 	if told() != 1 {
 		t.Errorf("told %d times for the same step", told())
 	}
-	// A failed message is tried again by the next write.
+	later()
+	// A failed message is tried again at once by the next catch-up (or
+	// write), and only once it went is the step done.
 	h.mu.Lock()
 	h.notify = func(context.Context, string) error { return errors.New("telegram is down") }
 	h.mu.Unlock()
@@ -621,9 +814,14 @@ func TestTheOperatorHearsWhenTheBucketPassesAStep(t *testing.T) {
 	h.mu.Lock()
 	h.notify = func(context.Context, string) error { return nil }
 	h.mu.Unlock()
-	keep(6)
+	h.store.CatchUpBucket(ctx)
 	if told() != 3 {
 		t.Errorf("told %d times, want the failed message and its retry", told())
+	}
+	later()
+	keep(6)
+	if told() != 3 {
+		t.Errorf("told %d times after the retry went", told())
 	}
 	var step int
 	_ = h.pool.QueryRow(ctx, `SELECT bucket_alert_step FROM framy.runtime_state`).Scan(&step)
@@ -734,6 +932,40 @@ func TestAnUploadNoJobTookGoesAfterAnHour(t *testing.T) {
 	}
 }
 
+// The uploads are looked for many at a time, and a sweep goes on past the
+// first look, by the ids, so one it passes by does not stop it.
+func TestTheSweepTakesUploadsManyAtATime(t *testing.T) {
+	h := newHarness(t, storage.Config{})
+	ctx := context.Background()
+	img := pngBytes(t, 2, 2, 255)
+	var ids []int64
+	for i := range 230 {
+		id := upload(t, h, alice, fmt.Sprintf("in/many/%d.png", i), img)
+		ids = append(ids, id)
+	}
+	if _, err := h.pool.Exec(ctx, `UPDATE framy.asset SET created_at = now() - interval '2 hours' WHERE id = ANY($1)`, ids); err != nil {
+		t.Fatal(err)
+	}
+	// One in the first look is held by a job taking it.
+	tx, err := h.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM framy.asset WHERE id=$1 FOR KEY SHARE`, ids[3]); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := h.store.SweepUploads(ctx, storage.UploadTTL); err != nil || n != 229 {
+		t.Fatalf("swept %d, %v; want 229", n, err)
+	}
+	if !h.assetExists(t, ids[3]) {
+		t.Error("the upload a job held went")
+	}
+	if _, ok := h.bucket.Get("in/many/229.png"); ok {
+		t.Error("the last upload's object is still there")
+	}
+}
+
 func TestTheSweepPassesByAnUploadAJobIsTaking(t *testing.T) {
 	h := newHarness(t, storage.Config{})
 	ctx := context.Background()
@@ -830,11 +1062,11 @@ func TestAnObjectThatWouldNotGoKeepsItsRow(t *testing.T) {
 func TestATestBotWritesUnderItsPrefix(t *testing.T) {
 	h := newHarness(t, storage.Config{Prefix: "test/", Media: converter(t)})
 	ctx := context.Background()
-	a, err := h.store.Upload(ctx, alice, bytes.NewReader(pngBytes(t, 8, 8, 255)))
+	a, err := h.store.Upload(ctx, alice, bytes.NewReader(pngBytes(t, 8, 8, 255)), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(a.Key, "test/u/3001/in/") {
+	if !strings.HasPrefix(a.Key, "test/in/") {
 		t.Fatalf("key = %q", a.Key)
 	}
 	if _, ok := h.bucket.Get(a.Key); !ok {
@@ -915,10 +1147,19 @@ func TestDeletingEveryFileOfAPerson(t *testing.T) {
 	if _, err := h.pool.Exec(ctx, `UPDATE framy.asset SET created_at = now() + interval '1 hour' WHERE id = $1`, late); err != nil {
 		t.Fatal(err)
 	}
+	// Clips put by link that framy never took: three of alice's, more than a
+	// page of the bucket's list, and one of bob's, whose id begins as hers.
+	clip := r2test.Object{Data: []byte("a clip"), ContentType: "video/mp4"}
+	for _, k := range []string{"incoming/3001/a", "incoming/3001/b", "incoming/3001/c", "incoming/30011/d"} {
+		h.bucket.Put(k, clip)
+	}
 
 	n, err := h.store.DeleteAll(ctx, alice, time.Now())
 	if err != nil || n != 301 {
 		t.Fatalf("deleted %d, %v; want 301", n, err)
+	}
+	if left := h.incoming(t); !slices.Equal(left, []string{"incoming/30011/d"}) {
+		t.Errorf("incoming after the deletion: %v", left)
 	}
 	for _, key := range append(keys, "u/3001/out/9-0.png") {
 		if _, ok := h.bucket.Get(key); ok {

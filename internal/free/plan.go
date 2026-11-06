@@ -15,7 +15,8 @@ import (
 
 // What the owner allows (docs/design.md, Free tier): 5 images in any 24
 // hours and 1 video in any 7 days, per Telegram user id. Changing a count or
-// a window is the owner's call.
+// a window is the owner's call, and the lines that say them follow
+// (TestTheTextsSayTheAllowance).
 const (
 	ImagesPerWindow = 5
 	ImageWindow     = 24 * time.Hour

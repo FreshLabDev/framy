@@ -51,7 +51,7 @@ func nbuDay(d string, usd float64) []fx.Rate {
 func TestRatesDateNeedsEveryCode(t *testing.T) {
 	store := fxStore(t)
 	ctx := context.Background()
-	if d, err := store.RatesDate(ctx); err != nil || !d.IsZero() {
+	if d, err := store.RatesDate(ctx, fx.Stored); err != nil || !d.IsZero() {
 		t.Fatalf("empty: %v, %v", d, err)
 	}
 	if err := store.SaveRates(ctx, nbuDay("2026-10-27", 45.5382)); err != nil {
@@ -61,14 +61,24 @@ func TestRatesDateNeedsEveryCode(t *testing.T) {
 	if err := store.SaveRates(ctx, nbuDay("2026-10-28", 45.6)[:3]); err != nil {
 		t.Fatal(err)
 	}
-	if d, err := store.RatesDate(ctx); err != nil || !d.Equal(date("2026-10-27")) {
+	if d, err := store.RatesDate(ctx, fx.Stored); err != nil || !d.Equal(date("2026-10-27")) {
 		t.Fatalf("rates date = %v, %v; want the last complete day", d, err)
 	}
 	if err := store.SaveRates(ctx, nbuDay("2026-10-28", 45.6)[3:]); err != nil {
 		t.Fatal(err)
 	}
-	if d, _ := store.RatesDate(ctx); !d.Equal(date("2026-10-28")) {
+	if d, _ := store.RatesDate(ctx, fx.Stored); !d.Equal(date("2026-10-28")) {
 		t.Fatalf("rates date = %v after BYN came", d)
+	}
+	// The NBU's next day, waiting for BYN, counts for the NBU's codes.
+	if err := store.SaveRates(ctx, nbuDay("2026-10-29", 45.7)[:3]); err != nil {
+		t.Fatal(err)
+	}
+	if d, _ := store.RatesDate(ctx, fx.NBUCodes); !d.Equal(date("2026-10-29")) {
+		t.Fatalf("the NBU's rates date = %v", d)
+	}
+	if d, _ := store.RatesDate(ctx, fx.Stored); !d.Equal(date("2026-10-28")) {
+		t.Fatalf("rates date = %v with the 29th waiting for BYN", d)
 	}
 }
 
@@ -85,7 +95,7 @@ func TestRateDaysAreTheCompleteDaysInTheRange(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got, err := store.RateDays(ctx, date("2026-10-27"), date("2026-11-02"))
+	got, err := store.RateDays(ctx, fx.Stored, date("2026-10-27"), date("2026-11-02"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,8 +108,13 @@ func TestRateDaysAreTheCompleteDaysInTheRange(t *testing.T) {
 			t.Fatalf("days = %v, want %v", got, want)
 		}
 	}
-	if got, err := store.RateDays(ctx, date("2026-10-30"), date("2026-11-01")); err != nil || len(got) != 0 {
+	if got, err := store.RateDays(ctx, fx.Stored, date("2026-10-30"), date("2026-11-01")); err != nil || len(got) != 0 {
 		t.Fatalf("a range of holes = %v, %v", got, err)
+	}
+	// The 29th has the NBU's rows and waits for BYN.
+	official, err := store.RateDays(ctx, fx.NBUCodes, date("2026-10-28"), date("2026-10-29"))
+	if err != nil || len(official) != 2 || !official[1].Equal(date("2026-10-29")) {
+		t.Fatalf("days with the NBU's rates = %v, %v", official, err)
 	}
 }
 

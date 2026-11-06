@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -116,12 +117,31 @@ func serve(t *testing.T, answer func(http.ResponseWriter)) (*Provider, *upstream
 	srv := httptest.NewServer(u)
 	t.Cleanup(srv.Close)
 	p := New(Config{
-		Base:  srv.URL + "/api/v1",
-		HTTP:  srv.Client(),
-		Title: "framy",
-		Key:   func(context.Context, jobs.Job) (string, error) { return "sk-or-v1-test", nil },
+		Base:       srv.URL + "/api/v1",
+		HTTP:       srv.Client(),
+		Referer:    AppURL,
+		Title:      "framy",
+		Categories: AppCategories,
+		Key:        func(context.Context, jobs.Job) (string, error) { return "sk-or-v1-test", nil },
 	})
 	return p, u
+}
+
+// attributed checks the headers that name framy in OpenRouter's app
+// rankings: the documented X-OpenRouter-Title and X-OpenRouter-Categories,
+// and X-Title, which OpenRouter keeps for older apps.
+func attributed(t *testing.T, h http.Header) {
+	t.Helper()
+	for name, want := range map[string]string{
+		"HTTP-Referer":            "https://t.me/framyin_bot",
+		"X-OpenRouter-Title":      "framy",
+		"X-Title":                 "framy",
+		"X-OpenRouter-Categories": "image-gen,video-gen",
+	} {
+		if got := h.Get(name); got != want {
+			t.Errorf("%s %q, want %q", name, got, want)
+		}
+	}
 }
 
 func classOf(t *testing.T, err error) *jobs.Error {
@@ -156,9 +176,7 @@ func TestAGenerationReturnsTheImageAndItsCost(t *testing.T) {
 	if got := u.header.Get("Authorization"); got != "Bearer sk-or-v1-test" {
 		t.Errorf("authorization %q", got)
 	}
-	if got := u.header.Get("X-Title"); got != "framy" {
-		t.Errorf("X-Title %q", got)
-	}
+	attributed(t, u.header)
 	b := u.body
 	if b["model"] != "test/image" || b["prompt"] != "a fox in the snow" {
 		t.Errorf("model and prompt: %v", b)
@@ -358,12 +376,22 @@ func TestErrorsAreToldApart(t *testing.T) {
 		{"a model that is gone", 404, `{"error":{"code":404,"message":"Model not found"}}`, nil, jobs.Refused, 0},
 		{"a body too large", 413, `<html>Request Entity Too Large</html>`, nil, jobs.Refused, 0},
 		{"a rate limit", 429, `{"error":{"code":429,"message":"Rate limit exceeded","metadata":{"error_type":"rate_limit_exceeded"}}}`, []string{"Retry-After", "30"}, jobs.RateLimited, 30 * time.Second},
-		{"a provider that is down", 502, `{"error":{"code":502,"message":"Provider returned error","metadata":{"error_type":"provider_unavailable"}}}`, nil, jobs.Unavailable, 0},
+		// A 502 on an image is a generation that did not complete, which
+		// OpenRouter does not bill: it is tried again (openrouter.go).
+		{"a provider that gave a broken answer", 502, `{"error":{"code":502,"message":"Provider returned error","metadata":{"error_type":"provider_unavailable"}}}`, nil, jobs.Unavailable, 0},
 		{"no provider, wait until a date", 503, `{"error":{"code":503,"message":"No available provider"}}`, []string{"Retry-After", soon}, jobs.Unavailable, 90 * time.Second},
 		{"overloaded", 529, `{"error":{"code":529,"message":"Provider overloaded"}}`, nil, jobs.Unavailable, 0},
 		{"an internal error", 500, `{"error":{"code":500,"message":"Internal Server Error","metadata":{"error_type":"server"}}}`, nil, jobs.ProviderFailed, 0},
 		{"Cloudflare's timeout", 524, `<html>A timeout occurred</html>`, nil, jobs.Timeout, 0},
 		{"a request timeout", 408, `{"error":{"code":408,"message":"Request timed out"}}`, nil, jobs.Timeout, 0},
+		// Cloudflare could not hand the request to OpenRouter: nothing ran.
+		{"Cloudflare: the origin is down", 521, `<html>Web server is down</html>`, nil, jobs.Unavailable, 0},
+		{"Cloudflare: the connection timed out", 522, `<html>Connection timed out</html>`, nil, jobs.Unavailable, 0},
+		{"Cloudflare: the origin is unreachable", 523, `<html>Origin is unreachable</html>`, nil, jobs.Unavailable, 0},
+		{"Cloudflare: the TLS handshake failed", 525, `<html>SSL handshake failed</html>`, nil, jobs.Unavailable, 0},
+		{"Cloudflare: the origin's certificate", 526, `<html>Invalid SSL certificate</html>`, nil, jobs.Unavailable, 0},
+		// An answer Cloudflare could not read came after OpenRouter had the request.
+		{"Cloudflare: an unknown error", 520, `<html>Web server is returning an unknown error</html>`, nil, jobs.ProviderFailed, 0},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			p, _ := serve(t, reply(c.status, c.body, c.headers...))
@@ -380,6 +408,62 @@ func TestErrorsAreToldApart(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A 502 of the Images API is a generation that did not complete, which is
+// not billed: it goes again, but a model that keeps failing on the prompt is
+// asked three times in all, not the queue's five. A video's 502 is
+// OpenRouter not reaching the model, and keeps the queue's cap.
+func TestAnImageThatWasNotMadeIsAskedFewerTimes(t *testing.T) {
+	body := `{"error":{"code":502,"message":"Generation failed","metadata":{"error_type":"provider_unavailable"}}}`
+	p, _ := serve(t, reply(502, body))
+	_, err := p.Submit(context.Background(), job(nil))
+	pe := classOf(t, err)
+	if pe.Class != jobs.Unavailable || pe.Tries != 3 || pe.Said() != "Generation failed" {
+		t.Errorf("an image's 502: %s, %d tries, said %q", pe.Class, pe.Tries, pe.Said())
+	}
+	p, _ = serve(t, reply(503, `{"error":{"code":503,"message":"No available provider"}}`))
+	if _, err := p.Submit(context.Background(), job(nil)); classOf(t, err).Tries != 0 {
+		t.Errorf("a 503 is capped: %v", err)
+	}
+}
+
+// usage.cost is what OpenRouter charged. With the account's own key of the
+// provider (BYOK) that is only OpenRouter's fee, and the provider bills the
+// run itself: the cost is both, or unknown when OpenRouter does not give the
+// provider's bill. Outside BYOK that field is not read.
+func TestTheCostIsWhatTheRunCostThePerson(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		usage string
+		want  *float64
+	}{
+		{"OpenRouter's credits", `{"cost":0.04,"is_byok":false,"cost_details":{"upstream_inference_cost":0.04}}`, ptr(0.04)},
+		{"no is_byok", `{"cost":0.04}`, ptr(0.04)},
+		{"BYOK, with the provider's bill", `{"cost":0.002,"is_byok":true,"cost_details":{"upstream_inference_cost":0.04}}`, ptr(0.042)},
+		{"BYOK within the free requests", `{"cost":0,"is_byok":true,"cost_details":{"upstream_inference_cost":0.04}}`, ptr(0.04)},
+		{"BYOK, the bill not given", `{"cost":0.002,"is_byok":true}`, nil},
+		{"no cost", `{"prompt_tokens":0}`, nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			p, _ := serve(t, reply(200, `{"created":1,"data":[{"b64_json":"`+base64.StdEncoding.EncodeToString(png)+`"}],"usage":`+c.usage+`}`))
+			sub, err := p.Submit(context.Background(), job(nil))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := sub.Outcome.CostUSD
+			if (got == nil) != (c.want == nil) || got != nil && math.Abs(*got-*c.want) > 1e-12 {
+				t.Errorf("cost %v, want %v", deref(got), deref(c.want))
+			}
+		})
+	}
+}
+
+func deref(f *float64) any {
+	if f == nil {
+		return nil
+	}
+	return *f
 }
 
 func TestAnErrorInA200IsReadAndNotRetried(t *testing.T) {
@@ -445,6 +529,23 @@ func TestTheAnswerIsReadCarefully(t *testing.T) {
 		}
 		if out := sub.Outcome; out.Err == nil || out.Err.Class != jobs.ProviderFailed || out.CostUSD == nil {
 			t.Errorf("outcome %+v: a paid run with a broken image fails and keeps its cost", out)
+		}
+	})
+	// The run is billed in full: a broken picture does not take the good
+	// ones with it.
+	t.Run("one broken picture of three", func(t *testing.T) {
+		good := `{"b64_json":"` + base64.StdEncoding.EncodeToString(png) + `","media_type":"image/png"}`
+		p, _ := serve(t, reply(200, `{"created":1,"data":[`+good+`,{"b64_json":"%%%"},`+good+`],"usage":{"cost":0.06}}`))
+		sub, err := p.Submit(context.Background(), job(nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := sub.Outcome
+		if out.Err != nil || len(out.Results) != 2 || out.CostUSD == nil || *out.CostUSD != 0.06 {
+			t.Fatalf("outcome %+v: want the two good pictures and the cost", out)
+		}
+		if out.Lost == nil || !strings.Contains(out.Lost.Error(), "image 2") {
+			t.Errorf("lost %v, want what happened to image 2", out.Lost)
 		}
 	})
 	t.Run("not JSON", func(t *testing.T) {

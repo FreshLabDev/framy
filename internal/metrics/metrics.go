@@ -201,15 +201,16 @@ var (
 	FreeRefused        = registerVec("framy_free_refused_total", "Free runs refused, by reason: image_limit, video_limit, budget, key, not_free.", "reason")
 	FreeClosed         = registerVec("framy_free_closed_total", "Times a fuse closed the free tier for a UTC day, by fuse: budget, key.", "fuse")
 	KeyDecryptFailures = registerCounter("framy_key_decrypt_failures_total", "Stored keys that could not be decrypted: a lost or wrong KEK, or a row that was tampered with.")
-	KeysInChat         = registerCounter("framy_keys_in_chat_total", "Direct messages that looked like a key and were deleted.")
+	KeysInChat         = registerCounter("framy_keys_in_chat_total", "Messages to framy that looked like a key: direct messages, commands and guest messages. None of them is kept or sent to a model.")
 
-	TelegramErrors  = registerVec("framy_telegram_errors_total", "Telegram API and transport errors, by method.", "method")
+	TelegramErrors  = registerVec("framy_telegram_errors_total", "Telegram API and transport errors, by method: each failed attempt, but no 429, capability probe or edit to what the message already showed.", "method")
 	TelegramLimited = registerVec("framy_telegram_rate_limited_total", "Telegram 429 responses observed, by method.", "method")
 
 	HTTPRateLimited        = registerVec("framy_http_rate_limited_total", "Public HTTP requests answered 429, by rate class.", "class")
 	HTTPCrossOriginRefused = registerCounter("framy_http_cross_origin_refused_total", "Public HTTP requests refused as cross-origin.")
+	CSPViolations          = registerVec("framy_csp_violations_total", "Browser reports of what a page's Content-Security-Policy refused, by directive (other for a name framy does not use).", "directive")
 
-	AuthResults      = registerVec("framy_auth_total", "Sign-in outcomes, by result: site_ok, site_denied, site_no_state, site_state, site_exchange, site_token, site_nonce, site_claims, site_provider, site_unavailable, site_error, miniapp_ok, miniapp_stale, miniapp_bad, miniapp_error.", "result")
+	AuthResults      = registerVec("framy_auth_total", "Sign-in outcomes, by result: site_ok, site_denied, site_no_state, site_cookie, site_state, site_exchange, site_token, site_nonce, site_claims, site_provider, site_unavailable, site_error, miniapp_ok, miniapp_again (a launch given its token again), miniapp_stale, miniapp_bad, miniapp_error.", "result")
 	OAuthStarted     = registerCounter("framy_oauth_started_total", "OpenRouter connect flows started: people sent to OpenRouter.")
 	OAuthCallbacks   = registerVec("framy_oauth_callbacks_total", "OpenRouter connect callbacks, by result: connected, cancelled, expired, signin, refused, unavailable.", "result")
 	StreamsOpened    = registerCounter("framy_sse_streams_total", "Job event streams opened.")
@@ -217,6 +218,7 @@ var (
 	EventsReconnects = registerCounter("framy_sse_listener_reconnects_total", "Times the job event listener lost its connection and made it again.")
 	OpenRouterHooks  = registerVec("framy_openrouter_hooks_total", "OpenRouter video webhooks, by result: woken, duplicate, ignored, bad_path, bad_signature, error.", "result")
 	StreamsOpen      = registerGauge("framy_sse_streams_open", "Job event streams open now.")
+	Busy             = registerVec("framy_busy_total", "Requests answered 503 busy, by what was full: photo_slots, photo_person, clip_queue, clip_person, clip_slots.", "what")
 
 	// The jobs: what they cost, how long they took, why they failed, and
 	// how many wait.
@@ -281,6 +283,7 @@ func write(ctx context.Context, w io.Writer) {
 			}
 		}
 	}
+	writeProcess(w)
 }
 
 func writeHistogram(w io.Writer, name string, h *HistogramVec) {

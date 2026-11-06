@@ -3,6 +3,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -92,6 +93,18 @@ func TestRequire(t *testing.T) {
 		if _, ok := b.signedIn(); ok {
 			t.Fatal("Person invented a person")
 		}
+		// Identify says it, for the job API to answer 503 as Require does.
+		req := httptest.NewRequest(http.MethodGet, "/api/jobs", nil)
+		req.AddCookie(&http.Cookie{Name: SessionCookie, Value: b.cookies[SessionCookie]})
+		if id, ok, err := h.auth.Identify(req); err == nil || ok || id != 0 {
+			t.Errorf("Identify: %d %v %v", id, ok, err)
+		}
+		mem.mu.Lock()
+		mem.err = nil
+		mem.mu.Unlock()
+		if id, ok, err := h.auth.Identify(req); err != nil || !ok || id != testUserID {
+			t.Errorf("Identify once the database is back: %d %v %v", id, ok, err)
+		}
 	})
 }
 
@@ -145,6 +158,31 @@ func TestPersonIsCached(t *testing.T) {
 		t.Error("a deleted session is believed past cacheTTL")
 	}
 
+}
+
+// A session another process ended is not believed from memory once that
+// process says so, and the people whose sessions stand are looked up again.
+func TestForgetAllDropsWhatAnotherProcessEnded(t *testing.T) {
+	mem := newMemSessions()
+	h := newHarness(t, withSessions(mem))
+	ended, kept := h.signInAs(testUserID), h.signInAs(7)
+	ended.signedIn()
+	kept.signedIn() // both cached
+	mem.mu.Lock()
+	delete(mem.rows, sha(ended.cookies[SessionCookie]))
+	mem.mu.Unlock()
+
+	h.auth.ForgetAll()
+	base := mem.lookupCount()
+	if _, ok := ended.signedIn(); ok {
+		t.Error("a session ended elsewhere is still believed")
+	}
+	if id, ok := kept.signedIn(); !ok || id != 7 {
+		t.Errorf("a live session went with it: %d %v", id, ok)
+	}
+	if n := mem.lookupCount() - base; n != 2 {
+		t.Errorf("%d lookups after forgetting, want 2", n)
+	}
 }
 
 func TestEndedSessionIsGoneAtOnceDespiteTheCache(t *testing.T) {
@@ -256,7 +294,9 @@ func TestRevocationDuringALookupIsNotUndone(t *testing.T) {
 	}
 }
 
-func TestExpiredSessionsAreSweptOnSignIn(t *testing.T) {
+// Sweep removes what expired a day ago and keeps the rest, whether or not
+// anyone signs in.
+func TestSweepRemovesExpiredSessions(t *testing.T) {
 	mem := newMemSessions()
 	h := newHarness(t, withSessions(mem))
 	h.signInAs(testUserID)
@@ -264,10 +304,18 @@ func TestExpiredSessionsAreSweptOnSignIn(t *testing.T) {
 	if mem.count() != 2 {
 		t.Fatal("setup")
 	}
-	h.clock.Advance(SessionLife + sweepGrace + time.Hour)
-	h.signInAs(8) // the first sign-in after an hour sweeps
-	if n := mem.count(); n != 1 {
-		t.Errorf("%d rows after the sweep, want only the new one", n)
+	h.clock.Advance(SessionLife + time.Hour)
+	h.signInAs(8)
+	// Expired an hour ago: kept a day, for whoever looks at why.
+	if n, err := h.auth.Sweep(context.Background()); err != nil || n != 0 || mem.count() != 3 {
+		t.Fatalf("Sweep = %d, %v with %d rows; want nothing removed yet", n, err, mem.count())
+	}
+	h.clock.Advance(sweepGrace)
+	if n, err := h.auth.Sweep(context.Background()); err != nil || n != 2 {
+		t.Fatalf("Sweep = %d, %v; want the two expired", n, err)
+	}
+	if mem.count() != 1 {
+		t.Errorf("%d rows after the sweep, want the live one", mem.count())
 	}
 }
 
@@ -317,4 +365,47 @@ func TestBearerLogoutEndsTheToken(t *testing.T) {
 func sha(secret string) [32]byte {
 	h, _ := hashToken(secret)
 	return h
+}
+
+// Signing in again ends the session the browser had: a copy of the old
+// cookie stops working, and one person signing in many times keeps one
+// session, not one per sign-in. A sign-in that fails leaves the old one.
+func TestSigningInAgainEndsTheOldSession(t *testing.T) {
+	h := newHarness(t)
+	b := h.browser()
+	b.signIn("")
+	old := b.cookies[SessionCookie]
+	if _, ok := b.signedIn(); !ok {
+		t.Fatal("not signed in")
+	}
+
+	h.idp.mu.Lock()
+	h.idp.deny = true
+	h.idp.mu.Unlock()
+	b.signIn("")
+	if b.cookies[SessionCookie] != old {
+		t.Fatal("a refused sign-in replaced the cookie")
+	}
+	if _, ok := b.signedIn(); !ok {
+		t.Fatal("a refused sign-in ended the session the browser had")
+	}
+
+	h.idp.mu.Lock()
+	h.idp.deny = false
+	h.idp.mu.Unlock()
+	b.signIn("")
+	if b.cookies[SessionCookie] == old {
+		t.Fatal("the same session after signing in again")
+	}
+	if _, ok := b.signedIn(); !ok {
+		t.Fatal("not signed in with the new session")
+	}
+	if n := h.sessions.(*memSessions).count(); n != 1 {
+		t.Errorf("%d sessions after signing in twice", n)
+	}
+	copied := h.browser()
+	copied.cookies[SessionCookie] = old
+	if _, ok := copied.signedIn(); ok {
+		t.Error("a copy of the old cookie still signs in")
+	}
 }

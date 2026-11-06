@@ -2,10 +2,17 @@
 package bot
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"log/slog"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 	"unicode"
+	"unicode/utf16"
 
 	"github.com/FreshLabDev/tg"
 
@@ -25,8 +32,16 @@ type drawn struct {
 }
 
 func everyPanel(v view) []drawn {
+	if v.bot == "" {
+		v.bot = "framytest_bot"
+	}
 	var out []drawn
 	add := func(name, text string, m *tg.InlineKeyboardMarkup) { out = append(out, drawn{name, text, m}) }
+	if v.sc == scopeGroup {
+		v.direct = "https://t.me/framytest_bot?start=group"
+	} else {
+		v.addTo = "https://t.me/framytest_bot?startgroup=add"
+	}
 	text, m := v.home(true, "uk")
 	add("home", text, m)
 	text, m = v.home(false, "")
@@ -221,7 +236,7 @@ func TestLanguageGridMarksTheCurrentOne(t *testing.T) {
 func TestAboutCardIsExactly(t *testing.T) {
 	text, m := view{lang: "en", owner: 1, sc: scopePrivate}.about("v0.1.0-alpha.1")
 	want := "<b>framy</b> · <i>v0.1.0-alpha.1</i>\n" +
-		"<i>Images from OpenRouter, OpenAI and Google models.</i>\n\n" +
+		"<i>Images and videos from OpenRouter, OpenAI and Google models.</i>\n\n" +
 		"<blockquote>Models · OpenRouter · OpenAI · Google\n" +
 		"Source · <a href=\"https://github.com/FreshLabDev/framy\">FreshLabDev/framy</a> · Apache-2.0\n" +
 		"Admin · <a href=\"https://t.me/amtiyo\">@amtiyo</a></blockquote>"
@@ -273,7 +288,7 @@ func TestStartInADMIsAPanelInThePersonsLanguage(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := client.last()
-	if got.method != "sendMessage" || got.chatID != 7 || !strings.Contains(got.text, i18n.T("uk", "home.soon")) ||
+	if got.method != "sendMessage" || got.chatID != 7 || !strings.Contains(got.text, i18n.T("uk", "home.direct")) ||
 		!strings.Contains(got.text, i18n.NameOf("uk")) {
 		t.Fatalf("sent %+v", got)
 	}
@@ -306,6 +321,161 @@ func TestStartInAGroupIsEphemeral(t *testing.T) {
 	}
 	if len(client.calls) != 1 {
 		t.Fatalf("direct-chat tabs answered in a group: %+v", client.calls)
+	}
+}
+
+// A group's panel opens framy too: Telegram takes no Mini App button in a
+// group, so Open framy is a link to framy's direct chat, whose panel opens
+// the Mini App with the person's history and settings, signed in. Before,
+// a group's panel had no way there at all. Without a Mini App to open
+// there is no such button.
+func TestAGroupPanelOpensFramyInItsDirectChat(t *testing.T) {
+	store, client := newStore(), newTelegram()
+	b := New(store, client, quiet(), "framytest_bot", selfID, "v0.1.0", WithSiteURL("https://framy.example"))
+	ctx := context.Background()
+	m := message(groupChat, 7, "/start")
+	m.EphemeralMessageID = 99
+	if err := b.onMessage(ctx, m); err != nil {
+		t.Fatal(err)
+	}
+	open := func(got *tg.InlineKeyboardMarkup) tg.InlineKeyboardButton { return got.InlineKeyboard[0][0] }
+	want := tg.InlineKeyboardButton{Text: i18n.T("en", "btn.open"), URL: "https://t.me/framytest_bot?start=group", Style: tg.StylePrimary}
+	if got := client.last(); got.method != "sendEphemeral" || open(got.markup) != want {
+		t.Fatalf("sent %+v", got)
+	}
+	// Back to the panel draws it again.
+	if err := b.onCallback(ctx, callback(groupChat, 7, 7, actHome, 99)); err != nil {
+		t.Fatal(err)
+	}
+	if got := client.last(); got.method != "editEphemeral" || open(got.markup) != want {
+		t.Fatalf("home = %+v", got)
+	}
+	// The link's /start opens the direct chat's panel, with the Mini App.
+	if err := b.onMessage(ctx, message(dmChat, 7, "/start group")); err != nil {
+		t.Fatal(err)
+	}
+	if got := client.last(); got.method != "sendMessage" || open(got.markup).WebApp == nil {
+		t.Fatalf("direct panel = %+v", got)
+	}
+
+	b, _, client = newBot()
+	if err := b.onMessage(ctx, m); err != nil {
+		t.Fatal(err)
+	}
+	for _, button := range buttons(client.last().markup) {
+		if button.URL != "" {
+			t.Fatalf("a link with no Mini App to open: %+v", button)
+		}
+	}
+}
+
+// added is the update that says framy's status in chat went from old to
+// new, changed by person 2.
+func added(chat tg.Chat, old, new string) tg.Update {
+	return tg.Update{UpdateID: 1, MyChatMember: &tg.ChatMemberUpdated{Chat: chat, From: tg.User{ID: 2, LanguageCode: "uk"},
+		OldChatMember: tg.ChatMember{Status: old}, NewChatMember: tg.ChatMember{Status: new}}}
+}
+
+// A group framy is added to is greeted once with what anyone's panel there
+// says, how to start with /img, and Open framy; before, it heard nothing,
+// and only those who knew /img found framy there. The greeting speaks the
+// group's language, or that of whoever added framy while the group has
+// none, and has no button that acts, which no public message may carry.
+func TestAGroupFramyJoinsIsGreeted(t *testing.T) {
+	store, client := newStore(), newTelegram()
+	b := New(store, client, quiet(), "framytest_bot", selfID, "v0.1.0", WithSiteURL("https://framy.example"))
+	ctx := context.Background()
+	group := tg.Chat{ID: -300, Type: "group"}
+	for _, old := range []string{"left", "kicked"} {
+		for _, now := range []string{"member", "administrator"} {
+			client.calls = nil
+			b.handle(ctx, added(group, old, now))
+			got := client.last()
+			if len(client.calls) != 1 || got.method != "sendMessage" || got.chatID != -300 || got.text != (view{lang: "uk"}).groupText() {
+				t.Fatalf("%s to %s: sent %+v", old, now, client.calls)
+			}
+			want := []tg.InlineKeyboardButton{{Text: i18n.T("uk", "btn.open"), URL: "https://t.me/framytest_bot?start=group", Style: tg.StylePrimary}}
+			if !reflect.DeepEqual(buttons(got.markup), want) {
+				t.Fatalf("%s to %s: buttons %+v", old, now, buttons(got.markup))
+			}
+		}
+	}
+	store.chatLang[-300] = "de"
+	b.handle(ctx, added(group, "left", "member"))
+	if got := client.last(); !strings.Contains(got.text, i18n.T("de", "home.group")) {
+		t.Fatalf("in the group's language: %q", got.text)
+	}
+
+	// Made an admin, or anything in a group framy is in, or out of one, or
+	// anywhere but a group, says nothing.
+	client.calls = nil
+	for _, u := range []tg.Update{
+		added(group, "member", "administrator"),
+		added(group, "administrator", "member"),
+		added(group, "restricted", "member"),
+		added(group, "member", "left"),
+		added(group, "left", "restricted"),
+		added(dmChat, "kicked", "member"),
+		added(tg.Chat{ID: -500, Type: "channel"}, "left", "administrator"),
+	} {
+		b.handle(ctx, u)
+	}
+	if len(client.calls) != 0 {
+		t.Fatalf("greeted: %+v", client.calls)
+	}
+
+	// A greeting Telegram refuses fails nothing.
+	client.sendErr = &tg.APIError{Method: "sendMessage", StatusCode: 403, ErrorCode: 403, Description: "Forbidden: bot was kicked from the group chat"}
+	if err := b.onMembership(ctx, added(group, "left", "member").MyChatMember); err != nil {
+		t.Fatalf("a refused greeting failed the update: %v", err)
+	}
+}
+
+// A group that became a supergroup, as one does when framy is made an
+// admin of it, is the same group: framy is not greeted there again,
+// whichever of the two service messages says so.
+func TestASupergroupThatWasAGroupIsNotGreetedAgain(t *testing.T) {
+	b, _, client := newBot()
+	ctx := context.Background()
+	b.handle(ctx, tg.Update{UpdateID: 1, Message: &tg.Message{MessageID: 5, Chat: tg.Chat{ID: -300, Type: "group"}, From: &tg.User{ID: 2},
+		MigrateToChatID: -1001}})
+	b.handle(ctx, tg.Update{UpdateID: 2, Message: &tg.Message{MessageID: 1, Chat: tg.Chat{ID: -1002, Type: "supergroup"}, From: &tg.User{ID: 2},
+		MigrateFromChatID: -301}})
+	for _, chat := range []int64{-1001, -1002} {
+		b.handle(ctx, added(tg.Chat{ID: chat, Type: "supergroup"}, "left", "administrator"))
+	}
+	if len(client.calls) != 0 {
+		t.Fatalf("greeted again: %+v", client.calls)
+	}
+	b.handle(ctx, added(tg.Chat{ID: -1003, Type: "supergroup"}, "left", "member"))
+	if len(client.calls) != 1 {
+		t.Fatalf("a new supergroup was not greeted: %+v", client.calls)
+	}
+	// Ten minutes on, the supergroup is any group.
+	b.now = func() time.Time { return time.Now().Add(migrationKeep + time.Minute) }
+	b.handle(ctx, added(tg.Chat{ID: -1001, Type: "supergroup"}, "left", "member"))
+	if len(client.calls) != 2 {
+		t.Fatalf("a group framy is added to again was not greeted: %+v", client.calls)
+	}
+}
+
+// The direct chat's panel adds framy to a group: Telegram lets the person
+// pick one, and the group is greeted once framy is in.
+func TestTheDirectPanelAddsFramyToAGroup(t *testing.T) {
+	b, _, client := newBot()
+	ctx := context.Background()
+	if err := b.onMessage(ctx, message(dmChat, 7, "/start")); err != nil {
+		t.Fatal(err)
+	}
+	want := tg.InlineKeyboardButton{Text: i18n.T("en", "btn.add_group"), URL: "https://t.me/framytest_bot?startgroup=add"}
+	if !slices.Contains(buttons(client.last().markup), want) {
+		t.Fatalf("buttons %+v", buttons(client.last().markup))
+	}
+	if err := b.onCallback(ctx, callback(dmChat, 7, 7, actHome, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(buttons(client.last().markup), want) {
+		t.Fatalf("Back: buttons %+v", buttons(client.last().markup))
 	}
 }
 
@@ -453,5 +623,143 @@ func TestProfileIsPublishedPerLanguageAndWrittenOnlyOnChange(t *testing.T) {
 	b.publishProfile(ctx)
 	if client.writes != first {
 		t.Fatalf("a restart wrote %d unchanged texts again", client.writes-first)
+	}
+}
+
+// sleeps has the bot's waits end at once, and records them.
+func sleeps(b *Bot) *[]time.Duration {
+	var waited []time.Duration
+	b.sleep = func(ctx context.Context, d time.Duration) bool {
+		waited = append(waited, d)
+		return ctx.Err() == nil
+	}
+	return &waited
+}
+
+// A language Telegram refuses is that language's alone: every other is
+// published, and so are the rest of its own menus and texts. It is tried
+// once more a minute later, and what is still refused then is logged once,
+// by language. Before, the first refusal left every language after it with
+// no description and no menu until the next restart.
+func TestALanguageTelegramRefusesLeavesTheOthersPublished(t *testing.T) {
+	var logs bytes.Buffer
+	b, _, client := buildBot(slog.New(slog.NewTextHandler(&logs, nil)))
+	waited := sleeps(b)
+	tooLong := &tg.APIError{Method: "setMyDescription", StatusCode: 400, ErrorCode: 400, Description: "Bad Request: description is too long"}
+	client.profileErrs["description/de"] = []error{tooLong, tooLong}
+	client.profileErrs["all_group_chats/pl"] = []error{errors.New("connection reset")}
+	b.publishProfile(context.Background())
+	for _, code := range append([]string{""}, i18n.Codes()...) {
+		if len(client.commands["all_private_chats/"+code]) != 1 || len(client.commands["all_group_chats/"+code]) != 3 {
+			t.Fatalf("%q: commands %+v", code, client.commands)
+		}
+		if client.profile["short_description/"+code] == "" || code != "de" && client.profile["description/"+code] == "" {
+			t.Fatalf("%q: profile %v", code, client.profile)
+		}
+	}
+	if client.profile["description/de"] != "" {
+		t.Fatal("the German description was published")
+	}
+	if len(*waited) != 1 || (*waited)[0] != profileAgainAfter {
+		t.Fatalf("waited %v", *waited)
+	}
+	if !strings.Contains(logs.String(), "level=WARN msg=\"bot profile not published in every language\" languages=[de] of=17") ||
+		strings.Contains(logs.String(), "commands and descriptions published") {
+		t.Fatalf("logs:\n%s", logs.String())
+	}
+}
+
+// Telegram still asking to wait after tg waited once is a limit on the bot:
+// the languages after it are not sent into it, and all of them go once the
+// wait Telegram asked for is over.
+func TestAWaitTelegramAsksForHoldsTheRestOfTheProfile(t *testing.T) {
+	var logs bytes.Buffer
+	b, _, client := buildBot(slog.New(slog.NewTextHandler(&logs, nil)))
+	waited := sleeps(b)
+	client.profileErrs["all_private_chats/ru"] = []error{&tg.APIError{Method: "setMyCommands", StatusCode: 429, ErrorCode: 429, Description: "Too Many Requests: retry after 300", RetryAfter: 5 * time.Minute}}
+	b.publishProfile(context.Background())
+	if len(*waited) != 1 || (*waited)[0] != 5*time.Minute {
+		t.Fatalf("waited %v", *waited)
+	}
+	for _, code := range append([]string{""}, i18n.Codes()...) {
+		if len(client.commands["all_private_chats/"+code]) != 1 || client.profile["description/"+code] == "" {
+			t.Fatalf("%q was not published", code)
+		}
+	}
+	if !strings.Contains(logs.String(), "bot commands and descriptions published") {
+		t.Fatalf("logs:\n%s", logs.String())
+	}
+
+	// A stop during the wait ends it there, with nothing more sent or said.
+	b, _, client = buildBot(quiet())
+	ctx, stop := context.WithCancel(context.Background())
+	b.sleep = func(context.Context, time.Duration) bool { stop(); return false }
+	client.profileErrs["all_private_chats/ru"] = []error{&tg.APIError{Method: "setMyCommands", StatusCode: 429, ErrorCode: 429, RetryAfter: time.Minute}}
+	b.publishProfile(ctx)
+	if len(client.commands["all_private_chats/ru"]) != 0 || len(client.commands["all_private_chats/uk"]) != 0 {
+		t.Fatalf("sent after the stop: %v", client.commands)
+	}
+}
+
+// Telegram refuses an answer to a press over 200 characters, and the button
+// then says nothing at all.
+func TestPanelAlertsFitTelegram(t *testing.T) {
+	for _, key := range []string{"msg.not_yours", "msg.admin_only"} {
+		for _, code := range i18n.Codes() {
+			if n := len(utf16.Encode([]rune(i18n.T(code, key)))); n > 200 {
+				t.Errorf("%s [%s] is %d characters, over 200", key, code, n)
+			}
+		}
+	}
+}
+
+// Help says every way in: a plain message in the direct chat, /img and
+// /edit in a group, and the bot's own username for guest and inline mode,
+// which is not the same for the production bot and the test bot. It says
+// so whether it comes from /help or from the Help button.
+func TestHelpSaysEveryWayInWithTheBotsOwnName(t *testing.T) {
+	b, _, client := newBot()
+	ctx := context.Background()
+	if err := b.onMessage(ctx, message(dmChat, 7, "/help")); err != nil {
+		t.Fatal(err)
+	}
+	typed := client.last().text
+	if err := b.onCallback(ctx, callback(dmChat, 7, 7, actHelp, 0)); err != nil {
+		t.Fatal(err)
+	}
+	pressed := client.last().text
+	for _, got := range []string{typed, pressed} {
+		for _, want := range []string{"direct chat", "<code>/img</code>", "<code>/edit</code>", "send @framytest_bot", "Typing @framytest_bot", "one video"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("help has no %q: %s", want, got)
+			}
+		}
+		if strings.Contains(got, "framyin_bot") || strings.Contains(got, "{bot}") {
+			t.Errorf("help names another bot: %s", got)
+		}
+		if strings.Contains(got, "The site is") {
+			t.Errorf("help names a site framy was not given: %s", got)
+		}
+	}
+}
+
+// Help sends the person to the site for keys, so it says where the site
+// is, in a group too, where Open framy leads to the direct chat.
+func TestHelpNamesTheSite(t *testing.T) {
+	b, _, client := newBotWith(WithSiteURL(testSite))
+	ctx := context.Background()
+	if err := b.onMessage(ctx, message(dmChat, 7, "/help")); err != nil {
+		t.Fatal(err)
+	}
+	direct := client.last().text
+	if err := b.onCallback(ctx, callback(groupChat, 7, 7, actHelp, 99)); err != nil {
+		t.Fatal(err)
+	}
+	group := client.last().text
+	want := `The site is <a href="` + testSite + `">framy.example</a>: your library, keys and settings are there.`
+	for _, got := range []string{direct, group} {
+		if !strings.Contains(got, want+"</blockquote>") {
+			t.Errorf("help does not end with the site: %s", got)
+		}
 	}
 }

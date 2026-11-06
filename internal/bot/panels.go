@@ -2,10 +2,16 @@
 package bot
 
 import (
+	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/FreshLabDev/tg"
 
@@ -26,6 +32,11 @@ func (b *Bot) commandArgs(m *tg.Message) (cmd, rest string, ok bool) {
 	if m.From == nil || m.From.IsBot {
 		return "", "", false
 	}
+	return b.parseCommand(m)
+}
+
+// parseCommand is commandArgs whoever sent the message.
+func (b *Bot) parseCommand(m *tg.Message) (cmd, rest string, ok bool) {
 	text := m.Text
 	if text == "" {
 		text = m.Caption
@@ -47,15 +58,42 @@ func (b *Bot) commandArgs(m *tg.Message) (cmd, rest string, ok bool) {
 }
 
 func (b *Bot) onMessage(ctx context.Context, m *tg.Message) error {
+	if asChat, forwarded := sentAsChat(m); asChat {
+		// No person sent it, as far as Telegram says, so no run can be
+		// anyone's: /img, /edit and the mention are told why. A channel's
+		// post its discussion group gets asks for nothing.
+		if !forwarded && b.flow != nil && b.asksFramy(m) {
+			b.flow.Anonymous(ctx, m)
+		}
+		return nil
+	}
 	if handled, err := b.keyInChat(ctx, m); handled {
 		return err
 	}
 	cmd, rest, ok := b.commandArgs(m)
 	private := m.Chat.Type == "private"
 	if !ok {
-		// In a direct chat no command is needed (docs/design.md, DM).
-		if private && b.flow != nil && m.From != nil && !m.From.IsBot && !strings.HasPrefix(strings.TrimSpace(m.Text), "/") {
+		if b.flow == nil || m.From == nil || m.From.IsBot {
+			return nil
+		}
+		command := strings.HasPrefix(strings.TrimSpace(m.Text), "/")
+		prompt, named := "", false
+		if !private {
+			prompt, named = b.mentionArgs(m)
+		}
+		switch {
+		case private && !command:
+			// In a direct chat no command is needed (docs/design.md, DM).
 			b.flow.Plain(ctx, m)
+		case named:
+			// "@framyin_bot a fox" in a group framy is in is /img by name,
+			// as the same words are in a chat framy is not in (guest mode).
+			// It wins over a reply: asked by name, framy takes the replied
+			// message as /img does.
+			b.flow.Mention(ctx, m, prompt)
+		case !private && !command && b.repliesToSelf(m):
+			// In a group a reply to framy's result may go on from it.
+			b.flow.Reply(ctx, m)
 		}
 		return nil
 	}
@@ -72,7 +110,7 @@ func (b *Bot) onMessage(ctx context.Context, m *tg.Message) error {
 		if !private && m.EphemeralMessageID == 0 {
 			return nil
 		}
-		return b.sendScreen(ctx, m, actHome)
+		return b.sendScreen(ctx, m, actHome, rest)
 	case "help", "about", "language":
 		// Tabs of the direct chat's panel. They answer for anyone who types
 		// them from memory and are not advertised.
@@ -83,9 +121,108 @@ func (b *Bot) onMessage(ctx context.Context, m *tg.Message) error {
 		if cmd == "language" {
 			action = actLang
 		}
-		return b.sendScreen(ctx, m, action)
+		return b.sendScreen(ctx, m, action, "")
 	}
 	return nil
+}
+
+// repliesToSelf tells whether m answers one of framy's own messages.
+func (b *Bot) repliesToSelf(m *tg.Message) bool {
+	r := m.ReplyToMessage
+	return r != nil && r.From != nil && b.selfID != 0 && r.From.ID == b.selfID
+}
+
+// onEdit hands the flow an edit of a message that asks framy for a run, as
+// onMessage reads a new one: /img or /edit, framy's mention in a group, or
+// a plain direct message. A message sent on behalf of a chat started no
+// run, and an ephemeral one cannot be edited.
+func (b *Bot) onEdit(ctx context.Context, m *tg.Message) {
+	if b.flow == nil || m.From == nil || m.From.IsBot || m.MessageID == 0 {
+		return
+	}
+	if asChat, _ := sentAsChat(m); asChat {
+		return
+	}
+	if cmd, rest, ok := b.commandArgs(m); ok {
+		if cmd == "img" || cmd == "edit" {
+			b.flow.Edited(ctx, m, cmd, rest)
+		}
+		return
+	}
+	switch private := m.Chat.Type == "private"; {
+	case private && !strings.HasPrefix(strings.TrimSpace(m.Text), "/"):
+		b.flow.Edited(ctx, m, "", cmp.Or(m.Text, m.Caption))
+	case !private:
+		if prompt, ok := b.mentionArgs(m); ok {
+			b.flow.Edited(ctx, m, "", prompt)
+		}
+	}
+}
+
+// mentionArgs reads a group message that starts with framy's mention, in
+// any case, in its text or caption: the rest is the prompt, with the comma
+// or colon after the mention left out. A mention later in the message is
+// talk about framy, not to it. A message sent through framy's inline mode
+// is a result someone chose to post, not a request.
+func (b *Bot) mentionArgs(m *tg.Message) (prompt string, ok bool) {
+	if b.username == "" || viaBot(m) {
+		return "", false
+	}
+	text := m.Text
+	if text == "" {
+		text = m.Caption
+	}
+	text = strings.TrimSpace(text)
+	head := "@" + b.username
+	if len(text) < len(head) || !strings.EqualFold(text[:len(head)], head) {
+		return "", false
+	}
+	rest := text[len(head):]
+	if r, _ := utf8.DecodeRuneInString(rest); r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r) {
+		// "@framyin_bot2": another name.
+		return "", false
+	}
+	return strings.TrimSpace(strings.TrimLeft(rest, " \t\n,:")), true
+}
+
+// sentAsChat tells a group message sent on behalf of a chat, which the
+// package does not model: it is read from Raw. An anonymous admin writes as
+// the group itself (from is GroupAnonymousBot), and a person may post as a
+// channel (Channel_Bot); a channel's post comes to its discussion group as
+// an automatic forward, from Telegram. None names the person.
+func sentAsChat(m *tg.Message) (asChat, forwarded bool) {
+	if len(m.Raw) == 0 || m.Chat.Type == "private" {
+		return false, false
+	}
+	var raw struct {
+		SenderChat         *struct{} `json:"sender_chat"`
+		IsAutomaticForward bool      `json:"is_automatic_forward"`
+	}
+	if json.Unmarshal(m.Raw, &raw) != nil || raw.SenderChat == nil {
+		return false, false
+	}
+	return true, raw.IsAutomaticForward
+}
+
+// asksFramy tells /img, /edit or framy's mention, whoever sent it.
+func (b *Bot) asksFramy(m *tg.Message) bool {
+	if cmd, _, ok := b.parseCommand(m); ok {
+		return cmd == "img" || cmd == "edit"
+	}
+	_, ok := b.mentionArgs(m)
+	return ok
+}
+
+// viaBot tells a message sent through a bot's inline mode, which the
+// package does not model: it is read from Raw.
+func viaBot(m *tg.Message) bool {
+	if len(m.Raw) == 0 {
+		return false
+	}
+	var raw struct {
+		ViaBot *struct{} `json:"via_bot"`
+	}
+	return json.Unmarshal(m.Raw, &raw) == nil && raw.ViaBot != nil
 }
 
 // tooLate tells Telegram's refusal of an ephemeral reply to a command it
@@ -96,14 +233,21 @@ func tooLate(err error) bool {
 	return errors.As(err, &apiErr) && apiErr.ErrorCode == 400 && strings.Contains(apiErr.Description, "REPLY_TO_INVALID")
 }
 
+// startSettings starts the /start parameter of the button under a refusal
+// or an error card that a key of the person's would fix, in a group or a
+// guest's chat (internal/chat, settings.go): "settings_openrouter". The home
+// panel it opens has its button at that key in the settings. Messages
+// already sent carry it, so it is read for good.
+const startSettings = "settings_"
+
 // sendScreen answers a command with a panel: in place in a direct chat, as an
-// ephemeral reply in a group.
-func (b *Bot) sendScreen(ctx context.Context, m *tg.Message, action string) error {
+// ephemeral reply in a group. payload is what /start came with.
+func (b *Bot) sendScreen(ctx context.Context, m *tg.Message, action, payload string) error {
 	raw, err := b.personLang(ctx, *m.From)
 	if err != nil {
 		return err
 	}
-	v := view{lang: i18n.Resolve(raw), owner: m.From.ID, sc: scopeOf(m.Chat)}
+	v := view{lang: i18n.Resolve(raw), owner: m.From.ID, sc: scopeOf(m.Chat), bot: b.username, site: b.appURL}
 	var text string
 	var keyboard *tg.InlineKeyboardMarkup
 	if v.sc == scopeGroup {
@@ -111,7 +255,7 @@ func (b *Bot) sendScreen(ctx context.Context, m *tg.Message, action string) erro
 		if err != nil {
 			return err
 		}
-		v.lang = panelLang
+		v.lang, v.direct = panelLang, b.directURL()
 		admin, err := b.isAdmin(ctx, m.Chat.ID, m.From.ID)
 		if err != nil {
 			// The member's panel is the safe one to show.
@@ -135,7 +279,10 @@ func (b *Bot) sendScreen(ctx context.Context, m *tg.Message, action string) erro
 	case actLang:
 		text, keyboard = v.language()
 	default:
-		v.account = b.readAccount(ctx, m.From.ID, v.lang)
+		v.account, v.addTo = b.readAccount(ctx, m.From.ID, v.lang), b.addToGroupURL()
+		if provider, ok := strings.CutPrefix(payload, startSettings); ok {
+			v.account.atKey(provider, v.lang)
+		}
 		text, keyboard = v.home(false, "")
 	}
 	if _, err := b.tg.SendMessage(ctx, m.Chat.ID, text, keyboard); err != nil {
@@ -240,7 +387,7 @@ func (b *Bot) onCallback(ctx context.Context, cq *tg.CallbackQuery) error {
 // alert to show instead when the press is refused.
 func (b *Bot) runAction(ctx context.Context, cq *tg.CallbackQuery, action, raw string) (string, error) {
 	m := cq.Message
-	v := view{lang: i18n.Resolve(raw), owner: cq.From.ID, sc: scopeOf(m.Chat)}
+	v := view{lang: i18n.Resolve(raw), owner: cq.From.ID, sc: scopeOf(m.Chat), bot: b.username, site: b.appURL}
 	ephemeral := m.EphemeralMessageID != 0
 	if action == actClose {
 		if v.sc != scopeGroup {
@@ -275,7 +422,9 @@ func (b *Bot) runAction(ctx context.Context, cq *tg.CallbackQuery, action, raw s
 	switch action {
 	case actHome:
 		if v.sc == scopePrivate {
-			v.account = b.readAccount(ctx, cq.From.ID, v.lang)
+			v.account, v.addTo = b.readAccount(ctx, cq.From.ID, v.lang), b.addToGroupURL()
+		} else {
+			v.direct = b.directURL()
 		}
 		return edit(v.home(admin, chatLang))
 	case actHelp:
@@ -339,4 +488,84 @@ func (b *Bot) runAction(ctx context.Context, cq *tg.CallbackQuery, action, raw s
 		return edit(v.groupLanguage(code))
 	}
 	return "", nil
+}
+
+// onMembership greets a group framy was just added to, with what anyone's
+// panel there says (view.welcome): before, a group heard nothing, and only
+// those who knew /img found framy there. It speaks the group's language,
+// or that of whoever added framy while the group has none. Being made an
+// admin, or anything else in a group framy is in already, says nothing,
+// and neither does a group that became a supergroup (migrations).
+func (b *Bot) onMembership(ctx context.Context, u *tg.ChatMemberUpdated) error {
+	if u.Chat.Type != "group" && u.Chat.Type != "supergroup" {
+		return nil
+	}
+	switch u.OldChatMember.Status {
+	case "member", "administrator", "creator", "restricted":
+		return nil
+	}
+	if s := u.NewChatMember.Status; s != "member" && s != "administrator" {
+		return nil
+	}
+	if b.migrations.seen(u.Chat.ID, b.now()) {
+		return nil
+	}
+	raw, err := b.personLang(ctx, u.From)
+	if err != nil {
+		return err
+	}
+	_, lang, err := b.groupLang(ctx, u.Chat.ID, raw)
+	if err != nil {
+		return err
+	}
+	text, keyboard := view{lang: lang, sc: scopeGroup, direct: b.directURL()}.welcome()
+	if _, err := b.tg.SendMessage(ctx, u.Chat.ID, text, keyboard); err != nil {
+		// Removed again at once, or not allowed to write there: nothing to
+		// greet, and no failure of the update.
+		b.log.Info("group not greeted", "chat", u.Chat.ID, "error", err)
+	}
+	return nil
+}
+
+// migrationKeep is how long framy remembers a group that became a
+// supergroup: Telegram tells it within seconds of the change.
+const migrationKeep = 10 * time.Minute
+
+// migrations are the supergroups that were groups a moment ago. A group
+// becomes one when, say, framy is made an admin of it, and the supergroup is
+// a new chat framy may be told it joined; it is the same group, which was
+// greeted already.
+type migrations struct {
+	mu sync.Mutex
+	at map[int64]time.Time
+}
+
+// note remembers the supergroup a service message says a group became.
+func (g *migrations) note(m *tg.Message, now time.Time) {
+	to := m.MigrateToChatID
+	if m.MigrateFromChatID != 0 {
+		to = m.Chat.ID
+	}
+	if to == 0 {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.at == nil {
+		g.at = map[int64]time.Time{}
+	}
+	for chat, at := range g.at {
+		if now.Sub(at) > migrationKeep {
+			delete(g.at, chat)
+		}
+	}
+	g.at[to] = now
+}
+
+// seen tells a supergroup that was a group within migrationKeep.
+func (g *migrations) seen(chat int64, now time.Time) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	at, ok := g.at[chat]
+	return ok && now.Sub(at) <= migrationKeep
 }

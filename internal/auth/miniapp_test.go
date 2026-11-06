@@ -3,6 +3,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -13,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -74,7 +76,8 @@ func (h *harness) mini(b *browser, raw string, wantStatus int) string {
 		UserID    int64  `json:"user_id"`
 	}
 	mustJSON(h.t, r.body, &out)
-	if out.TokenType != "Bearer" || out.ExpiresIn != 3600 || out.Token == "" {
+	// The token ends with the initData, so it lasts a minute to an hour.
+	if out.TokenType != "Bearer" || out.ExpiresIn < 60 || out.ExpiresIn > 3600 || out.Token == "" {
 		h.t.Fatalf("answer = %+v", out)
 	}
 	b.bearer = out.Token
@@ -96,6 +99,10 @@ func TestVerifyInitData(t *testing.T) {
 	}
 
 	values, _ := url.ParseQuery(good)
+	// Hash names the launch: it is the signature, whatever the text.
+	if want, _ := hex.DecodeString(values.Get("hash")); got.Hash != [32]byte(want) {
+		t.Errorf("Hash = %x, want %x", got.Hash, want)
+	}
 	with := func(edit func(url.Values)) string {
 		v2 := url.Values{}
 		for k, vs := range values {
@@ -171,24 +178,139 @@ func TestMiniAppExchange(t *testing.T) {
 	if got := h.people.(*memPeople).users(); len(got) != 1 || got[0] != want {
 		t.Fatalf("touched %+v", got)
 	}
-	// Only the hash is stored, as a Mini App token that lasts an hour.
+	// Only the hash is stored, as a Mini App token that ends an hour after
+	// Telegram signed the initData.
 	rows := h.sessions.(*memSessions).rows
 	s, ok := rows[sha256.Sum256([]byte(token))]
 	if len(rows) != 1 || !ok {
 		t.Fatalf("rows = %+v", rows)
 	}
-	if s.UserID != testUserID || s.Kind != KindMiniApp || s.Expires.Sub(s.Created) != time.Hour {
+	if s.UserID != testUserID || s.Kind != KindMiniApp || s.Expires.Sub(s.Created) != 55*time.Minute {
 		t.Errorf("row = %+v", s)
 	}
 	if strings.Contains(string(s.Hash[:]), token) {
 		t.Error("the row holds the token")
 	}
 
-	// The same initData can be exchanged again within the hour; it is a
-	// different token.
+	// The same initData can be exchanged again within the hour; it is the
+	// same token, with nothing written.
 	b2 := h.browser()
-	if token2 := h.mini(b2, raw, http.StatusOK); token2 == token {
-		t.Error("two exchanges gave the same token")
+	if token2 := h.mini(b2, raw, http.StatusOK); token2 != token {
+		t.Error("the same launch got a second token")
+	}
+	if len(rows) != 1 || len(h.people.(*memPeople).users()) != 1 {
+		t.Errorf("the second exchange wrote: %d rows, %d touches", len(rows), len(h.people.(*memPeople).users()))
+	}
+}
+
+// One launch gets one token, however often and however its initData is
+// sent, so trading it again and again costs neither rows nor writes to
+// core. A token that was ended is not given out again.
+func TestALaunchGetsOneToken(t *testing.T) {
+	mem := newMemSessions()
+	h := newHarness(t, withSessions(mem))
+	fields := miniAppFields(h.clock.Now().Add(-time.Minute), testUserID)
+	raw := signInitData(testBotToken, fields)
+	token := h.mini(h.browser(), raw, http.StatusOK)
+
+	// Again, and with the same fields in another order and escaping.
+	q, _ := url.ParseQuery(raw)
+	var parts []string
+	for k := range q {
+		parts = append(parts, url.PathEscape(k)+"="+url.PathEscape(q.Get(k)))
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(parts)))
+	reordered := strings.Join(parts, "&")
+	if reordered == raw {
+		t.Fatal("setup: the same text")
+	}
+	h.clock.Advance(10 * time.Minute)
+	for _, again := range []string{raw, reordered, raw} {
+		if got := h.mini(h.browser(), again, http.StatusOK); got != token {
+			t.Fatalf("the same launch got another token")
+		}
+	}
+	if mem.count() != 1 || len(h.people.(*memPeople).users()) != 1 {
+		t.Errorf("%d rows, %d touches; want one of each", mem.count(), len(h.people.(*memPeople).users()))
+	}
+	// The kept token still ends with the launch: 49 minutes are left.
+	body, _ := json.Marshal(map[string]string{"init_data": raw})
+	r := h.browser().do(http.MethodPost, "/auth/miniapp", string(body))
+	var out struct {
+		ExpiresIn int `json:"expires_in"`
+	}
+	mustJSON(t, r.body, &out)
+	if out.ExpiresIn != 49*60 {
+		t.Errorf("expires_in = %d, want %d", out.ExpiresIn, 49*60)
+	}
+
+	// Another launch is another token.
+	other := h.mini(h.browser(), signInitData(testBotToken, miniAppFields(h.clock.Now(), testUserID)), http.StatusOK)
+	if other == token {
+		t.Fatal("two launches share a token")
+	}
+
+	// Signed out: the launch asking again gets a new token, and the old
+	// one stays ended.
+	app := h.browser()
+	app.bearer = token
+	if r := app.do(http.MethodPost, "/auth/logout", ""); r.code != http.StatusNoContent {
+		t.Fatalf("logout: %d", r.code)
+	}
+	fresh := h.mini(h.browser(), raw, http.StatusOK)
+	if fresh == token {
+		t.Fatal("a token that was signed out was given out again")
+	}
+	if _, ok := app.signedIn(); ok {
+		t.Fatal("the signed-out token works again")
+	}
+
+	// Signed out everywhere: the same.
+	if _, err := h.auth.RevokeAll(context.Background(), testUserID); err != nil {
+		t.Fatal(err)
+	}
+	if again := h.mini(h.browser(), raw, http.StatusOK); again == fresh || again == token {
+		t.Fatal("a token ended everywhere was given out again")
+	}
+
+	// A row deleted behind this process's back is noticed too, once the
+	// cache stops believing it.
+	kept := h.mini(h.browser(), raw, http.StatusOK)
+	mem.mu.Lock()
+	clear(mem.rows)
+	mem.mu.Unlock()
+	h.clock.Advance(cacheTTL + time.Second)
+	if again := h.mini(h.browser(), raw, http.StatusOK); again == kept {
+		t.Fatal("a token whose row is gone was given out again")
+	}
+}
+
+// Two exchanges of one launch at once make one token between them.
+func TestALaunchTradedTwiceAtOnceGetsOneToken(t *testing.T) {
+	mem := newMemSessions()
+	h := newHarness(t, withSessions(mem))
+	raw := signInitData(testBotToken, miniAppFields(h.clock.Now(), testUserID))
+	body, _ := json.Marshal(map[string]string{"init_data": raw})
+	tokens := make([]string, 8)
+	var wg sync.WaitGroup
+	for i := range tokens {
+		wg.Go(func() {
+			r := h.browser().do(http.MethodPost, "/auth/miniapp", string(body))
+			var out struct {
+				Token string `json:"token"`
+			}
+			_ = json.Unmarshal([]byte(r.body), &out)
+			tokens[i] = out.Token
+		})
+	}
+	wg.Wait()
+	for _, tok := range tokens {
+		if tok == "" || tok != tokens[0] {
+			t.Fatalf("tokens = %q", tokens)
+		}
+	}
+	if mem.count() != 1 {
+		t.Errorf("%d rows", mem.count())
 	}
 }
 
@@ -206,6 +328,56 @@ func TestMiniAppTokenExpires(t *testing.T) {
 	}
 	if r := b.me(); r.code != http.StatusUnauthorized {
 		t.Fatalf("/api/me with an expired token: %d", r.code)
+	}
+}
+
+// A token lasts no longer than the initData it was exchanged for: one
+// initData that got out is good for an hour after Telegram signed it, however
+// late it is exchanged.
+func TestMiniAppTokenEndsWithItsInitData(t *testing.T) {
+	h := newHarness(t)
+	b := h.browser()
+	body, _ := json.Marshal(map[string]string{"init_data": signInitData(testBotToken, miniAppFields(h.clock.Now().Add(-40*time.Minute), testUserID))})
+	r := b.do(http.MethodPost, "/auth/miniapp", string(body))
+	var out struct {
+		Token     string `json:"token"`
+		ExpiresIn int    `json:"expires_in"`
+	}
+	mustJSON(t, r.body, &out)
+	if r.code != http.StatusOK || out.ExpiresIn != 20*60 {
+		t.Fatalf("initData signed 40 minutes ago: %d %q, want 20 minutes", r.code, r.body)
+	}
+	b.bearer = out.Token
+	h.clock.Advance(19 * time.Minute)
+	if _, ok := b.signedIn(); !ok {
+		t.Fatal("the token stopped before the initData's hour was up")
+	}
+	h.clock.Advance(2 * time.Minute)
+	if _, ok := b.signedIn(); ok {
+		t.Fatal("the token works after the initData's hour")
+	}
+
+	// With a minute left there is still a token, for that minute.
+	h = newHarness(t)
+	b = h.browser()
+	body, _ = json.Marshal(map[string]string{"init_data": signInitData(testBotToken, miniAppFields(h.clock.Now().Add(-59*time.Minute), testUserID))})
+	r = b.do(http.MethodPost, "/auth/miniapp", string(body))
+	mustJSON(t, r.body, &out)
+	if r.code != http.StatusOK || out.ExpiresIn != 60 {
+		t.Fatalf("initData with a minute left: %d %q", r.code, r.body)
+	}
+
+	// With less, the person is told to open the Mini App again at once,
+	// and nothing is written.
+	h = newHarness(t)
+	b = h.browser()
+	body, _ = json.Marshal(map[string]string{"init_data": signInitData(testBotToken, miniAppFields(h.clock.Now().Add(-59*time.Minute-30*time.Second), testUserID))})
+	r = b.do(http.MethodPost, "/auth/miniapp", string(body))
+	if r.code != http.StatusUnauthorized || r.body != "{\"error\":\"init_data_expired\"}\n" {
+		t.Fatalf("initData with 30 seconds left: %d %q", r.code, r.body)
+	}
+	if h.sessions.(*memSessions).count() != 0 || len(h.people.(*memPeople).users()) != 0 {
+		t.Error("initData too old for a token left a session or touched core")
 	}
 }
 

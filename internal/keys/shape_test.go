@@ -50,3 +50,25 @@ func TestLooksLikeKey(t *testing.T) {
 		}
 	}
 }
+
+// A key in a chat or a prompt is answered with the way to the settings at
+// its provider, read from its shape.
+func TestKeyInNamesItsProvider(t *testing.T) {
+	for text, want := range map[string]string{
+		"sk-proj-" + strings.Repeat("aB3xY9", 12):                "openai",
+		"sk-" + strings.Repeat("Zq81nT3v", 6):                    "openai",
+		"sk-svcacct-" + strings.Repeat("Ab1_", 10):               "openai",
+		"/img sk-or-v1-" + strings.Repeat("0123456789abcdef", 4): "openrouter",
+		"key:AIza" + strings.Repeat("Xy7_-Qw", 5):                "gemini",
+		"sk-ant-api03-" + strings.Repeat("Ab1_", 10):             "",
+		// The first key found names it.
+		"use sk-learn-pipeline-example, then AIza" + strings.Repeat("Xy7_-Qw", 5): "gemini",
+	} {
+		if got, ok := KeyIn("a fox", text); !ok || got != want {
+			t.Errorf("%q: %q, %v; want %q", text, got, ok, want)
+		}
+	}
+	if p, ok := KeyIn("a red fox", ""); ok || p != "" {
+		t.Errorf("prose: %q, %v", p, ok)
+	}
+}

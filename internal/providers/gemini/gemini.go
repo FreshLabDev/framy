@@ -28,8 +28,10 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/FreshLabDev/framy/internal/catalog"
@@ -57,8 +59,9 @@ const (
 	DefaultMaxVideoAnswer = 192 << 20
 	// DefaultMaxInput bounds one file sent, and DefaultMaxInputs all of them
 	// together. Google takes 100 MB of inline data in a request, and base64
-	// adds a third. Photos reach this point already at most 2048 px long; a
-	// video to edit is up to 10 s.
+	// adds a third. An upload reaches this point at most 2048 px long, a
+	// result as its model made it, up to a 4K PNG of 20 MB or more; a video
+	// to edit is up to 10 s.
 	DefaultMaxInput  = 48 << 20
 	DefaultMaxInputs = 60 << 20
 	// DefaultFetchTimeout bounds the download of one reference.
@@ -91,6 +94,11 @@ type Config struct {
 	// MaxInput and MaxInputs bound one reference and all of them, in bytes
 	// before base64; the defaults when zero.
 	MaxInput, MaxInputs int64
+	// Shrink makes a picture the size of an upload: the long side at most
+	// 2048 px, as JPEG, or PNG when it has alpha. When the files of a run
+	// come to more than MaxInputs, the largest pictures are shrunk until
+	// they fit. Without it such a run is refused before it is paid.
+	Shrink func(ctx context.Context, data []byte) ([]byte, string, error)
 }
 
 // Provider is the Gemini adapter of the job queue.
@@ -194,12 +202,22 @@ func (p *Provider) key(ctx context.Context, j jobs.Job) (string, error) {
 type file struct {
 	contentType string
 	data        []byte
+	// shrunk: Shrink has had it, or could not make it smaller.
+	shrunk bool
 }
 
 // fetchAll downloads the inputs from their presigned links. Gemini would take
 // the link itself only if it were a Files API one; the bytes go inline.
 // Nothing is paid yet, so a failure here is safe to try again, except for a
-// link that is gone.
+// link that is gone. That holds for a download the call's deadline or a stop
+// cuts short too: nothing has gone to Google, so it is unavailable, never a
+// timeout that may have been paid.
+//
+// Results taken as inputs come as their models made them, so a few 4K PNGs
+// are over what a request carries inline. Then the largest pictures are made
+// the size of an upload, one at a time, until the files fit: the model reads
+// a picture at its own resolution anyway (media_resolution), and an upload
+// is already that size. A run whose files fit is sent as it was.
 func (p *Provider) fetchAll(ctx context.Context, inputs []jobs.Input) ([]file, error) {
 	var files []file
 	var total int64
@@ -208,12 +226,45 @@ func (p *Provider) fetchAll(ctx context.Context, inputs []jobs.Input) ([]file, e
 		if err != nil {
 			return nil, err
 		}
-		if total += int64(len(data)); total > p.cfg.MaxInputs {
-			return nil, refused("the files together are larger than %d MiB", p.cfg.MaxInputs>>20)
-		}
 		files = append(files, file{contentType: in.ContentType, data: data})
+		if total += int64(len(data)); total > p.cfg.MaxInputs {
+			if total, err = p.shrink(ctx, files, total); err != nil {
+				return nil, err
+			}
+		}
 	}
 	return files, nil
+}
+
+// shrink makes the largest pictures of files smaller until they come to
+// MaxInputs at most, and returns their new total.
+func (p *Provider) shrink(ctx context.Context, files []file, total int64) (int64, error) {
+	for total > p.cfg.MaxInputs {
+		big := -1
+		for i, f := range files {
+			if !f.shrunk && strings.HasPrefix(f.contentType, "image/") && (big < 0 || len(f.data) > len(files[big].data)) {
+				big = i
+			}
+		}
+		if big < 0 || p.cfg.Shrink == nil {
+			return 0, refused("the files together are larger than %d MiB, which Gemini takes inline", p.cfg.MaxInputs>>20)
+		}
+		f := &files[big]
+		f.shrunk = true
+		data, contentType, err := p.cfg.Shrink(ctx, f.data)
+		switch {
+		case ctx.Err() != nil:
+			// A deadline or a stop: the queue reads the context.
+			return 0, fmt.Errorf("shrink input %d: %w", big+1, ctx.Err())
+		case err != nil || len(data) == 0 || len(data) >= len(f.data):
+			// A picture ffmpeg cannot read, or one already as small: the
+			// next largest may do.
+			continue
+		}
+		total += int64(len(data) - len(f.data))
+		f.data, f.contentType = data, contentType
+	}
+	return total, nil
 }
 
 func (p *Provider) fetch(ctx context.Context, in jobs.Input, i int) ([]byte, error) {
@@ -235,13 +286,9 @@ func (p *Provider) fetch(ctx context.Context, in jobs.Input, i int) ([]byte, err
 	}
 	resp, err := p.cfg.Fetch.Do(req)
 	if err != nil {
-		if ctx.Err() != nil {
-			// A deadline or a stop: the queue reads the context.
-			return nil, fmt.Errorf("fetch input %d: %w", i+1, withoutURL(err))
-		}
 		// The error would carry the presigned link, which opens the person's
 		// file to whoever reads the log.
-		return nil, &jobs.Error{Class: jobs.Unavailable, Err: fmt.Errorf("fetch input %d: %w", i+1, withoutURL(err))}
+		return nil, &jobs.Error{Class: jobs.Unavailable, Err: fmt.Errorf("fetch input %d before anything was sent: %w", i+1, withoutURL(err))}
 	}
 	defer resp.Body.Close()
 	switch {
@@ -252,10 +299,8 @@ func (p *Provider) fetch(ctx context.Context, in jobs.Input, i int) ([]byte, err
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, p.cfg.MaxInput+1))
 	switch {
-	case err != nil && ctx.Err() != nil:
-		return nil, fmt.Errorf("fetch input %d: %w", i+1, withoutURL(err))
 	case err != nil:
-		return nil, &jobs.Error{Class: jobs.Unavailable, Err: fmt.Errorf("fetch input %d: %w", i+1, withoutURL(err))}
+		return nil, &jobs.Error{Class: jobs.Unavailable, Err: fmt.Errorf("fetch input %d before anything was sent: %w", i+1, withoutURL(err))}
 	case int64(len(data)) > p.cfg.MaxInput:
 		return nil, refused("input %d is larger than %d MiB", i+1, p.cfg.MaxInput>>20)
 	case len(data) == 0:
@@ -292,6 +337,13 @@ func (p *Provider) do(ctx context.Context, key, method, path string, body []byte
 	if body != nil {
 		rd = bytes.NewReader(body)
 	}
+	// whole: the request went out to its last byte. A request with a video
+	// inline is tens of MiB, and one the deadline or a broken line cuts off
+	// while it is being written gave Google nothing to start a run from.
+	var whole atomic.Bool
+	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		WroteRequest: func(info httptrace.WroteRequestInfo) { whole.Store(info.Err == nil) },
+	})
 	req, err := http.NewRequestWithContext(ctx, method, p.cfg.Base+path, rd)
 	if err != nil {
 		return nil, &jobs.Error{Class: jobs.Internal, Err: err}
@@ -303,7 +355,7 @@ func (p *Provider) do(ctx context.Context, key, method, path string, body []byte
 	}
 	resp, err := p.cfg.HTTP.Do(req)
 	if err != nil {
-		return nil, transportError(err)
+		return nil, transportError(err, whole.Load())
 	}
 	defer resp.Body.Close()
 
@@ -312,7 +364,7 @@ func (p *Provider) do(ctx context.Context, key, method, path string, body []byte
 		data, _ := io.ReadAll(io.LimitReader(limited, 1<<20))
 		return nil, statusError(resp.StatusCode, resp.Header, data, key)
 	}
-	raw, err := io.ReadAll(limited)
+	raw, err := readAll(limited, resp.ContentLength, limit)
 	if err != nil {
 		if ctx.Err() != nil {
 			// Cut short by the deadline or a stop: the queue reads which.
@@ -327,6 +379,20 @@ func (p *Provider) do(ctx context.Context, key, method, path string, body []byte
 	return raw, nil
 }
 
+// readAll reads a body whole: into one buffer of its length when the answer
+// gives one, so a large answer is not copied each time the buffer grows.
+func readAll(r io.Reader, length, limit int64) ([]byte, error) {
+	if length <= 0 || length > limit {
+		return io.ReadAll(r)
+	}
+	var buf bytes.Buffer
+	// The room to read the end of the body in, so the last read does not
+	// grow the buffer.
+	buf.Grow(int(length) + bytes.MinRead)
+	_, err := buf.ReadFrom(r)
+	return buf.Bytes(), err
+}
+
 // authorize puts the key and the pinned revision on a request to Gemini. The
 // key goes in a header and never in the URL, which logs keep.
 func (p *Provider) authorize(req *http.Request, key string) {
@@ -337,17 +403,18 @@ func (p *Provider) authorize(req *http.Request, key string) {
 	}
 }
 
-// transportError reads a failed call. A connection that was never made sent
-// nothing, so it is safe to try again; anything later may have been paid.
-func transportError(err error) error {
+// transportError reads a failed call. A connection that was never made, or a
+// request that never went out whole (whole false), sent Google nothing it
+// could start a run from, so it is safe to try again. Anything later may
+// have been paid: a deadline or a stop is left to the queue.
+func transportError(err error, whole bool) error {
 	var op *net.OpError
-	if errors.As(err, &op) && op.Op == "dial" {
-		return &jobs.Error{Class: jobs.Unavailable, Err: fmt.Errorf("reach gemini: %w", withoutURL(err))}
-	}
 	var dns *net.DNSError
-	if errors.As(err, &dns) {
+	switch {
+	case errors.As(err, &op) && op.Op == "dial", errors.As(err, &dns):
 		return &jobs.Error{Class: jobs.Unavailable, Err: fmt.Errorf("reach gemini: %w", withoutURL(err))}
+	case !whole:
+		return &jobs.Error{Class: jobs.Unavailable, Err: fmt.Errorf("send to gemini: the request broke off before its end: %w", withoutURL(err))}
 	}
-	// A deadline or a stop: the queue reads the context.
 	return fmt.Errorf("call gemini: %w", withoutURL(err))
 }

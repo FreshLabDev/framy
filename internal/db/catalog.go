@@ -23,7 +23,9 @@ const catalogLockKey int64 = 0x6672616d7963 // "framyc"
 var ErrCatalogShrank = errors.New("catalog sync would disable more than half of the OpenRouter offers")
 
 // SaveCatalog writes a snapshot in one transaction: models and offers are
-// upserted, and an offer the snapshot no longer has is disabled, unless the
+// upserted, a row only when something in it differs (the hourly sync used to
+// rewrite every offer, with its large jsonb, for the sake of a timestamp; the
+// time of the sync is runtime_state.catalog_synced_at), and an offer the snapshot no longer has is disabled, unless the
 // snapshot asks to keep it. A model whose offers are all disabled is disabled
 // too. Nothing is deleted: jobs will point at these rows.
 func (s *Store) SaveCatalog(ctx context.Context, snap catalog.Snapshot, now time.Time) (catalog.Saved, error) {
@@ -133,14 +135,13 @@ func (s *Store) SaveCatalog(ctx context.Context, snap catalog.Snapshot, now time
 			ON CONFLICT (id) DO UPDATE SET
 				model_id = EXCLUDED.model_id, name = EXCLUDED.name, input_modalities = EXCLUDED.input_modalities,
 				params = EXCLUDED.params, routes = EXCLUDED.routes, expires_on = EXCLUDED.expires_on,
-				hidden = EXCLUDED.hidden, fetched_at = EXCLUDED.fetched_at, disabled_at = NULL,
-				updated_at = CASE
-					WHEN (catalog_offer.model_id, catalog_offer.name, catalog_offer.input_modalities,
-					      catalog_offer.params, catalog_offer.routes, catalog_offer.expires_on,
-					      catalog_offer.hidden, catalog_offer.disabled_at)
-					  IS DISTINCT FROM (EXCLUDED.model_id, EXCLUDED.name, EXCLUDED.input_modalities,
-					      EXCLUDED.params, EXCLUDED.routes, EXCLUDED.expires_on, EXCLUDED.hidden, NULL::timestamptz)
-					THEN EXCLUDED.updated_at ELSE catalog_offer.updated_at END`,
+				hidden = EXCLUDED.hidden, fetched_at = EXCLUDED.fetched_at, updated_at = EXCLUDED.updated_at,
+				disabled_at = NULL
+			WHERE (catalog_offer.model_id, catalog_offer.name, catalog_offer.input_modalities,
+			       catalog_offer.params, catalog_offer.routes, catalog_offer.expires_on,
+			       catalog_offer.hidden, catalog_offer.disabled_at)
+			  IS DISTINCT FROM (EXCLUDED.model_id, EXCLUDED.name, EXCLUDED.input_modalities,
+			       EXCLUDED.params, EXCLUDED.routes, EXCLUDED.expires_on, EXCLUDED.hidden, NULL::timestamptz)`,
 			of.ID, of.ModelID, of.Provider, of.ProviderModelID, of.Name, nonNilSlice(of.InputModalities),
 			params, routes, expires, nullString(of.Hidden), now)
 	}
@@ -177,24 +178,54 @@ func (s *Store) CatalogSyncedAt(ctx context.Context) (time.Time, error) {
 	return *at, nil
 }
 
-// TypicalRuns is how many runs of an offer in TypicalWindow it takes to say
-// how long one typically takes.
+// TypicalRuns is how many runs in TypicalWindow it takes to say how long
+// one typically takes: of an offer, of its model, or of its family.
 const (
 	TypicalRuns   = 5
 	TypicalWindow = 30 * 24 * time.Hour
 )
 
 // TypicalSeconds is how long a run of each offer typically takes, from the
-// press of Generate to the result: the median of its runs that ended done in
-// TypicalWindow, for an offer with at least TypicalRuns of them, in whole
-// seconds rounded up. The site shows it beside the time a run has waited.
+// press of Generate to the result: the median of the runs that ended done in
+// TypicalWindow, in whole seconds rounded up. The site shows it beside the
+// time a run has waited. The runs are the offer's own when it has at least
+// TypicalRuns of them; else its model's on every provider, the same model
+// through another door; else those of the model's family and tier on the
+// offer's provider, the closest kin (traits.family, as the picker groups
+// them), of its kind, since a picture's minute says nothing of a video's: a
+// new model of a family is not left with a bare counter while its own runs
+// are few. A row whose times are out of order (queued before it was made,
+// or done before it was queued, as a hand-edited row of a test can be)
+// measures nothing and is left out.
 func (s *Store) TypicalSeconds(ctx context.Context) (map[string]int, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT offer_id, ceil(percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM finished_at - queued_at)))::int
-		FROM job
-		WHERE status = 'done' AND queued_at IS NOT NULL AND finished_at > now() - make_interval(secs => $1)
-		GROUP BY offer_id
-		HAVING count(*) >= $2`, TypicalWindow.Seconds(), TypicalRuns)
+		WITH run AS (
+			SELECT j.offer_id, o.model_id, o.provider, m.kind,
+			       m.traits->'family'->>'id' AS family, COALESCE(m.traits->'family'->>'tier', '') AS tier,
+			       extract(epoch FROM j.finished_at - j.queued_at) AS took
+			FROM job j
+			JOIN catalog_offer o ON o.id = j.offer_id
+			JOIN catalog_model m ON m.id = o.model_id
+			WHERE j.status = 'done' AND j.queued_at >= j.created_at AND j.finished_at >= j.queued_at
+			  AND j.finished_at > now() - make_interval(secs => $1)
+		), by_offer AS (
+			SELECT offer_id, percentile_cont(0.5) WITHIN GROUP (ORDER BY took) AS secs
+			FROM run GROUP BY offer_id HAVING count(*) >= $2
+		), by_model AS (
+			SELECT model_id, percentile_cont(0.5) WITHIN GROUP (ORDER BY took) AS secs
+			FROM run GROUP BY model_id HAVING count(*) >= $2
+		), by_family AS (
+			SELECT family, tier, provider, kind, percentile_cont(0.5) WITHIN GROUP (ORDER BY took) AS secs
+			FROM run WHERE family IS NOT NULL GROUP BY family, tier, provider, kind HAVING count(*) >= $2
+		)
+		SELECT o.id, ceil(COALESCE(bo.secs, bm.secs, bf.secs))::int
+		FROM catalog_offer o
+		JOIN catalog_model m ON m.id = o.model_id
+		LEFT JOIN by_offer bo ON bo.offer_id = o.id
+		LEFT JOIN by_model bm ON bm.model_id = o.model_id
+		LEFT JOIN by_family bf ON bf.family = m.traits->'family'->>'id'
+		      AND bf.tier = COALESCE(m.traits->'family'->>'tier', '') AND bf.provider = o.provider AND bf.kind = m.kind
+		WHERE COALESCE(bo.secs, bm.secs, bf.secs) IS NOT NULL`, TypicalWindow.Seconds(), TypicalRuns)
 	if err != nil {
 		return nil, fmt.Errorf("typical seconds: %w", err)
 	}

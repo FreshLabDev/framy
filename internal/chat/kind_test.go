@@ -11,6 +11,7 @@ import (
 	"github.com/FreshLabDev/framy/internal/free"
 	"github.com/FreshLabDev/framy/internal/i18n"
 	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/FreshLabDev/framy/internal/keys"
 )
 
 // videoModel puts a free video model of the plan in the catalog: a prompt
@@ -193,6 +194,51 @@ func TestPastTheFreeVideoAVideoNeedsAKey(t *testing.T) {
 	p := h.renderer.previews[len(h.renderer.previews)-1]
 	if p.Free || p.Price == "" || p.Label != i18n.T("en", "card.key", "provider", "OpenRouter") {
 		t.Fatalf("card = %+v", p)
+	}
+}
+
+// Make a video past the week's video, with a key only for another
+// provider than the free video's, goes on a video model that key runs, at
+// the price the card shows; with none, it says why as before.
+func TestPastTheFreeVideoAVideoGoesOnAnotherProvidersKey(t *testing.T) {
+	limit := &free.LimitError{Kind: catalog.Video, Limit: 1, FreesAt: clock.Add(3 * time.Hour)}
+	omni := catalog.Offer{
+		ID: "gemini:gemini-omni-1.1-flash", ModelID: "google/gemini-omni-1.1-flash", Provider: catalog.Gemini,
+		ProviderModelID: "gemini-omni-1.1-flash", Kind: catalog.Video, InputModalities: []string{"text", "image", "video"},
+		Params: map[string]catalog.Param{"frame_images": {Type: catalog.Enum, Values: []any{"first_frame", "last_frame"}}},
+	}
+	setUp := func(provider string) (*harness, int64) {
+		h := newHarness(t)
+		withHeyGen(h)
+		h.store.models = append(h.store.models, catalog.Model{
+			ID: omni.ModelID, Kind: catalog.Video, Name: "Gemini Omni 1.1 Flash", Maker: "Google", Offers: []catalog.Offer{omni},
+		})
+		h.flow.cfg.Keys = fakeKeys{conns: []keys.Connection{{Provider: provider, Status: keys.Valid}}}
+		id := h.preview(t)
+		h.queue.refuse = limit
+		if err := h.press(id, 7, actVideo); err != nil {
+			t.Fatal(err)
+		}
+		return h, id
+	}
+
+	h, id := setUp(catalog.Gemini)
+	job := h.store.jobs[id]
+	if job.n.Free || job.n.Offer.ID != omni.ID || job.status != jobs.Draft || job.n.Estimate == nil {
+		t.Fatalf("job = %+v", job.n)
+	}
+	p := h.renderer.previews[len(h.renderer.previews)-1]
+	if p.Free || p.Label != i18n.T("en", "card.key", "provider", "AI Studio") {
+		t.Fatalf("card = %+v", p)
+	}
+	if a := h.tg.answers; len(a) != 1 || a[0] != "" {
+		t.Fatalf("answers = %v", a)
+	}
+
+	h, id = setUp(catalog.OpenAI)
+	want := "alert:" + i18n.T("en", "edit.limit", "limit", "1", "wait", "3 h 0 min")
+	if len(h.tg.answers) != 1 || h.tg.answers[0] != want || h.store.jobs[id].n.Offer.ID != free.ImageMAI.Offer {
+		t.Fatalf("answers %v, job %+v", h.tg.answers, h.store.jobs[id].n)
 	}
 }
 

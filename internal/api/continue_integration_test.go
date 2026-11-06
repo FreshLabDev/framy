@@ -36,7 +36,7 @@ func TestAJobToContinueIsReadFromTheDatabase(t *testing.T) {
 	if c.ModelID != "test/image" || c.Provider != "openrouter" || c.ProviderJobID != "gen-or-1" || c.Status != jobs.Done || c.Free {
 		t.Errorf("job: %+v", c)
 	}
-	if c.Video == nil || c.Video.ID != video || c.Video.Seconds != 6.04 || c.Video.Width != 1280 || c.Video.Bytes != 4096 {
+	if c.Video == nil || c.Video.ID != video || c.Video.Seconds != 6.04 || c.Video.FPS != 24 || c.Video.Width != 1280 || c.Video.Bytes != 4096 {
 		t.Errorf("video: %+v", c.Video)
 	}
 	if _, err := d.Continuation(ctx, bob, run); !errors.Is(err, ErrNotFound) {
@@ -53,9 +53,10 @@ func TestAJobToContinueIsReadFromTheDatabase(t *testing.T) {
 		t.Errorf("a deleted job: %v", err)
 	}
 
-	// A kept clip comes with its size and length, an old one with no length.
+	// A kept clip comes with its size, length and frame rate, which an
+	// upscale is billed by.
 	in, err := d.Inputs(ctx, alice, []int64{video})
-	if err != nil || len(in) != 1 || in[0].Seconds != 6.04 || in[0].Bytes != 4096 || in[0].ContentType != "video/mp4" {
+	if err != nil || len(in) != 1 || in[0].Seconds != 6.04 || in[0].FPS != 24 || in[0].Bytes != 4096 || in[0].ContentType != "video/mp4" {
 		t.Errorf("inputs: %+v %v", in, err)
 	}
 }

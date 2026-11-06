@@ -67,13 +67,19 @@ type Telegram interface {
 }
 
 type Bot struct {
-	store       Store
-	tg          Telegram
-	log         *slog.Logger
-	username    string
-	selfID      int64
-	version     string
-	arrivals    *arrivals
+	store    Store
+	tg       Telegram
+	log      *slog.Logger
+	username string
+	selfID   int64
+	version  string
+	arrivals *arrivals
+	// inlineTouched is when each person's inline query last recorded them
+	// in core.
+	inlineTouched *touches
+	// migrations are the groups that just became supergroups, which are
+	// not greeted again (onMembership).
+	migrations  *migrations
 	allowance   Allowance
 	connections Connections
 	// appURL is where the Mini App opens, from the home panel's button and
@@ -84,9 +90,16 @@ type Bot struct {
 	// flow runs /img and /edit; nil leaves them unanswered.
 	flow Flow
 	// grace is how long the updates already taken are worked after a stop.
-	grace       time.Duration
+	grace time.Duration
+	// now is the clock, and sleep waits on it until ctx ends: false then.
+	now         func() time.Time
+	sleep       func(ctx context.Context, d time.Duration) bool
 	lastPoll    atomic.Int64
+	lastUpdate  atomic.Int64
 	initialized atomic.Bool
+
+	// sweepsAlbums: this process clears the album cache of every stack.
+	sweepsAlbums bool
 }
 
 // Option gives the bot what the home panel of a direct chat reads or opens.
@@ -113,6 +126,16 @@ type Flow interface {
 	// Plain takes a direct message that is no command: it is asked what
 	// to make of it.
 	Plain(ctx context.Context, m *tg.Message)
+	// Reply takes a message of a group that is no command and answers one
+	// of framy's own: words to a result may go on from it.
+	Reply(ctx context.Context, m *tg.Message)
+	// Mention takes a group message that starts with framy's mention, with
+	// the mention taken out of the prompt: framy is asked by name, as by
+	// /img.
+	Mention(ctx context.Context, m *tg.Message, prompt string)
+	// Anonymous takes /img, /edit or framy's mention sent on behalf of a
+	// chat: by an anonymous admin, or by a person posting as a channel.
+	Anonymous(ctx context.Context, m *tg.Message)
 	// Owns reports whether callback data is a run's button or an answer to
 	// the flow's question.
 	Owns(data string) bool
@@ -126,10 +149,22 @@ type Flow interface {
 	// GuestOpen answers a guest message that replied to framy's answer
 	// while that one still has buttons.
 	GuestOpen(ctx context.Context, m *tg.Message)
+	// Edited takes an edit of a message that asks framy for a run: /img or
+	// /edit, named by command, with the words after it; framy's mention in
+	// a group or a plain direct message, with no command and their words.
+	Edited(ctx context.Context, m *tg.Message, command, prompt string)
 }
 
-// WithFlow answers /img and /edit, and plain direct messages.
+// WithFlow answers /img and /edit, plain direct messages, and words in a
+// group that answer framy's own messages.
 func WithFlow(f Flow) Option { return func(b *Bot) { b.flow = f } }
+
+// WithAlbumSweep has Run clear the album cache, every stack's rows, as
+// production does (docs/design.md, Stacks): the photos framy saw people
+// send then go after albumKeep as the released code counts it, even while
+// the test bot is stopped, and code not yet released keeps its hands off
+// production's rows.
+func WithAlbumSweep() Option { return func(b *Bot) { b.sweepsAlbums = true } }
 
 // New takes the username and the id Preflight returned: the username tells a
 // command for framy from one for another bot in the same group, and the id is
@@ -138,7 +173,7 @@ func WithFlow(f Flow) Option { return func(b *Bot) { b.flow = f } }
 func New(store Store, client Telegram, log *slog.Logger, username string, selfID int64, version string, opts ...Option) *Bot {
 	b := &Bot{
 		store: store, tg: client, log: log, username: username, selfID: selfID, version: version,
-		arrivals: newArrivals(), readTimeout: homeReadTimeout, grace: UpdateGrace,
+		arrivals: newArrivals(), inlineTouched: &touches{}, migrations: &migrations{}, readTimeout: homeReadTimeout, grace: UpdateGrace, now: time.Now, sleep: wait,
 	}
 	for _, opt := range opts {
 		opt(b)
@@ -156,8 +191,14 @@ func isHTTPS(raw string) bool {
 }
 
 // LastPoll is when getUpdates last answered, for /healthz.
-func (b *Bot) LastPoll() time.Time {
-	if unix := b.lastPoll.Load(); unix != 0 {
+func (b *Bot) LastPoll() time.Time { return unixTime(b.lastPoll.Load()) }
+
+// LastUpdate is when getUpdates last brought an update, for /healthz: a
+// quiet night has none, so it is a clue and not a check.
+func (b *Bot) LastUpdate() time.Time { return unixTime(b.lastUpdate.Load()) }
+
+func unixTime(unix int64) time.Time {
+	if unix != 0 {
 		return time.Unix(unix, 0)
 	}
 	return time.Time{}
@@ -187,7 +228,9 @@ func (b *Bot) Run(ctx context.Context) error {
 	// The profile is dozens of calls; polling does not wait for them.
 	var side sync.WaitGroup
 	side.Go(func() { b.publishProfile(ctx) })
-	side.Go(func() { b.sweepAlbums(ctx, albumSweepEvery) })
+	if b.sweepsAlbums {
+		side.Go(func() { b.sweepAlbums(ctx, albumSweepEvery) })
+	}
 	side.Go(func() { b.publishMenuButton(ctx) })
 	defer side.Wait()
 
@@ -224,6 +267,7 @@ func (b *Bot) Run(ctx context.Context) error {
 		if len(updates) == 0 {
 			continue
 		}
+		b.lastUpdate.Store(time.Now().Unix())
 		// A stop in the middle of the batch does not end it: the updates were
 		// taken, so they are worked here and their offset saved, rather than
 		// half done now and taken again after the restart. Only when the
@@ -288,14 +332,21 @@ func (b *Bot) handle(ctx context.Context, u tg.Update) {
 	switch {
 	case u.Message != nil:
 		b.noteAlbumItem(ctx, u.Message)
+		b.migrations.note(u.Message, b.now())
 	case u.EditedMessage != nil:
 		// An edit can swap the file of an item, or paste a key into a direct
 		// message already sent, which is then deleted as a new one would be.
-		// Nothing else about an edit is handled: no touch, no command.
+		// An edit of a message that asks framy for a run goes to the flow,
+		// which takes its words while the run is a preview. Nothing else
+		// about an edit is handled: no touch, no new command.
 		b.noteAlbumItem(ctx, u.EditedMessage)
-		if _, err := b.keyInChat(ctx, u.EditedMessage); err != nil {
+		handled, err := b.keyInChat(ctx, u.EditedMessage)
+		if err != nil {
 			metrics.UpdatesFailed.Inc()
 			b.log.Error("update failed", "update_id", u.UpdateID, "error", err)
+		}
+		if !handled {
+			b.onEdit(ctx, u.EditedMessage)
 		}
 		return
 	}
@@ -327,9 +378,13 @@ func (b *Bot) handle(ctx context.Context, u tg.Update) {
 	if user == nil || user.ID == 0 {
 		return
 	}
-	if err := b.store.Touch(ctx, *user, chat); err != nil {
-		metrics.TouchFailures.Inc()
-		b.log.Error("core touch failed", "update_id", u.UpdateID, "error", err)
+	// Telegram sends an inline query for every letter typed; the person is
+	// the same between them, and core hears of them once a minute.
+	if u.InlineQuery == nil || b.inlineTouched.due(user.ID, b.now()) {
+		if err := b.store.Touch(ctx, *user, chat); err != nil {
+			metrics.TouchFailures.Inc()
+			b.log.Error("core touch failed", "update_id", u.UpdateID, "error", err)
+		}
 	}
 	var err error
 	switch {
@@ -343,6 +398,8 @@ func (b *Bot) handle(ctx context.Context, u tg.Update) {
 		}
 	case u.GuestMessage != nil:
 		b.onGuest(ctx, u.GuestMessage)
+	case u.MyChatMember != nil:
+		err = b.onMembership(ctx, u.MyChatMember)
 	}
 	if err != nil {
 		metrics.UpdatesFailed.Inc()
@@ -350,6 +407,40 @@ func (b *Bot) handle(ctx context.Context, u tg.Update) {
 		return
 	}
 	metrics.UpdatesHandled.Inc()
+}
+
+// inlineTouchEvery is how often a person's inline queries record them in
+// core.
+const inlineTouchEvery = time.Minute
+
+// touches are when each person was last recorded in core, for a minute.
+type touches struct {
+	mu    sync.Mutex
+	at    map[int64]time.Time
+	swept time.Time
+}
+
+// due tells whether the person is to be recorded now, and notes it when
+// they are. What is older than a minute is forgotten as new ones come.
+func (t *touches) due(user int64, now time.Time) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.at == nil {
+		t.at = map[int64]time.Time{}
+	}
+	if at, ok := t.at[user]; ok && now.Sub(at) < inlineTouchEvery {
+		return false
+	}
+	t.at[user] = now
+	if now.Sub(t.swept) >= inlineTouchEvery {
+		for u, at := range t.at {
+			if now.Sub(at) >= inlineTouchEvery {
+				delete(t.at, u)
+			}
+		}
+		t.swept = now
+	}
+	return true
 }
 
 func retryDelay(attempt int) time.Duration {

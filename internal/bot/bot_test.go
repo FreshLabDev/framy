@@ -15,6 +15,7 @@ import (
 	"github.com/FreshLabDev/tg"
 
 	"github.com/FreshLabDev/framy/internal/db"
+	"github.com/FreshLabDev/framy/internal/i18n"
 )
 
 // selfID is the id the test bot has in Telegram.
@@ -200,14 +201,21 @@ type fakeTelegram struct {
 	// by method field and language; writes counts the set calls.
 	profile map[string]string
 	writes  int
+	// profileErrs fail the next profile calls of a key, one error a call:
+	// "<scope>/<language>" for the commands, "<field>/<language>" for the
+	// texts.
+	profileErrs map[string][]error
+	// profiled is closed when the last language's menus are reached.
+	profiled     chan struct{}
+	profiledOnce sync.Once
 	// members counts the GetChatMember calls, and memberErr makes them fail.
 	members   int
 	memberErr error
 	// menuButtons are the setChatMenuButton calls; menuErr fails them.
 	menuButtons []menuButton
 	menuErr     error
-	// ephemeralErr fails sendEphemeralMessage.
-	ephemeralErr error
+	// ephemeralErr fails sendEphemeralMessage, and sendErr sendMessage.
+	ephemeralErr, sendErr error
 }
 
 // menuButton is one setChatMenuButton call.
@@ -217,7 +225,7 @@ type menuButton struct {
 }
 
 func newTelegram() *fakeTelegram {
-	return &fakeTelegram{statuses: map[int64]string{}, commands: map[string][]tg.BotCommand{}, profile: map[string]string{}}
+	return &fakeTelegram{statuses: map[int64]string{}, commands: map[string][]tg.BotCommand{}, profile: map[string]string{}, profileErrs: map[string][]error{}, profiled: make(chan struct{})}
 }
 
 func (f *fakeTelegram) record(s sent) {
@@ -245,11 +253,20 @@ func (f *fakeTelegram) GetUpdates(ctx context.Context, offset int64, _ int) ([]t
 	if first {
 		return f.batch, nil
 	}
+	// The profile is published beside the polls and stops at a stop; the
+	// stop waits for it here, so what a start publishes is all there.
+	select {
+	case <-f.profiled:
+	case <-time.After(2 * time.Second):
+	}
 	f.cancel()
 	return nil, ctx.Err()
 }
 
 func (f *fakeTelegram) SendMessage(_ context.Context, chatID int64, text string, m *tg.InlineKeyboardMarkup) (tg.Message, error) {
+	if f.sendErr != nil {
+		return tg.Message{}, f.sendErr
+	}
 	f.record(sent{method: "sendMessage", chatID: chatID, text: text, markup: m})
 	return tg.Message{MessageID: 1}, nil
 }
@@ -310,8 +327,24 @@ func (f *fakeTelegram) GetChatMember(_ context.Context, _, userID int64) (tg.Cha
 func (f *fakeTelegram) SetMyCommandsForScope(_ context.Context, cmds []tg.BotCommand, sc *tg.BotCommandScope) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if codes := i18n.Codes(); sc.Type == "all_group_chats" && sc.LanguageCode == codes[len(codes)-1] {
+		f.profiledOnce.Do(func() { close(f.profiled) })
+	}
+	if err := f.profileErr(sc.Type + "/" + sc.LanguageCode); err != nil {
+		return err
+	}
 	f.commands[sc.Type+"/"+sc.LanguageCode] = cmds
 	return nil
+}
+
+// profileErr is the next error of a profile call, if it is to fail.
+func (f *fakeTelegram) profileErr(key string) error {
+	errs := f.profileErrs[key]
+	if len(errs) == 0 {
+		return nil
+	}
+	f.profileErrs[key] = errs[1:]
+	return errs[0]
 }
 
 func (f *fakeTelegram) SetChatMenuButton(_ context.Context, chatID int64, button tg.MenuButton) error {
@@ -341,6 +374,9 @@ func (f *fakeTelegram) SetMyShortDescription(_ context.Context, text, lang strin
 func (f *fakeTelegram) setProfile(field, text, lang string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if err := f.profileErr(field + "/" + lang); err != nil {
+		return err
+	}
 	f.profile[field+"/"+lang] = text
 	f.writes++
 	return nil

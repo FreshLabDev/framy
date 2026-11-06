@@ -28,6 +28,10 @@ const (
 	DefaultTimeout = time.Minute
 	// maxWorkers caps the frames drawn at once: a canvas holds about 8 MB.
 	maxWorkers = 8
+	// encodeThreads is x264's: on its own it takes a thread and a half per
+	// core of the host, whatever the container's CPUs, and 44 threads on
+	// ten cores encoded a loop a fifth of a second faster than four.
+	encodeThreads = "4"
 	// stderrTail is how much of ffmpeg's complaint goes into an error.
 	stderrTail = 1024
 )
@@ -87,7 +91,7 @@ func Encode(ctx context.Context, s Scene, out string, o Options) (Stats, error) 
 	cmd := exec.CommandContext(ctx, o.FFmpeg, "-hide_banner", "-loglevel", "error", "-y",
 		"-protocol_whitelist", "pipe",
 		"-f", "rawvideo", "-pix_fmt", "rgb24", "-s", fmt.Sprintf("%dx%d", w, h), "-r", strconv.Itoa(FPS), "-i", "pipe:0",
-		"-an", "-c:v", "libx264", "-preset", o.Preset, "-crf", strconv.Itoa(o.CRF),
+		"-an", "-c:v", "libx264", "-threads", encodeThreads, "-preset", o.Preset, "-crf", strconv.Itoa(o.CRF),
 		"-vf", "scale=out_color_matrix=bt709:out_range=tv", "-pix_fmt", "yuv420p",
 		"-x264-params", "colorprim=bt709:transfer=bt709:colormatrix=bt709:range=tv",
 		"-movflags", "+faststart", "-f", "mp4", part)

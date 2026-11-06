@@ -30,6 +30,22 @@ const (
 	Gemini     = "gemini"
 )
 
+// ProviderName is how people see a provider: on the site, in the bot and in
+// the chat, the same in every language. Google's is AI Studio, where its key
+// is made and its billing is turned on; the code and the logs call it Gemini.
+// The site keeps the same names in internal/web/app/src/catalog.js (PNAME).
+func ProviderName(provider string) string {
+	switch provider {
+	case OpenRouter:
+		return "OpenRouter"
+	case OpenAI:
+		return "OpenAI"
+	case Gemini:
+		return "AI Studio"
+	}
+	return provider
+}
+
 // makers names the company behind a direct provider's models, for a model
 // OpenRouter does not carry and the overlay does not name.
 var makers = map[string]string{OpenAI: "OpenAI", Gemini: "Google"}
@@ -47,6 +63,11 @@ type Param struct {
 	Values []any    `json:"values,omitempty" yaml:"values,omitempty"`
 	Min    *float64 `json:"min,omitempty" yaml:"min,omitempty"`
 	Max    *float64 `json:"max,omitempty" yaml:"max,omitempty"`
+	// Default is what the provider does when the field is left out, where a
+	// hand-written descriptor says so. A setting that no rule of Defaults
+	// decides starts on it, so a run nobody set it for is no worse than the
+	// provider's own. It is one of Values.
+	Default any `json:"default,omitempty" yaml:"default,omitempty"`
 	// Passthrough marks a setting the provider takes among its own options
 	// rather than as a field of the request. The overlay supplies its values,
 	// since OpenRouter lists only the names.
@@ -67,6 +88,9 @@ func (p Param) validate(name string, allowText bool) error {
 	case Enum:
 		if len(p.Values) == 0 {
 			return fmt.Errorf("parameter %s: an enum needs values", name)
+		}
+		if p.Default != nil && !slices.ContainsFunc(p.Values, func(v any) bool { return sameValue(v, p.Default) }) {
+			return fmt.Errorf("parameter %s: the default %v is not one of the values", name, p.Default)
 		}
 	case Range:
 		if p.Min == nil || p.Max == nil || *p.Min > *p.Max {
@@ -121,7 +145,12 @@ type Price struct {
 type Route struct {
 	// Provider is OpenRouter's slug of the upstream, such as
 	// "google-ai-studio"; empty for a direct provider and for video.
-	Provider    string           `json:"provider,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	// Upstream is the tag of a video model's one upstream at OpenRouter,
+	// such as "google-vertex": the key its own options go under
+	// (provider.options.<tag>). Empty when it has several or they were not
+	// read, and for an image route, whose Provider is that key.
+	Upstream    string           `json:"upstream,omitempty"`
 	Params      map[string]Param `json:"params,omitempty"`
 	Passthrough []string         `json:"passthrough,omitempty"`
 	Prices      []Price          `json:"prices,omitempty"`
@@ -187,6 +216,10 @@ type References struct {
 	// frame, so a run needs a picture. OpenRouter's frame_images says only
 	// that one is taken.
 	FrameRequired bool `json:"frame_required,omitempty" yaml:"frame_required,omitempty"`
+	// ImageDurations are the only lengths, in seconds, of a video made from
+	// reference images, where the maker makes those at fewer lengths than
+	// from words or frames: Veo 3.1 at 8 s only.
+	ImageDurations []float64 `json:"image_durations,omitempty" yaml:"image_durations,omitempty"`
 }
 
 // Clip bounds the attached videos or sounds of one run: the seconds and the
@@ -251,6 +284,11 @@ type PriceHints struct {
 	// OpenAITokens is the base of OpenAI's image token formula by quality,
 	// from the official calculator.
 	OpenAITokens map[string]int `json:"openai_tokens,omitempty" yaml:"openai_tokens"`
+	// OpenAITokenFactor multiplies the formula's tokens by quality, rounded
+	// to the nearest, as the calculator does for GPT Image 2.6: the same
+	// base as 2.5, times 4.2 at low and 3.3 at medium. A quality it does not
+	// name keeps the formula's count.
+	OpenAITokenFactor map[string]float64 `json:"openai_token_factor,omitempty" yaml:"openai_token_factor"`
 	// OpenAIInputPatches is the most 32 px patches an input image of GPT
 	// Image 2 and 2.5 takes, one token each, as counted on OpenAI's forum
 	// (internal/price, openAIInputTokens). It wins over InputTokensPerMP.
@@ -280,6 +318,24 @@ type PriceHints struct {
 	// ClipMinSeconds: a reference clip is billed as at least this long, as
 	// Seedance 2.0 Mini billed a 2 s clip as 3 s.
 	ClipMinSeconds float64 `json:"clip_min_seconds,omitempty" yaml:"clip_min_seconds"`
+	// Unlisted are lines the provider bills that OpenRouter's listing of the
+	// model leaves out, as the model's own page on OpenRouter states them:
+	// FLUX.2 Pro's input megapixels. The estimate adds each to a route that
+	// lists prices but no line of that billable and unit.
+	Unlisted []Price `json:"unlisted,omitempty" yaml:"unlisted"`
+	// Long says when a video model's long_* SKUs apply, which their names
+	// do not: HeyGen Video's are "Video Output (over 15 s)" on OpenRouter's
+	// page. Without it a long SKU stays a maybe.
+	Long *LongRate `json:"long,omitempty" yaml:"long"`
+}
+
+// LongRate is when a video is billed at its long rate.
+type LongRate struct {
+	// AfterSeconds is the length past which the long rate applies.
+	AfterSeconds float64 `json:"after_seconds" yaml:"after_seconds"`
+	// Undiscounted: OpenRouter's discount leaves the long rate out, as the
+	// model's page marks it.
+	Undiscounted bool `json:"undiscounted,omitempty" yaml:"undiscounted"`
 }
 
 // Traits is what the overlay knows about a model and no API says.

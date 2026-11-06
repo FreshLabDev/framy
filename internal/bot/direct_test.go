@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -91,13 +92,13 @@ func TestDirectHomeSaysWhatIsLeftWhatIsConnectedAndWhatPricesAreIn(t *testing.T)
 	}
 	got := client.last()
 	want := "<b>framy</b>\n" +
-		"<i>Images at the provider’s price.</i>\n\n" +
+		"<i>Images and videos at the provider’s price.</i>\n\n" +
 		"<blockquote>Free images · 4 of 5 left in any 24 hours\n" +
 		"Free videos · 1 of 1 left in any 7 days\n" +
-		"Your keys · OpenRouter, OpenAI (no credits), Gemini\n" +
+		"Your keys · OpenRouter, OpenAI (out of credits), AI Studio\n" +
 		"Language · English\n" +
 		"Currency · USD\n" +
-		"Not open yet: making images comes with the first test release.</blockquote>"
+		"Send a description for a new image or video. To change a photo or a video, send it with a caption. Nothing runs until you press Create.</blockquote>"
 	if got.method != "sendMessage" || got.chatID != 7 || got.text != want {
 		t.Fatalf("sent %s to %d:\n%s\nwant\n%s", got.method, got.chatID, got.text, want)
 	}
@@ -118,11 +119,53 @@ func TestDirectHomeSaysWhatIsLeftWhatIsConnectedAndWhatPricesAreIn(t *testing.T)
 	}
 }
 
+// A refusal or an error card outside the DM links here with /start
+// settings_<provider> (internal/chat, settings.go): the panel's button opens
+// the settings at that key and says what it is for. A provider framy does
+// not know leaves the panel as it is.
+func TestStartAtAKeyOpensTheSettingsThere(t *testing.T) {
+	conns := &fakeConnections{list: []keys.Connection{connection(catalog.OpenAI, keys.Invalid)}}
+	for _, tc := range []struct{ payload, url, text string }{
+		{"settings_openrouter", testSite + "/?settings=openrouter", "Connect OpenRouter"},
+		{"settings_openai", testSite + "/?settings=openai", "Replace the OpenAI key"},
+		{"settings_bogus", testSite, "Open framy"},
+		{"something_else", testSite, "Open framy"},
+	} {
+		b, _, client := newBotWith(WithConnections(conns), WithSiteURL(testSite))
+		if err := b.onMessage(context.Background(), message(dmChat, 7, "/start "+tc.payload)); err != nil {
+			t.Fatal(err)
+		}
+		got := client.last()
+		first := got.markup.InlineKeyboard[0]
+		if len(first) != 1 || first[0].WebApp == nil || first[0].WebApp.URL != tc.url || first[0].Text != tc.text || first[0].Style != tg.StylePrimary {
+			t.Errorf("%s: first row = %+v", tc.payload, first)
+		}
+	}
+}
+
 // What the strings say about the windows is written in each language; the
 // numbers come from the allowance, the words must follow the constants.
+// The bot's description and Help write the counts in words too ("Five
+// images"). The windows roll, so the bot and the site both name them in
+// hours and days ("in any 24 hours"), never as "a day", which reads as a
+// calendar day that starts again at midnight.
 func TestHomeStringsNameTheWindowsOfTheAllowance(t *testing.T) {
 	if free.ImageWindow != 24*time.Hour || free.VideoWindow != 7*24*time.Hour {
-		t.Fatal("the allowance's windows changed: update home.free_images_left and home.free_videos_left in every language")
+		t.Fatal("the allowance's windows changed: update home.free_images_left, home.free_videos_left, web.free.per_day, web.free.per_week, web.prefs.left_day, web.prefs.left_week, bot.description and help.body in every language")
+	}
+	if free.ImagesPerWindow != 5 || free.VideosPerWindow != 1 {
+		t.Fatal("the allowance's counts changed: update bot.description and help.body in every language")
+	}
+	hours, days := strconv.Itoa(int(free.ImageWindow.Hours())), strconv.Itoa(int(free.VideoWindow.Hours()/24))
+	for _, code := range i18n.Codes() {
+		for key, n := range map[string]string{
+			"home.free_images_left": hours, "web.free.per_day": hours, "web.prefs.left_day": hours,
+			"home.free_videos_left": days, "web.free.per_week": days, "web.prefs.left_week": days,
+		} {
+			if !strings.Contains(i18n.T(code, key), n) {
+				t.Errorf("%s [%s] does not name the window as %s: %q", key, code, n, i18n.T(code, key))
+			}
+		}
 	}
 }
 
@@ -257,7 +300,7 @@ func TestOnlyAConnectionThatIsNotValidHasAStatusWord(t *testing.T) {
 		keys.Invalid:           "OpenAI (invalid key)",
 		keys.NeedsBilling:      "OpenAI (needs billing)",
 		keys.NeedsVerification: "OpenAI (needs verification)",
-		keys.NoCredits:         "OpenAI (no credits)",
+		keys.NoCredits:         "OpenAI (out of credits)",
 		"something new":        "OpenAI",
 	} {
 		if got := v.connectionList([]keys.Connection{connection(catalog.OpenAI, status)}); got != want {
@@ -269,7 +312,7 @@ func TestOnlyAConnectionThatIsNotValidHasAStatusWord(t *testing.T) {
 	got := v.connectionList([]keys.Connection{
 		connection(catalog.Gemini, keys.Valid), connection("<b>", keys.Valid), connection(catalog.OpenRouter, keys.Valid),
 	})
-	if got != "OpenRouter, Gemini, &lt;b&gt;" {
+	if got != "OpenRouter, AI Studio, &lt;b&gt;" {
 		t.Errorf("list = %q", got)
 	}
 }

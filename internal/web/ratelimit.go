@@ -3,9 +3,11 @@
 package web
 
 import (
+	"cmp"
 	"fmt"
 	"math"
 	"net/http"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -112,21 +114,22 @@ func newLimiters(override Limits) (map[Class]*classLimiter, error) {
 	return out, nil
 }
 
-// limited counts the request in the class and, when it is over, answers 429
-// and reports true.
-func (s *Server) limited(w http.ResponseWriter, r *http.Request, class Class) bool {
+// limited counts the request in the class and, when it is over, answers 429,
+// or a redirect to location when the route has one (OnLimit), and reports
+// true.
+func (s *Server) limited(w http.ResponseWriter, r *http.Request, class Class, location string) bool {
 	cl := s.limits[class]
 	now := s.now()
 	if cl.ip != nil {
 		if ok, wait := cl.ip.take(bucketKey(ClientIP(r)), now); !ok {
-			s.tooMany(w, class, wait)
+			s.tooMany(w, class, wait, location)
 			return true
 		}
 	}
 	if cl.person != nil && s.person != nil {
 		if id := s.person(r); id != "" {
 			if ok, wait := cl.person.take(id, now); !ok {
-				s.tooMany(w, class, wait)
+				s.tooMany(w, class, wait, location)
 				return true
 			}
 		}
@@ -134,17 +137,28 @@ func (s *Server) limited(w http.ResponseWriter, r *http.Request, class Class) bo
 	return false
 }
 
-func (s *Server) tooMany(w http.ResponseWriter, class Class, wait time.Duration) {
+func (s *Server) tooMany(w http.ResponseWriter, class Class, wait time.Duration, location string) {
 	metrics.HTTPRateLimited.Inc(string(class))
+	if location != "" {
+		w.Header().Set("Location", location)
+		w.WriteHeader(http.StatusSeeOther)
+		return
+	}
 	w.Header().Set("Retry-After", strconv.Itoa(max(1, int(math.Ceil(wait.Seconds())))))
 	http.Error(w, "too many requests", http.StatusTooManyRequests)
 }
 
 // maxKeys bounds one bucket set. Behind Cloudflare an address cannot be
-// invented, so reaching it takes an attack from this many addresses; the set
-// is then emptied, which frees every visitor, the attacker's addresses
-// included, rather than growing without bound.
+// invented, so reaching it takes an attack from this many addresses. The set
+// then makes room by dropping the buckets that are nearest to full, which
+// are the ones closest to what a new visitor gets anyway; the buckets of
+// whoever has used the allowance up stay until they refill, so filling the
+// set never gives anyone a fresh allowance.
 const maxKeys = 200_000
+
+// evictShare is the part of a full set dropped at once, so that the scan
+// that picks it is paid for once per many new visitors.
+const evictShare = 10
 
 // sweepEvery is how often buckets that have refilled are dropped. A full
 // bucket is the same as a new one, so nothing is lost.
@@ -178,7 +192,7 @@ func (s *bucketSet) take(key string, now time.Time) (bool, time.Duration) {
 	l := s.m[key]
 	if l == nil {
 		if len(s.m) >= s.max {
-			clear(s.m)
+			s.makeRoom(now)
 		}
 		l = rate.NewLimiter(s.b.Rate, s.b.Burst)
 		s.m[key] = l
@@ -200,6 +214,27 @@ func (s *bucketSet) sweep(now time.Time) {
 		if l.TokensAt(now) >= float64(s.b.Burst) {
 			delete(s.m, k)
 		}
+	}
+}
+
+// makeRoom frees space in a full set: first the buckets that have refilled,
+// and when that is not enough, the tenth with the most tokens left.
+func (s *bucketSet) makeRoom(now time.Time) {
+	s.sweep(now)
+	if len(s.m) < s.max {
+		return
+	}
+	type held struct {
+		key    string
+		tokens float64
+	}
+	all := make([]held, 0, len(s.m))
+	for k, l := range s.m {
+		all = append(all, held{k, l.TokensAt(now)})
+	}
+	slices.SortFunc(all, func(a, b held) int { return cmp.Compare(b.tokens, a.tokens) })
+	for _, h := range all[:max(1, len(all)/evictShare)] {
+		delete(s.m, h.key)
 	}
 }
 

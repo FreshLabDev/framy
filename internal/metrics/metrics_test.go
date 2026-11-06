@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -131,5 +133,55 @@ func TestNamingConvention(t *testing.T) {
 		if e.help == "" || !strings.HasSuffix(e.help, ".") {
 			t.Fatalf("metric %q needs a sentence of help text", e.name)
 		}
+	}
+}
+
+// The page carries the process's and the Go runtime's figures under the
+// names any Go service's dashboard knows; the process's own, read from
+// /proc, on Linux.
+func TestTheProcessIsOnThePage(t *testing.T) {
+	var sb strings.Builder
+	Write(&sb)
+	body := sb.String()
+	want := []string{"go_goroutines", "go_memstats_heap_alloc_bytes", "go_memstats_sys_bytes", "process_start_time_seconds"}
+	if runtime.GOOS == "linux" {
+		want = append(want, "process_resident_memory_bytes", "process_open_fds", "process_cpu_seconds_total")
+	}
+	for _, name := range want {
+		kind := "gauge"
+		if strings.HasSuffix(name, "_total") {
+			kind = "counter"
+		}
+		if !strings.Contains(body, "# HELP "+name+" ") || !strings.Contains(body, "# TYPE "+name+" "+kind+"\n") {
+			t.Fatalf("%s is missing its HELP or TYPE in:\n%s", name, body)
+		}
+		var v float64
+		found := false
+		for _, line := range strings.Split(body, "\n") {
+			if rest, ok := strings.CutPrefix(line, name+" "); ok {
+				x, err := strconv.ParseFloat(rest, 64)
+				if err != nil {
+					t.Fatalf("%s: %v", line, err)
+				}
+				v, found = x, true
+			}
+		}
+		// The CPU counter of a process this young may not have a tick of
+		// /proc's yet (10 ms): 0 is a figure there. cpuOfStat's reading is
+		// checked on its own below.
+		if !found || v < 0 || kind == "gauge" && v == 0 {
+			t.Errorf("%s = %v, found %v; want a figure above 0", name, v, found)
+		}
+	}
+}
+
+func TestCPUSecondsReadPastACommandWithSpaces(t *testing.T) {
+	// utime 250 and stime 50 ticks: 3 s.
+	stat := "4242 (framy (a b)) S 1 4242 4242 0 -1 4194560 1200 0 0 0 250 50 0 0 20 0 12 0 1500 1300000000 9000 18446744073709551615\n"
+	if cpu, ok := cpuOfStat(stat); !ok || cpu != 3 {
+		t.Errorf("cpu = %v, %v; want 3 s", cpu, ok)
+	}
+	if _, ok := cpuOfStat("4242 (framy) S 1"); ok {
+		t.Error("a short line read as CPU time")
 	}
 }

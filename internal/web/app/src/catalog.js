@@ -2,11 +2,13 @@
 // families, the free plans by offer, what each model takes, and the settings
 // a person can change. Prices are not here: they come from POST /api/quote.
 import { h, ic } from "./dom.js";
-import { t, fmtNum } from "./i18n.js";
+import { t, has, fmtNum, fmtIsoDay } from "./i18n.js";
 import LOGOS from "assets:logos";
 
 export const C = { models: [], byId: {}, FAM: [], famOf: {}, varOf: {}, plans: {}, free: {}, recommend: {} };
 
+// The providers as people see them, the same names the bot and the chat use
+// (catalog.ProviderName): Google's is AI Studio, where its key is made.
 export const PNAME = { openrouter: "OpenRouter", openai: "OpenAI", gemini: "AI Studio" };
 
 export function loadCatalog(cat) {
@@ -21,7 +23,10 @@ export function loadCatalog(cat) {
     const fm = m.family || {}, key = fm.id || m.id;
     let f = byKey[key];
     if (!f) { f = byKey[key] = { key, name: fm.name || m.name, axes: !!fm.line, order: i, vars: [] }; C.FAM.push(f); }
-    f.vars.push({ id: m.id, m, gen: fm.gen || "", tier: fm.tier || "", label: fm.label || m.name, note: m.note || "",
+    // The note is a line of the interface, in the language the page speaks: the catalog's
+    // is in the language the server guessed for the request, which can be another.
+    f.vars.push({ id: m.id, m, gen: fm.gen || "", tier: fm.tier || "", label: fm.label || m.name,
+      get note() { return has("note." + m.id) ? t("note." + m.id) : m.note || ""; },
       line: fm.line || "", fmt: fm.format || "", rank: fm.rank ?? 0, outBy: fm.outdated_by, isDef: !!fm.default });
   });
   C.FAM.forEach((f, i) => {
@@ -95,11 +100,20 @@ export function photoLimit(m, pay) {
 }
 
 /* Settings. Only the ones a person decides go on the form; the rest keep the offer's default. */
-export const SHOWN = ["aspect_ratio", "size", "resolution", "quality", "duration", "generate_audio", "thinking_level", "background", "google_search", "image_search", "creativity", "upscale_factor"];
-export const SECONDARY = new Set(["background", "thinking_level", "google_search", "image_search", "creativity"]);
+export const SHOWN = ["aspect_ratio", "size", "resolution", "quality", "duration", "generate_audio", "thinking_level", "complexity", "background", "google_search", "image_search", "creativity", "upscale_factor",
+  "negative_prompt", "negativePrompt", "seed"];
+export const SECONDARY = new Set(["background", "thinking_level", "complexity", "google_search", "image_search", "creativity", "negative_prompt", "negativePrompt", "seed"]);
+// Set by the person or not at all, with nothing to choose from: what a video should leave out, in
+// words (Veo calls it negativePrompt, Kling and Wan negative_prompt), and a seed, a whole number.
+// Left empty they are not sent, and the model goes as it would.
+export const OPEN = new Set(["negative_prompt", "negativePrompt", "seed"]);
+export const SEED_MAX = 2147483647;
+const openVal = (name, v) => (name === "seed" ? (Number.isInteger(v) && v >= 0 && v <= SEED_MAX ? v : undefined) : typeof v === "string" && v.trim() ? v : undefined);
+const NEG = (name) => (name === "negativePrompt" ? "negative_prompt" : name);
 export const SEARCH = ["google_search", "image_search"];
 export const SICON = { aspect_ratio: "ratio", size: "ratio", resolution: "res", quality: "bars", thinking_level: "bars", background: "checker", duration: "clock",
-  generate_audio: "audio", fast: "bolt", google_search: "search", image_search: "image", upscale_factor: "res", creativity: "spark" };
+  generate_audio: "audio", fast: "bolt", google_search: "search", image_search: "image", upscale_factor: "res", creativity: "spark", complexity: "layers",
+  negative_prompt: "without", negativePrompt: "without", seed: "dice" };
 // The fields of an offer in the form's order. "size" is a choice only where
 // it is the one way to set the shape and the resolution, as on GPT Image: a
 // video model lists it beside its own aspect_ratio and resolution, and a
@@ -119,8 +133,11 @@ const rankOf = (x) => { const s = String(x), i = STEP_ORDER.indexOf(s); return i
 // The smaller, weaker or shorter on the left; a list with no such order keeps the model's.
 export const ordered = (v) => (v.some((x) => isNaN(rankOf(x))) ? v.slice() : v.slice().sort((a, b) => rankOf(a) - rankOf(b)));
 
-export function label(name) { return t("set." + name); }
+export function label(name) { return t("set." + NEG(name)); }
 export function show(name, v) {
+  if (name === "seed") return t("val.seed", { n: String(v) });
+  // What to leave out, as far as a line of the summary holds it.
+  if (OPEN.has(name)) { const x = String(v).trim().replace(/\s+/g, " "); return t("val.leave_out", { text: x.length > 40 ? x.slice(0, 39).trimEnd() + "…" : x }); }
   if (name === "duration") return t("unit.s", { n: fmtNum(+v) });
   if (name === "generate_audio") return t(v ? "val.with_sound" : "val.no_sound");
   if (name === "fast") return t(v ? "val.on" : "val.off");
@@ -163,6 +180,7 @@ export function settings(m, pay, wanted, src) {
   if (!o) return out;
   for (const name of fieldsOf(o)) {
     if (plan) { if (name in (plan.settings || {})) out[name] = plan.settings[name]; continue; }
+    if (OPEN.has(name)) { const v = openVal(name, wanted[name]); if (v !== undefined) out[name] = v; continue; }
     const w = pickVal(o.params[name], wanted[name]);
     out[name] = w !== undefined ? w : defOf(o, name, src);
   }
@@ -195,7 +213,7 @@ export function facts(list, max = 4) {
     if (ms.every(needsImage)) f.push(["photos", t("fact.from_photo")]);
     else if (refs) f.push(["photos", refs > 1 ? t("fact.photos", { n: refs }) : t("fact.photo_one")]);
     const r = resRangeOf(offers); if (r) f.push(["res", r[0] === r[1] ? r[1] : t("fact.up_to", { v: r[1] })]);
-    if (ms.some((m) => /vector/i.test(m.name))) f.push(["vector", "SVG"]);
+    if (ms.some((m) => m.family?.format === "vector")) f.push(["vector", "SVG"]);
     if (unionOf(offers, "background").includes("transparent")) f.push(["checker", t("fact.transparent")]);
     const n = Math.max(0, ...offers.map((o) => o.params.n?.max || 0)); if (n > 1) f.push(["stack", t("fact.at_once", { n })]);
   } else {
@@ -214,12 +232,16 @@ export function facts(list, max = 4) {
 }
 export const factEl = ([icon, text, cls]) => h("span", { class: "fact" + (cls ? " " + cls : "") }, ic(icon), text);
 
-// A model the maker closes: the day if named, and what replaces it.
+// A model the maker closes: the day if named, and what replaces it. when and
+// text are whole sentences, their full stop the language's own ("。" in
+// Chinese and Japanese): when says that it closes, text also what replaces it.
 export function deprecation(m) {
   if (!m.deprecated) return null;
   const to = m.successor && C.byId[m.successor];
   const toName = to ? (C.famOf[to.id] === C.famOf[m.id] ? C.varOf[to.id].label : vname(to)) : "";
-  const when = m.shuts_down ? t("dep.shuts", { date: new Date(m.shuts_down + "T00:00:00Z").toLocaleDateString(document.documentElement.lang, { day: "numeric", month: "long" }) })
-    : t("dep.closing", { maker: m.maker });
-  return { to, toName, when, text: toName ? t("dep.with_successor", { when, name: toName }) : when };
+  const v = { date: m.shuts_down ? fmtIsoDay(m.shuts_down) : "", maker: m.maker, name: toName }, day = v.date ? "shuts" : "closing";
+  // A date that ends in a full stop of its own ("1 февраля 2027 г.") ends the
+  // sentence with it, not with two.
+  const say = (k) => { const s = t(k, v); return v.date.endsWith(".") ? s.replace(`${v.date}.`, v.date) : s; };
+  return { to, toName, when: say("dep." + day), text: say("dep." + day + (toName ? "_to" : "")) };
 }

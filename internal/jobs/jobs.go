@@ -9,7 +9,8 @@
 //   - a provider's job id is written the moment it comes back, so a retry
 //     asks about the run instead of paying for another;
 //   - only a 429 or a 5xx before the run started is retried;
-//   - one person runs at most two jobs at once, and the rest wait in order.
+//   - one person runs at most two jobs at once on each stack, and the rest
+//     wait in order.
 package jobs
 
 import (
@@ -102,7 +103,9 @@ func TelegramUpdate(updateID int64) string { return fmt.Sprintf("tg:%d", updateI
 
 // Job is a job as the providers see it.
 type Job struct {
-	ID             int64
+	ID int64
+	// UserID is 0 for a deleted account's job that no longer says whose it
+	// was (migrations/035_job_forget.sql).
 	UserID         int64
 	Surface        Surface
 	ChatID         int64
@@ -140,6 +143,9 @@ type Job struct {
 type Input struct {
 	ContentType string
 	URL         string
+	// Bytes is the file's size, 0 when not known. A video's request gets
+	// time for its files (callLimit), since an adapter may carry them in it.
+	Bytes int64
 }
 
 // Inputs finds the files a job takes. An *Error fails the job before
@@ -167,7 +173,9 @@ type Admission struct {
 	// Videos is the length of each clip among the files, 0 where it is not
 	// known: the free edit takes a clip up to 5 s.
 	Videos []float64
-	// EstimateUSD is the price shown before the run; zero when there is none.
+	// EstimateUSD is the most the run can cost by its estimate, the top of
+	// an "up to" price; zero when there is none. The budget keeps room for
+	// all of it until the run ends.
 	EstimateUSD float64
 }
 
@@ -193,7 +201,11 @@ type Provider interface {
 	// returns it in the Outcome; one that runs in the background returns its
 	// job id, and the result comes from Poll.
 	Submit(ctx context.Context, j Job) (Submission, error)
-	// Poll asks about a run Submit started. It costs nothing.
+	// Poll asks about a run Submit started. It costs nothing. An error
+	// means no answer yet, and the queue asks again; of an Outcome beside
+	// it only CostUSD counts: what the run cost already, such as a
+	// finished video that could not be fetched, kept if the hour's
+	// deadline ends the run first.
 	Poll(ctx context.Context, j Job) (Outcome, error)
 }
 
@@ -212,6 +224,16 @@ type Outcome struct {
 	CostUSD *float64
 	// Err ends the run without a result, as moderation does.
 	Err *Error
+	// Ready, beside a poll's error: the provider finished the run and holds
+	// its result, which could not be fetched this time. The run is paid, so
+	// CostUSD goes with it, and when the result has not come by the hour's
+	// deadline the run ends as storage (made, not kept), not as a timeout.
+	Ready bool
+	// Lost says why files of the answer were left out of Results, such as
+	// a picture that was not base64: the run is paid in full, so the
+	// others are kept, and the log says what was lost. Nil when nothing
+	// was.
+	Lost error
 	// Grounding is what a search-grounded run brought with its result.
 	Grounding *Grounding
 }
@@ -269,6 +291,12 @@ const (
 	// Faces: the provider refused a real person in an input, such as
 	// Seedance on BytePlus. Another model may take the same files.
 	Faces Class = "faces"
+	// Region: the provider does not serve the country framy's server calls
+	// from, as Google's "User location is not supported" and OpenAI's
+	// unsupported_country_region_territory. Nothing ran and nothing was
+	// billed, the person's key is fine, and asking again changes nothing
+	// until the server's address does; another provider may serve it.
+	Region Class = "region"
 	// Sound: the provider refused the sound the model made, as BytePlus
 	// refuses Seedance's when it may be copyrighted. The same run without
 	// sound may pass, and nothing was billed.
@@ -299,7 +327,12 @@ type Error struct {
 	Class Class
 	// RetryAfter is the provider's own wait, from Retry-After.
 	RetryAfter time.Duration
-	Err        error
+	// Tries caps the requests in all that a refusal before the run allows,
+	// when the adapter knows that sending more seldom helps, such as a
+	// model that failed to make the picture. Zero, or anything above the
+	// queue's own cap, leaves the queue's.
+	Tries int
+	Err   error
 }
 
 func (e *Error) Error() string {
@@ -322,9 +355,27 @@ func (e *Error) Said() string {
 	return ""
 }
 
-// retryable: the provider refused before the run started, so nothing was
-// paid and sending again is safe.
-func (e *Error) retryable() bool { return e.Class == RateLimited || e.Class == Unavailable }
+// ErrKeyLookup: framy's own store did not answer when the job's key was
+// looked up (keys.Service.JobKey). It says nothing about the key or the run,
+// so a submit tries again later, and a poll asks again, as it does for a key
+// refused: a video sent and likely paid is not lost to a moment the
+// database was away.
+var ErrKeyLookup = errors.New("the key could not be looked up")
+
+// retryable: the provider refused before the run started, or the key could
+// not be looked up before anything was sent, so nothing was paid and sending
+// again is safe.
+func (e *Error) retryable() bool {
+	return e.Class == RateLimited || e.Class == Unavailable || errors.Is(e.Err, ErrKeyLookup)
+}
+
+// tries is how many requests in all the refusal allows.
+func (e *Error) tries() int {
+	if e.Tries > 0 && e.Tries < maxSubmits {
+		return e.Tries
+	}
+	return maxSubmits
+}
 
 // classify reads an error from a provider call made with ctx: the adapter's
 // class, or a timeout or a stop for the context's own errors.

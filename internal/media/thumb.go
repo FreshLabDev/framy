@@ -61,6 +61,7 @@ func (c *Converter) Thumb(ctx context.Context, in, out string) (width, height in
 		"-hide_banner", "-nostdin", "-v", "error",
 		"-protocol_whitelist", "file",
 		"-max_pixels", strconv.FormatInt(c.maxPixels(), 10),
+		"-threads", pictureThreads,
 		"-f", demuxer[h.format], "-i", "file:" + in,
 		"-filter_complex", p.input + fit(ThumbLongSide, h.p3) + ",format=" + pixFmt + "[v]", "-map", "[v]",
 		"-map_metadata", "-1", "-frames:v", "1",

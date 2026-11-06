@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/FreshLabDev/framy/internal/metrics"
 )
@@ -20,10 +21,16 @@ import (
 // checked first, then the age of auth_date (MaxInitDataAge). A forged or
 // edited initData is 401 `init_data_invalid`, an old one 401
 // `init_data_expired`: the Mini App has to be opened again, since Telegram
-// signs initData only when it opens.
+// signs initData only when it opens. The token ends when the initData stops
+// being accepted, an hour after auth_date, so expires_in is less than an
+// hour for initData exchanged late, and initData with less than a minute
+// left is too old already.
 //
 // The person is recorded in core before the token is made, as a bot update
-// would. The token is stored as a hash, like the site's cookie.
+// would. The token is stored as a hash, like the site's cookie. One launch
+// gets one token: the same initData sent again while its token lasts is
+// answered with that token, with nothing written, so trading it again and
+// again neither adds rows nor writes to core.
 func (a *Auth) MiniApp() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
@@ -34,6 +41,14 @@ func (a *Auth) MiniApp() http.Handler {
 			return
 		}
 		data, err := a.initData.Verify(req.InitData)
+		now := a.now()
+		// A token lasts no longer than the initData it came from: one
+		// initData that got out is worth an hour after Telegram signed it,
+		// not an hour more after its last minute.
+		expires := minTime(now.Add(MiniAppTokenLife), data.AuthDate.Add(MaxInitDataAge))
+		if err == nil && expires.Sub(now) < minTokenLife {
+			err = ErrStale
+		}
 		switch {
 		case errors.Is(err, ErrStale):
 			metrics.AuthResults.Inc("miniapp_stale")
@@ -42,6 +57,14 @@ func (a *Auth) MiniApp() http.Handler {
 		case err != nil:
 			metrics.AuthResults.Inc("miniapp_bad")
 			writeError(w, http.StatusUnauthorized, "init_data_invalid")
+			return
+		}
+		lock := &a.mintLocks[data.Hash[0]%byte(len(a.mintLocks))]
+		lock.Lock()
+		defer lock.Unlock()
+		if t, ok := a.mintedFor(r.Context(), data.Hash, data.User.ID); ok {
+			metrics.AuthResults.Inc("miniapp_again")
+			answerToken(w, t.secret, t.expires.Sub(now), data.User.ID)
 			return
 		}
 		if err := a.people.Touch(r.Context(), data.User, nil); err != nil {
@@ -55,19 +78,24 @@ func (a *Auth) MiniApp() http.Handler {
 			name = data.User.Username
 		}
 		a.setCard(r.Context(), data.User.ID, name, data.PhotoURL)
-		token, _, err := a.newSession(r.Context(), data.User.ID, KindMiniApp, MiniAppTokenLife)
+		token, hash, err := a.newSession(r.Context(), data.User.ID, KindMiniApp, expires)
 		if err != nil {
 			a.log.Error("start a Mini App session", "error", err)
 			metrics.AuthResults.Inc("miniapp_error")
 			writeError(w, http.StatusServiceUnavailable, "unavailable")
 			return
 		}
+		a.mint(data.Hash, mintedToken{secret: token, hash: hash, user: data.User.ID, expires: expires})
 		metrics.AuthResults.Inc("miniapp_ok")
-		writeJSON(w, http.StatusOK, map[string]any{
-			"token":      token,
-			"token_type": "Bearer",
-			"expires_in": int(MiniAppTokenLife.Seconds()),
-			"user_id":    data.User.ID,
-		})
+		answerToken(w, token, expires.Sub(now), data.User.ID)
+	})
+}
+
+func answerToken(w http.ResponseWriter, token string, left time.Duration, userID int64) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"token":      token,
+		"token_type": "Bearer",
+		"expires_in": int(left.Seconds()),
+		"user_id":    userID,
 	})
 }

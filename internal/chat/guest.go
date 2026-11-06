@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/FreshLabDev/tg"
 
@@ -53,7 +54,7 @@ func (f *Flow) Guest(ctx context.Context, m *tg.Message, prompt string) {
 		return
 	}
 	f.wg.Go(func() {
-		f.withSlot(ctx, func() {
+		f.withSlot(ctx, m, func() {
 			if err := f.guest(ctx, m, strings.TrimSpace(prompt)); err != nil && ctx.Err() == nil {
 				f.log.Error("guest message failed", "error", err)
 			}
@@ -62,11 +63,22 @@ func (f *Flow) Guest(ctx context.Context, m *tg.Message, prompt string) {
 }
 
 func (f *Flow) guest(ctx context.Context, m *tg.Message, prompt string) error {
+	// A key is answered even without a site: the answer is text.
+	if handled, err := f.keyInCommand(ctx, m, prompt); handled {
+		return err
+	}
 	lang := f.langOf(ctx, m)
 	if f.cfg.AppURL == "" {
-		// Telegram fetches every picture of the run from the site.
+		// Telegram fetches every picture of the run from the site, so no run
+		// can be shown here; the direct chat needs none.
 		f.log.Warn("a guest message with no https site to show it from")
-		return nil
+		var kb *tg.InlineKeyboardMarkup
+		if f.cfg.Username != "" {
+			kb = &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{{
+				{Text: t(lang, "btn.open"), URL: "https://t.me/" + f.cfg.Username, Style: tg.StylePrimary},
+			}}}
+		}
+		return f.guestAnswer(ctx, m, t(lang, "guest.unavailable"), kb)
 	}
 	if prompt == "" {
 		return f.guestText(ctx, m, t(lang, "guest.empty"))
@@ -86,12 +98,12 @@ func (f *Flow) guest(ctx context.Context, m *tg.Message, prompt string) error {
 		return f.guestFail(ctx, m, lang, err)
 	}
 	defer done()
-	d, refusal, err := f.draft(ctx, m, src, cutPrompt(prompt), key, dir)
+	d, refused, err := f.draft(ctx, m, src, cutPrompt(prompt), key, dir)
 	if err != nil {
 		return f.guestFail(ctx, m, lang, err)
 	}
-	if refusal != "" {
-		return f.guestText(ctx, m, refusal)
+	if refused.text != "" {
+		return f.guestAnswer(ctx, m, refused.text, f.refusalKeyboard(lang, false, refused))
 	}
 	if d.id == 0 {
 		return nil
@@ -119,12 +131,40 @@ func (f *Flow) guest(ctx context.Context, m *tg.Message, prompt string) error {
 		}
 		return fmt.Errorf("answer the guest message: %w", err)
 	}
-	if err := f.cfg.Store.SetChatRunInline(ctx, d.id, sent.InlineMessageID); err != nil {
-		// Nothing can reach the answer now; the draft expires.
+	if err := f.linkGuest(ctx, d.id, sent.InlineMessageID); err != nil {
+		// The presses on the answer find their run by this id, and none
+		// can now: the answer says it failed and loses its buttons, rather
+		// than keep buttons that do nothing.
 		f.cancel(ctx, d.id)
+		if _, merr := f.cfg.Store.MoveChatRun(ctx, d.id, db.StagePreview, db.StageGone); merr != nil {
+			f.log.Warn("unlinked guest run not closed", "job", d.id, "error", merr)
+		}
+		if eerr := f.cfg.Telegram.EditInlineMessageTextWithPreview(context.WithoutCancel(ctx), sent.InlineMessageID, t(lang, "run.failed"), nil, nil); eerr != nil {
+			f.log.Warn("unlinked guest answer left with its buttons", "job", d.id, "error", eerr)
+		}
 		return err
 	}
 	return nil
+}
+
+// linkWaits are the waits before the tries again of linkGuest.
+var linkWaits = []time.Duration{50 * time.Millisecond, 250 * time.Millisecond}
+
+// linkGuest records the inline message of a guest run's answer, which its
+// presses find the run by. The answer is out already, so a database hiccup
+// is tried again, and a stop does not cut the record short.
+func (f *Flow) linkGuest(ctx context.Context, jobID int64, inlineMessageID string) error {
+	ctx = context.WithoutCancel(ctx)
+	err := f.cfg.Store.SetChatRunInline(ctx, jobID, inlineMessageID)
+	for _, wait := range linkWaits {
+		if err == nil {
+			return nil
+		}
+		f.log.Warn("guest answer not linked to its run; trying again", "job", jobID, "error", err)
+		time.Sleep(wait)
+		err = f.cfg.Store.SetChatRunInline(ctx, jobID, inlineMessageID)
+	}
+	return err
 }
 
 // guestSources is what a guest message works on, as sourcesOf reads a
@@ -139,8 +179,13 @@ func guestSources(m *tg.Message) found {
 // guestText answers a guest message with text: a refusal or a hint. It is
 // the one answer the message gets.
 func (f *Flow) guestText(ctx context.Context, m *tg.Message, text string) error {
+	return f.guestAnswer(ctx, m, text, nil)
+}
+
+// guestAnswer is guestText with buttons under it.
+func (f *Flow) guestAnswer(ctx context.Context, m *tg.Message, text string, kb *tg.InlineKeyboardMarkup) error {
 	_, err := f.cfg.Telegram.AnswerGuestQuery(ctx, m.GuestQueryID, tg.InlineQueryResultArticle{
-		ID: "t", Title: "framy", InputMessageContent: tg.InputTextMessageContent{MessageText: text},
+		ID: "t", Title: "framy", InputMessageContent: tg.InputTextMessageContent{MessageText: text}, ReplyMarkup: kb,
 	})
 	return err
 }
@@ -260,7 +305,7 @@ func (f *Flow) guestEnd(ctx context.Context, run db.ChatRun) {
 
 // guestDeliver puts the result on the answer: a picture as a JPEG framy
 // makes, a video as it is kept. What Telegram cannot fetch, or will not
-// show, stays in the person's history, and the answer says where.
+// show, stays in the person's library on the site, and the answer says where.
 func (f *Flow) guestDeliver(ctx context.Context, run db.ChatRun, a storage.Asset) {
 	caption := resultCaption(run.Prompt, run.Model)
 	var item tg.InputMedia
@@ -282,18 +327,20 @@ func (f *Flow) guestDeliver(ctx context.Context, run db.ChatRun, a storage.Asset
 		}
 		f.guestCaption(ctx, run, lines(caption, t(run.Lang, "guest.elsewhere")), nil)
 	}
-	if _, err := f.cfg.Store.FinishChatRun(ctx, run.JobID, db.StageDone, db.ChatResult{}); err != nil {
-		f.log.Error("run not finished", "job", run.JobID, "error", err)
-		return
-	}
-	f.forget(run.JobID)
+	f.finish(ctx, run, db.StageDone, db.ChatResult{})
 }
 
 // guestFailed puts the error card on the answer, or its line in the
 // caption when Telegram does not take the card.
 func (f *Flow) guestFailed(ctx context.Context, run db.ChatRun, key string) {
-	text := t(run.Lang, key)
+	text := failureText(run, key)
 	model := "<b>" + html.EscapeString(run.Model) + "</b>"
+	// A guest card has no Try again: framy is not in the chat to post a new
+	// preview. It has the way to fix a key that failed.
+	var kb *tg.InlineKeyboardMarkup
+	if fix := f.keyFix(run); len(fix) > 0 {
+		kb = withRow(nil, fix)
+	}
 	card, err := f.cfg.Renderer.ErrorCard(ctx, text, run.Lang)
 	if err == nil {
 		line := ""
@@ -301,17 +348,13 @@ func (f *Flow) guestFailed(ctx context.Context, run db.ChatRun, key string) {
 			line = text
 		}
 		item := tg.InputMediaPhoto{Media: f.guestPicture(card, f.guestURL(run, shareFailure)), Caption: lines(promptQuote(run.Prompt), line, model)}
-		err = f.cfg.Telegram.EditInlineMessageMedia(ctx, run.InlineMessageID, item, nil)
+		err = f.cfg.Telegram.EditInlineMessageMedia(ctx, run.InlineMessageID, item, kb)
 	}
 	if err != nil {
 		f.log.Warn("error card not shown; the caption says it", "job", run.JobID, "error", err)
-		f.guestCaption(ctx, run, lines(promptQuote(run.Prompt), text, model), nil)
+		f.guestCaption(ctx, run, lines(promptQuote(run.Prompt), text, model), kb)
 	}
-	if _, err := f.cfg.Store.FinishChatRun(ctx, run.JobID, db.StageFailed, db.ChatResult{}); err != nil {
-		f.log.Error("run not finished", "job", run.JobID, "error", err)
-		return
-	}
-	f.forget(run.JobID)
+	f.finish(ctx, run, db.StageFailed, db.ChatResult{})
 }
 
 // ---- the links of a guest run ----

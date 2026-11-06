@@ -6,10 +6,13 @@ import (
 	"errors"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/FreshLabDev/tg"
 
+	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/db"
 	"github.com/FreshLabDev/framy/internal/jobs"
 	"github.com/FreshLabDev/framy/internal/price"
@@ -21,8 +24,14 @@ import (
 // and its settings, and a preview that replies to the message pressed. In a
 // group the preview goes to the requester alone, as Animate's does. Who
 // pays is asked again: a free run goes free while the tier has a slot and on
-// the person's key past it, and a run on the key needs the key still there.
+// the person's key past it (another provider's key runs a model of its own,
+// see keyEntry), and a run on the key needs the key still there.
 // Nothing runs until Generate, so the preview shows the price first.
+
+// originalOnce is how long a result's file goes out once: a second press
+// of Original, from a keyboard Telegram had not changed yet, sends nothing
+// within it.
+const originalOnce = time.Hour
 
 // soundSetting is the setting that has a video model make its sound.
 const soundSetting = "generate_audio"
@@ -68,7 +77,7 @@ func (f *Flow) again(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun, 
 			return err
 		}
 		if !has {
-			return alert("run.need_key", "provider", providerName(d.offer.Provider))
+			return alert("run.need_key", "provider", catalog.ProviderName(d.offer.Provider))
 		}
 	}
 	// The preview answers the message pressed as a command would be answered.
@@ -85,15 +94,15 @@ func (f *Flow) again(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun, 
 		ids[i] = a.ID
 	}
 	// The press is the update: a replayed one makes no second draft.
-	refusal, err := f.queueDraft(ctx, run.Lang, newJob(m, stackKey(f.cfg.Stack, "tg:cb:"+cq.ID), run.Prompt, ids, &d), &d, true)
+	refused, err := f.queueDraft(ctx, run.Lang, newJob(m, stackKey(f.cfg.Stack, "tg:cb:"+cq.ID), run.Prompt, ids, &d), &d, true)
 	switch {
 	case errors.Is(err, jobs.ErrNoInput):
 		return alert("result.gone")
 	case err != nil:
 		_ = answer("")
 		return err
-	case refusal != "":
-		return f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, refusal)
+	case refused.text != "":
+		return f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, refused.text)
 	case d.id == 0:
 		return answer("")
 	}
@@ -161,7 +170,8 @@ func (f *Flow) original(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRu
 		return answer()
 	}
 	a := results[0]
-	if _, sent := f.originals.LoadOrStore(run.JobID, struct{}{}); sent {
+	key := strconv.FormatInt(run.JobID, 10)
+	if !f.originals.put(key, f.now(), originalOnce) {
 		return answer()
 	}
 	_ = answer()
@@ -172,7 +182,7 @@ func (f *Flow) original(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRu
 	if _, err := f.withResult(ctx, a, func(file tg.InputFile) (tg.Message, error) {
 		return f.cfg.Telegram.SendDocument(ctx, run.ChatID, file, opts)
 	}); err != nil {
-		f.originals.Delete(run.JobID)
+		f.originals.drop(key)
 		return err
 	}
 	kb := resultKeyboard(run.Lang, run.JobID, a, fromChat(run), false)
@@ -182,10 +192,26 @@ func (f *Flow) original(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRu
 	return nil
 }
 
+// billing is where a provider's balance is topped up, as on the site's
+// card of a failed run (errors.js, BILLING).
+var billing = map[string]string{
+	catalog.OpenRouter: "https://openrouter.ai/settings/credits",
+	catalog.OpenAI:     "https://platform.openai.com/settings/organization/billing/overview",
+	catalog.Gemini:     "https://console.cloud.google.com/billing",
+}
+
+// runProvider is the provider of the run's offer: "openrouter" of
+// "openrouter:google/nano-banana-pro".
+func runProvider(run db.ChatRun) string {
+	p, _, _ := strings.Cut(run.OfferID, ":")
+	return p
+}
+
 // failureKeyboard is what helps after the run failed, as the site's card of
 // a failed run has it (internal/web/app/src/errors.js): another try, another
-// model, or the same run without its sound. A key out of money or refused
-// needs the site, which the card's line says; past framy's own key a free
+// model, or the same run without its sound. A key out of credits gets a link
+// to its provider's billing and another try for after it; a refused key
+// needs the site, which the card's line says. Past framy's own key a free
 // run goes again on the person's, which the new preview shows. An edit of a
 // clip keeps its model, and a run of the site has no card in the chat.
 func failureKeyboard(run db.ChatRun) *tg.InlineKeyboardMarkup {
@@ -196,11 +222,16 @@ func failureKeyboard(run db.ChatRun) *tg.InlineKeyboardMarkup {
 	other := button(t(run.Lang, "web.act.other_model"), callback(run.JobID, actOther), "")
 	var row []tg.InlineKeyboardButton
 	switch jobs.Class(run.ErrorClass) {
-	case jobs.Money, jobs.Key:
+	case jobs.Money:
+		if url, ok := billing[runProvider(run)]; ok && !run.Free {
+			row = append(row, tg.InlineKeyboardButton{Text: t(run.Lang, "web.act.topup", "provider", catalog.ProviderName(runProvider(run))), URL: url})
+		}
+		row = append(row, retry)
+	case jobs.Key:
 		if run.Free {
 			row = append(row, retry)
 		}
-	case jobs.Moderation, jobs.Refused, jobs.Faces, jobs.Invalid, jobs.NoAdapter:
+	case jobs.Moderation, jobs.Refused, jobs.Faces, jobs.Invalid, jobs.NoAdapter, jobs.Region:
 		row = append(row, other)
 	case jobs.Sound:
 		if on, _ := run.Settings[soundSetting].(bool); on {
@@ -217,5 +248,5 @@ func failureKeyboard(run db.ChatRun) *tg.InlineKeyboardMarkup {
 	if len(row) == 0 {
 		return nil
 	}
-	return &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{row}}
+	return &tg.InlineKeyboardMarkup{InlineKeyboard: inPairs(row)}
 }

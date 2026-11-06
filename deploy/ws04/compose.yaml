@@ -9,37 +9,65 @@
 #
 #   FRAMY_IMAGE=ghcr.io/freshlabdev/framy@sha256:<digest>
 #
-# .env holds FRAMY_IMAGE, FRAMY_CORE_PASSWORD (the same as in core's .env),
-# R2_ACCOUNT_ID, TRUSTED_PROXIES, BOT_API_TOKEN (see the Bot API mount below)
-# and, if wanted, OPERATOR_CHAT_ID. The files in secrets/ belong to uid 101,
-# mode 0400: bot-token, kek (a line "1:" and 32 random bytes in base64),
-# r2-access-key-id, r2-secret-access-key, openrouter-key, hook-path-secret
-# (head -c 32 /dev/urandom | base64), openrouter-webhook-secret (the signing
-# secret of the OpenRouter workspace openrouter-key belongs to) and, for
-# sign-in on the site, telegram-login-client-id and
-# telegram-login-client-secret: the OpenID Connect client of @framyin_bot in
-# BotFather with the redirect URI https://framy.ws04.cc/auth/callback. Without
-# those two the site has no sign-in and the Mini App still works.
+# .env holds FRAMY_IMAGE, R2_ACCOUNT_ID, TRUSTED_PROXIES, BOT_API_TOKEN (see
+# the Bot API mount below)
+# and OPERATOR_CHAT_ID: the chat that hears a fuse closing the free tier, the
+# bucket passing another 10 GB, the host's disk past 80% and jobs nothing
+# takes; the operator's own id, once they have started the bot. Without it
+# those are only in the log, and the start warns. Docker does not restart an
+# unhealthy container, and a framy that is down tells nobody: that is for a
+# watch from outside on https://framy.ws04.cc/healthz (docs/design.md,
+# Security and operations). If wanted, R2_INCOMING_BUCKET, the bucket the
+# site's clips go into (docs/design.md, Storage and retention). The files in
+# secrets/ belong to uid 101, mode 0400: database-url (one line,
+# postgres://framy_core:<password>@core-postgres:5432/core?sslmode=disable,
+# the password of framy_core in core's .env; a file, since an environment
+# variable shows in docker inspect), bot-token, kek (a line "1:" and 32
+# random bytes in base64), r2-access-key-id, r2-secret-access-key,
+# openrouter-key, hook-path-secret (head -c 32 /dev/urandom | base64),
+# openrouter-webhook-secret (the signing secret of the OpenRouter workspace
+# openrouter-key belongs to) and, for sign-in on the site,
+# telegram-login-client-id and telegram-login-client-secret: the OpenID
+# Connect client of @framyin_bot in BotFather with the redirect URI
+# https://framy.ws04.cc/auth/callback. Without those two the site has no
+# sign-in and the Mini App still works. With R2_INCOMING_BUCKET come
+# r2-incoming-access-key-id and r2-incoming-secret-access-key, the halves of
+# a token that has Object Read & Write on that bucket and nothing else; they
+# are read only when it is set. kek must stay out of the host's backup of
+# this directory, since its backup of core-postgres holds the keys kek opens
+# (docs/design.md, Backups).
 #
 # Telegram goes through the family's telegram-bot-api in --local mode, which
 # answers getFile with a path on its own disk and serves no files over HTTP.
-# The bot's own media directory, named after its token, is mounted at the
-# server's path, and nothing else of the server: its parent holds every other
-# bot's directory, each named after that bot's token. Compose cannot read the
-# token from secrets/, so BOT_API_TOKEN in .env repeats it for the two paths
-# only; it is not passed into the container. framy checks at start that the
-# directory is there and writable, so a token changed in one place and not the
-# other stops it at once.
+# Only the bot's own media directory is mounted, nothing else of the server:
+# its parent holds every other bot's directory, each named after that bot's
+# token. The directory is named after framy's token too, and a mount named so
+# would show the token to anyone who reads docker inspect. So it comes in as
+# the volume bot-api, whose path stays in the volume's own record, under
+# /var/lib/framy/bot-api; the server's directory is an empty tmpfs, and at
+# start framy links <it>/<token> to the volume (BOT_API_BOT_DIR). Compose
+# cannot read the token from secrets/, so BOT_API_TOKEN in .env repeats it for
+# the volume's path only; it is not passed into the container. framy checks at
+# start that the directory is there and writable, so a token changed in one
+# place and not the other stops it at once. After a new token, remove the
+# volume with the stack down (docker volume rm framy_bot-api): Compose keeps
+# a volume's path as it was made.
 #
 # The server writes as uid 101 and framy deletes what it has read, so framy
 # runs as 101 too. That is why work/ and anim/ are directories here owned by
 # 101 rather than named volumes, which would take the image's uid 10001.
 #
 # The site is public through the ws04-management tunnel on the management
-# network, which maps framy.ws04.cc to http://framy-bot:8080. TRUSTED_PROXIES
-# is that network's range. No port is published to the host, so
-# CF-Connecting-IP can be trusted. /metrics answers on 9090 on the Docker
-# networks only.
+# network, which maps framy.ws04.cc to http://framy-bot:8080. No port is
+# published to the host. TRUSTED_PROXIES is the address of cloudflared
+# alone, fixed in the tunnel's own stack: every site of the host is on
+# management, and trusting its range would let any of those containers
+# write a CF-Connecting-IP of its choosing and step around the limits by
+# address. /metrics answers on 127.0.0.1:9090 inside the container only:
+# it holds the spending by model and payer, and the three networks hold
+# some 35 other containers. Read it with
+#   ws04 container exec framy-bot -- wget -qO- http://127.0.0.1:9090/metrics
+# and give a scraper, once there is one, a network of its own.
 #
 # The database is core-postgres directly, never PgBouncer: River's listener
 # needs a real session.
@@ -51,29 +79,51 @@ services:
     container_name: framy-bot
     restart: unless-stopped
     user: "101:101"
-    # Longer than JOBS_STOP_GRACE (3m30s): a stop waits for runs in progress.
+    # Longer than a stop takes: runs in progress get JOBS_STOP_GRACE (3m30s)
+    # and 10 s to return once cut short, beside the servers' 20 s, so 4m
+    # leaves 20 s before Docker's SIGKILL.
     stop_grace_period: 4m
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
-    pids_limit: 256
+    # The image's own files cannot be written to: everything framy writes is
+    # in the mounts below (work, anim, the Bot API link), so code run through
+    # a flaw in a decoder cannot leave a file in the image until the next
+    # restart. A run of the media tests in the image has the same rule
+    # (.github/scripts/media-tests.sh). Nothing was found in the container's
+    # own layer after days of running but the mount points themselves.
+    read_only: true
+    # Four of the host's twelve cores, so a burst of clips leaves the rest
+    # to core-postgres and the other stacks; Go's GOMAXPROCS follows the
+    # limit, and ffmpeg is told its threads (internal/media). Each ffmpeg
+    # takes up to about 50 threads for a large HEIC and 30 for a clip, and
+    # four photos and two clips run at once (internal/api), so the PIDs
+    # leave room for those, the loop and the runtime: at the limit no
+    # thread can start, and a Go runtime that cannot start one dies.
+    cpus: 4
+    pids_limit: 512
     mem_limit: 1g
     environment:
-      DATABASE_URL: "postgres://framy_core:${FRAMY_CORE_PASSWORD:?FRAMY_CORE_PASSWORD must be set}@core-postgres:5432/core?sslmode=disable"
+      DATABASE_URL_FILE: /run/secrets/database-url
       AUTO_MIGRATE: "true"
       HTTP_ADDR: :8080
-      METRICS_ADDR: :9090
+      METRICS_ADDR: 127.0.0.1:9090
       TELEGRAM_BOT_TOKEN_FILE: /run/secrets/bot-token
       TELEGRAM_API_BASE: ${TELEGRAM_API_BASE:-http://telegram-bot-api-next:8081}
       BOT_API_FILES_DIR: /var/lib/telegram-bot-api-files
+      BOT_API_BOT_DIR: /var/lib/framy/bot-api
       FRAMY_KEK_FILE: /run/secrets/kek
       R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:?R2_ACCOUNT_ID must be set}
       R2_BUCKET: framy
       R2_ACCESS_KEY_ID_FILE: /run/secrets/r2-access-key-id
       R2_SECRET_ACCESS_KEY_FILE: /run/secrets/r2-secret-access-key
+      # The clips' own bucket when .env names one; its token is read only then.
+      R2_INCOMING_BUCKET: ${R2_INCOMING_BUCKET:-}
+      R2_INCOMING_ACCESS_KEY_ID_FILE: /run/secrets/r2-incoming-access-key-id
+      R2_INCOMING_SECRET_ACCESS_KEY_FILE: /run/secrets/r2-incoming-secret-access-key
       OPENROUTER_API_KEY_FILE: /run/secrets/openrouter-key
       SITE_URL: https://framy.ws04.cc
-      TRUSTED_PROXIES: ${TRUSTED_PROXIES:?TRUSTED_PROXIES must be the management network range}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:?TRUSTED_PROXIES must be the address of cloudflared on management}
       HOOK_PATH_SECRET_FILE: /run/secrets/hook-path-secret
       OPENROUTER_WEBHOOK_SECRET_FILE: /run/secrets/openrouter-webhook-secret
       TELEGRAM_LOGIN_CLIENT_ID_FILE: ${TELEGRAM_LOGIN_CLIENT_ID_FILE:-}
@@ -85,17 +135,15 @@ services:
       - ./secrets:/run/secrets:ro
       - ./work:/var/lib/framy/work
       - ./anim:/var/lib/framy/anim
-      # Long syntax: the token has a colon, which the short form splits on.
-      # The source must exist and belong to 101 before the first start, or
-      # Docker makes it as root and neither side can write in it.
-      - type: bind
-        source: /opt/stacks/telegram-bot-api-next/files/${BOT_API_TOKEN:?BOT_API_TOKEN must be set for the Bot API mount}
-        target: /var/lib/telegram-bot-api-files/${BOT_API_TOKEN}
-        bind:
-          propagation: rprivate
+      - bot-api:/var/lib/framy/bot-api
+    # Holds nothing but framy's link to the bot's directory.
+    tmpfs:
+      - /var/lib/telegram-bot-api-files:uid=101,gid=101,mode=0700,size=64k,noexec,nosuid
+      # The only other place to write. Nothing uses it today; it is there for
+      # a library that wants a temporary file, and it counts against mem_limit.
+      - /tmp:uid=101,gid=101,mode=1777,size=64m,noexec,nosuid
     expose:
       - "8080"
-      - "9090"
     networks: [core_net, management, telegram_bot_api_net]
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz >/dev/null 2>&1 || exit 1"]
@@ -108,6 +156,16 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  # The bot's own media directory of the server, by its real path. It must
+  # exist and belong to 101 before the first start (docs/releases.md).
+  bot-api:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/stacks/telegram-bot-api-next/files/${BOT_API_TOKEN:?BOT_API_TOKEN must be set for the Bot API volume}
 
 networks:
   core_net:

@@ -7,7 +7,6 @@ import (
 	"html"
 	"math"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -26,27 +25,28 @@ import (
 // Captions are at most 1024 characters, so a long prompt is cut in the
 // caption; the job keeps it whole.
 const (
+	// maxCaption is the longest caption Telegram takes: its text once the
+	// HTML is read, in UTF-16 code units (captionLen). A longer one is
+	// refused with a 400, and nothing is sent.
+	maxCaption    = 1024
 	captionPrompt = 600 // characters of the prompt shown
 	// expandAfter is the length from which the prompt folds into an
 	// expandable quote.
 	expandAfter = 200
 )
 
-// providerNames are the brands, written the same in every language.
-var providerNames = map[string]string{
-	catalog.OpenRouter: "OpenRouter",
-	catalog.OpenAI:     "OpenAI",
-	catalog.Gemini:     "Google Gemini",
-}
-
 // promptQuote is the prompt as the caption shows it.
-func promptQuote(prompt string) string {
+func promptQuote(prompt string) string { return promptQuoteCut(prompt, captionPrompt) }
+
+// promptQuoteCut is promptQuote with at most cut characters of the prompt;
+// with none, there is no quote.
+func promptQuoteCut(prompt string, cut int) string {
 	prompt = strings.TrimSpace(prompt)
-	if prompt == "" {
+	if prompt == "" || cut <= 0 {
 		return ""
 	}
-	if utf8.RuneCountInString(prompt) > captionPrompt {
-		prompt = strings.TrimSpace(string([]rune(prompt)[:captionPrompt])) + "…"
+	if utf8.RuneCountInString(prompt) > cut {
+		prompt = strings.TrimSpace(string([]rune(prompt)[:cut])) + "…"
 	}
 	open := "<blockquote>"
 	if utf8.RuneCountInString(prompt) > expandAfter || strings.Count(prompt, "\n") > 2 {
@@ -117,15 +117,14 @@ func priceLine(lang, pay, provider string, usage free.Meter, e price.Estimate, q
 	if pay == payFree {
 		return t(lang, "run.free", "left", strconv.Itoa(usage.Left()), "limit", strconv.Itoa(usage.Limit))
 	}
-	name := providerNames[provider]
-	if name == "" {
-		name = provider
-	}
-	return t(lang, "run.on_key", "price", priceLabel(lang, e, q), "provider", name)
+	return t(lang, "run.on_key", "price", priceLabel(lang, e, q), "provider", catalog.ProviderName(provider))
 }
 
 // priceLabel writes an estimate in dollars and, for another currency, in it
-// too: "$0.034 · 1,53 ₴".
+// too: "$0.034 · ≈ 1,53 ₴". It stands in for the card's price where the
+// card cannot draw it, so it says what the card says: a word of the
+// estimate's kind covers both figures, and an exact price in dollars is
+// "≈" in another currency, whose rate is the day's.
 func priceLabel(lang string, e price.Estimate, q fx.Quote) string {
 	amount := e.USD
 	key := ""
@@ -141,7 +140,11 @@ func priceLabel(lang string, e price.Estimate, q fx.Quote) string {
 	}
 	s := fx.Format(amount, fx.USD, lang)
 	if q.Code != "" && q.Code != fx.USD && q.PerUSD > 0 {
-		s += " · " + fx.Format(amount*q.PerUSD, q.Code, lang)
+		local := fx.Format(amount*q.PerUSD, q.Code, lang)
+		if key == "" {
+			local = "≈ " + local
+		}
+		s += " · " + local
 	}
 	if key != "" {
 		return t(lang, key, "price", s)
@@ -173,11 +176,7 @@ func previewCard(lang string, d draft) anim.Preview {
 		p.Label = t(lang, "card.free")
 		return p
 	}
-	name := providerNames[d.offer.Provider]
-	if name == "" {
-		name = d.offer.Provider
-	}
-	p.Label = t(lang, "card.key", "provider", name)
+	p.Label = t(lang, "card.key", "provider", catalog.ProviderName(d.offer.Provider))
 	p.Price, p.Local, p.LocalCode = cardPrice(lang, d.estimate, d.quote)
 	if p.Price == "" {
 		p.Price = t(lang, "run.price_unknown")
@@ -206,22 +205,27 @@ func settingChips(settings map[string]any) (aspect string, chips []string) {
 // cardPrice is a price on the person's key as the card writes it, in signs
 // rather than words: "≈ $0.034", with "≈ 1,42 ₴" and "≈ 1,42 UAH" for the
 // faces that lack ₴. An unknown price is empty.
+//
+// The local figure carries the dollars' sign: a bound stays a bound in any
+// currency, and the buttons show the local figure alone, so "≤ 7,82 ₴" must
+// not read "≈ 7,82 ₴". Only exact dollars turn into "≈", since the rate is
+// the day's and the bank's will differ.
 func cardPrice(lang string, e price.Estimate, q fx.Quote) (usd, local, code string) {
-	amount, sign := e.USD, ""
+	amount, sign, near := e.USD, "", "≈ "
 	switch e.Kind {
 	case price.Unknown:
 		return "", "", ""
 	case price.About:
 		sign = "≈ "
 	case price.UpTo:
-		amount, sign = max(e.MaxUSD, e.USD), "≤ "
+		amount, sign, near = max(e.MaxUSD, e.USD), "≤ ", "≤ "
 	case price.From:
-		sign = "≥ "
+		sign, near = "≥ ", "≥ "
 	}
 	usd = sign + fx.Format(amount, fx.USD, lang)
 	if q.Code != "" && q.Code != fx.USD && q.PerUSD > 0 {
-		local = "≈ " + fx.Format(amount*q.PerUSD, q.Code, lang)
-		code = "≈ " + fx.FormatCode(amount*q.PerUSD, q.Code, lang)
+		local = near + fx.Format(amount*q.PerUSD, q.Code, lang)
+		code = near + fx.FormatCode(amount*q.PerUSD, q.Code, lang)
 	}
 	return usd, local, code
 }
@@ -252,10 +256,34 @@ func button(text, data, style string) tg.InlineKeyboardButton {
 	return tg.InlineKeyboardButton{Text: text, CallbackData: data, Style: style}
 }
 
+// halfRow is the longest label that shares a row with another. Telegram
+// gives the buttons of a row equal widths, and half a row of a phone 320
+// to 375 points wide shows about this many characters before it cuts the
+// label: "Паспрабаваць яшчэ раз" next to "Іншая мадэль" read
+// "Паспрабав…".
+const halfRow = 14
+
+// inPairs puts buttons two to a row where both labels fit half a row,
+// and each on a row of its own otherwise, in their order.
+func inPairs(buttons []tg.InlineKeyboardButton) [][]tg.InlineKeyboardButton {
+	fits := func(b tg.InlineKeyboardButton) bool { return utf8.RuneCountInString(b.Text) <= halfRow }
+	var rows [][]tg.InlineKeyboardButton
+	for i := 0; i < len(buttons); i++ {
+		if i+1 < len(buttons) && fits(buttons[i]) && fits(buttons[i+1]) {
+			rows = append(rows, []tg.InlineKeyboardButton{buttons[i], buttons[i+1]})
+			i++
+			continue
+		}
+		rows = append(rows, []tg.InlineKeyboardButton{buttons[i]})
+	}
+	return rows
+}
+
 // previewKeyboard is a guest run's keyboard, whose preview is an inline
 // message and so not rich (richKeyboard is the others'): Generate and No,
-// and under them, two to a row, what the run can change. An image run has Model, Settings when there is one to
-// change (a free run has its settings fixed) and, from a prompt and at most
+// and under them, two to a row where they fit (inPairs), what the run can
+// change. An image run has Model, Settings when there is one to change (a
+// free run has its settings fixed) and, from a prompt and at most
 // one photo, Make a video of them; a video from a prompt has Make an image;
 // an edit of a clip offers the other length of it, when there is one. A
 // video run has no Model or Settings yet.
@@ -268,23 +296,20 @@ func previewKeyboard(lang string, jobID int64, d draft) *tg.InlineKeyboardMarkup
 	switch {
 	case d.clip:
 		if c, ok := d.otherLength(); ok {
-			more = append(more, button(c.label(lang, d), callback(jobID, c.action), ""))
+			more = append(more, button(c.label(lang), callback(jobID, c.action), ""))
 		}
 	case d.video():
 		more = append(more, button(t(lang, "run.as_image"), callback(jobID, actImage), ""))
 	default:
 		more = append(more, button(t(lang, "run.model"), callback(jobID, actModel), ""))
-		if d.pay != payFree && len(panelSettings(d.offer)) > 0 {
+		if d.pay != payFree && len(panelSettings(d.offer, d.many)) > 0 {
 			more = append(more, button(t(lang, "run.settings"), callback(jobID, actSettings), ""))
 		}
 		if d.taken <= free.VideoHeyGen.MaxInputs {
 			more = append(more, button(t(lang, "run.as_video"), callback(jobID, actVideo), ""))
 		}
 	}
-	for b := range slices.Chunk(more, 2) {
-		rows = append(rows, b)
-	}
-	return &tg.InlineKeyboardMarkup{InlineKeyboard: rows}
+	return &tg.InlineKeyboardMarkup{InlineKeyboard: append(rows, inPairs(more)...)}
 }
 
 // generatingKeyboard: Stop.
@@ -318,18 +343,27 @@ func (f *Flow) sendPreview(ctx context.Context, m *tg.Message, d draft, prompt, 
 			opts.Ephemeral = &tg.Ephemeral{ReceiverUserID: m.From.ID}
 		case f.isAdmin(ctx, m.Chat.ID):
 			opts.Ephemeral = &tg.Ephemeral{ReceiverUserID: m.From.ID}
+		case isQuiet(ctx):
+			return 0, false, errNotAlone
 		}
 	}
 	if opts.Ephemeral != nil {
 		sent, err := f.sendRich(ctx, m.Chat.ID, body, pic, opts)
-		if err == nil && sent.EphemeralMessageID != 0 {
+		switch {
+		case err == nil && sent.EphemeralMessageID != 0:
 			return sent.EphemeralMessageID, true, nil
+		case err == nil && sent.MessageID != 0:
+			// Telegram put it in the chat itself.
+			return sent.MessageID, false, nil
+		case err != nil && !refused(err):
+			// No answer, or a stop cut the send short: Telegram refused
+			// nothing, and the preview may have reached the requester
+			// already. The chat would see one sent to it now beside theirs,
+			// with their photos and words.
+			return 0, false, fmt.Errorf("send the preview: %w", err)
 		}
-		if ctx.Err() != nil {
-			// A stop cut the send short; Telegram refused nothing, and the
-			// preview may have reached the person already. Sending it to the
-			// chat now would fail the same way.
-			return 0, false, fmt.Errorf("send the preview: %w", ctx.Err())
+		if isQuiet(ctx) {
+			return 0, false, fmt.Errorf("%w: %w", errNotAlone, err)
 		}
 		f.log.Warn("ephemeral preview refused; the chat sees it", "chat", m.Chat.ID, "error", err)
 		opts.Ephemeral, opts.ReplyToEphemeral = nil, 0
@@ -371,7 +405,7 @@ func (f *Flow) sendPicture(ctx context.Context, chatID int64, pic anim.Media, op
 		}
 		return f.cfg.Telegram.SendPhoto(ctx, chatID, file, opts)
 	}
-	return f.withFile(pic, try)
+	return f.withFile(pic, true, try)
 }
 
 // edit turns a message into a picture, keeping its place in the chat.
@@ -385,18 +419,21 @@ func (f *Flow) edit(ctx context.Context, chatID, messageID int64, pic anim.Media
 		}
 		return f.cfg.Telegram.EditMessageMediaMessage(ctx, chatID, messageID, item, kb)
 	}
-	return f.withFile(pic, try)
+	return f.withFile(pic, false, try)
 }
 
 // withFile calls send with the picture's file_id when Telegram has it, and
-// with an upload otherwise or when the id is refused, and keeps the id the
-// upload got.
-func (f *Flow) withFile(pic anim.Media, send func(tg.InputFile) (tg.Message, error)) (tg.Message, error) {
+// with an upload otherwise or when the id fails, and keeps the id the
+// upload got. once: send posts a new message, and one that got no answer
+// may have reached the chat, so it goes again only when Telegram refused
+// the id; a second would be the same message twice. An edit changes the
+// same message whichever way it went, so it goes again on any failure.
+func (f *Flow) withFile(pic anim.Media, once bool, send func(tg.InputFile) (tg.Message, error)) (tg.Message, error) {
 	if pic.Key != "" {
 		if id, ok := f.files.Load(pic.Key); ok {
 			msg, err := send(tg.InputFileString{Data: id.(string)})
-			if err == nil {
-				return msg, nil
+			if err == nil || (once && !refused(err)) {
+				return msg, err
 			}
 			// Telegram may forget a file; the upload below tells.
 			f.files.Delete(pic.Key)

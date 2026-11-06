@@ -22,7 +22,27 @@ const (
 	heygenOff  = "openrouter:heygen/heygen-video-1"
 	refsOffer  = "openrouter:test/refs"
 	discounted = "openrouter:test/discounted"
+	veoOffer   = "openrouter:google/veo-3.1"
 )
+
+// veo makes a video from words or frames at 4, 6 or 8 s and from reference
+// images at 8 s only, at $0.40 a second.
+func veo() catalog.Model {
+	of := catalog.Offer{
+		ID: veoOffer, ModelID: "google/veo-3.1", Provider: catalog.OpenRouter, ProviderModelID: "google/veo-3.1",
+		Kind: catalog.Video, Name: "Veo 3.1", InputModalities: []string{"text", "image"},
+		Params: map[string]catalog.Param{
+			"resolution":   {Type: catalog.Enum, Values: []any{"720p"}},
+			"duration":     {Type: catalog.Enum, Values: []any{4, 6, 8}},
+			"frame_images": {Type: catalog.Enum, Values: []any{"first_frame", "last_frame"}},
+		},
+		Routes: []catalog.Route{{SKUs: map[string]string{"duration_seconds_720p": "0.40"}}},
+	}
+	return catalog.Model{
+		ID: of.ModelID, Kind: catalog.Video, Name: "Veo 3.1", Maker: "Google", Offers: []catalog.Offer{of},
+		Traits: catalog.Traits{References: &catalog.References{Image: 3, ImageDurations: []float64{8}}},
+	}
+}
 
 // heygen is the free video model: 5 s at 768p, $0.036 a second listed.
 func heygen() catalog.Model {
@@ -31,14 +51,20 @@ func heygen() catalog.Model {
 		Kind: catalog.Video, Name: "HeyGen", InputModalities: []string{"text", "image", "video", "audio"},
 		Params: map[string]catalog.Param{
 			"resolution":   {Type: catalog.Enum, Values: []any{"480p", "768p"}},
-			"duration":     {Type: catalog.Enum, Values: []any{5.0, 10.0}},
+			"duration":     {Type: catalog.Enum, Values: []any{5.0, 10.0, 20.0}},
 			"frame_images": {Type: catalog.Enum, Values: []any{"first_frame"}},
 		},
-		Routes: []catalog.Route{{SKUs: map[string]string{"duration_seconds_480p": "0.02", "duration_seconds_768p": "0.036"}, Discount: 0.5}},
+		Routes: []catalog.Route{{SKUs: map[string]string{
+			"duration_seconds_480p": "0.02", "duration_seconds_768p": "0.036",
+			"long_duration_seconds_480p": "0.045", "long_duration_seconds_768p": "0.075",
+		}, Discount: 0.5}},
 	}
 	return catalog.Model{
 		ID: of.ModelID, Kind: catalog.Video, Name: "HeyGen Video", Maker: "HeyGen", Free: true, Offers: []catalog.Offer{of},
-		Traits: catalog.Traits{References: &catalog.References{Image: 9, Video: 3, Audio: 3, Files: 15}},
+		Traits: catalog.Traits{
+			References: &catalog.References{Image: 9, Video: 3, Audio: 3, Files: 15},
+			Price:      &catalog.PriceHints{Long: &catalog.LongRate{AfterSeconds: 15, Undiscounted: true}},
+		},
 	}
 }
 
@@ -87,6 +113,36 @@ func TestAQuoteSaysWhichFilesTheOfferTakes(t *testing.T) {
 	}
 	if r := refusal(2); r["error"] != "wrong_inputs" || !strings.Contains(r["message"].(string), "do not go together") {
 		t.Errorf("a frame and a video: %v", r)
+	}
+}
+
+// A video from reference images is quoted at the one length the model makes
+// those at, and a run that asks for another is told so; from words or
+// frames it goes at framy's default.
+func TestAQuoteGivesReferencesTheirLength(t *testing.T) {
+	r := quoteRig(t)
+	r.store.offers[veoOffer] = veo()
+	photo := `{"content_type":"image/jpeg","width":1280,"height":720}`
+	_, m := quoteOf(t, r, 0, `{"items":[
+		{"offer":"`+veoOffer+`","files":[`+photo+`,`+photo+`]},
+		{"offer":"`+veoOffer+`","settings":{"duration":6},"files":[`+photo+`]},
+		{"offer":"`+veoOffer+`","settings":{"frame_images":["first_frame"]},"files":[`+photo+`]},
+		{"offer":"`+veoOffer+`"}
+	]}`)
+	got := items(t, m)
+	usd := func(i int) float64 { e, _ := got[i]["estimate"].(map[string]any); u, _ := e["usd"].(float64); return u }
+	set := func(i int) any { return got[i]["settings"].(map[string]any)["duration"] }
+	if set(0) != 8.0 || !near(usd(0), 8*0.40) || got[0]["refusal"] != nil {
+		t.Errorf("references with no length: %v", got[0])
+	}
+	if r, _ := got[1]["refusal"].(map[string]any); r["error"] != "wrong_inputs" || !strings.Contains(fmt.Sprint(r["message"]), "is 8 s long, and 6 s is set") {
+		t.Errorf("references at 6 s: %v", got[1])
+	}
+	if set(2) != 6.0 || !near(usd(2), 6*0.40) || got[2]["refusal"] != nil {
+		t.Errorf("a start frame: %v", got[2])
+	}
+	if set(3) != 6.0 || got[3]["refusal"] != nil {
+		t.Errorf("from words: %v", got[3])
 	}
 }
 
@@ -311,13 +367,14 @@ func TestAQuotePricesEveryItem(t *testing.T) {
 		{"offer":%q,"files":[{"content_type":"image/jpeg","bytes":3000000,"width":4032,"height":3024},{"content_type":"image/png","width":800,"height":600}]},
 		{"offer":%q},
 		{"offer":"openrouter:gone/model"},
-		{"offer":%q,"settings":{"resolution":"768p","duration":5}}
-	]}`, testOffer, refsOffer, discounted, heygenOff), "Accept-Language", "en")
+		{"offer":%q,"settings":{"resolution":"768p","duration":5}},
+		{"offer":%q,"settings":{"resolution":"768p","duration":20}}
+	]}`, testOffer, refsOffer, discounted, heygenOff, heygenOff), "Accept-Language", "en")
 	if code != http.StatusOK || m["currency"] != "USD" {
 		t.Fatalf("%d %v", code, m)
 	}
 	it := items(t, m)
-	if len(it) != 5 {
+	if len(it) != 6 {
 		t.Fatalf("%d items", len(it))
 	}
 	if e := estimate(t, it[0]); e["usd"] != 0.04 || e["label"] != "$0.04" || e["kind"] != "exact" || it[0]["refusal"] != nil {
@@ -338,6 +395,12 @@ func TestAQuotePricesEveryItem(t *testing.T) {
 	// HeyGen at half price: $0.09 for 5 s, $0.18 listed.
 	if e := estimate(t, it[4]); !near(e["usd"].(float64), 0.09) || !near(e["list_usd"].(float64), 0.18) {
 		t.Errorf("heygen = %v", e)
+	}
+	// Past 15 s HeyGen may bill the whole video at its long rate, which the
+	// discount leaves out: "up to $1.50", with no listed price struck
+	// through beside it and no "-50%".
+	if e := estimate(t, it[5]); e["kind"] != "up_to" || e["label"] != "$1.50" || e["discount"] != nil || e["list_label"] != nil {
+		t.Errorf("heygen past 15 s = %v", e)
 	}
 	// Nobody is signed in: no refusals, whatever the payer.
 	_, m = quoteOf(t, r, 0, fmt.Sprintf(`{"items":[{"offer":%q,"pay":"key"},{"offer":%q,"pay":"free"}]}`, testOffer, testOffer))

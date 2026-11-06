@@ -976,6 +976,26 @@
     ]
    },
    "expiration_date": null
+  },
+  {
+   "id": "openai/gpt-image-2.6-sunburst",
+   "architecture": {
+    "input_modalities": [
+     "text",
+     "image"
+    ]
+   },
+   "expiration_date": null
+  },
+  {
+   "id": "openai/gpt-image-2.6-flare",
+   "architecture": {
+    "input_modalities": [
+     "text",
+     "image"
+    ]
+   },
+   "expiration_date": null
   }
  ]
 }

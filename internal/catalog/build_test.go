@@ -3,6 +3,7 @@ package catalog
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -94,6 +95,18 @@ func TestBuildJoinsNanoBanana(t *testing.T) {
 	if _, ok := nb.Offers[1].Params["thinking_level"]; ok {
 		t.Fatal("the OpenRouter offer gained thinking_level")
 	}
+	// Without a choice the run thinks as it does at Google: medium on 2.1,
+	// minimal on the 3.1 models.
+	for id, want := range map[string]string{
+		"google/gemini-nano-banana-2.1":      "medium",
+		"google/gemini-3.1-flash-image":      "minimal",
+		"google/gemini-3.1-flash-lite-image": "minimal",
+	} {
+		m := modelByID(t, snap, id)
+		if got := Defaults(m.Offers[0], 0)["thinking_level"]; got != want {
+			t.Errorf("%s: default thinking_level = %v, want %s", id, got, want)
+		}
+	}
 
 	omni := modelByID(t, snap, "google/gemini-omni-1.1-flash")
 	if got := offerIDs(omni); !slices.Equal(got, []string{"gemini:gemini-omni-1.1-flash"}) || omni.Kind != Video || !omni.Traits.Continue {
@@ -109,6 +122,7 @@ func TestBuildHides(t *testing.T) {
 	snap := Build(fixtureUpstream(t), embeddedFiles(t), fixtureDay)
 	for id, why := range map[string]string{
 		"google/gemini-3.1-flash-image-preview": "preview",
+		"google/gemini-3-pro-image-preview":     "preview",
 		"openai/gpt-5-image":                    "chat model",
 		"openai/gpt-image-1":                    "shut gpt-image-1 down",
 		"openai/gpt-image-1-mini":               "closes gpt-image-1-mini",
@@ -135,6 +149,19 @@ func TestBuildHides(t *testing.T) {
 	if m := modelByID(t, snap, "tencent/hy-image-v3.5-preview"); m.Hidden != "" || !m.Featured {
 		t.Errorf("hy image = %+v", m)
 	}
+	// And only the two whose released models are listed: Google's next
+	// preview is a new model, and shown.
+	up := fixtureUpstream(t)
+	for _, of := range up.Offers {
+		if of.ProviderModelID == "google/gemini-3.1-flash-image-preview" {
+			of.ID, of.ModelID, of.ProviderModelID = "openrouter:google/gemini-4-flash-image-preview", "", "google/gemini-4-flash-image-preview"
+			up.Offers = append(up.Offers, of)
+			break
+		}
+	}
+	if m := modelByID(t, Build(up, embeddedFiles(t), fixtureDay), "google/gemini-4-flash-image-preview"); m.Hidden != "" {
+		t.Errorf("a new Google preview is hidden: %q", m.Hidden)
+	}
 	if of := modelByID(t, snap, "meta/muse-image").Offers[0]; of.Hidden == "" {
 		t.Error("an offer with no route is shown")
 	}
@@ -152,21 +179,34 @@ func TestBuildHides(t *testing.T) {
 
 func TestBuildAppliesExclusionsAndPassthrough(t *testing.T) {
 	snap := Build(fixtureUpstream(t), embeddedFiles(t), fixtureDay)
-	sunburst := modelByID(t, snap, "openai/gpt-image-2.5-sunburst")
-	or := sunburst.Offers[1]
-	if or.ID != "openrouter:openai/gpt-image-2.5-sunburst" {
-		t.Fatalf("offers = %v", offerIDs(sunburst))
-	}
-	for _, params := range append([]map[string]Param{or.Params}, or.Routes[0].Params) {
-		if slices.Contains(params["quality"].Values, any("auto")) || slices.Contains(params["aspect_ratio"].Values, any("auto")) {
-			t.Fatalf("auto is still offered: %v", params)
+	// The overlay's rule over openai/gpt-image-* takes auto from every GPT
+	// Image, 2.6 as well, which has no exclude of auto of its own.
+	for _, id := range []string{"openai/gpt-image-2.5-sunburst", "openai/gpt-image-2.6-sunburst", "openai/gpt-image-2.6-flare", "openai/gpt-image-2"} {
+		m := modelByID(t, snap, id)
+		or := m.Offers[1]
+		if or.ID != "openrouter:"+id {
+			t.Fatalf("offers = %v", offerIDs(m))
 		}
-		if !sameValue(params["quality"].Values, []string{"low", "medium", "high", "xhigh", "max"}) {
-			t.Fatalf("quality = %v", params["quality"].Values)
+		for _, params := range append([]map[string]Param{or.Params}, or.Routes[0].Params) {
+			if slices.Contains(params["quality"].Values, any("auto")) || slices.Contains(params["aspect_ratio"].Values, any("auto")) {
+				t.Fatalf("%s: auto is still offered: %v", id, params)
+			}
+			if !strings.HasPrefix(fmt.Sprint(params["quality"].Values), "[low medium high") {
+				t.Fatalf("%s: quality = %v", id, params["quality"].Values)
+			}
+			if slices.Contains(params["output_format"].Values, any("gif")) {
+				t.Fatalf("%s: a GIF, of no published price, is offered", id)
+			}
+		}
+		if e := m.Traits.Effort; id != "openai/gpt-image-2" && (e == nil || e.Parameter != "quality") {
+			t.Fatalf("%s: effort = %+v", id, e)
 		}
 	}
-	if e := sunburst.Traits.Effort; e == nil || e.Parameter != "quality" {
-		t.Fatalf("effort = %+v", e)
+
+	// MiniMax makes Hailuo 2.3 at 1080p in 6 s only; OpenRouter lists 10 s too.
+	hailuo := modelByID(t, snap, "minimax/hailuo-2.3").Offers[0]
+	if !sameValue(hailuo.Params["duration"].Values, []int{6}) {
+		t.Fatalf("hailuo 2.3 durations = %v, want 6 s only", hailuo.Params["duration"].Values)
 	}
 
 	veo := modelByID(t, snap, "google/veo-3.1").Offers[0]
@@ -175,6 +215,13 @@ func TestBuildAppliesExclusionsAndPassthrough(t *testing.T) {
 	}
 	if modelByID(t, snap, "google/veo-3.1").Traits.References.Image != 3 {
 		t.Fatal("veo 3.1 lost its three reference images")
+	}
+	// OpenRouter runs Veo on Vertex, which keeps 3.1 to May 2027 at least:
+	// only the Gemini API's ids closed.
+	for _, id := range []string{"google/veo-3.1", "google/veo-3.1-fast", "google/veo-3.1-lite"} {
+		if d := modelByID(t, snap, id).Traits.Deprecated; d != nil {
+			t.Errorf("%s is marked deprecated: %+v", id, d)
+		}
 	}
 
 	// The fixtures do not change under Build.
@@ -200,6 +247,13 @@ models:
     passthrough:
       notAccepted: {type: text}
     source_video: {max_seconds: 8}
+    references: {image: 3, image_durations: [7]}
+  black-forest-labs/flux.2-flex:
+    price:
+      unlisted: [{billable: input_image, unit: megapixel, cost_usd: 0.06}]
+  alibaba/wan-3.0:
+    price:
+      long: {after_seconds: 15}
 hide:
   - match: openai/gpt-image-1*
     why: closed
@@ -215,7 +269,10 @@ hide:
 		"model openai/gpt-image-1 is featured but hidden: closed",
 		"no offer accepts the pass-through setting notAccepted",
 		"model google/veo-3.1: source_video is set, but no offer takes a video",
+		"model google/veo-3.1: references.image_durations has 7 s, but no offer makes that duration",
 		"openrouter:black-forest-labs/flux-video-edit takes only text and video; mark source_video.required",
+		"model black-forest-labs/flux.2-flex: price.unlisted input_image per megapixel, but no route lists prices without it",
+		"model alibaba/wan-3.0: price.long, but no offer has a long SKU",
 	} {
 		if !slices.ContainsFunc(snap.Warnings, func(w string) bool { return strings.Contains(w, want) }) {
 			t.Errorf("no warning %q in %q", want, snap.Warnings)
@@ -270,7 +327,32 @@ func TestPlainDropsLinks(t *testing.T) {
 	if got != "distilled from Grok Imagine Video 1.5. It" {
 		t.Fatal(got)
 	}
-	if got := plain("member of the [MAI-Image-2.6](/mic..."); got != "member of the MAI-Image-2.6..." {
-		t.Fatal(got)
+}
+
+// TestPlainWholeSentences checks a description OpenRouter cut short keeps
+// its whole sentences only, and none about price or the API, as OpenRouter
+// writes them.
+func TestPlainWholeSentences(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		// Cut in the middle of a sentence: that sentence goes.
+		{"FLUX.3 Image is Black Forest Labs' flagship model. It handles text-to-image and multi-reference editing, and renders at fixed resolution tiers...",
+			"FLUX.3 Image is Black Forest Labs' flagship model."},
+		// Cut inside a link's URL.
+		{"It is the smaller member of the family. A member of the [MAI-Image-2.6](/mic...", "It is the smaller member of the family."},
+		// Cut inside a link's text.
+		{"FLUX.2 [max] is the top-tier image model. Pricing is as follows, [per...", "FLUX.2 [max] is the top-tier image model."},
+		// Cut right after a full stop: the sentence is whole.
+		{"It keeps characters consistent across multi-reference inputs....", "It keeps characters consistent across multi-reference inputs."},
+		// One sentence, cut: nothing to show.
+		{"MiniMax H3 Fast, the lighter version of MiniMax H3, is designed for faster video with...", ""},
+		// Uncut: as it is, numbers and abbreviations whole.
+		{"Veo 3.1 Fast makes 1080p video, e.g. from a photo. It has sound!", "Veo 3.1 Fast makes 1080p video, e.g. from a photo. It has sound!"},
+		// The provider's price and parameters go.
+		{"Recraft V3 makes ~1K images. Pricing is based on the output size. It costs $0.04 per image. Supports the `image_config` parameters. Good for logos.",
+			"Recraft V3 makes ~1K images. Good for logos."},
+	} {
+		if got := plain(tc.in); got != tc.want {
+			t.Errorf("plain(%q)\n got %q\nwant %q", tc.in, got, tc.want)
+		}
 	}
 }

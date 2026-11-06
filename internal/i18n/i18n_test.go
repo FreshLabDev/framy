@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -65,15 +66,61 @@ func placeholders(text string) string {
 }
 
 // HTML that one language closes and another does not breaks the whole message:
-// Telegram refuses it.
-func TestTagsMatchAcrossLanguages(t *testing.T) {
+// Telegram refuses it. Every tag, entity and bare "<", ">" or "&" of a
+// language is English's, and its tags close in order.
+func TestMarkupMatchesAcrossLanguages(t *testing.T) {
 	for _, key := range Keys() {
-		want := strings.Count(translations[key][DefaultLang], "<code>")
+		want := markupOf(translations[key][DefaultLang])
 		for _, code := range Codes() {
 			s := translations[key][code]
-			if strings.Count(s, "<code>") != want || strings.Count(s, "</code>") != want {
-				t.Errorf("%s [%s] has unbalanced or missing <code> tags", key, code)
+			if got := markupOf(s); got != want {
+				t.Errorf("%s [%s] has markup %q, English has %q", key, code, got, want)
 			}
+			if !balanced(s) {
+				t.Errorf("%s [%s] does not close its tags in order: %q", key, code, s)
+			}
+		}
+	}
+}
+
+var markup = regexp.MustCompile(`<[^<>]*>|&[#a-zA-Z0-9]+;|[<>&]`)
+
+func markupOf(s string) string {
+	found := markup.FindAllString(s, -1)
+	sort.Strings(found)
+	return strings.Join(found, " ")
+}
+
+// balanced tells whether every tag of s closes, innermost first.
+func balanced(s string) bool {
+	var open []string
+	for _, tag := range markup.FindAllString(s, -1) {
+		if !strings.HasPrefix(tag, "<") || len(tag) < 3 || strings.HasSuffix(tag, "/>") {
+			continue
+		}
+		name, _, _ := strings.Cut(strings.Trim(tag, "</>"), " ")
+		if tag[1] != '/' {
+			open = append(open, name)
+			continue
+		}
+		if len(open) == 0 || open[len(open)-1] != name {
+			return false
+		}
+		open = open[:len(open)-1]
+	}
+	return len(open) == 0
+}
+
+func TestBalancedReadsTagsInOrder(t *testing.T) {
+	for s, want := range map[string]bool{
+		"<code>/img</code> and <b><i>x</i></b>": true,
+		`<a href="https://t.me">a</a>`:          true,
+		"<code>/img":                            false,
+		"</code>/img<code>":                     false,
+		"<b><i>x</b></i>":                       false,
+	} {
+		if got := balanced(s); got != want {
+			t.Errorf("balanced(%q) = %v", s, got)
 		}
 	}
 }
@@ -99,7 +146,7 @@ func TestResolveFallsBackToEnglish(t *testing.T) {
 // The line the /img preview shows when framy cannot see a whole album: said in
 // each language, with the bot's name in lowercase as the family writes it.
 func TestAlbumNotAdminIsSaidInEveryLanguage(t *testing.T) {
-	const english = "I see 1 photo of the album. Make framy an admin to take whole albums."
+	const english = "Only 1 photo of the album is taken. Make framy an admin (group settings → Administrators) to take whole albums."
 	if got := T("en", "album.not_admin"); got != english {
 		t.Fatalf("English = %q", got)
 	}
@@ -215,7 +262,137 @@ func TestNoEmDashInTranslations(t *testing.T) {
 	}
 }
 
-func TestNoEmDashInGoStrings(t *testing.T) {
+// A straight ' or " is a typewriter's mark. framy writes the typographic ones
+// (’ “ ” « » „), so the bot and the site set "framy’s" alike; the only markup
+// in a translation is <code>, which takes no attribute to quote.
+func TestNoStraightQuotesInTranslations(t *testing.T) {
+	for _, key := range Keys() {
+		for _, code := range Codes() {
+			if s := translations[key][code]; strings.ContainsAny(s, `'"`) {
+				t.Errorf("%s [%s] has a straight quote: %q", key, code, s)
+			}
+		}
+	}
+}
+
+// What framy makes is an image in English, as the kind, the library and the
+// bot call it, and what a person sends is a photo. "Picture" was a third word
+// for the same thing, two rows apart in the settings.
+func TestEnglishSaysImageNotPicture(t *testing.T) {
+	for _, key := range Keys() {
+		if s := translations[key]["en"]; strings.Contains(strings.ToLower(s), "picture") {
+			t.Errorf("%s says picture: %q", key, s)
+		}
+	}
+}
+
+// A key with nothing left to pay with is out of credits, as OpenRouter sells
+// them and OpenAI and Google bill them, in the bot's card, its key list and
+// every line of the site. The site once said "out of money" for the same
+// state the bot called "out of credits".
+func TestEnglishSaysCreditsNotMoney(t *testing.T) {
+	for _, key := range Keys() {
+		if s := translations[key]["en"]; strings.Contains(strings.ToLower(s), "money") {
+			t.Errorf("%s says money: %q", key, s)
+		}
+	}
+}
+
+// A line of two sentences is a message, so it ends as a sentence does: "No
+// results. Open framy" read as one sentence with a stop and one without.
+// A label of one sentence (a button, a tag, a row's caption) has no stop
+// (docs/design.md, Site, Punctuation).
+func TestTwoSentencesEndWithAStop(t *testing.T) {
+	inner := regexp.MustCompile(`[.?!] [A-Z{<“]`)
+	for _, key := range Keys() {
+		s := strings.TrimSpace(translations[key]["en"])
+		if inner.MatchString(s) && !strings.ContainsAny(s[len(s)-1:], ".?!…:”)>") {
+			t.Errorf("%s has two sentences and no stop at the end: %q", key, s)
+		}
+	}
+}
+
+// A line carries its own full stop: Chinese and Japanese end a sentence with
+// 。, so a "." the site's code adds to a translation is wrong in two of the
+// sixteen languages.
+func TestTheSiteAddsNoFullStop(t *testing.T) {
+	files, err := filepath.Glob("../../internal/web/app/src/*.js")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no site sources: %v", err)
+	}
+	stop := regexp.MustCompile(`\+\s*"\.\s?"|"\.\s?"\s*\+`)
+	for _, path := range files {
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range stop.FindAllIndex(src, -1) {
+			t.Errorf("%s:%d adds a full stop to a line", path, 1+strings.Count(string(src[:m[0]]), "\n"))
+		}
+	}
+}
+
+// One failure is said one way. framy's own failure reads the same in the
+// chat and on a failed run of the site (and as the site's refusal with its
+// code), and a version that has a newer one reads the same as a tooltip and
+// as the line above the variants, which only adds the stop of a message.
+// They were "Something went wrong. Try again in a minute.", "It did not
+// work. Try again." and "Outdated: 2.6 is newer" beside "There is a newer
+// 2.6."
+func TestOneFailureIsSaidOneWay(t *testing.T) {
+	for _, code := range Codes() {
+		if a, b := T(code, "run.failed"), T(code, "web.fail.unknown"); a != b {
+			t.Errorf("[%s] the chat says %q, the site %q", code, a, b)
+		}
+		if a, b := T(code, "web.pick.newer"), T(code, "web.var.outdated"); !strings.HasPrefix(b, a) || len([]rune(b))-len([]rune(a)) != 1 {
+			t.Errorf("[%s] a newer version is %q and %q", code, a, b)
+		}
+	}
+}
+
+// "The family" is what the people who make the bots call them; a person who
+// knows only framy does not know which family or which "other bots". The
+// language is shared with our other bots, as maply says it.
+func TestEnglishSaysOurBotsNotTheFamily(t *testing.T) {
+	for _, key := range Keys() {
+		s := strings.ToLower(translations[key]["en"])
+		if strings.Contains(s, "famil") || strings.Contains(s, "other bots") && !strings.Contains(s, "our other bots") {
+			t.Errorf("%s speaks of bots the person may not know: %q", key, translations[key]["en"])
+		}
+	}
+}
+
+// English is spelled the American way, as the providers' own pages spell
+// what a line sends the person to (OpenAI's organization, the catalog):
+// "Sign-in cancelled" stood beside "verify the organization". These are
+// the British forms an interface line is likely to reach for.
+func TestEnglishSpellsTheAmericanWay(t *testing.T) {
+	british := regexp.MustCompile(`(?i)\b(\w*(cancell|travell|modell|labell|levell|signall)(ed|ing)` +
+		`|colour\w*|favourit\w*|behaviour\w*|centre[sd]?|catalogue[sd]?|licence[sd]?|grey\w*|analys(e|ed|ing)` +
+		`|\w*(organis|recognis|realis|customis|personalis|optimis|prioritis|authoris|apologis|summaris|finalis|minimis|maximis|visualis|synchronis|categoris|utilis|normalis|initialis|standardis)(e|es|ed|ing|ation|ations))\b`)
+	for _, key := range Keys() {
+		if w := british.FindString(translations[key]["en"]); w != "" {
+			t.Errorf("%s spells %q the British way: %q", key, w, translations[key]["en"])
+		}
+	}
+}
+
+// panelMark is a symbol a string in Go code may carry although isEmoji
+// counts it: the marks of a chosen option (core/docs/panels.md, R7) and the
+// flags of the language picker's labels.
+func panelMark(r rune) bool {
+	return r >= 0x1F1E6 && r <= 0x1F1FF || strings.ContainsRune("✓◉◎■□", r)
+}
+
+func TestPanelMarksAreTheOnlyEmojiLeft(t *testing.T) {
+	for r, want := range map[rune]bool{'🔑': false, '✅': false, '⭐': false, '⏳': false, '⚠': false, '✨': false, '✓': true, '◉': true, '■': true, '🇬': true} {
+		if got := !isEmoji(r) || panelMark(r); got != want {
+			t.Errorf("%q allowed in Go strings = %v", r, got)
+		}
+	}
+}
+
+func TestNoEmDashOrEmojiInGoStrings(t *testing.T) {
 	for _, dir := range []string{"../../internal", "../../cmd"} {
 		err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
@@ -234,8 +411,18 @@ func TestNoEmDashInGoStrings(t *testing.T) {
 				if tok == token.EOF {
 					break
 				}
-				if (tok == token.STRING || tok == token.CHAR) && strings.Contains(lit, emDash) {
+				if tok != token.STRING && tok != token.CHAR {
+					continue
+				}
+				if strings.Contains(lit, emDash) {
 					t.Errorf("%s: a string has an em dash: %s", fset.Position(pos), lit)
+				}
+				// R9: no emoji on a button or in a panel. The flags of the
+				// language picker (regional indicators) are its content.
+				for _, r := range lit {
+					if isEmoji(r) && !panelMark(r) {
+						t.Errorf("%s: a string has an emoji %q: %s", fset.Position(pos), r, lit)
+					}
 				}
 			}
 			return nil
@@ -302,6 +489,146 @@ func TestEveryKeyTheCodeNamesExists(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatal(err)
+		}
+	}
+}
+
+// The site's t() shows the key itself for a line that is not there, so a
+// typo in a key of internal/web/app reaches the person as "fail.somthing".
+// A literal that looks like a key of the site (a head the web.* lines use, a
+// dot, lowercase words) or that t() is handed must be one; a literal that
+// starts a key, as "set.as_" + of or `fail.${cls}`, must start at least one.
+func TestEveryKeyTheSiteNamesExists(t *testing.T) {
+	heads := map[string]bool{}
+	for _, key := range Keys() {
+		if rest, ok := strings.CutPrefix(key, "web."); ok {
+			heads[strings.SplitN(rest, ".", 2)[0]] = true
+		}
+	}
+	starts := func(prefix string) bool {
+		for _, key := range Keys() {
+			if strings.HasPrefix(key, prefix) {
+				return true
+			}
+		}
+		return false
+	}
+	files, err := filepath.Glob("../../internal/web/app/src/*.js")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no site sources: %v", err)
+	}
+	files = append(files, "../../internal/web/app/boot.js")
+	checked := 0
+	for _, path := range files {
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range siteKey.FindAllSubmatchIndex(src, -1) {
+			key, end := string(src[m[4]:m[5]]), string(src[m[6]:m[7]])
+			// What t() is handed is a key whatever its head, so a typo in
+			// the head ("fial.x") is caught there too.
+			if !heads[strings.SplitN(key, ".", 2)[0]] && !calledWith(src[:m[0]]) {
+				continue
+			}
+			line := 1 + strings.Count(string(src[:m[0]]), "\n")
+			checked++
+			after := strings.TrimLeft(string(src[m[1]:]), " \t\n")
+			// The build bundles the models' notes (note.<model id>) with the web.* lines.
+			if strings.HasPrefix(key, "note.") {
+				if !starts(key) {
+					t.Errorf("%s:%d: no line of translations.json starts with %s", path, line, key)
+				}
+				continue
+			}
+			if end == "${" || strings.HasSuffix(key, ".") || strings.HasPrefix(after, "+") {
+				if !starts("web." + key) {
+					t.Errorf("%s:%d: no line of translations.json starts with web.%s", path, line, key)
+				}
+				continue
+			}
+			if _, ok := translations["web."+key]; !ok {
+				t.Errorf("%s:%d: web.%s is no key of translations.json", path, line, key)
+			}
+		}
+	}
+	if checked < 100 {
+		t.Fatalf("only %d keys found in the site's sources: the scan no longer reads them", checked)
+	}
+}
+
+// siteKey is a JavaScript string that may be a key: a quote, a key, and a
+// closing quote, or a template literal's "${".
+var siteKey = regexp.MustCompile("([\"'`])([a-z][a-z0-9_]*\\.[a-z0-9_.]*)(\"|'|`|\\$\\{)")
+
+// calledWith tells whether the source before a string ends in a call of the
+// site's t(), so the string is its key.
+func calledWith(before []byte) bool {
+	s := strings.TrimRight(string(before), " \t\n")
+	rest, ok := strings.CutSuffix(s, "t(")
+	if !ok {
+		return false
+	}
+	if rest == "" {
+		return true
+	}
+	c := rest[len(rest)-1]
+	return !(c == '_' || c == '$' || c == '.' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z')
+}
+
+func TestCalledWithReadsOnlyTheSitesT(t *testing.T) {
+	for before, want := range map[string]bool{
+		`toast(t(`:      true,
+		`= t(  `:        true,
+		"t(":            true,
+		`fmt(`:          false,
+		`list.at(`:      false,
+		`ask({ title: `: false,
+	} {
+		if got := calledWith([]byte(before)); got != want {
+			t.Errorf("calledWith(%q) = %v", before, got)
+		}
+	}
+}
+
+// The site writes "Free" for the free allowance on the price bar, the payer
+// and the model's card. A value of a setting in the same word reads as a
+// price: Creativity's "Free" next to the free tier was taken for one.
+func TestNoSettingValueReadsAsFree(t *testing.T) {
+	for _, code := range Codes() {
+		free := map[string]bool{}
+		for _, key := range []string{"web.bar.free", "web.det.free", "web.fact.free", "web.pay.free", "web.pay.free_short", "web.prefs.free"} {
+			free[strings.ToLower(strings.TrimSpace(translations[key][code]))] = true
+		}
+		for _, key := range Keys() {
+			if strings.HasPrefix(key, "web.val.") && free[strings.ToLower(strings.TrimSpace(translations[key][code]))] {
+				t.Errorf("%s [%s] is %q, the word for free", key, code, translations[key][code])
+			}
+		}
+	}
+}
+
+// The site keeps a person's runs under the Library tab. A line of the bot
+// that sends them to their "history" on the site sends them to a page the
+// site does not have.
+func TestTheBotNamesTheLibraryAsTheSiteDoes(t *testing.T) {
+	if got := T("en", "web.tab.library"); got != "Library" {
+		t.Fatalf("the tab is %q now: say it so in the bot's lines too", got)
+	}
+	for _, key := range Keys() {
+		if !strings.HasPrefix(key, "web.") && strings.Contains(strings.ToLower(T("en", key)), "history") {
+			t.Errorf("%s sends the person to a history: %q", key, T("en", key))
+		}
+	}
+}
+
+// framy asks without "please", as every other line does: the answer to a
+// key pasted into a DM had the only one, after the same two sentences the
+// other answer already said.
+func TestEnglishAsksWithoutPlease(t *testing.T) {
+	for _, key := range Keys() {
+		if strings.Contains(strings.ToLower(translations[key]["en"]), "please") {
+			t.Errorf("%s says please: %q", key, translations[key]["en"])
 		}
 	}
 }

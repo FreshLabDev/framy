@@ -9,23 +9,41 @@
 # The test bot runs dev, so it applies dev's migrations to production's
 # schema first: they have to be additive (AGENTS.md, Migrations).
 #
-# Its old database, the volume framy-test_pgdata, is kept and no longer used.
-#
 # It shares the R2 bucket and the object keys with production (no R2_PREFIX):
-# both read every person's files. It talks to the cloud Bot API.
+# both read every person's files.
 #
-# Until there is a release to pin, the image is built on the host from a
-# commit of dev:
-#   git -C <checkout> checkout <commit>
-#   docker build -t framy:test-<commit> --build-arg VERSION=dev-<commit> \
-#     --build-arg COMMIT=<commit> <checkout>
-# and FRAMY_IMAGE in .env names it.
+# It talks to the same local telegram-bot-api as production (--local mode),
+# so the paths production relies on are walked here first: files handed over
+# by path, the files framy has read deleted, and files past the cloud's 20 MB.
+# The mount, the link and the user are production's; see its header
+# (deploy/ws04/compose.yaml) for why. BOT_API_TOKEN in .env is the test bot's
+# own token, for the volume's path only.
 #
-# .env holds FRAMY_IMAGE, FRAMY_CORE_PASSWORD (the same as production's and
-# core's), R2_ACCOUNT_ID and TRUSTED_PROXIES. The files in secrets/ belong to
-# uid 10001, the image's user, mode 0400: bot-token, kek (a copy of
-# production's: the keys people connect are stored once for both),
-# r2-access-key-id, r2-secret-access-key, openrouter-key, hook-path-secret
+# With production's KEK, R2 token and database role, whatever it runs acts on
+# production's data (docs/design.md, Stacks). So the image is pulled, never
+# built here: FRAMY_IMAGE names a pre-release of dev that the release
+# workflow published after CI, by digest, before production takes it
+# (docs/releases.md):
+#
+#   FRAMY_IMAGE=ghcr.io/freshlabdev/framy@sha256:<digest>
+#
+# ws04 deploy framy-test pulls it. Its sessions are its own: a cookie or a
+# token of the test bot signs nobody in on production.
+#
+# .env holds FRAMY_IMAGE, R2_ACCOUNT_ID, TRUSTED_PROXIES and BOT_API_TOKEN,
+# and R2_INCOMING_BUCKET when production's .env names one (the same bucket,
+# with copies of production's r2-incoming-access-key-id and
+# r2-incoming-secret-access-key), for this file alone: the container gets
+# only what environment: names, as production's does. The files in secrets/
+# belong to uid 101 (the Bot API server's, which is why this stack does not
+# run as the image's own user), mode 0400: database-url (production's, the
+# same role and password), bot-token, kek (a copy of
+# production's: the keys people connect are stored once for both; only
+# production rewraps them, so a new line goes into production's file first
+# and is copied here once production has restarted, docs/design.md, Keys at
+# rest; like production's, it must stay out of the host's backup of this
+# directory), r2-access-key-id, r2-secret-access-key, openrouter-key,
+# hook-path-secret
 # (head -c 32 /dev/urandom | base64), and telegram-login-client-id and
 # telegram-login-client-secret: the OpenID Connect client of @framytest_bot
 # in BotFather (Login Widget, with the redirect URI
@@ -35,7 +53,8 @@
 #
 # The site is https://framy-test.ws04.cc: the ws04-management tunnel routes
 # it to framy-test-bot:8080 over the external network management, and
-# TRUSTED_PROXIES is that network's range, where cloudflared connects from.
+# TRUSTED_PROXIES is the address of cloudflared alone, as production's.
+# /metrics answers on 127.0.0.1:9090 inside the container only.
 # No port is published to the host.
 #
 # openrouter-key is framy's own key, the same one production pays the free
@@ -44,35 +63,54 @@ name: framy-test
 
 services:
   bot:
-    image: ${FRAMY_IMAGE:?FRAMY_IMAGE is required}
-    pull_policy: never
+    image: ${FRAMY_IMAGE:?FRAMY_IMAGE must be an immutable GHCR reference}
     container_name: framy-test-bot
     restart: unless-stopped
-    # Longer than JOBS_STOP_GRACE (3m30s): a stop waits for runs in progress.
+    # Longer than a stop takes: runs in progress get JOBS_STOP_GRACE (3m30s)
+    # and 10 s to return once cut short, beside the servers' 20 s, so 4m
+    # leaves 20 s before Docker's SIGKILL.
     stop_grace_period: 4m
+    user: "101:101"
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
-    pids_limit: 256
+    # As production's: the image cannot be written to, only the mounts
+    # below and /tmp.
+    read_only: true
+    # Four of the host's twelve cores, so a burst of clips leaves the rest
+    # to core-postgres and the other stacks; Go's GOMAXPROCS follows the
+    # limit, and ffmpeg is told its threads (internal/media). Each ffmpeg
+    # takes up to about 50 threads for a large HEIC and 30 for a clip, and
+    # four photos and two clips run at once (internal/api), so the PIDs
+    # leave room for those, the loop and the runtime: at the limit no
+    # thread can start, and a Go runtime that cannot start one dies.
+    cpus: 4
+    pids_limit: 512
     mem_limit: 1g
-    env_file:
-      - path: .env
-        required: true
     environment:
       FRAMY_STACK: test
       # Never PgBouncer: River's listener needs a real session.
-      DATABASE_URL: "postgres://framy_core:${FRAMY_CORE_PASSWORD:?FRAMY_CORE_PASSWORD must be set}@core-postgres:5432/core?sslmode=disable"
+      DATABASE_URL_FILE: /run/secrets/database-url
       HTTP_ADDR: :8080
-      METRICS_ADDR: :9090
+      METRICS_ADDR: 127.0.0.1:9090
       TELEGRAM_BOT_TOKEN_FILE: /run/secrets/bot-token
+      TELEGRAM_API_BASE: ${TELEGRAM_API_BASE:-http://telegram-bot-api-next:8081}
+      BOT_API_FILES_DIR: /var/lib/telegram-bot-api-files
+      BOT_API_BOT_DIR: /var/lib/framy/bot-api
       FRAMY_KEK_FILE: /run/secrets/kek
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:?R2_ACCOUNT_ID must be set}
       R2_BUCKET: framy
-      # Empty even if .env says otherwise: one schema, one set of keys.
+      # One schema, one set of keys.
       R2_PREFIX: ""
       R2_ACCESS_KEY_ID_FILE: /run/secrets/r2-access-key-id
       R2_SECRET_ACCESS_KEY_FILE: /run/secrets/r2-secret-access-key
+      # The clips' own bucket when .env names one; its token is read only then.
+      R2_INCOMING_BUCKET: ${R2_INCOMING_BUCKET:-}
+      R2_INCOMING_ACCESS_KEY_ID_FILE: /run/secrets/r2-incoming-access-key-id
+      R2_INCOMING_SECRET_ACCESS_KEY_FILE: /run/secrets/r2-incoming-secret-access-key
       OPENROUTER_API_KEY_FILE: /run/secrets/openrouter-key
       SITE_URL: https://framy-test.ws04.cc
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:?TRUSTED_PROXIES must be the address of cloudflared on management}
       HOOK_PATH_SECRET_FILE: /run/secrets/hook-path-secret
       OPENROUTER_WEBHOOK_SECRET_FILE: /run/secrets/openrouter-webhook-secret
       TELEGRAM_LOGIN_CLIENT_ID_FILE: /run/secrets/telegram-login-client-id
@@ -81,9 +119,14 @@ services:
       ANIM_CACHE_DIR: /var/lib/framy/anim
     volumes:
       - ./secrets:/run/secrets:ro
-      - work:/var/lib/framy/work
-      - anim:/var/lib/framy/anim
-    networks: [core_net, management]
+      - ./work:/var/lib/framy/work
+      - ./anim:/var/lib/framy/anim
+      - bot-api:/var/lib/framy/bot-api
+    # Holds nothing but framy's link to the bot's directory, and /tmp.
+    tmpfs:
+      - /var/lib/telegram-bot-api-files:uid=101,gid=101,mode=0700,size=64k,noexec,nosuid
+      - /tmp:uid=101,gid=101,mode=1777,size=64m,noexec,nosuid
+    networks: [core_net, management, telegram_bot_api_net]
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz >/dev/null 2>&1 || exit 1"]
       interval: 15s
@@ -97,8 +140,14 @@ services:
         max-file: "3"
 
 volumes:
-  work:
-  anim:
+  # The test bot's own media directory of the server, by its real path. It
+  # must exist and belong to 101 before the first start (docs/releases.md).
+  bot-api:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/stacks/telegram-bot-api-next/files/${BOT_API_TOKEN:?BOT_API_TOKEN must be set for the Bot API volume}
 
 networks:
   core_net:
@@ -106,3 +155,6 @@ networks:
     name: core_net
   management:
     external: true
+  telegram_bot_api_net:
+    external: true
+    name: telegram_bot_api_net

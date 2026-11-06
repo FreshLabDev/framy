@@ -155,7 +155,7 @@ func (c *Converter) NormalizeAudio(ctx context.Context, dir string, cut *Cut) (V
 	if cut != nil {
 		args = append(args, "-ss", seconds(start), "-t", seconds(length))
 	}
-	args = append(args, "-f", k.demuxer, "-i", "file:"+in, "-map", "0:"+strconv.Itoa(k.index), "-map_metadata", "-1")
+	args = append(args, "-threads", soundThreads, "-f", k.demuxer, "-i", "file:"+in, "-map", "0:"+strconv.Itoa(k.index), "-map_metadata", "-1")
 	v := Video{Audio: true}
 	out := filepath.Join(dir, "out.wav")
 	format := demuxWAV

@@ -49,6 +49,14 @@ func (f *Flow) press(ctx context.Context, cq *tg.CallbackQuery) error {
 	if !ok || !allowed(run, action) {
 		return answer("")
 	}
+	if on == onResult && run.ResultMessageID == 0 {
+		// The result's message is found at last: what replies to it, and
+		// what changes it, needs its id.
+		run.ResultMessageID = cq.Message.MessageID
+		if _, err := f.cfg.Store.FoundResultMessage(ctx, jobID, run.ResultMessageID); err != nil {
+			f.log.Warn("result message not recorded", "job", jobID, "error", err)
+		}
+	}
 	if on == onPreview && cq.Message != nil && fileIDOf(*cq.Message) != "" {
 		on = onPhoto
 	}
@@ -162,7 +170,14 @@ func pressedOn(cq *tg.CallbackQuery, run db.ChatRun, action string) (place, bool
 		return 0, false
 	}
 	if onTheResult(action) {
-		return onResult, run.ResultMessageID != 0 && cq.Message.EphemeralMessageID == 0 && cq.Message.MessageID == run.ResultMessageID
+		m := cq.Message
+		if m.EphemeralMessageID != 0 || m.MessageID == 0 {
+			return onResult, false
+		}
+		if run.ResultMessageID != 0 {
+			return onResult, m.MessageID == run.ResultMessageID
+		}
+		return onResult, run.Stage == db.StageDone && unnumberedResult(*m, run)
 	}
 	if onTheCard(action) {
 		// The loop, and the card it turned into, is a message the chat sees.
@@ -181,6 +196,20 @@ func pressedOn(cq *tg.CallbackQuery, run db.ChatRun, action string) (place, bool
 	return onPreview, !run.PreviewEphemeral && cq.Message.MessageID == run.PreviewMessageID
 }
 
+// unnumberedResult tells the message of a result that had no id when it was
+// sent: Telegram gives a video sent to a large group the id 0 while it
+// re-encodes it, and the message appears in the chat with its own id later.
+// It is the one with the result's file, or framy's video answering the
+// command, when its file is no longer the one sent.
+func unnumberedResult(m tg.Message, run db.ChatRun) bool {
+	if run.ResultFileUniqueID != "" && fileUniqueIDOf(m) == run.ResultFileUniqueID {
+		return true
+	}
+	r := m.ReplyToMessage
+	return run.CommandMessageID != 0 && r != nil && r.MessageID == run.CommandMessageID &&
+		m.From != nil && m.From.IsBot && fileTypeOf(m) == db.FileVideo
+}
+
 // generate queues the draft and turns the preview into the generating loop.
 func (f *Flow) generate(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun) error {
 	if run.Stage != db.StagePreview {
@@ -194,7 +223,7 @@ func (f *Flow) generate(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRu
 	switch {
 	case errors.Is(err, jobs.ErrNotDraft):
 		// Ten minutes passed, or the job was cancelled: the preview goes.
-		_ = f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, t(run.Lang, "run.expired"))
+		_ = f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, expiredText(run))
 		f.close(ctx, run, db.StagePreview)
 		return nil
 	case errors.As(err, &limit):
@@ -215,12 +244,35 @@ func (f *Flow) generate(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRu
 	return nil
 }
 
+// expiredText tells the requester how to start again once the draft is
+// gone, in the words of the way the run began: a direct chat takes a plain
+// message, a chat framy is not in a mention, and a group the command, /edit
+// for a clip and /img for the rest.
+func expiredText(run db.ChatRun) string {
+	switch {
+	case guest(run):
+		return t(run.Lang, "run.expired_guest")
+	case run.ChatID == run.UserID:
+		// A direct chat's id is the person's.
+		return t(run.Lang, "run.expired_dm")
+	}
+	command := CommandImage
+	if run.ClipFileID != "" {
+		command = CommandVideo
+	}
+	return t(run.Lang, "run.expired", "command", "/"+command)
+}
+
 // showLoop turns the preview into the generating loop. The chat sees the
 // loop: a preview only the requester saw gives way to a new message, as a
 // reply to the command when the chat can see that.
 func (f *Flow) showLoop(ctx context.Context, run db.ChatRun) {
 	tk := f.ticker(run.JobID)
-	tk.action, tk.caption = f.now(), f.now()
+	tk.caption = f.now()
+	if !guest(run) {
+		// The loop is a message, which ends any action shown above it.
+		f.shown(run.ChatID, run.ThreadID)
+	}
 	if guest(run) {
 		f.guestLoop(ctx, run)
 		return
@@ -233,6 +285,12 @@ func (f *Flow) showLoop(ctx context.Context, run db.ChatRun) {
 		caption, kb := generatingCaption(run.Lang, run.Prompt, run.Model, 0), generatingKeyboard(run.Lang, run.JobID)
 		if err == nil {
 			sent, err = f.send(ctx, run.ChatID, run.CommandMessageID, run.ThreadID, loop, caption, kb)
+			if err != nil && !refused(err) {
+				// With no answer the loop may be in the chat already, and a
+				// line sent now would be a second message with Stop.
+				f.log.Warn("generating loop sent with no answer", "job", run.JobID, "error", err)
+				sent, err = tg.Message{}, nil
+			}
 		}
 		if err != nil {
 			f.log.Warn("generating loop not shown", "job", run.JobID, "error", err)
@@ -272,24 +330,44 @@ func (f *Flow) no(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun) err
 	return nil
 }
 
-// stop is Stop on the loop: see halt. A run that had started is told
-// stopped in the press's answer.
+// stop is Stop on the loop: see halt. A queued run is simply gone. A run
+// the model had started goes on, so the press's answer is an alert that says
+// what it costs: the person's key pays for it, or it counts toward the free
+// images or videos. The loop leaving the chat would otherwise read as the
+// money or the free run given back.
 func (f *Flow) stop(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun) error {
 	if run.Stage != db.StageGenerating {
 		return f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, "")
 	}
 	running, err := f.halt(ctx, run)
-	text := ""
-	if running {
-		text = t(run.Lang, "run.stopped")
+	if !running {
+		_ = f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, "")
+		return err
 	}
-	_ = f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, text)
+	_ = f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, stoppedText(run))
 	return err
 }
 
+// stoppedText is what a run Stop could not call off costs.
+func stoppedText(run db.ChatRun) string {
+	switch {
+	case !run.Free:
+		// The offer's key is <provider>:<model>, as catalog.OfferID writes it.
+		provider, _, _ := strings.Cut(run.OfferID, ":")
+		return t(run.Lang, "run.stopped_key", "provider", catalog.ProviderName(provider))
+	case catalog.Kind(run.Kind) == catalog.Video:
+		return t(run.Lang, "run.stopped_video")
+	default:
+		return t(run.Lang, "run.stopped_image")
+	}
+}
+
 // halt cancels a queued job, or lets a running one end in the person's
-// history without the chat, since a request already sent is paid for. The
-// loop goes either way. It tells whether the job was running.
+// library without the chat, since a request already sent is paid for. The
+// loop goes either way, but for a job that ended as Stop was pressed: its
+// result, paid for already, or its error card takes the loop's place at the
+// next round, as if Stop had come a moment later. It tells whether the job
+// was running.
 func (f *Flow) halt(ctx context.Context, run db.ChatRun) (running bool, err error) {
 	err = f.cfg.Queue.Cancel(ctx, run.JobID)
 	switch {
@@ -302,6 +380,15 @@ func (f *Flow) halt(ctx context.Context, run db.ChatRun) (running bool, err erro
 		return true, nil
 	case err != nil:
 		return false, err
+	}
+	// Cancel changes nothing of a job that has ended.
+	fresh, err := f.cfg.Store.ChatRun(ctx, run.JobID)
+	if err != nil {
+		return false, err
+	}
+	switch jobs.Status(fresh.Status) {
+	case jobs.Done, jobs.Failed, jobs.Expired:
+		return false, nil
 	}
 	f.close(ctx, run, db.StageGenerating)
 	return false, nil

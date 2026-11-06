@@ -29,17 +29,61 @@ import (
 const (
 	// followEvery is how often the open runs are read.
 	followEvery = 2 * time.Second
+	// sweepEvery is how often takeDown looks at every run of a deleted job,
+	// not only those still open in a chat: one that moved on in the moment
+	// its job went is in the chat already and only waits to be dropped, and
+	// the look reads every run of the stack's.
+	sweepEvery = time.Hour
 	// actionEvery repeats the chat action, which Telegram shows for 5 s.
 	actionEvery = 4500 * time.Millisecond
 	// captionEvery is how often the caption tells the time taken; a group
-	// takes about 20 bot messages a minute.
+	// takes about 20 bot messages a minute. captionShare is the least time
+	// between two captions of the same chat, whichever runs they are of: a
+	// chat with three runs going has each told every 18 s, so the captions
+	// take about 10 of those 20 and leave the rest to previews and results.
 	captionEvery = 10 * time.Second
+	captionShare = 6 * time.Second
+	// cosmetic bounds a call that only shows progress. tg waits out a 429
+	// inside the call, which would hold up the round for every chat; cut
+	// short, the call still tells the wait, and the chat is held for it.
+	cosmetic = 5 * time.Second
 	// inPlaceWithin: an image ready this soon after Generate replaces the
 	// loop; a later one comes as a reply, which notifies, and the loop goes.
 	inPlaceWithin = 25 * time.Second
 	// following is how many runs are worked at once.
 	following = 4
 )
+
+// When a result or an error card does not reach its chat (docs/design.md,
+// Limits of the chat): a refusal ends the run at once, anything else is
+// tried again, less often each time, from retryFirst up to retryMost, and
+// given up deliverWithin after the job ended.
+const (
+	retryFirst    = followEvery
+	retryMost     = 5 * time.Minute
+	deliverWithin = time.Hour
+)
+
+// retry is how often a run's delivery failed, and when it is tried again.
+type retry struct {
+	tries int
+	next  time.Time
+}
+
+// retryAfter is how long a delivery that failed tries times waits for the
+// next try: retryFirst, then twice as long each time up to retryMost.
+func retryAfter(tries int) time.Duration {
+	if tries > 8 {
+		return retryMost
+	}
+	return min(retryFirst<<(max(tries, 1)-1), retryMost)
+}
+
+// due tells whether the run's delivery may be tried now.
+func (f *Flow) due(jobID int64) bool {
+	v, ok := f.retries.Load(jobID)
+	return !ok || !f.now().Before(v.(retry).next)
+}
 
 // Telegram's limits on a photo; a bigger image goes as a document.
 const (
@@ -48,10 +92,10 @@ const (
 	maxPhotoRatio = 20
 )
 
-// ticker is when a running job last told its chat something.
+// ticker is when a running job last told its chat its time.
 type ticker struct {
-	mu              sync.Mutex
-	action, caption time.Time
+	mu      sync.Mutex
+	caption time.Time
 }
 
 func (f *Flow) ticker(jobID int64) *ticker {
@@ -59,13 +103,28 @@ func (f *Flow) ticker(jobID int64) *ticker {
 	return v.(*ticker)
 }
 
+// deliverGrace is how long the deliveries in flight are given after a
+// stop. A send cut short in the middle may still reach the chat, and then
+// goes a second time after the restart; a result of the site's would not
+// go at all. It stays under main's shutdown timeout, as bot.UpdateGrace
+// does for the updates the bot took.
+const deliverGrace = 15 * time.Second
+
 // Run follows the open runs until ctx ends: the progress of a running job,
 // and its result or error once it ends. It draws the generating loop first,
 // so the first Generate does not wait for it. Beside them it sends the
-// results made on the site to the DMs.
+// results made on the site to the DMs. When ctx ends, no new round starts,
+// and the runs already in hand get deliverGrace to finish.
 func (f *Flow) Run(ctx context.Context) {
+	work, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancel()
+	stop := context.AfterFunc(ctx, func() {
+		f.markStopping()
+		time.AfterFunc(deliverGrace, cancel)
+	})
+	defer stop()
 	var site sync.WaitGroup
-	site.Go(func() { f.runSite(ctx) })
+	site.Go(func() { f.runSite(ctx, work) })
 	defer site.Wait()
 	if _, err := f.cfg.Renderer.Generating(ctx); err != nil && ctx.Err() == nil {
 		f.log.Warn("generating loop not drawn ahead", "error", err)
@@ -73,7 +132,7 @@ func (f *Flow) Run(ctx context.Context) {
 	tick := time.NewTicker(followEvery)
 	defer tick.Stop()
 	for {
-		f.follow(ctx)
+		f.followUntil(ctx, work)
 		select {
 		case <-ctx.Done():
 			return
@@ -82,8 +141,19 @@ func (f *Flow) Run(ctx context.Context) {
 	}
 }
 
-// follow works every open run once.
-func (f *Flow) follow(ctx context.Context) {
+// follow takes down the runs of deleted jobs and works every open run once.
+// A chat Telegram asked to wait for gets no call in the round: its runs move
+// on in a round after the hold.
+func (f *Flow) follow(ctx context.Context) { f.followUntil(ctx, ctx) }
+
+// followUntil is follow with the runs worked under work, which outlives
+// stop: once stop ends, a run not yet started is left for the next process,
+// and one in hand finishes.
+func (f *Flow) followUntil(stop, ctx context.Context) {
+	if stop.Err() != nil {
+		return
+	}
+	f.takeDown(ctx)
 	runs, err := f.cfg.Store.OpenChatRuns(ctx)
 	if err != nil {
 		if ctx.Err() == nil {
@@ -91,13 +161,32 @@ func (f *Flow) follow(ctx context.Context) {
 		}
 		return
 	}
+	busy := map[int64]int{}
+	for _, r := range runs {
+		if r.Stage == db.StageGenerating && !guest(r) {
+			busy[r.ChatID]++
+		}
+	}
+	f.busyMu.Lock()
+	f.busy = busy
+	f.busyMu.Unlock()
+	// A chat with nothing going needs no pace kept.
+	f.chats.Range(func(k, _ any) bool {
+		if busy[k.(int64)] == 0 {
+			f.chats.Delete(k)
+		}
+		return true
+	})
+	ctx = noWait(ctx)
 	var wg sync.WaitGroup
 	slot := make(chan struct{}, following)
 	for _, r := range runs {
 		wg.Go(func() {
 			slot <- struct{}{}
 			defer func() { <-slot }()
-			f.step(ctx, r.JobID)
+			if stop.Err() == nil {
+				f.step(ctx, r.JobID)
+			}
 		})
 	}
 	wg.Wait()
@@ -106,15 +195,21 @@ func (f *Flow) follow(ctx context.Context) {
 // step moves one run on. A press working on the run has it; the next round
 // looks again.
 func (f *Flow) step(ctx context.Context, jobID int64) {
-	v, _ := f.locks.LoadOrStore(jobID, &sync.Mutex{})
-	mu := v.(*sync.Mutex)
-	if !mu.TryLock() {
+	unlock, ok := f.tryLock(jobID)
+	if !ok {
 		return
 	}
-	defer mu.Unlock()
+	defer unlock()
 	run, err := f.cfg.Store.ChatRun(ctx, jobID)
+	if errors.Is(err, db.ErrNoRun) {
+		// Its job was deleted since the round began: takeDown has it next.
+		return
+	}
 	if err != nil {
 		f.log.Warn("chat run unread", "job", jobID, "error", err)
+		return
+	}
+	if !guest(run) && f.pace.held(run.ChatID) {
 		return
 	}
 	switch run.Stage {
@@ -134,20 +229,113 @@ func (f *Flow) step(ctx context.Context, jobID int64) {
 			f.showLoop(ctx, run)
 		}
 	case db.StageGenerating:
+		if e, ok := f.ended.Load(jobID); ok {
+			// It went out; only its record is left.
+			f.finish(ctx, run, e.(ending).stage, e.(ending).res)
+			return
+		}
 		switch jobs.Status(run.Status) {
 		case jobs.Queued, jobs.Running:
 			f.progress(ctx, run)
 		case jobs.Done:
-			f.deliver(ctx, run)
+			if f.due(jobID) {
+				f.deliver(ctx, run)
+			}
 		case jobs.Failed, jobs.Expired:
-			f.failed(ctx, run, reason(run))
+			if f.due(jobID) {
+				f.failed(ctx, run, reason(run))
+			}
 		case jobs.Cancelled:
 			f.close(ctx, run, db.StageGenerating)
 		}
 	}
 }
 
-// progress keeps the chat action going and the time on the caption.
+// takeDown ends the runs whose job was deleted, alone on the site or with
+// the account: a preview or loop still in the chat goes, as No would take
+// it, or says Deleted where it cannot be deleted, and the run is dropped
+// with what it kept of the chat. A result already sent stays in its chat. A
+// press working on the run has it; the next round looks again. Every round
+// looks at the open runs; the first and then one an hour at all of them.
+func (f *Flow) takeDown(ctx context.Context) {
+	now := f.now()
+	all := f.swept.IsZero() || now.Sub(f.swept) >= sweepEvery
+	runs, err := f.cfg.Store.DeletedChatRuns(ctx, !all)
+	if err != nil {
+		if ctx.Err() == nil {
+			f.log.Error("runs of deleted jobs unread", "error", err)
+		}
+		return
+	}
+	if all {
+		f.swept = now
+	}
+	for _, run := range runs {
+		if (run.Stage == db.StagePreview || run.Stage == db.StageGenerating) && !guest(run) && f.pace.held(run.ChatID) {
+			// Its preview or loop is taken down after the hold Telegram
+			// asked this chat for.
+			continue
+		}
+		unlock, ok := f.tryLock(run.JobID)
+		if !ok {
+			continue
+		}
+		dropped, err := f.cfg.Store.DropChatRun(ctx, run.JobID)
+		unlock()
+		if err != nil {
+			f.log.Warn("run of a deleted job not dropped", "job", run.JobID, "error", err)
+			continue
+		}
+		if dropped && (run.Stage == db.StagePreview || run.Stage == db.StageGenerating) {
+			f.deletedRun(ctx, run)
+		}
+		f.forget(run.JobID)
+	}
+}
+
+// deletedRun takes down the preview or loop of a run whose job was deleted.
+func (f *Flow) deletedRun(ctx context.Context, run db.ChatRun) {
+	if !guest(run) {
+		f.deleteEphemeral(ctx, run.ChatID, run.UserID, run.PanelMessageID)
+		if run.PreviewEphemeral {
+			f.deleteEphemeral(ctx, run.ChatID, run.UserID, run.PreviewMessageID)
+		} else {
+			f.deleteMessage(ctx, run.ChatID, run.PreviewMessageID)
+		}
+		return
+	}
+	// An inline message cannot be deleted: it keeps one word and no
+	// buttons. The preview is still text, the loop a clip with a caption.
+	text := t(run.Lang, "guest.deleted")
+	if run.Stage == db.StagePreview {
+		err := f.cfg.Telegram.EditInlineMessageTextWithPreview(ctx, run.InlineMessageID, text, nil, nil)
+		if err != nil && !tg.IsMessageNotModified(err) {
+			f.log.Warn("guest preview of a deleted job not closed", "job", run.JobID, "error", err)
+		}
+		return
+	}
+	f.guestCaption(ctx, run, text, nil)
+}
+
+// chatTick is when a chat last had the chat action, a topic's own, and a
+// caption of any of its runs.
+type chatTick struct {
+	mu      sync.Mutex
+	actions map[int]time.Time // by topic; 0 is the chat itself
+	caption time.Time
+}
+
+func (f *Flow) chatTick(chat int64) *chatTick {
+	v, _ := f.chats.LoadOrStore(chat, &chatTick{actions: map[int]time.Time{}})
+	return v.(*chatTick)
+}
+
+// progress keeps the chat action going and the time on the caption. The
+// action says the same for every run of a chat's topic, so it goes once for
+// all of them. A run's caption is due every captionEvery, or later when the
+// chat has more runs going than leaves room for, and a chat takes one
+// caption every captionShare at most, so several runs take turns instead of
+// editing at the same moment.
 func (f *Flow) progress(ctx context.Context, run db.ChatRun) {
 	tk := f.ticker(run.JobID)
 	tk.mu.Lock()
@@ -161,33 +349,78 @@ func (f *Flow) progress(ctx context.Context, run db.ChatRun) {
 		}
 		return
 	}
-	if now.Sub(tk.action) >= actionEvery {
-		tk.action = now
-		if err := f.cfg.Telegram.SendChatAction(ctx, run.ChatID, run.ThreadID, chatAction(catalog.Kind(run.Kind) == catalog.Video)); err != nil {
+	ct := f.chatTick(run.ChatID)
+	ct.mu.Lock()
+	action := now.Sub(ct.actions[run.ThreadID]) >= actionEvery
+	if action {
+		ct.actions[run.ThreadID] = now
+	}
+	caption := !run.GenerateAt.IsZero() && now.Sub(tk.caption) >= f.captionEvery(run.ChatID) && now.Sub(ct.caption) >= captionShare
+	if caption {
+		ct.caption, tk.caption = now, now
+	}
+	ct.mu.Unlock()
+	if action {
+		cctx, cancel := context.WithTimeout(ctx, cosmetic)
+		err := f.cfg.Telegram.SendChatAction(cctx, run.ChatID, run.ThreadID, chatAction(catalog.Kind(run.Kind) == catalog.Video))
+		cancel()
+		if err != nil {
 			f.log.Debug("chat action not sent", "chat", run.ChatID, "error", err)
 		}
 	}
-	if now.Sub(tk.caption) >= captionEvery && !run.GenerateAt.IsZero() {
-		tk.caption = now
-		caption := generatingCaption(run.Lang, run.Prompt, run.Model, now.Sub(run.GenerateAt))
-		_, err := f.cfg.Telegram.EditMessageCaption(ctx, run.ChatID, run.PreviewMessageID, caption,
+	if caption {
+		text := generatingCaption(run.Lang, run.Prompt, run.Model, now.Sub(run.GenerateAt))
+		cctx, cancel := context.WithTimeout(ctx, cosmetic)
+		_, err := f.cfg.Telegram.EditMessageCaption(cctx, run.ChatID, run.PreviewMessageID, text,
 			tg.EditCaptionOptions{Markup: generatingKeyboard(run.Lang, run.JobID)})
+		cancel()
 		if err != nil && !tg.IsMessageNotModified(err) {
 			f.log.Debug("caption not updated", "job", run.JobID, "error", err)
 		}
 	}
 }
 
+// severalResults tells whether a run may make more than one result: in
+// the person's DM with framy, where they come as one album. In a group one
+// run makes one result, and a guest run's answer is one message.
+func severalResults(run db.ChatRun) bool { return !guest(run) && run.ChatID == run.UserID }
+
+// shown marks the chat action of a chat's topic as just shown: a message
+// went there, which ends any action above it.
+func (f *Flow) shown(chat int64, topic int) {
+	ct := f.chatTick(chat)
+	ct.mu.Lock()
+	ct.actions[topic] = f.now()
+	ct.mu.Unlock()
+}
+
+// captionEvery is how often a run of chat tells its time: every
+// captionEvery, or less often when the chat has more runs going than
+// captionShare leaves room for.
+func (f *Flow) captionEvery(chat int64) time.Duration {
+	f.busyMu.Lock()
+	n := f.busy[chat]
+	f.busyMu.Unlock()
+	return max(captionEvery, time.Duration(n)*captionShare)
+}
+
 // deliver puts the result in the chat: in place of the loop when it came
-// quickly, as a reply to the command otherwise.
+// quickly, as a reply to the command otherwise. Several results of a DM's
+// run come as one album.
 func (f *Flow) deliver(ctx context.Context, run db.ChatRun) {
 	results, err := f.cfg.Files.Results(ctx, run.JobID)
 	if err != nil {
-		f.log.Warn("results unread", "job", run.JobID, "error", err)
+		if f.giveUp(ctx, run, "results unread", err) {
+			f.undelivered(ctx, run)
+		}
 		return
 	}
 	if len(results) == 0 {
 		f.failed(ctx, run, "err.failed")
+		return
+	}
+	if len(results) > 1 && severalResults(run) {
+		f.deliverAlbum(ctx, run, results)
 		return
 	}
 	a := results[0]
@@ -203,11 +436,37 @@ func (f *Flow) deliver(ctx context.Context, run db.ChatRun) {
 		msg, err = f.sendImage(ctx, run, a, caption)
 	}
 	if err != nil {
-		f.log.Error("result not sent", "job", run.JobID, "error", err)
+		if f.giveUp(ctx, run, "result not sent", err) {
+			f.undelivered(ctx, run)
+		}
 		return
 	}
-	res := resultOf(msg)
-	if _, err := f.cfg.Store.FinishChatRun(ctx, run.JobID, db.StageDone, res); err != nil {
+	f.finish(ctx, run, db.StageDone, resultOf(msg))
+}
+
+// deliverAlbum puts several results in the DM as one album, the caption on
+// the first, and the loop goes: an album cannot take the loop's place. An
+// album takes no keyboard either, so there is no Animate, Again or Original
+// under it, as under a press of frames from the site. The run keeps the
+// first picture as its message; a reply to any of them changes that one
+// (ownSources).
+func (f *Flow) deliverAlbum(ctx context.Context, run db.ChatRun, results []storage.Asset) {
+	caption := resultCaption(run.Prompt, run.Model)
+	var (
+		msgs []tg.Message
+		err  error
+	)
+	if strings.HasPrefix(results[0].ContentType, "video/") {
+		msgs, err = f.postVideoAlbum(ctx, run.ChatID, results, caption)
+	} else {
+		msgs, err = f.postAlbum(ctx, run.ChatID, results, caption)
+	}
+	if err != nil {
+		f.log.Error("results not sent", "job", run.JobID, "error", err)
+		return
+	}
+	f.deleteMessage(ctx, run.ChatID, run.PreviewMessageID)
+	if _, err := f.cfg.Store.FinishChatRun(ctx, run.JobID, db.StageDone, resultOf(msgs[0])); err != nil {
 		f.log.Error("run not finished", "job", run.JobID, "error", err)
 		return
 	}
@@ -290,25 +549,31 @@ func (f *Flow) postVideo(ctx context.Context, chatID int64, a storage.Asset, co 
 // one. A cover Telegram refuses does not keep the video back: it goes again
 // without one, and clients pick a frame of their own.
 func (f *Flow) uploadVideo(ctx context.Context, chatID int64, path, cover string, opts tg.VideoOptions) (tg.Message, error) {
-	send := func(o tg.VideoOptions) (tg.Message, error) {
-		return withFileAt(path, "framy.mp4", func(file tg.InputFile) (tg.Message, error) {
-			return f.cfg.Telegram.SendVideo(ctx, chatID, file, o)
+	send := func(cover string) (tg.Message, error) {
+		return sendFiles(f, func(o *outbox) (tg.Message, error) {
+			file, err := o.fileAt(path, "framy.mp4")
+			if err != nil {
+				return tg.Message{}, err
+			}
+			opts := opts
+			if cover != "" {
+				if opts.Cover, err = o.fileAt(cover, "cover.jpg"); err != nil {
+					return tg.Message{}, err
+				}
+			}
+			return f.cfg.Telegram.SendVideo(ctx, chatID, file, opts)
 		})
 	}
 	if cover == "" {
-		return send(opts)
+		return send("")
 	}
-	msg, err := withFileAt(cover, "cover.jpg", func(c tg.InputFile) (tg.Message, error) {
-		o := opts
-		o.Cover = c
-		return send(o)
-	})
+	msg, err := send(cover)
 	var apiErr *tg.APIError
 	if err == nil || !errors.As(err, &apiErr) || apiErr.ErrorCode != 400 {
 		return msg, err
 	}
 	f.log.Warn("cover refused; video sent without one", "error", err)
-	return send(opts)
+	return send("")
 }
 
 // coverQuality is the JPEG quality of a cover: no visible loss, and a
@@ -403,43 +668,35 @@ func (f *Flow) readyVideo(ctx context.Context, a storage.Asset, dir string) (v m
 	return media.Video{Path: in, ContentType: a.ContentType, Width: a.Width, Height: a.Height, Seconds: a.Seconds}, false, nil
 }
 
-// withFileAt hands send the file at path as an upload named name.
-func withFileAt(path, name string, send func(tg.InputFile) (tg.Message, error)) (tg.Message, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return tg.Message{}, err
-	}
-	defer file.Close()
-	return send(tg.InputFileUpload{Filename: name, Data: file})
-}
-
-// withResult reads the result from the bucket and hands it to send.
+// withResult reads the result from the bucket and hands it to send, by
+// path or as an upload (sendFiles).
 func (f *Flow) withResult(ctx context.Context, a storage.Asset, send func(tg.InputFile) (tg.Message, error)) (tg.Message, error) {
-	body, err := f.cfg.Files.Open(ctx, a)
-	if err != nil {
-		return tg.Message{}, err
-	}
-	defer body.Close()
-	return send(tg.InputFileUpload{Filename: "framy" + extOf(a.ContentType), Data: body})
+	return sendFiles(f, func(o *outbox) (tg.Message, error) {
+		body, err := f.cfg.Files.Open(ctx, a)
+		if err != nil {
+			return tg.Message{}, err
+		}
+		file, err := o.file(body, "framy"+extOf(a.ContentType))
+		if err != nil {
+			return tg.Message{}, err
+		}
+		return send(file)
+	})
 }
 
+// extOf is the extension a file sent to Telegram is named with, which a
+// document keeps when it is saved: none for a type framy does not name.
 func extOf(contentType string) string {
-	switch contentType {
-	case "image/png":
-		return ".png"
-	case "image/jpeg":
-		return ".jpg"
-	case "image/webp":
-		return ".webp"
-	case "video/mp4":
-		return ".mp4"
+	if e := storage.Ext(contentType); e != ".bin" {
+		return e
 	}
 	return ""
 }
 
-// photoFits tells whether Telegram takes the file as a photo.
+// photoFits tells whether Telegram takes the file as a photo. An SVG it
+// does not: it goes as a document.
 func photoFits(a storage.Asset) bool {
-	if !strings.HasPrefix(a.ContentType, "image/") || a.Bytes > maxPhotoBytes {
+	if !storage.Raster(a.ContentType) || a.Bytes > maxPhotoBytes {
 		return false
 	}
 	if a.Width <= 0 || a.Height <= 0 {
@@ -449,9 +706,29 @@ func photoFits(a storage.Asset) bool {
 	return a.Width+a.Height <= maxPhotoSides && long <= short*maxPhotoRatio
 }
 
-// reason is the i18n key of the line a failed run's card says.
+// failureText is the line of a failed run's card: the text of key, with
+// the provider of the run's key where it names one.
+func failureText(run db.ChatRun, key string) string {
+	return t(run.Lang, key, "provider", catalog.ProviderName(runProvider(run)))
+}
+
+// reason is the i18n key of the line a failed run's card says. A failure
+// on framy's side says so in the words the site uses for it, and does not
+// blame the model. A video that expired because its key stopped working
+// while framy asked about it says so, not that the model took too long: the
+// key is what the person can fix.
 func reason(run db.ChatRun) string {
-	if jobs.Status(run.Status) == jobs.Expired {
+	switch cls := jobs.Class(run.ErrorClass); {
+	case cls == jobs.Money || cls == jobs.Key:
+		if run.Free {
+			// framy's own key, not the person's.
+			return "run.failed"
+		}
+		if cls == jobs.Money {
+			return "err.money"
+		}
+		return "err.key"
+	case jobs.Status(run.Status) == jobs.Expired:
 		return "err.timeout"
 	}
 	switch jobs.Class(run.ErrorClass) {
@@ -461,19 +738,20 @@ func reason(run db.ChatRun) string {
 		return "err.faces"
 	case jobs.Sound:
 		return "err.sound"
-	case jobs.Money:
-		if run.Free {
-			return "err.failed"
-		}
-		return "err.money"
-	case jobs.Key:
-		if run.Free {
-			// framy's own key, not the person's.
-			return "err.failed"
-		}
-		return "err.key"
+	case jobs.Region:
+		return "err.region"
 	case jobs.Timeout:
 		return "err.timeout"
+	case jobs.Internal, jobs.NoAdapter:
+		// framy has no way to run the model, or failed on its own side.
+		return "run.failed"
+	case jobs.Storage:
+		// The provider made it and framy could not keep it: not the model's
+		// fault, and the provider may have charged.
+		if run.Kind == string(catalog.Video) {
+			return "web.fail.storage_video"
+		}
+		return "web.fail.storage"
 	}
 	return "err.failed"
 }
@@ -487,8 +765,8 @@ func (f *Flow) failed(ctx context.Context, run db.ChatRun, key string) {
 		f.guestFailed(ctx, run, key)
 		return
 	}
-	text := t(run.Lang, key)
-	kb := failureKeyboard(run)
+	text := failureText(run, key)
+	kb := withRow(failureKeyboard(run), f.keyFix(run))
 	card, err := f.cfg.Renderer.ErrorCard(ctx, text, run.Lang)
 	if err == nil {
 		line := ""
@@ -502,16 +780,97 @@ func (f *Flow) failed(ctx context.Context, run db.ChatRun, key string) {
 		f.log.Warn("error card not shown; replying", "job", run.JobID, "error", err)
 		sent, rerr := f.cfg.Telegram.SendReply(ctx, run.ChatID, run.CommandMessageID, run.ThreadID, text, kb)
 		if rerr != nil {
-			f.log.Error("failure not told", "job", run.JobID, "error", rerr)
-			return
-		}
-		f.deleteMessage(ctx, run.ChatID, run.PreviewMessageID)
-		if err := f.cfg.Store.SetChatRunPreview(ctx, run.JobID, sent.MessageID, false); err != nil {
-			f.log.Warn("failure reply not recorded", "job", run.JobID, "error", err)
+			if !f.giveUp(ctx, run, "failure not told", rerr) {
+				return
+			}
+			// Nothing in the chat says it failed; the site's history does.
+		} else {
+			f.deleteMessage(ctx, run.ChatID, run.PreviewMessageID)
+			if err := f.cfg.Store.SetChatRunPreview(ctx, run.JobID, sent.MessageID, false); err != nil {
+				f.log.Warn("failure reply not recorded", "job", run.JobID, "error", err)
+			}
 		}
 	}
-	if _, err := f.cfg.Store.FinishChatRun(ctx, run.JobID, db.StageFailed, db.ChatResult{}); err != nil {
-		f.log.Error("run not finished", "job", run.JobID, "error", err)
+	f.finish(ctx, run, db.StageFailed, db.ChatResult{})
+}
+
+// recordWithin bounds recording the end of a run whose result went out.
+const recordWithin = 5 * time.Second
+
+// ending is the end of a run that went out and is not recorded yet.
+type ending struct {
+	stage string
+	res   db.ChatResult
+}
+
+// finish records the end of a run whose result or card went out. A send
+// cannot be taken back, so a record that a stop or a database hiccup cut
+// short is no reason to send again: the end is kept, and the next round
+// records it and sends nothing. Before, the next round sent the result a
+// second time.
+func (f *Flow) finish(ctx context.Context, run db.ChatRun, stage string, res db.ChatResult) {
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), recordWithin)
+	defer cancel()
+	if _, err := f.cfg.Store.FinishChatRun(rctx, run.JobID, stage, res); err != nil {
+		f.ended.Store(run.JobID, ending{stage: stage, res: res})
+		f.log.Error("run not finished; the next round records it", "job", run.JobID, "error", err)
+		return
+	}
+	f.forget(run.JobID)
+}
+
+// giveUp decides what comes of a result or an error card that did not reach
+// the chat, and tells whether the run ends now. A refusal (refused) would be
+// the same every time: the bot was removed or blocked, it may not post
+// there, or the chat or the topic is gone. So the run ends at once, and the
+// person has the result in their library on the site; before, it was sent
+// again every round for good, the file read and the video readied each
+// time. Telegram asking to wait is the chat's hold (telegram.go), and a
+// stop is no failure. Anything else is tried again later, retryFirst after
+// the first failure and twice as long after each next one up to retryMost,
+// and given up when it still fails deliverWithin after the job ended.
+func (f *Flow) giveUp(ctx context.Context, run db.ChatRun, what string, err error) bool {
+	switch {
+	case ctx.Err() != nil, errors.Is(err, errHeld), tg.IsTooManyRequests(err):
+		return false
+	case refused(err):
+		f.log.Warn(what+": Telegram refused it, so the run ends", "job", run.JobID, "chat", run.ChatID, "error", err)
+		return true
+	}
+	v, _ := f.retries.Load(run.JobID)
+	r, _ := v.(retry)
+	r.tries++
+	now := f.now()
+	if r.tries > 1 && !run.Finished.IsZero() && now.Sub(run.Finished) > deliverWithin {
+		f.log.Error(what+" for too long, so the run ends", "job", run.JobID, "tries", r.tries, "error", err)
+		return true
+	}
+	wait := retryAfter(r.tries)
+	r.next = now.Add(wait)
+	f.retries.Store(run.JobID, r)
+	f.log.Error(what, "job", run.JobID, "tries", r.tries, "again_in", wait, "error", err)
+	return false
+}
+
+// undelivered ends a run whose result the chat will not get. Where the
+// loop can still be changed, it says the result is in the person's library
+// and loses its Stop; in a chat the bot was removed from it stays as it
+// was, and nothing more is sent there.
+func (f *Flow) undelivered(ctx context.Context, run db.ChatRun) {
+	caption := lines(promptQuote(run.Prompt), t(run.Lang, "guest.elsewhere"), "<b>"+html.EscapeString(run.Model)+"</b>")
+	switch {
+	case guest(run):
+		f.guestCaption(ctx, run, caption, nil)
+	case run.PreviewMessageID != 0 && !run.PreviewEphemeral:
+		cctx, cancel := context.WithTimeout(ctx, cosmetic)
+		_, err := f.cfg.Telegram.EditMessageCaption(cctx, run.ChatID, run.PreviewMessageID, caption, tg.EditCaptionOptions{})
+		cancel()
+		if err != nil && !tg.IsMessageNotModified(err) {
+			f.log.Debug("loop not told the result went elsewhere", "job", run.JobID, "error", err)
+		}
+	}
+	if _, err := f.cfg.Store.MoveChatRun(ctx, run.JobID, db.StageGenerating, db.StageGone); err != nil {
+		f.log.Error("run not closed", "job", run.JobID, "error", err)
 		return
 	}
 	f.forget(run.JobID)

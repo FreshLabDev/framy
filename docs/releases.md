@@ -24,13 +24,17 @@ Which means the changelog has to be written for somebody else to read:
   anything.
 - Call out anything an operator must act on — a new or renamed environment
   variable, a migration, a changed deployment assumption — explicitly, in its
-  own entry.
+  own entry. framy's CI fails when a migration added since the last release
+  is not named above that release's section, by its file name or as
+  "migration 030" (`.github/scripts/changelog-migrations.sh`).
 - Exactly one `## Unreleased` section, always at the top. Two of them means the
   next release renames the wrong one.
 
 ## Publishing a pre-release
 
-A pre-release is tagged on `dev`. Nothing merges anywhere.
+A pre-release is tagged on `dev`. Nothing merges anywhere, except that
+framy merges `dev` into `main` for a pre-release its production bot is to
+run (versioning.md, framy today).
 
 1. Finish the work on `dev` and run the verification below.
 2. Rename `## Unreleased` to the version, and open a fresh empty `## Unreleased`
@@ -53,9 +57,12 @@ A pre-release is tagged on `dev`. Nothing merges anywhere.
 
 The tag push runs `.github/workflows/release.yml`. It runs CI (`ci.yml`) on
 the tagged commit first and publishes nothing unless it passed; then it
-refuses the tag if it is not on `dev` or has no changelog section, builds and
-publishes the image, adds its digest to the notes, and creates the GitHub
-Release marked as a pre-release.
+refuses the tag if it is not on `dev` or has no changelog section, builds the
+image and pushes it by its digest alone, runs the media tests in that image
+and scans its packages, and only then gives it the tag, adds its digest to
+the notes, and creates the GitHub Release marked as a pre-release. CI built
+and tested an image of its own a few minutes before; the one production
+pulls is the one tested here.
 
 Then point the test bot at it. A pre-release nobody ran is a pre-release that
 proved nothing.
@@ -98,6 +105,17 @@ gh workflow run release.yml -f tag=v1.2.3 -f reason="why CI is skipped"
 That run skips CI and puts the reason at the top of the GitHub Release, so the
 release itself says it was not checked.
 
+## Running a release again
+
+A release run that failed can be started again. When the image of its tag is
+already in GHCR, the run builds nothing: it keeps that image and its digest and
+only writes the notes and the GitHub Release. A new build would carry another
+date and that day's packages, and move the tag away from the digest production
+may already pin. An image that turned out wrong is followed by the next cut,
+never rebuilt under its tag. A run that failed in the media tests or the scan
+of its image gave that image no tag: it stays in GHCR by its digest alone,
+nothing points at it, and the next run builds again.
+
 ## Rolling back
 
 Do not retag and do not delete a published release. Roll back by deploying the
@@ -106,6 +124,31 @@ the whole rollback — and then publish a new patch that fixes what went wrong.
 
 A version that was published is a fact about what existed. Rewriting it makes
 every other record of it wrong.
+
+## When the image scan fails
+
+CI scans the image with Grype for packages of its Alpine, ffmpeg and the
+libraries that decode what people upload among them, that have a known
+vulnerability of high or critical severity with a fix. framy's Go modules are
+left to `govulncheck` (`.grype.yaml`). The log of the step lists what it
+found and the version that fixes it.
+
+- **The image built in this run**, in CI or in the release, which scans the
+  image it is about to tag. The base images are pinned by digest
+  (Dependabot proposes newer ones weekly), and the build upgrades every
+  package of the base and adds ffmpeg and the rest at the newest versions
+  Alpine has published. So a fix the build lacks is not in Alpine's
+  repository yet: wait for it, or, when the finding cannot touch framy, say
+  so in `.grype.yaml` with the reason.
+- **The published image** (job `Published image`, weekly and by hand): the
+  newest release on `main`, which production runs, has one. Its tag is never built
+  again, so the fix reaches production with the next cut: publish it as
+  usual and deploy it. The scan of the fresh build in the same run says
+  whether a new build carries the fix.
+
+GitHub mails a failed weekly run to whoever last changed the workflow's
+schedule. The weekly run is the workflow on `main`, so a change to it starts
+working there once it is merged.
 
 ## Deploying
 
@@ -147,22 +190,13 @@ docker pull ghcr.io/freshlabdev/framy:<tag>
 docker inspect --format '{{index .RepoDigests 0}}' ghcr.io/freshlabdev/framy:<tag>
 ```
 
-That pull used to be mandatory, and it is worth saying why it no longer is,
-because the reason was never the digest. Deploying straight to
-`ghcr.io/freshlabdev/framy@sha256:<digest>` answered `403` on a blob, and
-pulling the tag first always cleared it.
-
-The cause was the account doing the deploying. `ws04 deploy` runs as root, and
-root's stored GHCR credential could not read the private package; the
-pull-by-tag only worked because it was run as the login user, whose credential
-can — which left the image in the shared local store for `up` to find. The
-registry says which is which: asked for a manifest digest as if it were a blob,
-an account that can read the package answers `404`, one that cannot answers
-`403`. A `403` here is an access problem wearing a not-found costume.
-
-So the fix is on the host, not in the recipe: make sure the account the deploy
-runs as can read the package (`sudo docker login ghcr.io`), and pinning a digest
-works on its own. Pulling the tag first is still a fine way to warm the layers.
+The package `ghcr.io/freshlabdev/framy` is public, so any account on the
+host pulls a digest without logging in, and `ws04 deploy` pulls the one
+`FRAMY_IMAGE` names; pulling the tag first only warms the layers. Should the
+package ever be private again, a deploy straight to a digest answers `403` on
+a blob when the account doing it (root, for `ws04 deploy`) cannot read the
+package: an access problem that looks like a missing blob, fixed with
+`sudo docker login ghcr.io`.
 
 Without a shell on the host, the API answers the same question:
 
@@ -184,6 +218,15 @@ Migrations stay applied. The release notes say when one keeps the previous
 release from working: v0.1.0-alpha.2 changed the album cache's key, and
 v0.1.0-alpha.1 on top of it cannot write that cache.
 
+The manifest is part of a rollback when a release changed it. An image of
+v0.1.0-alpha.4 or older does not link the bot's Bot API directory
+(`BOT_API_BOT_DIR`), so with a newer manifest it finds no files directory and
+stops at start. Rolling back to one of them takes its own manifest too:
+`git show v0.1.0-alpha.4:deploy/ws04/compose.yaml`, copied to the host before
+the deploy. That manifest builds the database URL from `FRAMY_CORE_PASSWORD`
+in `.env`, where the newer one reads `secrets/database-url`, so the line
+stays in `.env` while a rollback to it may be wanted.
+
 ### What this stack needs to exist
 
 | | |
@@ -192,11 +235,12 @@ v0.1.0-alpha.1 on top of it cannot write that cache.
 | Manifest | `deploy/ws04/compose.yaml` in this repository, copied to the host; its header lists the `.env` variables and the files in `secrets/` |
 | Env file | `.env` on the host, never in git; file secrets beside it, owned by uid 101 |
 | Networks | `core_net` (core-postgres), `management` (the Cloudflare Tunnel for `framy.ws04.cc`), `telegram_bot_api_net` (the self-hosted `telegram-bot-api`) |
-| Storage | R2 buckets `framy` (inputs and results) and `framy-backups`; `work/` and `anim/` beside the manifest; the bot's own media directory of `telegram-bot-api`, mounted at the server's path |
-| Database | core migration `019_framy.sql` applied, `FRAMY_CORE_PASSWORD` in core's `.env` and framy's |
-| Test bot | `framy-test` (`deploy/ws04-test/compose.yaml`) on the same schema with `FRAMY_STACK=test`, the same KEK and the same R2 bucket; it applies the migrations of `dev` before production does, so they are additive (docs/design.md, Stacks) |
-| Ports | `8080` for the tunnel, never published to the host; `9090` for `/metrics`, reachable on the Docker networks only and never routed by the tunnel |
-| Proxies | `TRUSTED_PROXIES` in `.env`: the subnet of the Cloudflare Tunnel network. Without it the rate limits see cloudflared's address instead of the visitor, and the log says so once |
+| Storage | R2 buckets `framy` (inputs and results), and the clips' own bucket when `R2_INCOMING_BUCKET` names one (docs/design.md, Storage); `work/` and `anim/` beside the manifest; the bot's own media directory of `telegram-bot-api`, as the volume `framy_bot-api` |
+| Backups | The host's daily `ws04-backup`: `pg_dumpall` of `core-postgres`, which holds the `framy` schema, and a copy of `/opt/stacks`, both in restic on Google Drive. The KEK must stay out of it: the copy of `/opt/stacks` has to leave out `secrets/kek` of `framy` and `framy-test` and any copy of it beside them, and the KEK's own copy is kept apart (docs/design.md, Backups). On 6 November it does not leave them out yet. A restore of the schema has not been tried yet (#28) |
+| Database | core migration `019_framy.sql` applied; `secrets/database-url` holds framy_core's URL, with the password `FRAMY_CORE_PASSWORD` of core's `.env`. It is a file, not a variable, so `docker inspect` does not show it |
+| Test bot | `framy-test` (`deploy/ws04-test/compose.yaml`) on the same schema with `FRAMY_STACK=test`, the same KEK, the same R2 bucket and the same local `telegram-bot-api` (its own token and directory, as production's; below); it applies the migrations of `dev` before production does, so they are additive (docs/design.md, Stacks) |
+| Ports | `8080` for the tunnel, never published to the host; `9090` for `/metrics` on `127.0.0.1` inside the container, never on a network |
+| Proxies | `TRUSTED_PROXIES` in `.env`: the address of `cloudflared-ws04-management` on `management`, fixed in the tunnel's own stack (`ipv4_address`; Docker 29.0.4 and newer give one on a network whose subnet was never set, as `management`'s was not), the same in both stacks' `.env`. Not the network's range: every site of the host is on it, and any of them could name a visitor's address. Without it the rate limits see cloudflared's address instead of the visitor, and the log says so once |
 | Outbound | HTTPS to `openrouter.ai` for the hourly catalog sync, which needs no key |
 
 framy talks to the family's own `telegram-bot-api` in `--local` mode. The cloud
@@ -204,30 +248,101 @@ Bot API downloads files only up to 20 MB and uploads up to 50 MB; photos sent
 as files and finished videos go past that.
 
 Such a server answers `getFile` with a path on its own disk, so framy needs
-`BOT_API_FILES_DIR` and the bot's media directory mounted there, and checks at
-start that it can write in it. A token is logged in on one server at a time,
-so the bot moves onto the server once, before its first start there:
+`BOT_API_FILES_DIR`, the server's path, and the bot's media directory, and
+checks at start that it can write in it. That directory is named after the
+token, so the manifest mounts it as a volume under a neutral name
+(`BOT_API_BOT_DIR`) and framy links the server's path to it: no mount of the
+container shows the token. A token is logged in on one server at a time, so
+the bot moves onto the server once, before its first start there:
 
 ```sh
 # the cloud server lets the token go; it takes it back only after 10 minutes
 curl -s "https://api.telegram.org/bot$(cat secrets/bot-token)/logOut"
-# the media directory, before Docker makes it as root
+# the media directory, which the volume needs before the first start
 install -d -o 101 -g 101 "/opt/stacks/telegram-bot-api-next/files/$(cat secrets/bot-token)"
 ```
 
-Files live in R2, not on the host. The database is backed up into
-`framy-backups`; the bucket `framy` is itself the copy off the home server.
+The test bot goes through the same server, so the path production relies on is
+walked first on the test bot. Its manifest is production's in everything but
+the token: it runs as uid 101 too (the files in its `secrets/` and the
+directories `work/` and `anim/` beside the manifest belong to 101, where named
+volumes belonged to the image's uid 10001), and `BOT_API_TOKEN` in its `.env`
+is the test bot's token. An image from before `BOT_API_BOT_DIR` (v0.1.0-alpha.4
+and older) does not run with it. The move, once, from the stack's directory
+`/opt/stacks/framy-test`, with the stack down:
+
+```sh
+# the cloud server lets the token go; it takes it back only after 10 minutes
+curl -s "https://api.telegram.org/bot$(cat secrets/bot-token)/logOut"
+chown -R 101:101 secrets
+install -d -o 101 -g 101 work anim "/opt/stacks/telegram-bot-api-next/files/$(cat secrets/bot-token)"
+# BOT_API_TOKEN=<the same token> in .env, then
+ws04 deploy framy-test --yes
+```
+
+The volumes `framy-test_work` and `framy-test_anim` hold nothing but working
+files and can go afterwards. To move the test bot back to the cloud server,
+log it out of the local one first (the same `logOut`, sent to the local
+server instead of `api.telegram.org`), wait ten minutes, give `secrets/` back
+to uid 10001 (`chown -R 10001:10001 secrets`, since the old manifest runs as the
+image's user and cannot read files of 101 at mode 0400), and use the manifest
+of the release from before this.
+
+Files live in R2, not on the host, and the bucket `framy` is itself their copy
+off the home server. The database is in core-postgres, which the home server's
+daily backup dumps to Google Drive; that backup must not hold the KEK too
+(docs/design.md, Backups).
+
+### Keeping the host clean
+
+The host's disk is shared by every service on it, and the nightly backup
+copies `/opt/stacks` whole (Backups, above), so what is left beside a stack
+costs space twice and keeps secrets and people's data with no use.
+
+- **No copies beside a stack.** `ws04 deploy` keeps the manifest and `.env`
+  of every deploy in `/opt/stacks/.ws04/deploy-snapshots/`, which is what a
+  rollback takes. A copy made by hand (`.env.bak-…`, `compose.yaml.bak-…`)
+  is one more copy of the stack's settings in every backup; when a change by
+  hand needs one, it is deleted once the change has held. A copy of
+  `secrets/kek` is never kept there.
+- **Images.** Nothing is built on the host, so the images there are the ones
+  pulled by digest. Keep the ones production and the test bot run and the
+  previous release's for a rollback, and remove the rest. The
+  `framy:test-<commit>` images were built on the host before the release
+  workflow, and nothing mounts the Go caches `framy-live-gocache` and
+  `framy-live-gomod`.
+- **Volumes.** A volume nothing mounts is removed once whatever it held has
+  a home. `framy-test_pgdata` is the test bot's own database from before it
+  moved onto production's schema on 2 November; its rows were carried over,
+  so it holds people's data of that time and nothing else needs it.
+
+```sh
+ws04 docker -- images --format '{{.Repository}}:{{.Tag}} {{.Size}}' | grep framy
+ws04 docker -- volume ls --filter dangling=true --format '{{.Name}}' | grep framy
+```
 
 ### Checking what is running
 
 ```sh
 ws04 container list                    # health of everything
 ws04 logs framy-bot --since 1h
-ws04 container inspect framy-bot       # includes the image digest
+ws04 docker inspect -f '{{.Config.Image}} {{index .Config.Labels "org.opencontainers.image.version"}} {{index .Config.Labels "org.opencontainers.image.revision"}}' framy-bot
 ```
 
-The service reports its own version on `/healthz`. That and `docker inspect`
-should agree; if they do not, something was deployed by hand.
+The last line prints the digest the container runs, its version and its
+commit, and nothing else: a whole `inspect` prints the environment and the
+mounts too, which is more than a terminal or a transcript should hold.
+
+The metrics and the service's own account of its health answer inside the
+container only. The public `https://framy.ws04.cc/healthz` says just
+`{"ok":true}` or `{"ok":false}`; the one beside the metrics gives each part,
+the version and the commit, which should agree with the labels above. If they
+do not, something was deployed by hand.
+
+```sh
+ws04 container exec framy-bot -- wget -qO- http://127.0.0.1:9090/healthz
+ws04 container exec framy-bot -- wget -qO- http://127.0.0.1:9090/metrics
+```
 
 ## Verification
 
@@ -245,7 +360,8 @@ FRAMY_TEST_DATABASE_URL=postgres://framy:framy@localhost:5432/framy_test?sslmode
   go test -tags=integration -p 1 ./...
 ```
 
-CI additionally runs `go mod verify`, `govulncheck` and the Docker build.
+CI additionally runs `go mod verify`, `govulncheck`, the Docker build and a
+scan of the image's packages (below).
 
 For `beta`, `rc`, and stable, on the test bot: a free image on the site, in the
 Mini App and by `/img` on an album in a group; a run on a pasted key and one on

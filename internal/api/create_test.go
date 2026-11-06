@@ -40,13 +40,24 @@ func jobRig(t *testing.T, opts ...func(*rigOptions)) *rig {
 	return r
 }
 
+// body is a run as the site sends it. One on a key carries the price the
+// person saw, here more than any run of the tests costs (seenUSD), unless the
+// test gives its own.
 func body(offer, pay string, extra ...string) string {
 	s := fmt.Sprintf(`{"offer":%q,"pay":%q,"prompt":"a fox in the snow"`, offer, pay)
+	shown := false
 	for _, e := range extra {
 		s += "," + e
+		shown = shown || strings.Contains(e, `"shown_usd"`)
+	}
+	if pay == "key" && !shown {
+		s += `,"shown_usd":` + seenUSD
 	}
 	return s + "}"
 }
+
+// seenUSD is a price shown before a run of the tests: none costs more.
+const seenUSD = "100"
 
 func TestACreateRequestIsChecked(t *testing.T) {
 	r := jobRig(t)
@@ -87,6 +98,49 @@ func TestACreateRequestIsChecked(t *testing.T) {
 	}
 	if r.queue.calls() != 0 {
 		t.Errorf("a bad request reached the queue %d times", r.queue.calls())
+	}
+}
+
+// A key pasted into the prompt is refused before anything keeps it or sends
+// it on, and the answer names the settings it belongs in. The answer does
+// not repeat it.
+func TestAKeyInThePromptIsRefused(t *testing.T) {
+	r := jobRig(t)
+	openRouter := "sk-or-v1-" + strings.Repeat("0123456789abcdef", 4)
+	for _, c := range []struct{ prompt, provider string }{
+		{"a fox, my key " + openRouter, "openrouter"},
+		{"AIza" + strings.Repeat("Xy7_-Qw", 5), "gemini"},
+		{"sk-ant-api03-" + strings.Repeat("Ab1_", 10), ""},
+	} {
+		resp := r.post(alice, "/api/jobs", nextKey(), fmt.Sprintf(`{"offer":%q,"pay":"key","prompt":%q}`, testOffer, c.prompt))
+		m := jsonOf(t, resp)
+		if resp.StatusCode != http.StatusUnprocessableEntity || m["error"] != "key_in_prompt" || m["field"] != "prompt" {
+			t.Errorf("%q: %d %v", c.prompt, resp.StatusCode, m)
+		}
+		if got, _ := m["provider"].(string); got != c.provider {
+			t.Errorf("%q: provider %q, want %q", c.prompt, got, c.provider)
+		}
+		if msg, _ := m["message"].(string); strings.Contains(msg, "sk-") || strings.Contains(msg, "AIza") {
+			t.Errorf("the answer repeats the key: %q", msg)
+		}
+	}
+	// A frame of a press is checked as a job is.
+	resp := r.post(alice, "/api/batches", nextKey(), fmt.Sprintf(`{"prompt":%q,"frames":[{"offer":%q,"pay":"key"}]}`, "a fox "+openRouter, testOffer))
+	if m := jsonOf(t, resp); resp.StatusCode != http.StatusUnprocessableEntity || m["error"] != "key_in_prompt" {
+		t.Errorf("a press: %d %v", resp.StatusCode, m)
+	}
+	// What a video should leave out goes to the provider just as the prompt
+	// does: a key there is refused, and the answer names that setting.
+	resp = r.post(alice, "/api/jobs", nextKey(), fmt.Sprintf(`{"offer":%q,"pay":"key","prompt":"a fox","settings":{"negative_prompt":%q}}`, testOffer, "blur, "+openRouter))
+	if m := jsonOf(t, resp); resp.StatusCode != http.StatusUnprocessableEntity || m["error"] != "key_in_prompt" || m["field"] != "settings.negative_prompt" || m["provider"] != "openrouter" {
+		t.Errorf("a key in a setting: %d %v", resp.StatusCode, m)
+	}
+	// Prose that only looks like one at a glance runs.
+	if resp := r.post(alice, "/api/jobs", nextKey(), body(testOffer, "key")); resp.StatusCode != http.StatusAccepted {
+		t.Errorf("a plain prompt: %d %v", resp.StatusCode, jsonOf(t, resp))
+	}
+	if r.queue.calls() != 1 {
+		t.Errorf("the queue was called %d times, want 1", r.queue.calls())
 	}
 }
 
@@ -455,13 +509,31 @@ func TestAHigherPriceThanShownStopsTheRun(t *testing.T) {
 			t.Errorf("shown %s: %d %v", shown, code, m)
 		}
 	}
-	// No figure sent: no check, as before the composer.
-	if resp := r.post(alice, "/api/jobs", nextKey(), body(testOffer, "key")); resp.StatusCode != http.StatusAccepted {
-		t.Errorf("%d", resp.StatusCode)
+	// No figure sent: the person saw no price, so the run waits with it.
+	code, m = func() (int, map[string]any) {
+		resp := r.post(alice, "/api/jobs", nextKey(), `{"offer":"`+testOffer+`","pay":"key","prompt":"a fox in the snow"}`)
+		return resp.StatusCode, jsonOf(t, resp)
+	}()
+	if code != http.StatusConflict || m["error"] != codePriceChanged || r.queue.calls() != before+3 {
+		t.Errorf("no figure: %d %v", code, m)
+	} else if e := m["estimate"].(map[string]any); e["usd"] != 0.04 || e["label"] != "$0.04" {
+		t.Errorf("no figure: the price = %v", e)
 	}
-	// A free run costs the person nothing: what was shown is not checked.
+	// A run framy cannot price either has no figure to show, and goes without one.
+	unpriced := image("openrouter:test/unpriced", catalog.OpenRouter)
+	unpriced.Offers[0].Routes = nil
+	r.store.offers["openrouter:test/unpriced"] = unpriced
+	if resp := r.post(alice, "/api/jobs", nextKey(), `{"offer":"openrouter:test/unpriced","pay":"key","prompt":"a fox in the snow"}`); resp.StatusCode != http.StatusAccepted {
+		t.Errorf("unpriced: %d %v", resp.StatusCode, jsonOf(t, resp))
+	} else if k := r.queue.last().Estimate.Kind; k != price.Unknown {
+		t.Errorf("unpriced: priced as %s", k)
+	}
+	// A free run costs the person nothing: what was shown is not checked, and none is needed.
 	if resp := r.post(alice, "/api/jobs", nextKey(), body("openrouter:microsoft/mai-image-2.6-flash", "free", `"shown_usd":0`)); resp.StatusCode != http.StatusAccepted {
 		t.Errorf("free: %d", resp.StatusCode)
+	}
+	if resp := r.post(alice, "/api/jobs", nextKey(), body("openrouter:microsoft/mai-image-2.6-flash", "free")); resp.StatusCode != http.StatusAccepted {
+		t.Errorf("free without a price: %d", resp.StatusCode)
 	}
 	if resp := r.post(alice, "/api/jobs", nextKey(), body(testOffer, "key", `"shown_usd":-1`)); resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("a negative price: %d", resp.StatusCode)
@@ -548,6 +620,34 @@ func TestTheFilesOfARunAreChecked(t *testing.T) {
 	}
 	if r.queue.calls() != calls {
 		t.Errorf("a refused run reached the queue")
+	}
+}
+
+// A video from reference images goes at the one length the model makes those
+// at, priced at it; a run that asks for another is refused before the queue.
+func TestAVideoFromReferencesGoesAtItsLength(t *testing.T) {
+	r := jobRig(t)
+	r.conns.list = []keys.Connection{{Provider: catalog.OpenRouter, Status: keys.Valid}}
+	r.store.offers[veoOffer] = veo()
+	r.data.addAsset(alice, InputAsset{ID: 60, ContentType: "image/jpeg", Width: 1280, Height: 720})
+	r.data.addAsset(alice, InputAsset{ID: 61, ContentType: "image/jpeg", Width: 1280, Height: 720})
+
+	resp := r.post(alice, "/api/jobs", nextKey(), body(veoOffer, "key", `"inputs":[60,61]`))
+	n := r.queue.last()
+	if resp.StatusCode != http.StatusAccepted || n.Settings["duration"] != 8 || n.Estimate == nil || !near(n.Estimate.USD, 8*0.40) {
+		t.Fatalf("references with no length: %d %v %+v", resp.StatusCode, n.Settings, n.Estimate)
+	}
+	resp = r.post(alice, "/api/jobs", nextKey(), body(veoOffer, "key", `"inputs":[60]`, `"settings":{"frame_images":["first_frame"],"duration":4}`))
+	if resp.StatusCode != http.StatusAccepted || r.queue.last().Settings["duration"] != 4.0 {
+		t.Errorf("a start frame at 4 s: %d %v", resp.StatusCode, r.queue.last().Settings)
+	}
+	calls := r.queue.calls()
+	resp = r.post(alice, "/api/jobs", nextKey(), body(veoOffer, "key", `"inputs":[60,61]`, `"settings":{"duration":6}`))
+	if m := jsonOf(t, resp); resp.StatusCode != http.StatusUnprocessableEntity || m["error"] != "wrong_inputs" || !strings.Contains(fmt.Sprint(m["message"]), "8 s") {
+		t.Errorf("references at 6 s: %d %v", resp.StatusCode, m)
+	}
+	if r.queue.calls() != calls {
+		t.Error("a refused run reached the queue")
 	}
 }
 

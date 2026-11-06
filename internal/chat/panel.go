@@ -67,7 +67,9 @@ func viewFamily(hash string) view { return view{screen: screenFamily, fam: hash}
 
 // shownSettings are the settings the keyboard's panel offers, in its
 // order; the rest stay as the model has them. n is how many results, up to
-// maxResults. A rich preview offers settingsOf's.
+// maxResults, and only where they may be several (severalResults); it is
+// last, so leaving it out moves no other setting's index. A rich preview
+// offers settingsOf's.
 var shownSettings = []string{"aspect_ratio", "resolution", "quality", "size", "n"}
 
 const (
@@ -112,7 +114,7 @@ func (f *Flow) stateOf(ctx context.Context, run db.ChatRun) (state, error) {
 		return state{}, err
 	}
 	s := state{inputs: inputs}
-	s.id, s.model, s.offer = run.JobID, model, offer
+	s.id, s.model, s.offer, s.many = run.JobID, model, offer, severalResults(run)
 	s.settings = wholeNumbers(run.Settings)
 	s.taken, s.album, s.note = run.Taken, run.Album, run.Note
 	for _, a := range inputs {
@@ -204,6 +206,7 @@ func (f *Flow) choices(ctx context.Context, run db.ChatRun, current catalog.Offe
 	if err != nil {
 		return nil, err
 	}
+	left := f.freeLeft(ctx, run.UserID, catalog.Image)
 	order := append([]string{current.Provider}, providerOrder...)
 	rank := func(provider string) int {
 		if i := slices.Index(order, provider); i >= 0 {
@@ -220,7 +223,7 @@ func (f *Flow) choices(ctx context.Context, run db.ChatRun, current catalog.Offe
 		if !listed(m, catalog.Image, byID) || (!m.Free && !m.Featured) {
 			continue
 		}
-		if c, ok := freeChoice(m, run.Taken, have); ok {
+		if c, ok := freeChoice(m, run.Taken, have); ok && left {
 			out = append(out, c)
 			continue
 		}
@@ -248,6 +251,23 @@ func boolRank(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// freeLeft tells whether the person has a free run of kind left, which is
+// when a list says a free model is free: past it the model goes, and is
+// priced, as their key would run it. A meter that cannot be read says yes,
+// as the list did before; the free tier still checks the pick.
+func (f *Flow) freeLeft(ctx context.Context, user int64, kind catalog.Kind) bool {
+	u, err := f.cfg.Allowance.Usage(ctx, user)
+	if err != nil {
+		f.log.Warn("free usage unread", "user", user, "error", err)
+		return true
+	}
+	m := u.Images
+	if kind == catalog.Video {
+		m = u.Videos
+	}
+	return m.Limit == 0 || m.Left() > 0
 }
 
 // freeChoice is a free model on its plan, when the plan takes the photos.
@@ -284,8 +304,9 @@ type setting struct {
 
 // panelSettings are the settings of an offer the keyboard's panel offers,
 // numbered as its buttons carry them: a guest run's, and a preview sent as
-// a photo before previews were rich messages.
-func panelSettings(o catalog.Offer) []setting {
+// a photo before previews were rich messages. many: the run may make
+// several results, so n is offered.
+func panelSettings(o catalog.Offer, many bool) []setting {
 	var out []setting
 	for _, name := range shownSettings {
 		p, ok := o.Params[name]
@@ -297,10 +318,9 @@ func panelSettings(o catalog.Offer) []setting {
 		case catalog.Enum:
 			values = p.Values
 		case catalog.Range:
-			if name != "n" {
-				continue
+			if name == "n" && many {
+				values = results(o)
 			}
-			values = results(p)
 		}
 		if len(values) > 1 {
 			out = append(out, setting{name: name, values: values})
@@ -317,14 +337,14 @@ func (f *Flow) keyboardOf(ctx context.Context, run db.ChatRun, s state, v view) 
 		return f.modelKeyboard(ctx, run, s, v)
 	case screenSettings:
 		var rows [][]tg.InlineKeyboardButton
-		for pi, set := range panelSettings(s.offer) {
+		for _, set := range panelSettings(s.offer, s.many) {
 			rows = append(rows, []tg.InlineKeyboardButton{{Text: t(run.Lang, "set."+set.name), Disabled: &tg.DisabledButton{}}})
 			for vi, v := range set.values {
 				text := valueLabel(run.Lang, set.name, v)
 				if cur, ok := s.settings[set.name]; ok && sameSetting(cur, v) {
 					text = "✓ " + text
 				}
-				b := button(text, callback(run.JobID, actPickSetting+strconv.Itoa(pi)+"."+strconv.Itoa(vi)), "")
+				b := button(text, settingData(run.JobID, set.name, v), "")
 				if vi%perRow == 0 {
 					rows = append(rows, nil)
 				}
@@ -450,20 +470,24 @@ func (f *Flow) pickModel(ctx context.Context, cq *tg.CallbackQuery, run db.ChatR
 	}
 	switch {
 	case p.model.ID == s.model.ID:
-		_ = answer("")
-		return f.redrawAfter(ctx, run, on, viewMain)
+		if err := f.redrawAfter(ctx, run, cq.ID, on, viewMain); err != nil {
+			_ = f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, t(run.Lang, "run.not_redrawn"))
+			return err
+		}
+		return answer("")
 	case p.locked:
 		return f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, t(run.Lang, "panel.key_needed"))
 	case p.why != "":
 		return f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, p.why)
 	}
-	return f.revise(ctx, cq, run, on, p.model, p.offer, p.settings, p.free, viewMain)
+	return f.revise(ctx, cq, run, on, p.model, p.offer, p.settings, p.free, false, viewMain)
 }
 
-// carried are the settings that go to another model: those it takes.
+// carried are the settings that go to another model: those it takes. n
+// goes too, since a run that may not make several results has it at one.
 func carried(settings map[string]any, o catalog.Offer) map[string]any {
 	out := map[string]any{}
-	for _, set := range settingsOf(o) {
+	for _, set := range settingsOf(o, true) {
 		if v, ok := settings[set.name]; ok && slices.ContainsFunc(set.values, func(x any) bool { return sameSetting(x, v) }) {
 			out[set.name] = v
 		}
@@ -471,9 +495,10 @@ func carried(settings map[string]any, o catalog.Offer) map[string]any {
 	return out
 }
 
-// pickSetting changes one setting of a run on the person's key. A rich
-// preview names the setting, "aspect_ratio.2"; a keyboard's panel numbers
-// it as panelSettings lists them, "0.2".
+// pickSetting changes one setting of a run on the person's key. A press
+// whose value the model no longer offers, since the hourly sync changed its
+// list or another press its model, changes nothing: the settings are drawn
+// again as they are, with a line saying so.
 func (f *Flow) pickSetting(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun, on place, pick string) error {
 	answer := func(text string) error { return f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, text) }
 	if run.Stage != db.StagePreview || run.ClipFileID != "" {
@@ -482,37 +507,86 @@ func (f *Flow) pickSetting(ctx context.Context, cq *tg.CallbackQuery, run db.Cha
 	if run.Free {
 		return f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, t(run.Lang, "panel.free_fixed"))
 	}
-	ps, vs, ok := strings.Cut(pick, ".")
-	vi, err := strconv.Atoi(vs)
-	if !ok || err != nil {
-		return answer("")
-	}
 	model, offer, err := f.cfg.Store.Offer(ctx, run.OfferID)
 	if err != nil {
 		_ = answer("")
 		return err
 	}
-	sets := settingsOf(offer)
-	pi := slices.IndexFunc(sets, func(s setting) bool { return s.name == ps })
-	if n, err := strconv.Atoi(ps); err == nil {
-		sets, pi = panelSettings(offer), n
-	}
-	if pi < 0 || pi >= len(sets) || vi < 0 || vi >= len(sets[pi].values) {
+	name, v, ok := settingPick(offer, severalResults(run), pick)
+	if !ok && !strings.Contains(pick, "#") {
+		// An older button that numbers nothing the offer has: it cannot
+		// say which value it showed.
 		return answer("")
 	}
+	if !ok {
+		if err := f.redrawAfter(ctx, run, cq.ID, on, viewSettings); err != nil {
+			_ = f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, t(run.Lang, "run.not_redrawn"))
+			return err
+		}
+		return answer(t(run.Lang, "run.setting_gone"))
+	}
 	settings := wholeNumbers(run.Settings)
-	name, v := sets[pi].name, sets[pi].values[vi]
 	if cur, ok := settings[name]; ok && sameSetting(cur, v) {
 		return answer("")
 	}
 	settings[name] = v
-	return f.revise(ctx, cq, run, on, model, offer, settings, false, viewSettings)
+	return f.revise(ctx, cq, run, on, model, offer, settings, false, false, viewSettings)
+}
+
+// settingData is the data of a setting's button: the setting's name and a
+// hash of the value, "aspect_ratio#1a2b3c4d". A position in the list would
+// be shorter, but the hourly sync may add a value before it while the
+// preview is up, and the press would then pick the button's neighbour.
+func settingData(jobID int64, name string, v any) string {
+	return callback(jobID, actPickSetting+name+"#"+valueHash(v))
+}
+
+func valueHash(v any) string { return modelHash("value:" + fmt.Sprint(v)) }
+
+// settingPick reads the data of a setting's button against the offer as it
+// is now: the setting and its value, or ok false when the offer no longer
+// has them. Buttons sent before settingData number the value as the list
+// had it when they were drawn, a rich preview's "aspect_ratio.2" and a
+// keyboard panel's "0.2" (its setting numbered as panelSettings lists
+// them), and are read as they always were.
+func settingPick(o catalog.Offer, many bool, pick string) (name string, v any, ok bool) {
+	if ps, h, found := strings.Cut(pick, "#"); found {
+		for _, sets := range [][]setting{settingsOf(o, many), panelSettings(o, many)} {
+			for _, set := range sets {
+				if set.name != ps {
+					continue
+				}
+				if i := slices.IndexFunc(set.values, func(x any) bool { return valueHash(x) == h }); i >= 0 {
+					return ps, set.values[i], true
+				}
+			}
+		}
+		return "", nil, false
+	}
+	ps, vs, found := strings.Cut(pick, ".")
+	vi, err := strconv.Atoi(vs)
+	if !found || err != nil {
+		return "", nil, false
+	}
+	sets := settingsOf(o, many)
+	pi := slices.IndexFunc(sets, func(s setting) bool { return s.name == ps })
+	if n, err := strconv.Atoi(ps); err == nil {
+		sets, pi = panelSettings(o, many), n
+	}
+	if pi < 0 || pi >= len(sets) || vi < 0 || vi >= len(sets[pi].values) {
+		return "", nil, false
+	}
+	return sets[pi].name, sets[pi].values[vi], true
 }
 
 // revise moves the draft to the offer and settings given, on the free tier
 // when free says so and the tier allows it, on the person's key otherwise,
-// and draws the card again.
-func (f *Flow) revise(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun, on place, model catalog.Model, offer catalog.Offer, settings map[string]any, onFree bool, v view) error {
+// and draws the card again. With anyKey, a free run the tier refuses and no
+// key of the model's provider runs goes on a model of its kind that another
+// key of the person's runs (keyEntry), as a command's would: Make a video
+// and Make an image ask for a kind, not for the free model. A pick of the
+// free model itself is told why it cannot run instead.
+func (f *Flow) revise(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun, on place, model catalog.Model, offer catalog.Offer, settings map[string]any, onFree, anyKey bool, v view) error {
 	inputs, err := f.cfg.Files.JobInputs(ctx, run.JobID)
 	if err != nil {
 		_ = f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, "")
@@ -539,6 +613,21 @@ func (f *Flow) revise(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun,
 			_ = f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, "")
 			return kerr
 		}
+		if !has && anyKey {
+			d := draft{model: model, offer: offer, pay: payFree, settings: settings, taken: run.Taken, quote: q, many: severalResults(run)}
+			for _, a := range inputs {
+				d.images = append(d.images, price.Image{Width: a.Width, Height: a.Height})
+			}
+			e, ok, kerr := f.keyEntry(ctx, run.UserID, run.Lang, run.Prompt, d)
+			if kerr != nil {
+				_ = f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, "")
+				return kerr
+			}
+			if ok {
+				est = e.estimate
+				n.Offer, n.Settings, has = e.offer, e.settings, true
+			}
+		}
 		if !has {
 			text := closedText(run.Lang, offer.Kind)
 			if limit != nil {
@@ -551,29 +640,112 @@ func (f *Flow) revise(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun,
 	}
 	switch {
 	case errors.Is(err, jobs.ErrNotDraft):
-		_ = f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, t(run.Lang, "run.expired"))
+		_ = f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, expiredText(run))
 		f.close(ctx, run, db.StagePreview)
 		return nil
 	case err != nil:
 		_ = f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, "")
 		return err
 	}
+	// The press is answered once the card is drawn: until then it lets
+	// framy send the requester a preview of their own (resendRich).
+	if err := f.redrawAfter(ctx, run, cq.ID, on, v); err != nil {
+		text := "run.not_redrawn"
+		if !f.putBack(ctx, run, on, v, inputs, false, err) {
+			text = "run.expired"
+		}
+		_ = f.cfg.Telegram.AnswerCallbackQueryAlert(ctx, cq.ID, t(run.Lang, text))
+		return err
+	}
 	_ = f.cfg.Telegram.AnswerCallbackQuery(ctx, cq.ID, "")
-	return f.redrawAfter(ctx, run, on, v)
+	return nil
 }
 
-// redrawAfter reads the run again after a change and draws its card.
-func (f *Flow) redrawAfter(ctx context.Context, run db.ChatRun, on place, v view) error {
+// unsure is an edit of a message in place that failed with no answer from
+// Telegram, the connection lost or the time up: the edit may have reached
+// it, and the message may show the new card after all. A refusal changed
+// nothing.
+type unsure struct{ error }
+
+func (u unsure) Unwrap() error { return u.error }
+
+// editFailed marks err, the failure of an edit in place, unsure unless
+// Telegram refused the edit.
+func editFailed(err error) error {
+	if refused(err) {
+		return err
+	}
+	return unsure{err}
+}
+
+// putBack returns the draft to what the run's card still shows, when the
+// card could not be drawn after a change: run is the run as it was before
+// it, pressed on in the view v, inputs its files, which go back too when
+// files says so, and cause why the card was not drawn. Generate runs the
+// draft as it is, so a draft the card does not show would run a model,
+// settings or a price the requester never saw. When the edit may have
+// reached Telegram, the card is drawn once more from the draft put back, so
+// that the message shows it whichever way the edit went. A draft that will
+// not go back is cancelled and its preview closed, since what it shows can
+// no longer run; putBack tells whether the draft went back.
+func (f *Flow) putBack(ctx context.Context, run db.ChatRun, on place, v view, inputs []storage.Asset, files bool, cause error) bool {
+	ctx, done := detach(ctx)
+	defer done()
+	err := func() error {
+		model, offer, err := f.cfg.Store.Offer(ctx, run.OfferID)
+		if err != nil {
+			return err
+		}
+		settings := wholeNumbers(run.Settings)
+		est := price.Of(model, offer, requestOf(run.Prompt, settings, inputs))
+		n := jobs.New{UserID: run.UserID, Offer: offer, Prompt: run.Prompt, Settings: settings, Free: run.Free, Estimate: &est}
+		if files {
+			for _, a := range inputs {
+				n.Inputs = append(n.Inputs, a.ID)
+			}
+		}
+		q, err := f.quote(ctx, run.UserID, run.Lang)
+		if err != nil {
+			return err
+		}
+		if q.Code != fx.USD {
+			n.FX = &q
+		}
+		if err := f.cfg.Queue.Revise(ctx, run.JobID, n); err != nil {
+			return err
+		}
+		if files {
+			return f.cfg.Store.SetChatRunNote(ctx, run.JobID, run.Note)
+		}
+		return nil
+	}()
+	if err != nil {
+		f.log.Warn("draft not put back as its card shows it; cancelled", "job", run.JobID, "error", err)
+		f.cancel(ctx, run.JobID)
+		f.close(ctx, run, db.StagePreview)
+		return false
+	}
+	if errors.As(cause, new(unsure)) {
+		if err := f.redrawAfter(ctx, run, "", on, v); err != nil {
+			f.log.Warn("card not drawn again after the draft went back", "job", run.JobID, "error", err)
+		}
+	}
+	return true
+}
+
+// redrawAfter reads the run again after a change and draws its card, for
+// the press given.
+func (f *Flow) redrawAfter(ctx context.Context, run db.ChatRun, press string, on place, v view) error {
 	fresh, err := f.cfg.Store.ChatRun(ctx, run.JobID)
 	if err != nil {
 		return err
 	}
-	return f.redraw(ctx, fresh, on, v)
+	return f.redraw(ctx, fresh, press, on, v)
 }
 
 // redraw draws the run's card again from its files and puts it on the
 // preview and on the panel.
-func (f *Flow) redraw(ctx context.Context, run db.ChatRun, on place, v view) error {
+func (f *Flow) redraw(ctx context.Context, run db.ChatRun, press string, on place, v view) error {
 	s, err := f.stateOf(ctx, run)
 	if err != nil {
 		return err
@@ -586,7 +758,7 @@ func (f *Flow) redraw(ctx context.Context, run db.ChatRun, on place, v view) err
 		}
 		err = f.guestCard(ctx, run, previewCaption(run.Lang, run.Prompt, s.draft, labelDrawn(previewCard(run.Lang, s.draft))), kb)
 		if err != nil && !tg.IsMessageNotModified(err) {
-			return fmt.Errorf("guest card not redrawn: %w", err)
+			return fmt.Errorf("guest card not redrawn: %w", editFailed(err))
 		}
 		return nil
 	}
@@ -599,7 +771,7 @@ func (f *Flow) redraw(ctx context.Context, run db.ChatRun, on place, v view) err
 	if err != nil {
 		return err
 	}
-	return f.drawCard(ctx, run, on, v, s, dir, paths)
+	return f.drawCard(ctx, run, press, on, v, s, dir, paths)
 }
 
 // cardPictures reads what the card holds into dir: the run's photos, or
@@ -628,9 +800,9 @@ func (f *Flow) cardPictures(ctx context.Context, dir string, s state) ([]string,
 // the preview: a rich one (drawRich), or one sent as a photo and its panel.
 // The chat's photo preview keeps its main keyboard while the requester has
 // a panel; the message pressed gets the view's.
-func (f *Flow) drawCard(ctx context.Context, run db.ChatRun, on place, v view, s state, dir string, paths []string) error {
+func (f *Flow) drawCard(ctx context.Context, run db.ChatRun, press string, on place, v view, s state, dir string, paths []string) error {
 	if on != onPhoto && on != onPanel {
-		return f.drawRich(ctx, run, v, s, dir, paths)
+		return f.drawRich(ctx, run, press, v, s, dir, paths)
 	}
 	kb, err := f.keyboardOf(ctx, run, s, v)
 	if err != nil {
@@ -649,7 +821,7 @@ func (f *Flow) drawCard(ctx context.Context, run db.ChatRun, on place, v view, s
 		}
 		msg, err := f.edit(ctx, run.ChatID, run.PreviewMessageID, pic, caption, public)
 		if err != nil && !tg.IsMessageNotModified(err) {
-			return fmt.Errorf("preview not redrawn: %w", err)
+			return fmt.Errorf("preview not redrawn: %w", editFailed(err))
 		}
 		fileID = fileIDOf(msg)
 	}
@@ -665,7 +837,7 @@ func (f *Flow) drawCard(ctx context.Context, run db.ChatRun, on place, v view, s
 	}
 	err = f.editEphemeralPicture(ctx, run, target, pic, fileID, caption, kb)
 	if err != nil && !tg.IsMessageNotModified(err) {
-		return fmt.Errorf("ephemeral card not redrawn: %w", err)
+		return fmt.Errorf("ephemeral card not redrawn: %w", editFailed(err))
 	}
 	return nil
 }

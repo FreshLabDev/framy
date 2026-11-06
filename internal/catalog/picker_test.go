@@ -47,7 +47,7 @@ func TestThePickerArrangesTheCatalog(t *testing.T) {
 		"google/gemini-3.1-flash-image":     "google/gemini-nano-banana-2.1",
 		"recraft/recraft-v4-pro-vector":     "recraft/recraft-v4.1-pro-vector",
 		// A plain variant gives way to the newest of any tier.
-		"openai/gpt-image-2":      "openai/gpt-image-2.5-sunburst",
+		"openai/gpt-image-2":      "openai/gpt-image-2.6-sunburst",
 		"recraft/recraft-v3":      "recraft/recraft-v4.1",
 		"microsoft/mai-image-2.5": "microsoft/mai-image-2.6",
 		"alibaba/wan-2.6":         "alibaba/wan-3.0",
@@ -66,7 +66,7 @@ func TestThePickerArrangesTheCatalog(t *testing.T) {
 	for _, id := range []string{
 		"google/gemini-3-pro-image", "google/gemini-3.1-flash-lite-image", "black-forest-labs/flux.2-pro",
 		"recraft/recraft-v4-styles", "bytedance/seedance-2.0", "qwen/qwen-image-2.1-pro",
-		"x-ai/grok-imagine-video",
+		"x-ai/grok-imagine-video", "openai/gpt-image-2.5-sunburst", "openai/gpt-image-2.5-flare",
 	} {
 		if by := family(id).OutdatedBy; by != "" {
 			t.Errorf("%s is outdated by %s", id, by)
@@ -76,6 +76,8 @@ func TestThePickerArrangesTheCatalog(t *testing.T) {
 		"flux": "black-forest-labs/flux-3-image", "recraft": "recraft/recraft-v4.1", "mai": "microsoft/mai-image-2.6",
 		"wan": "alibaba/wan-3.0", "seedance": "bytedance/seedance-2.5", "krea-2": "krea/krea-2-medium",
 		"grok-image": "x-ai/grok-imagine-image-2.0",
+		// 2.6 is not featured yet: the row opens on 2.5.
+		"gpt-image": "openai/gpt-image-2.5-sunburst",
 	} {
 		var defaults []string
 		for _, id := range row(fam) {
@@ -213,6 +215,31 @@ func TestEveryNoteNamesAModel(t *testing.T) {
 			if _, known := models[id]; !known {
 				t.Errorf("%s names no model of the overlay", k)
 			}
+		}
+	}
+}
+
+// A note is read only beside a variant in its family's row: in the picker's
+// list of the current variants and under the composer's card. So every
+// current variant of a row has one, and an outdated variant, which shows what
+// replaced it, a model alone in its family and a hidden one have none: that
+// would be a line in 16 languages nobody reads.
+func TestEveryVariantInARowHasANote(t *testing.T) {
+	snap := Build(fixtureUpstream(t), embeddedFiles(t), fixtureDay)
+	inRow := func(m Model) bool { return m.Traits.Family != nil && shown(m) && m.Traits.FastOf == "" }
+	size := map[string]int{}
+	for _, m := range snap.Models {
+		if inRow(m) {
+			size[m.Traits.Family.ID]++
+		}
+	}
+	for _, m := range snap.Models {
+		read := inRow(m) && m.Traits.Family.OutdatedBy == "" && size[m.Traits.Family.ID] > 1
+		switch has := i18n.Has("note." + m.ID); {
+		case read && !has:
+			t.Errorf("%s has no note, and its row %s shows one beside it", m.ID, m.Traits.Family.ID)
+		case !read && has:
+			t.Errorf("note.%s is never shown", m.ID)
 		}
 	}
 }

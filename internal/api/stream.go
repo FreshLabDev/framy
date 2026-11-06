@@ -158,6 +158,9 @@ func (a *API) events(w http.ResponseWriter, r *http.Request) {
 			// to hear one the notices missed.
 			quiet = true
 		}
+		if !a.stillSignedIn(r, user) {
+			return
+		}
 		st, err := a.data.State(ctx, user, id)
 		switch {
 		case errors.Is(err, ErrNotFound):
@@ -184,6 +187,22 @@ func (a *API) events(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+// stillSignedIn says the session that opened a stream is still the
+// person's. A stream outlives its request's first look: signing out, here or
+// everywhere, and the end of a Mini App token end it at its next wake or
+// ping, and the client's reconnect is then answered 401. Sign-in remembers a
+// session for half a minute at most, and forgets it at once when it ends in
+// this process, so this is a map lookup on most wakes. A lookup that failed
+// keeps the stream: the next one decides.
+func (a *API) stillSignedIn(r *http.Request, user int64) bool {
+	id, ok, err := a.cfg.Person(r)
+	if err != nil {
+		a.log.Warn("look up the person of a stream", "error", err)
+		return true
+	}
+	return ok && id == user
 }
 
 // frame is one event: the state, with its seq as the id.

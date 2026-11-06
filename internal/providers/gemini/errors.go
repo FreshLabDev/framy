@@ -2,6 +2,7 @@
 package gemini
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -64,6 +65,9 @@ func (e *KeyError) Error() string {
 // KeyStatus is the status the answer proved, or "".
 func (e *KeyError) KeyStatus() string { return e.Status }
 
+// Said is Google's words about the key, for the person.
+func (e *KeyError) Said() string { return e.Message }
+
 // KeyStatusOf returns the key status an error from this adapter proved:
 // needs_billing, no_credits or invalid; "" for any other error.
 func KeyStatusOf(err error) string {
@@ -108,6 +112,12 @@ const (
 	// 2,000 characters of error.
 	maxText = 1000
 )
+
+// Said is what a person should read of the refusal, in Google's or the
+// model's words and without framy's line around them: what the model said
+// in place of the picture or the video, else Google's explanation of the
+// block. It is empty when Google gave only its code.
+func (r *Refusal) Said() string { return cmp.Or(r.Text, r.Message) }
 
 func (r *Refusal) Error() string {
 	var b strings.Builder
@@ -187,10 +197,19 @@ type APIError struct {
 	QuotaZero bool
 	// RetryDelay is Google's own wait, from RetryInfo or the message.
 	RetryDelay time.Duration
+	// noBody: the answer had no error of Google's, and Message is the
+	// status's name, such as a proxy's page for a 502.
+	noBody bool
 }
 
-// Said is Google's words, for the person.
-func (e *APIError) Said() string { return e.Message }
+// Said is Google's words, for the person: none when the answer was not
+// Google's, since the status's name is framy's.
+func (e *APIError) Said() string {
+	if e.noBody {
+		return ""
+	}
+	return e.Message
+}
 
 func (e *APIError) Error() string {
 	var b strings.Builder
@@ -293,6 +312,10 @@ func clip(s string) string {
 // Please enable billing on your project".
 var billingWords = regexp.MustCompile(`(?i)enable billing|billing (is )?(not (enabled|set up)|disabled)|disabled billing`)
 
+// locationWords are what a 400 failed_precondition says when Google does not
+// serve the country the request came from: framy's server, not the person.
+var locationWords = regexp.MustCompile(`(?i)\blocation is not supported\b`)
+
 // prepayDepleted is the message of a project whose prepaid balance is spent.
 var prepayDepleted = regexp.MustCompile(`(?i)prepa(y|id|yment)[^.]*(depleted|exhausted|insufficient)`)
 
@@ -301,8 +324,9 @@ var keyWords = regexp.MustCompile(`(?i)api key (not valid|expired|invalid)|api_k
 
 // classify turns the error into what the queue does with it. Only a refusal
 // before the run started is tried again: a 429 that is a wait, a service
-// that is down or overloaded. A 500 is not: nobody can tell whether the run
-// was paid.
+// that is down or overloaded (503). A 500 is not, nor a 502, which Google
+// does not list and a proxy in between gives after the request reached
+// it: nobody can tell whether the run was paid.
 func (e *APIError) classify() *jobs.Error {
 	reason := strings.ToUpper(e.Code)
 	switch s := e.Status; {
@@ -321,10 +345,14 @@ func (e *APIError) classify() *jobs.Error {
 		return e.keyError(jobs.Key, StatusInvalid)
 	case s == http.StatusBadRequest && (e.Code == "failed_precondition" || e.Code == "") && billingWords.MatchString(e.Message):
 		return e.keyError(jobs.Key, StatusNeedsBilling)
+	case s == http.StatusBadRequest && locationWords.MatchString(e.Message):
+		// Google serves the country of framy's server no more: the key is
+		// fine, and no run on it can go until the server's address changes.
+		return &jobs.Error{Class: jobs.Region, Err: e}
 	case s == http.StatusForbidden:
 		// A restricted key, or an API that is off in the project.
 		return e.keyError(jobs.Key, "")
-	case s == http.StatusBadGateway || s == http.StatusServiceUnavailable || s == 529 || e.Code == "service_unavailable":
+	case s == http.StatusServiceUnavailable || s == 529 || e.Code == "service_unavailable":
 		return &jobs.Error{Class: jobs.Unavailable, RetryAfter: e.RetryDelay, Err: e}
 	case s == http.StatusRequestTimeout || s == http.StatusGatewayTimeout || s == 524 || e.Code == "deadline_exceeded":
 		// The run may go on, and be paid, after the answer gave up.
@@ -358,7 +386,7 @@ func statusError(status int, h http.Header, data []byte, key string) *jobs.Error
 		e.fill(env.Error, key)
 	} else {
 		// Not Google's body, such as a proxy's page for a 502.
-		e.Message = http.StatusText(status)
+		e.Message, e.noBody = http.StatusText(status), true
 	}
 	if e.Code == "" {
 		// "Any error code not listed falls back to the snake_case version of

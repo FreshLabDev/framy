@@ -75,7 +75,7 @@ func reply(t *testing.T, m *tg.Message, raw string) *tg.Message {
 // buttons is a result to change, and another bot's open message is not
 // framy's to hint at.
 func TestAReplyToAnOpenAnswerGetsAHint(t *testing.T) {
-	kb := `"reply_markup":{"inline_keyboard":[[{"text":"Generate","callback_data":"j:1:go"}]]}`
+	kb := `"reply_markup":{"inline_keyboard":[[{"text":"Create","callback_data":"j:1:go"}]]}`
 	self := strconv.FormatInt(selfID, 10)
 	for _, tc := range []struct {
 		name, raw string

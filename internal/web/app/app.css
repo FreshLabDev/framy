@@ -4,8 +4,11 @@
    opacity only, done in JavaScript; here are only colour changes on hover. */
 @import "./fonts.css";
 
-:root {--field: #00606E; --deep: #00454F; --line: #0B7280; --ink: #FFFFFF; --soft: #D9E7E9; --muted: #A9C9CE;
+:root {--field: #00606E; --deep: #00454F; --line: #0B7280; --ink: #FFFFFF; --soft: #D9E7E9; --muted: #B8D4D8;
   --gap: 2px; --row: 46px;
+  /* The rhythm of motion: the same values as DUR and SPRING in src/motion.js (a test keeps them together). */
+  --dur-xs: 150ms; --dur-s: 240ms; --dur-m: 340ms; --dur-l: 440ms;
+  --spring: cubic-bezier(.34,1.42,.55,1);
   --display: "Sofia Sans Extra Condensed", "Arial Narrow", sans-serif;
   --text: "Sofia Sans", system-ui, sans-serif;
   color-scheme: dark;}
@@ -20,6 +23,9 @@ p {margin: 0;}
 :focus-visible {outline: 2px solid var(--ink); outline-offset: 2px;}
 .wrap {max-width: 1240px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));}
 .ic {width: 16px; height: 16px; fill: currentColor; flex: none;}
+/* Arabic reads from the right: an arrow that points onward, back or out turns with the page.
+   Telegram's plane is Telegram's mark and keeps its way. */
+[dir="rtl"] .ic:is(.chev:not(.chevd), .chevl, .out) {transform: scaleX(-1);}
 .sr {position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;}
 .lg {flex: none; width: 44px; height: 44px; display: grid; place-items: center; background: var(--field); color: var(--ink); font: 700 19px/1 var(--display); letter-spacing: .02em;}
 .lg > i, .lgi {display: block; background: currentColor; -webkit-mask: var(--m) center / contain no-repeat; mask: var(--m) center / contain no-repeat;}
@@ -37,9 +43,9 @@ p {margin: 0;}
 .seg > button .row {display: flex; align-items: center; gap: 8px;}
 .seg > button small {font-size: 13px; font-weight: 500; color: var(--muted); white-space: nowrap;}
 .seg > button.off {color: var(--muted);}
-.seg > button.gap {background: transparent; outline: 1px dashed rgba(169, 201, 206, .5); outline-offset: -1px; color: var(--muted); font-weight: 500;}
+.seg > button.gap {background: transparent; outline: 1px dashed rgba(184, 212, 216, .5); outline-offset: -1px; color: var(--muted); font-weight: 500;}
 .seg > button.gap small {font-size: 11px;}
-.rt.gap {background: transparent; outline: 1px dashed rgba(169, 201, 206, .5); outline-offset: -1px; color: var(--muted);}
+.rt.gap {background: transparent; outline: 1px dashed rgba(184, 212, 216, .5); outline-offset: -1px; color: var(--muted);}
 .rt.gap .shp {border-style: dashed;}
 .seg > button:disabled {opacity: .35;}
 .seg.wrapping {flex-wrap: wrap;}
@@ -51,13 +57,29 @@ p {margin: 0;}
 .mirror > * {background: transparent !important; color: var(--field) !important; opacity: 1 !important;}
 .mirror small, .mirror .n, .mirror .k2 {color: var(--line) !important;}
 .top {display: flex; align-items: center; gap: 12px; height: 68px;}
-.logo {display: flex; align-items: baseline; gap: 8px; font: 700 34px/1 var(--display); margin-right: 8px;}
+.logo {display: flex; align-items: baseline; gap: 8px; font: 700 34px/1 var(--display); color: inherit; text-decoration: none;}
+#app:not([data-surface="mini"]) .logo + .tabs {margin-inline-start: 8px;}
 .logo img {width: 32px; height: 32px;}
-.me {height: 40px; padding: 0 12px 0 6px; display: flex; align-items: center; gap: 8px; background: var(--deep); font-weight: 600;}
+.me {height: 40px; padding: 0; padding-inline: 6px 12px; display: flex; align-items: center; gap: 8px; background: var(--deep); font-weight: 600;}
 .me .av {width: 28px; height: 28px; display: grid; place-items: center; background: var(--ink); color: var(--field); font-weight: 700;}
 .signin {height: 40px; min-width: 0; padding: 0 14px; display: flex; align-items: center; gap: 8px; background: var(--ink); color: var(--field); font-weight: 700;}
 .signin > span {white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+.signin > .ts {display: none;}
+/* The language of a visitor not signed in (main.js, guestLang): its code over a select that covers it,
+   so the list is the system's own, a wheel on a phone. */
+.glang {position: relative; height: 40px; min-width: 44px; padding: 0 8px; display: flex; align-items: center; justify-content: center; gap: 4px; color: var(--soft); font-size: 14px; font-weight: 700;}
+.glang .ic {width: 10px; height: 10px;}
+.glang select {position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; font-size: 16px; cursor: pointer;}
+.glang:has(select:focus-visible) {outline: 2px solid var(--ink); outline-offset: 2px;}
+@media (hover: hover) {.glang:hover {background-color: var(--line); color: var(--ink);}}
+/* "Sign in with Telegram" does not fit beside the name on a phone, in English neither: there the
+   button says "Sign in" by Telegram's plane, and under 360 px the name gives way to the mark. */
+@media (max-width: 479px) {.signin > .t {display: none;} .signin > .ts {display: block;}}
 @media (max-width: 359px) {.top:has(.signin) .logo span {display: none;}}
+/* With the language beside it the line is tight up to 400 px: Catalan's "Inicia la sessió" needs
+   the room the gaps give up, and Arabic's "تسجيل الدخول" the room the free space and the gap beside
+   it leave, in the wider faces of Android (Noto Sans Arabic, 104 px) and Linux (DejaVu Sans, 114 px). */
+@media (max-width: 399px) {.top:has(.glang) {gap: 8px;} .top .signin {padding: 0 12px; gap: 6px;}}
 @media (max-width: 520px) {
   .me .t {display: none;}
 }
@@ -66,7 +88,9 @@ main.create {display: grid; grid-template-columns: minmax(0, 1fr); gap: 40px; pa
   main.create {grid-template-columns: 460px minmax(0, 1fr); gap: 56px; align-items: start; padding-bottom: 56px;}
 }
 .composer {display: grid; gap: 14px; position: relative;}
-.composer::after {content: attr(data-drop); position: absolute; inset: -8px; display: grid; place-items: center; background: rgba(0, 69, 79, .94); outline: 2px dashed var(--ink); font-size: 18px; font-weight: 600; opacity: 0; pointer-events: none; transition: opacity .18s;}
+/* What the drop is for shows while files are dragged over the page; a screen reader does not read it as
+   a line of the form after Create. */
+.composer::after {content: attr(data-drop); content: attr(data-drop) / ""; position: absolute; inset: -8px; display: grid; place-items: center; background: rgba(0, 69, 79, .94); outline: 2px dashed var(--ink); font-size: 18px; font-weight: 600; opacity: 0; pointer-events: none; transition: opacity var(--dur-xs);}
 .composer.drag::after {opacity: 1;}
 .seg.kind > button {flex-direction: row; gap: 8px; min-height: 42px; font-size: 15px;}
 textarea#prompt {display: block; width: 100%; min-height: 88px; padding: 14px 16px; background: var(--deep); resize: none; overflow: hidden; font-size: 20px; line-height: 1.3;}
@@ -81,16 +105,18 @@ textarea#prompt::placeholder {color: var(--muted);}
   .composer .files.nofiles {display: none;}
 }
 .files {position: relative; display: flex; flex-wrap: wrap; gap: 6px; align-items: center;}
+.ftiles {display: contents;}
 .thumb {position: relative; width: 64px; height: 64px; background: var(--deep);}
 .thumb img, .thumb canvas, .thumb video {display: block; width: 100%; height: 100%; object-fit: cover;}
 .thumb.off > :first-child {opacity: .3;}
-.thumb .tag {position: absolute; left: 0; bottom: 0; padding: 1px 4px; background: var(--deep); font-size: 11px; display: flex; gap: 3px; align-items: center;}
+.thumb .tag {position: absolute; inset-inline-start: 0; bottom: 0; padding: 1px 4px; background: var(--deep); font-size: 11px; display: flex; gap: 3px; align-items: center;}
 .thumb .tag .ic {width: 10px; height: 10px;}
-.thumb .rm {position: absolute; right: 0; top: 0; width: 22px; height: 22px; display: grid; place-items: center; background: var(--deep);}
+.thumb .rm {position: absolute; inset-inline-end: 0; top: 0; width: 22px; height: 22px; display: grid; place-items: center; background: var(--deep);}
 .thumb .rm .ic {width: 10px; height: 10px;}
-.addfile {width: 64px; height: 64px; background: var(--deep); font-size: 12px; color: var(--soft); display: grid; place-items: center; align-content: center; gap: 3px;}
+/* As wide as its word needs, never narrower than a thumbnail: "Hinzufügen" stays inside its tile. */
+.addfile {min-width: 64px; height: 64px; padding: 0 6px; background: var(--deep); font-size: 12px; color: var(--soft); display: grid; place-items: center; align-content: center; gap: 3px; white-space: nowrap;}
 .addfile .ic {width: 18px; height: 18px; color: var(--ink);}
-.files:has(> .fgroup) {align-items: flex-end; column-gap: 16px; row-gap: 10px;}
+.files:has(.fgroup) {align-items: flex-end; column-gap: 16px; row-gap: 10px;}
 .fgroup {display: flex; flex-direction: column; gap: 5px; min-width: 0;}
 .fgroup > .gl {align-self: flex-start; font-size: 12px; line-height: 14px; color: var(--muted); white-space: nowrap;}
 .fgroup > .gt {display: flex; flex-wrap: wrap; gap: 6px; align-items: center;}
@@ -98,22 +124,30 @@ textarea#prompt::placeholder {color: var(--muted);}
 /* A video's slots: Start, End, References. A slot under a dragged file is outlined. */
 .fgroup.slot.over > .gt {outline: 2px solid var(--ink); outline-offset: 2px;}
 .sec .picks {font-size: 14px; color: var(--soft);}
-.fhint {flex: 1 1 180px; min-width: 0; padding-left: 8px; font-size: 14px; color: var(--muted); line-height: 1.35;}
+/* A seed and what to leave out: typed, on the ground of the prompt. */
+.ofield {display: grid; gap: 6px;}
+.ofield :is(input, textarea) {width: 100%; min-width: 0; padding: 10px 12px; background: var(--deep); color: var(--ink); line-height: 1.35;}
+.ofield input {height: 40px; padding-block: 0; font-variant-numeric: tabular-nums;}
+.ofield.seed input {max-width: 16ch;}
+.ofield textarea {resize: vertical; min-height: 64px;}
+.ofield :is(input, textarea)::placeholder {color: var(--muted);}
+.ofield small {font-size: 13px; color: var(--muted); line-height: 1.35;}
+.fhint {flex: 1 1 180px; min-width: 0; padding-inline-start: 8px; font-size: 14px; color: var(--muted); line-height: 1.35;}
 .fhint b {color: var(--ink); font-weight: 600;}
 .how {position: relative; display: grid; align-content: start; gap: 22px; padding-top: 14px;}
 .sec {display: grid; gap: 8px;}
 .lab {display: flex; align-items: baseline; gap: 8px; font-size: 14px; font-weight: 500; color: var(--muted);}
 .lab .ic {width: 14px; height: 14px; align-self: center;}
-.labr {margin-left: auto; display: flex; align-items: center; gap: 8px;}
+.labr {margin-inline-start: auto; display: flex; align-items: center; gap: 8px;}
 .labr .right {font-weight: 400; color: var(--soft);}
 .ownmark {display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; background: var(--ink); color: var(--field); font-size: 12px; font-weight: 700;}
 .ownmark .ic {width: 10px; height: 10px;}
 .mcard {display: grid; background: var(--deep);}
-.mhead {display: flex; align-items: center; gap: 14px; width: 100%; padding: 14px; text-align: left;}
+.mhead {display: flex; align-items: center; gap: 14px; width: 100%; padding: 14px; text-align: start;}
 .mhead .txt {flex: 1; min-width: 0; display: grid; gap: 5px;}
 .mname {position: relative; overflow: hidden; font-size: 20px; font-weight: 700; line-height: 1.2;}
 .mname > span {display: block;}
-.mname > .out {position: absolute; left: 0; top: 0;}
+.mname > .out {position: absolute; inset-inline-start: 0; top: 0;}
 .mname.rolling {-webkit-mask-image: linear-gradient(to bottom, transparent, #000 22%, #000 78%, transparent); mask-image: linear-gradient(to bottom, transparent, #000 22%, #000 78%, transparent);}
 .mhead > .ic {color: var(--muted);}
 .facts {display: flex; flex-wrap: wrap; gap: 3px 14px; font-size: 14px; color: var(--soft);}
@@ -130,35 +164,41 @@ textarea#prompt::placeholder {color: var(--muted);}
 .axis > .k {font-size: 13px; color: var(--muted);}
 .axis .seg > button {min-height: 44px; font-size: 14px; padding-inline: 6px;}
 .pay1 {display: flex; align-items: center; gap: 10px; min-height: var(--row); padding: 0 14px; background: var(--deep); font-weight: 600;}
-.pay1 small {margin-left: auto; color: var(--muted); font-weight: 500; font-size: 13px;}
+.pay1 small {margin-inline-start: auto; color: var(--muted); font-weight: 500; font-size: 13px;}
 .sets {display: grid; gap: 12px;}
 .steps {display: grid; gap: 0;}
 .steps input[type="range"] {width: 100%; height: 32px; margin: 0;}
 .steps .ticks {position: relative; height: 32px; margin-top: -4px;}
-.steps .ticks button {position: absolute; top: 0; left: calc(10px + (100% - 20px) * var(--i) / (var(--n) - 1)); transform: translateX(-50%); display: grid; justify-items: center; gap: 0; padding: 2px 0; font-size: 12px; line-height: 1.25; color: var(--muted); white-space: nowrap;}
+/* A step stands over the place the thumb takes for it. In Arabic the range runs from the right, as the
+   page reads, and the steps with it. */
+.steps .ticks button {position: absolute; top: 0; inset-inline-start: calc(10px + (100% - 20px) * var(--i) / (var(--n) - 1)); transform: translateX(-50%); display: grid; justify-items: center; gap: 0; padding: 2px 0; font-size: 12px; line-height: 1.25; color: var(--muted); white-space: nowrap;}
 .steps .ticks button:first-child {transform: translateX(-10px); justify-items: start;}
 .steps .ticks button:last-child {transform: translateX(calc(-100% + 10px)); justify-items: end;}
+[dir="rtl"] .steps .ticks button {transform: translateX(50%);}
+[dir="rtl"] .steps .ticks button:first-child {transform: translateX(10px);}
+[dir="rtl"] .steps .ticks button:last-child {transform: translateX(calc(100% - 10px));}
 .steps .ticks button.on {color: var(--ink); font-weight: 700;}
 .steps .ticks small {font-size: 11px; font-weight: 400; color: var(--muted);}
-.steps .ticks button.gap {color: var(--muted); font-weight: 400; opacity: .8;}
+.steps .ticks button.gap {color: var(--muted); font-weight: 400;}
 .steps .ticks button.gap span {text-decoration: underline dashed 1px; text-underline-offset: 3px;}
 .rng {display: grid;}
 .tog {justify-self: start; display: inline-flex; align-items: center; gap: 12px; height: 44px; font-size: 14px; font-weight: 600; color: var(--muted);}
 .tog .knob {position: relative; width: 36px; height: 20px; background: var(--deep); flex: none;}
-.tog .knob::after {content: ""; position: absolute; top: 4px; left: 4px; width: 12px; height: 12px; background: var(--muted); transition: transform .18s, background .18s;}
+.tog .knob::after {content: ""; position: absolute; top: 4px; inset-inline-start: 4px; width: 12px; height: 12px; background: var(--muted);}
 .tog[aria-checked="true"] {color: var(--ink);}
 .tog[aria-checked="true"] .knob {background: var(--ink);}
 .tog[aria-checked="true"] .knob::after {transform: translateX(16px); background: var(--field);}
+[dir="rtl"] .tog[aria-checked="true"] .knob::after {transform: translateX(-16px);}
 .tog small {font-size: 12px; font-weight: 500; color: var(--muted); white-space: nowrap;}
 .rline {display: flex; align-items: center; gap: 14px; height: 44px;}
 .rline input[type="range"] {flex: 1; min-width: 0; height: 44px;}
-.rline b {min-width: 48px; text-align: right; font-size: 16px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums;}
-.rends {display: flex; justify-content: space-between; margin-top: -8px; padding-right: 62px; font-size: 12px; color: var(--muted);}
+.rline b {min-width: 48px; text-align: end; font-size: 16px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums;}
+.rends {display: flex; justify-content: space-between; margin-top: -8px; padding-inline-end: 62px; font-size: 12px; color: var(--muted);}
 @media (min-width: 960px) {
   .sec.row {grid-template-columns: 112px minmax(0, 1fr); align-items: start; column-gap: 12px;}
   .sec.row > .lab {flex-wrap: wrap; align-items: center; align-content: center; min-height: 44px; row-gap: 2px;}
   .sec.row:has(> .steps) > .lab {min-height: 32px;}
-  .sec.row > .lab .labr {margin-left: 0; flex-basis: 100%;}
+  .sec.row > .lab .labr {margin-inline-start: 0; flex-basis: 100%;}
   .sec.row > .lab .lt {flex: 1 1 0; min-width: 0;}
 }
 .secondary {display: grid; gap: 20px;}
@@ -175,7 +215,10 @@ textarea#prompt::placeholder {color: var(--muted);}
 .seg:not(.stack) small .free .fw {display: none;}
 .sets .ratios {display: grid; grid-template-columns: repeat(auto-fit, minmax(44px, 1fr));}
 .sets .ratios.one {grid-template-columns: repeat(var(--n), minmax(0, 1fr));}
+.sets .ratios.one.lead {grid-template-columns: fit-content(40%) repeat(var(--m), minmax(0, 1fr));}
 .sets .rt {width: auto; height: 44px; gap: 4px;}
+.sets .ratios.lead > .rt:first-child {padding: 0 6px;}
+.rt .rl {max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
 @media (min-width: 960px) {
   .how {padding-top: 4px;}
   .composer {gap: 12px;}
@@ -189,6 +232,7 @@ textarea#prompt::placeholder {color: var(--muted);}
 .rt.more {grid-template-rows: none; color: var(--soft); font-size: 13px;}
 input[type="range"] {-webkit-appearance: none; appearance: none; width: 100%; height: 36px; background: transparent;}
 input[type="range"] {--fill: linear-gradient(to right, var(--muted) calc(10px + (100% - 20px) * var(--f, 0)), var(--deep) 0);}
+[dir="rtl"] input[type="range"] {--fill: linear-gradient(to left, var(--muted) calc(10px + (100% - 20px) * var(--f, 0)), var(--deep) 0);}
 input[type="range"]::-webkit-slider-runnable-track {height: 4px; background: var(--fill);}
 input[type="range"]::-moz-range-track {height: 4px; background: var(--fill);}
 input[type="range"]::-webkit-slider-thumb {-webkit-appearance: none; width: 20px; height: 20px; margin-top: -8px; background: var(--ink); border: 0; border-radius: 0;}
@@ -199,21 +243,27 @@ input[type="range"]::-moz-range-thumb {width: 20px; height: 20px; background: va
 .morebtn .chev.flip {transform: rotate(180deg);}
 .bar {display: flex; gap: 12px; align-items: center; padding-top: 6px;}
 .price {flex: 1; min-width: 0; display: grid; gap: 2px;}
-.pnum {justify-self: start; display: inline-flex; overflow: hidden; font: 700 32px/1.08 var(--display); font-variant-numeric: tabular-nums;}
-.pnum.usd {cursor: help; border-bottom: 2px dotted var(--muted);}
-.pnum .ch {position: relative; display: inline-block; white-space: pre;}
-.pnum .ch > span {display: inline-block;}
-.pnum .ch > .o {position: absolute; left: 0; top: 0;}
-.pnum {position: relative;}
-.pnum > .whole {position: absolute; left: 0; top: 0; white-space: pre; pointer-events: none;}
+.pnum {justify-self: start; display: inline-flex; font: 700 32px/1.08 var(--display); font-variant-numeric: tabular-nums;}
+.pnum.hint {cursor: help; border-bottom: 2px dotted var(--muted);}
+.odo {position: relative; display: inline-flex; overflow: hidden;}
+.odo > bdi {display: inline-flex;}
+.odo > .w, .odo > bdi > .w {white-space: pre;}
+.odo > .amt, .odo > bdi > .amt {display: inline-flex; direction: ltr;}
+.odo .ch {position: relative; display: inline-block; white-space: pre;}
+.odo .ch > span {display: inline-block;}
+.odo .ch > .o {position: absolute; left: 0; top: 0;}
+.odo > .whole {position: absolute; inset-inline-start: 0; top: 0; white-space: pre; pointer-events: none;}
 #pcap s.was {color: var(--muted);}
 #pcap b.off {color: var(--ink); font-weight: 700;}
-#pcap {font-size: 14px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 1.4em;}
-#pcap.note {white-space: normal; color: var(--soft);}
-.go .kbd {font-size: 12px; font-weight: 500; opacity: .55; margin-left: 2px;}
+/* What the price means wraps rather than ends in an ellipsis: how many free runs a sign-in gives,
+   or when the next one comes, is why the line is there. */
+#pcap {font-size: 14px; color: var(--muted); min-height: 1.4em; text-wrap: pretty;}
+.go .kbd {font-size: 12px; font-weight: 500; color: var(--line); margin-inline-start: 2px; direction: ltr; unicode-bidi: isolate;}
+.go:disabled .kbd {color: inherit;}
 .go {flex: none; min-width: 150px; height: 52px; padding: 0 22px; display: flex; align-items: center; justify-content: center; gap: 10px; background: var(--ink); color: var(--field); font-size: 17px; font-weight: 700;}
 .go:disabled {background: var(--deep); color: var(--muted);}
-.usd {font-variant-numeric: tabular-nums;}
+/* A price after a word of Arabic keeps its sign with its digits: "مرة أخرى · $0.26". */
+.usd {font-variant-numeric: tabular-nums; unicode-bidi: isolate;}
 .tip {position: fixed; z-index: 70; padding: 5px 9px; background: var(--ink); color: var(--field); font-size: 14px; font-weight: 600; white-space: nowrap; pointer-events: none;}
 .stage {position: relative; display: grid; gap: 28px; align-content: start;}
 .link {color: inherit; text-decoration: none; display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; background: var(--deep); font-weight: 600; font-size: 14px; justify-self: start;}
@@ -226,9 +276,14 @@ input[type="range"]::-moz-range-thumb {width: 20px; height: 20px; background: va
 .ghost > i:nth-of-type(3), .jbox > i:nth-of-type(3) {left: 10px; bottom: 10px; border-width: 0 0 3px 3px;}
 .ghost > i:nth-of-type(4), .jbox > i:nth-of-type(4) {right: 10px; bottom: 10px; border-width: 0 3px 3px 0;}
 .ghost .c, .jbox .c {display: grid; justify-items: center; gap: 6px; padding: 0 10px; text-align: center;}
-.ghost .c b, .jbox .c b {font: 700 clamp(20px, 4vw, 42px)/1 var(--display); color: var(--line);}
-.ghost .c small, .jbox .c small {font-size: 13px; color: var(--muted);}
-.ghost .c > .ic, .jbox .c > .ic {width: 34px; height: 34px; color: var(--line);}
+.ghost .c b, .jbox .c b, .c.under b {font: 700 clamp(20px, 4vw, 42px)/1 var(--display); color: var(--muted);}
+.ghost .c small, .jbox .c small, .c.under small {font-size: 13px; color: var(--muted);}
+.ghost .c > .ic, .jbox .c > .ic {width: 34px; height: 34px; color: var(--muted);}
+/* A small empty frame, as on a short phone, says what fits: the shape, then
+   the model, and the icon only where there is room for all three. */
+.ghost {container-type: size;}
+@container (max-height: 149.98px) { .ghost .c > .ic {display: none;} }
+@container (max-height: 99.98px) { .ghost .c small {display: none;} }
 @media (min-width: 960px) {
   .stage {position: sticky; top: 12px;}
 }
@@ -245,11 +300,11 @@ input[type="range"]::-moz-range-thumb {width: 20px; height: 20px; background: va
 .scrim {position: fixed; inset: 0; z-index: 30; background: rgba(0, 30, 35, .62);}
 .sheet {position: fixed; z-index: 31; left: 0; right: 0; bottom: 0; top: 44px; display: flex; flex-direction: column; background: var(--field); border-top: 1px solid var(--line);}
 @media (min-width: 900px) {
-  .sheet {left: auto; top: 0; width: 500px; border-top: 0; border-left: 1px solid var(--line);}
+  .sheet {inset-inline-start: auto; top: 0; width: 500px; border-top: 0; border-inline-start: 1px solid var(--line);}
   .sheet.wide {width: min(1020px, 100%);}
 }
 .sheet header {display: flex; align-items: center; gap: 12px; padding: 14px max(16px, env(safe-area-inset-right, 0px)) 12px max(16px, env(safe-area-inset-left, 0px));}
-.sheet h3 {margin: 0 auto 0 0; font-size: 20px; font-weight: 700;}
+.sheet h3 {margin: 0; margin-inline-end: auto; font-size: 20px; font-weight: 700;}
 .sheet .x {height: 38px; padding: 0 14px; display: flex; align-items: center; gap: 6px; background: var(--deep); font-weight: 600;}
 .scrim.light {background: transparent; pointer-events: none;}
 @media (max-width: 899px) {
@@ -277,13 +332,13 @@ input.search::placeholder {color: var(--muted);}
 .ghead {display: flex; align-items: center; gap: 10px; margin: 22px 0 8px; font-size: 14px; font-weight: 600; color: var(--soft);}
 .ghead:first-child {margin-top: 6px;}
 .ghead > .ic {width: 15px; height: 15px;}
-.ghead .cnt {margin-left: auto; font-weight: 400; color: var(--muted);}
+.ghead .cnt {margin-inline-start: auto; font-weight: 400; color: var(--muted);}
 .recs {display: grid; gap: var(--gap);}
-.rcard {display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "lg nm pr" "lg why pr"; column-gap: 14px; row-gap: 3px; align-items: center; padding: 12px 14px; background: var(--deep); text-align: left;}
+.rcard {display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "lg nm pr" "lg why pr"; column-gap: 14px; row-gap: 3px; align-items: center; padding: 12px 14px; background: var(--deep); text-align: start;}
 .rcard .lg {grid-area: lg;}
 .rcard .nm {grid-area: nm; font: 700 24px/1 var(--display);}
 .rcard .why {grid-area: why; font-size: 14px; color: var(--soft);}
-.rcard .pr {grid-area: pr; font: 700 20px/1 var(--display); text-align: right;}
+.rcard .pr {grid-area: pr; font: 700 20px/1 var(--display); text-align: end;}
 @media (min-width: 640px) {
   .recs {grid-template-columns: repeat(3, minmax(0, 1fr));}
   .rcard {grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "lg pr" "nm nm" "why why"; align-items: start; row-gap: 6px; padding: 16px;}
@@ -296,14 +351,15 @@ input.search::placeholder {color: var(--muted);}
 .frow .fvars, .frow .det {pointer-events: auto;}
 .fhit {position: absolute; inset: 0;}
 .fhit:focus-visible {outline: 2px solid var(--ink); outline-offset: -2px;}
-.frow[aria-current="true"]::before {content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--ink); z-index: 1;}
+.frow[aria-current="true"]::before {content: ""; position: absolute; inset-inline-start: 0; top: 0; bottom: 0; width: 4px; background: var(--ink); z-index: 1;}
 .frow > .lg {width: 40px; height: 40px;}
 .fbody {display: grid; gap: 2px; min-width: 0;}
 .fbody .nm {font-size: 16px; font-weight: 700; line-height: 1.2;}
-.fsub {font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+.fsub {font-size: 13px; color: var(--muted);}
+.fsub .fact, .rcard .why .fact {display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: top;}
 .fsub.why {display: inline-flex; align-items: center; gap: 6px; color: var(--ink); white-space: normal;}
 .fsub .ic {width: 14px; height: 14px;}
-.fprice {display: grid; gap: 2px; justify-items: end; text-align: right;}
+.fprice {display: grid; gap: 2px; justify-items: end; text-align: end;}
 .fprice b {font: 700 18px/1 var(--display); white-space: nowrap;}
 .fprice small {font-size: 12px; color: var(--muted); white-space: nowrap;}
 .fvars {grid-column: 2 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 4px;}
@@ -311,13 +367,29 @@ input.search::placeholder {color: var(--muted);}
 .pill {height: 28px; padding: 0 10px; display: inline-flex; align-items: center; gap: 6px; background: var(--field); font-size: 13px; font-weight: 600; white-space: nowrap;}
 .pill[aria-pressed="true"] {background: var(--ink); color: var(--field);}
 .pill.wide {color: var(--soft);}
-.pill.old {background: transparent; outline: 1px dashed rgba(169, 201, 206, .5); outline-offset: -1px; color: var(--muted); font-weight: 500;}
+.pill.old {background: transparent; outline: 1px dashed rgba(184, 212, 216, .5); outline-offset: -1px; color: var(--muted); font-weight: 500;}
 .pill .ic {width: 14px; height: 14px;}
-.frow.dim > .lg, .frow.dim .nm, .frow.dim .fprice, .frow.dim .fvars, .rcard.dim > :not(.why) {opacity: .45;}
+/* A model the person cannot run as things are is dimmed by its colours, not faded: its name and price
+   stay readable, and the line under the name says what it needs. */
+.frow.dim > .lg, .rcard.dim > .lg {opacity: .45;}
+.frow.dim .nm, .frow.dim .fprice b, .frow.dim .pill:not([aria-pressed="true"]), .rcard.dim:not([aria-current="true"]) :is(.nm, .pr) {color: var(--muted);}
 @media (max-width: 520px) {
   .frow {padding: 10px 12px;}
   .fvars {grid-column: 1 / -1;}
+  /* The line under the price ("or from $0.095 with a key") takes two lines
+     rather than the room of the facts beside it. */
+  .fprice small {max-width: 9em; white-space: normal; text-wrap: balance;}
 }
+/* On a phone the suggestions are rows as the families are, in the same
+   type: the name a label, the price a figure. */
+@media (max-width: 639px) {
+  .rcard {column-gap: 12px; row-gap: 2px; padding: 10px 14px;}
+  .rcard .lg {width: 40px; height: 40px;}
+  .rcard .nm {font: 700 16px/1.2 var(--text);}
+  .rcard .why {font-size: 13px; color: var(--muted);}
+  .rcard .pr {font-size: 18px;}
+}
+@media (max-width: 520px) { .rcard {padding: 10px 12px;} }
 .pkd {display: none;}
 @media (min-width: 900px) {
   .pkd {display: block; position: sticky; top: 0;}
@@ -330,7 +402,7 @@ input.search::placeholder {color: var(--muted);}
 .dhead .mk {margin-top: 5px; font-size: 14px; color: var(--muted);}
 .det.inline .dhead {display: none;}
 .vlist {display: grid; gap: var(--gap);}
-.vl {display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; padding: 10px 12px; background: var(--field); text-align: left;}
+.vl {display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; padding: 10px 12px; background: var(--field); text-align: start;}
 .vl b {font-weight: 700;}
 .vl .n {font-size: 14px; color: var(--soft); line-height: 1.35;}
 .vl .p {grid-column: 2; grid-row: 1 / span 2; align-self: center; font-weight: 700;}
@@ -361,15 +433,16 @@ input.search::placeholder {color: var(--muted);}
   .mhead {padding-block: 10px;}
 }
 @media (prefers-reduced-motion: no-preference) {
-  .seg > button, .rt, .pill, .vl, .frow, .rcard, .acts button, .link, .ib, .addfile, .me, .morebtn, .mhead, .x, .chipbtn {transition: background-color .16s, color .16s;}
-  .go {transition: transform .14s, background-color .16s;}
+  .seg > button, .rt, .pill, .vl, .frow, .rcard, .acts button, .link, .ib, .addfile, .me, .morebtn, .mhead, .x, .chipbtn {transition: background-color var(--dur-xs), color var(--dur-xs);}
+  .go {transition: transform var(--dur-xs), background-color var(--dur-xs);}
+  .tog .knob::after {transition: transform var(--dur-xs), background-color var(--dur-xs);}
   .go:active:not(:disabled) {transform: scale(.97);}
   .acts button:active, .pill:active, .rcard:active, .mhead:active, .choose:active, .chipbtn:active {transform: translateY(1px);}
-  .morebtn .chev {transition: transform .32s cubic-bezier(.34,1.5,.55,1);}
+  .morebtn .chev {transition: transform var(--dur-m) var(--spring);}
 }
 @media (hover: hover) {
   .seg > button:not(:disabled):hover, .rt:hover, .mhead:hover, .frow:hover, .rcard:not([aria-current="true"]):hover, .acts button:not(.primary):hover, .link:not(:disabled):hover, .ib:hover, .addfile:hover, .pattach:hover, .me:hover, .x:hover, .chipbtn:hover {background-color: var(--line);}
-  .pill:not([aria-pressed="true"]):hover {background-color: #2B8A96;}
+  .pill:not([aria-pressed="true"]):hover {background-color: var(--line);}
   .vl:hover {background-color: var(--line);}
   .morebtn:hover, .dold button:hover {color: var(--ink);}
 }
@@ -377,10 +450,11 @@ input.search::placeholder {color: var(--muted);}
 /* Phone: the composer is a dock at the bottom of the screen; the kind, the model,
    the settings and photos sit in one row over the prompt, the settings open in a sheet. */
 .dtools {display: none;}
-.chipbtn {flex: 1; min-width: 0; height: 46px; padding: 0 12px; display: flex; align-items: center; gap: 8px; background: var(--deep); font-weight: 600; text-align: left;}
-.chipbtn .nm {position: relative; flex: 1; min-width: 0; overflow: hidden; white-space: nowrap;}
-.chipbtn .nm > span {display: block; overflow: hidden; text-overflow: ellipsis;}
-.chipbtn .nm > .out {position: absolute; left: 0; top: 0;}
+.chipbtn {flex: 1; min-width: 0; height: 46px; padding: 0 12px; display: flex; align-items: center; gap: 8px; background: var(--deep); font-weight: 600; text-align: start;}
+/* The model's name in the chip is whole: a long one goes on two even lines rather than losing its end. */
+.chipbtn .nm {position: relative; flex: 1; min-width: 0; overflow: hidden; line-height: 1.15;}
+.chipbtn .nm > span {display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; text-wrap: balance;}
+.chipbtn .nm > .out {position: absolute; inset-inline-start: 0; top: 0; width: 100%;}
 .chipbtn.set {flex: none;}
 .chipbtn > .lg.o {width: 28px; height: 28px; font-size: 13px;}
 @media (max-width: 959px) {
@@ -395,27 +469,72 @@ input.search::placeholder {color: var(--muted);}
   .composer > .seg.kind .t {display: none;}
   .composer > .how {display: none;}
   .composer textarea#prompt {min-height: 54px; max-height: 30vh; overflow: auto; padding: 12px 14px; font-size: 18px;}
-  .composer .files {flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;}
+  /* The tiles scroll sideways in a row of their own; the line about them stands beside the row while
+     it has 160 px there, and under it otherwise, in as many lines as it takes. */
+  .composer .files {column-gap: 10px; row-gap: 8px;}
+  /* The row keeps room inside its scroll for the ring of a focused tile and the reach of a finger on a
+     tile's cross; the negative margins keep the tiles where they stand. */
+  .composer .ftiles {display: flex; flex: 0 1 auto; min-width: 0; gap: 6px; align-items: center; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
+    padding: 8px 4px 4px; margin: -8px -4px -4px;}
+  .composer .ftiles::-webkit-scrollbar {display: none;}
+  .composer .ftiles:has(> .fgroup) {align-items: flex-end; column-gap: 16px;}
   .composer .files.nofiles .fhint {display: none;}
-  .composer .thumb, .composer .addfile {flex: none; width: 52px; height: 52px;}
+  .composer .thumb {flex: none; width: 52px; height: 52px;}
+  .composer .addfile {flex: none; min-width: 52px; height: 52px;}
   .composer .fgroup {flex: none;}
   .composer .fgroup > .gt {flex-wrap: nowrap;}
-  .composer .fhint, .composer .fhint.cut {flex: 1 0 200px; padding-left: 4px; font-size: 13px;}
-  .composer .bar {padding-top: 0;}
+  .composer .fhint, .composer .fhint.cut {flex: 1 1 160px; padding-inline-start: 0; font-size: 13px;}
+  .composer .fgroup.cont {flex: 1 1 100%;}
+  /* A long next step ("Connect OpenRouter") takes a line of its own, the whole
+     width, rather than squeeze the price, and so does one with a line under
+     the price that says why or when (.says): it reads to its end. Create and
+     Sign in stay beside the price down to 320 px. */
+  .composer .bar {padding-top: 0; flex-wrap: wrap; row-gap: 8px;}
+  .composer .price {flex: 1000 1 120px;}
+  .composer .bar.says .price {flex-basis: 180px;}
   .composer .pnum {font-size: 30px;}
-  .composer .go {min-width: 136px;}
+  /* On a phone the button leaves the price a narrow column: the line under the price runs on
+     under the button, the whole width of the dock, and a long name of the button takes two lines
+     rather than push into the price. */
+  @supports (grid-template-rows: subgrid) {
+    .composer .bar {display: grid; grid-template-columns: fit-content(calc(100% - 148px)) minmax(0, 1fr); column-gap: 12px; row-gap: 0;}
+    .composer .bar > .price {grid-column: 1 / -1; grid-row: 1 / span 2; grid-template-columns: subgrid; grid-template-rows: subgrid; gap: normal;}
+    .composer .bar > .price > .pnum {grid-column: 1; grid-row: 1; align-self: center; max-width: 100%;}
+    .composer .bar > .price > #pcap {grid-column: 1 / -1; grid-row: 2;}
+    .composer .bar > .go {grid-column: 2; grid-row: 1; justify-self: end; max-width: 100%; text-align: center; line-height: 1.15;}
+  }
+  .composer .go {min-width: 136px; flex: 1 0 auto;}
   .composer::after {inset: 0;}
   .top {height: 56px;}
   .stage .preview {justify-items: center;}
 }
+/* A low window (html.flow, see composer.js): the composer stands in the page over the stage, and the
+   page scrolls, rather than a dock covering most of the window. */
+@media (max-width: 959px) {
+  html.flow main.create {padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));}
+  html.flow .composer {position: relative; z-index: auto; padding: 0; background: none; border-top: 0;}
+  html.flow .toast {bottom: calc(24px + env(safe-area-inset-bottom, 0px));}
+}
+/* On a phone the settings are a square beside the model's name, and how many frames they are for
+   is a tag in its corner, so the name keeps the width. */
 @media (max-width: 959px) {
   .chipbtn.set > span {display: none;}
-  .chipbtn.set {width: 46px; padding: 0; justify-content: center;}
-  .chipbtn.set:has(.cnt) {width: auto; padding: 0 12px; gap: 6px;}
+  .chipbtn.set {position: relative; width: 46px; padding: 0; justify-content: center;}
+  .chipbtn.set > .cnt {position: absolute; top: 3px; inset-inline-end: 3px; min-width: 18px; height: 16px; padding: 0 3px; display: grid; place-items: center;
+    background: var(--ink); color: var(--deep); font-size: 11px; line-height: 1; font-variant-numeric: tabular-nums; outline: 2px solid var(--deep);}
+  .chipbtn.set:hover > .cnt {outline-color: var(--line);}
 }
 @media (max-width: 420px) {
   .chipbtn > .lg {display: none;}
   .chipbtn:not(.set) {padding: 0 10px; gap: 6px;}
+}
+/* On a phone a long name takes two lines rather than lose its end, which
+   is what tells one variant from another ("2.6 Flash"). */
+@media (max-width: 959px) {
+  .chipbtn .nm > span {white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.15;}
+}
+@media (max-width: 389.98px) {
+  .composer .go {padding: 0 16px;}
 }
 
 /* The run on the stage. */
@@ -425,6 +544,9 @@ input.search::placeholder {color: var(--muted);}
 /* The halftone of the run fills the frame (halftone.js); what the run is at stands under the figure. */
 .jbox > canvas.ht {position: absolute; inset: 0; display: block; width: 100%; height: 100%;}
 .jbox.ht .c {position: absolute; left: 0; right: 0; bottom: 0; gap: 4px; padding: 0 24px 22px;}
+/* A frame too small for its words and its figure has the words under it, on the field (stage.js, caption). */
+.preview > .c.under {display: grid; justify-items: center; gap: 4px; min-width: 0; max-width: 100%; text-align: center;}
+@media (min-width: 960px) { .preview > .c.under {justify-items: start; text-align: start;} }
 
 /* The player (player.js): the picture, and over its foot a bar of the deep
    colour. A joined clip's bar is cut into its parts, 4 px apart, and the part
@@ -447,12 +569,12 @@ input.search::placeholder {color: var(--muted);}
 /* A narrow clip, as a tall one on a phone, keeps the bar to what fits. */
 @container (max-width: 279.98px) { .pbar .ptime {display: none;} }
 @container (max-width: 199.98px) { .pbar .pfull {display: none;} }
-.jbox .c b {color: var(--soft);}
-.jbox.ht .c b {font-size: clamp(18px, 2.4vw, 28px);}
-.jbox .c small.lost {color: var(--soft);}
-.jbox .c small.took {font-variant-numeric: tabular-nums;}
-.jbox .c small.said {max-width: 52ch; line-height: 1.35; color: var(--soft); cursor: pointer; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere;}
-.jbox .c small.said.open {-webkit-line-clamp: 8;}
+.jbox .c b, .c.under b {color: var(--soft);}
+.jbox.ht .c b, .c.under b {font-size: clamp(18px, 2.4vw, 28px);}
+.jbox .c small.lost, .c.under small.lost {color: var(--soft);}
+.jbox .c small.took, .c.under small.took {font-variant-numeric: tabular-nums;}
+.jbox .c small.said, .c.under small.said {max-width: 52ch; line-height: 1.35; color: var(--soft); cursor: pointer; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere;}
+.jbox .c small.said.open, .c.under small.said.open {-webkit-line-clamp: 8;}
 .jfoot {display: grid; gap: 12px; min-width: 0;}
 .jline {display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 14px; color: var(--soft); min-height: 1.45em;}
 .jtag {padding: 0 6px; background: var(--deep); font-size: 12px; color: var(--muted); cursor: help;}
@@ -460,20 +582,42 @@ input.search::placeholder {color: var(--muted);}
 .jwhy .note {color: var(--soft);}
 .jprompt[hidden] {display: none;}
 .jacts {display: flex; flex-wrap: wrap; gap: var(--gap);}
-.jacts > button, .jacts > a {height: 42px; padding: 0 14px; display: inline-flex; align-items: center; gap: 8px; background: var(--deep); color: var(--ink); text-decoration: none; font-weight: 600; font-size: 15px;}
+/* Search grounding: Google's suggestions as Google drew them, then the pages the result cites, in one row. */
+.ground {display: grid; gap: 6px; min-width: 0;}
+.ground .gnum {font-size: 12px; font-weight: 700; color: var(--muted);}
+.gsug {display: block; width: 100%; height: 50px; border: 0; background: transparent; color-scheme: dark;}
+.gsrc {display: flex; align-items: center; gap: 4px 12px; min-width: 0; height: 24px; overflow-x: auto; scrollbar-width: none; white-space: nowrap; font-size: 13px; color: var(--soft);}
+.gsrc::-webkit-scrollbar {display: none;}
+.gsrc .ic {flex: none; width: 14px; height: 14px; color: var(--muted);}
+.gsrc a {flex: none; max-width: 240px; overflow: hidden; text-overflow: ellipsis; color: var(--soft); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px;}
+.gsrc a:hover {color: var(--ink);}
+.jacts > .sqs {display: contents;}
+:is(.jacts, .sqs) > :is(button, a) {height: 42px; padding: 0 14px; display: inline-flex; align-items: center; gap: 8px; background: var(--deep); color: var(--ink); text-decoration: none; font-weight: 600; font-size: 15px;}
 .jacts > .primary {background: var(--ink); color: var(--field);}
-.jacts > .wait {opacity: .5; pointer-events: none;}
+.jacts .wait {opacity: .5; pointer-events: none;}
 .jacts > .busy {display: inline-flex; align-items: center; gap: 8px; min-height: 42px; font-size: 14px; color: var(--muted);}
 .jacts > .busy .ic {width: 16px; height: 16px;}
+/* A row of actions stands flush on a phone. The buttons with words take the room left in their line,
+   and the square ones go as one group: beside them while it fits, and on a line of their own, in equal
+   columns, when it does not. A square on its own keeps to the button before it, so a square never
+   stands alone under the others. */
 @media (max-width: 959px) {
-  .jacts > .primary {flex: 1 1 auto; min-width: 0; justify-content: center;}
-  .jacts > .primary > .t {overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
-  .jacts > .sq {flex: none; width: 42px; padding: 0; justify-content: center;}
-  .jacts > .sq > .t {display: none;}
+  .jacts > :is(button, a), .sqs.pair > :first-child {flex: 100000 1 auto; min-width: 0; justify-content: center;}
+  :is(.jacts, .sqs.pair) > :is(button, a) > .t {overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
+  .jacts > .sqs {display: flex; flex: 1 1 auto; gap: var(--gap); min-width: 0;}
+  .sqs > * {flex: 1 1 auto;}
+  .sqs > .sq {width: 42px; padding: 0; justify-content: center;}
+  .sqs > .sq > .t {display: none;}
 }
 @media (max-width: 389.98px) {
-  .jacts > .sq2 {flex: none; width: 42px; padding: 0; justify-content: center;}
-  .jacts > .sq2 > .t {display: none;}
+  .sqs > .sq2 {width: 42px; padding: 0; justify-content: center;}
+  .sqs > .sq2 > .t {display: none;}
+}
+@media (max-width: 959px) {
+  /* A result whose squares would not fit beside the word of Download (stage.js, tighten): Download
+     goes square too, so the row stays one line over the dock; its word stays for a screen reader. */
+  .jacts.tight > .primary {flex: none; width: 42px; padding: 0; position: relative;}
+  .jacts.tight > .primary > .t {position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;}
 }
 .jprompt {display: flex; align-items: flex-start; gap: 8px; min-width: 0; font-size: 15px; color: var(--muted);}
 .jprompt > .tx {flex: 1; min-width: 0; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;}
@@ -481,19 +625,19 @@ input.search::placeholder {color: var(--muted);}
 .jprompt > .cp .ic {width: 14px; height: 14px;}
 .stage > .link.back {justify-self: start;}
 @media (prefers-reduced-motion: no-preference) {
-  .jacts > button, .jacts > a, .jprompt > .cp {transition: background-color .16s, color .16s;}
+  :is(.jacts, .sqs) > :is(button, a), .jprompt > .cp {transition: background-color var(--dur-xs), color var(--dur-xs);}
 }
 @media (hover: hover) {
-  .jacts > button:not(.primary):hover, .jacts > a:not(.primary):hover, .jprompt > .cp:hover {background-color: var(--line); color: var(--ink);}
+  :is(.jacts, .sqs) > :is(button, a):not(.primary):hover, .jprompt > .cp:hover {background-color: var(--line); color: var(--ink);}
 }
 
 /* Clips in the composer: the length on the thumbnail, the part picked, the video a run goes on from. */
 .thumb.clip .tag {font-variant-numeric: tabular-nums;}
 .thumb .noth {width: 100%; height: 100%; display: grid; place-items: center; color: var(--muted);}
-.fhint.cut {flex-basis: 100%; padding-left: 0; color: var(--soft);}
+.fhint.cut {flex-basis: 100%; padding-inline-start: 0; color: var(--soft);}
 .fhint .fw {display: block; color: var(--muted);}
 .fgroup.cont .gt {flex-wrap: nowrap;}
-.fgroup.cont .fhint {flex: 1 1 140px; padding-left: 4px; font-size: 13px;}
+.fgroup.cont .fhint {flex: 1 1 140px; padding-inline-start: 4px; font-size: 13px;}
 
 /* The part of a clip: a viewer, the transport, the timeline with its window. */
 .cutter .body {gap: 10px;}
@@ -527,25 +671,27 @@ input.search::placeholder {color: var(--muted);}
   .cutter .note {display: none;}
 }
 @media (prefers-reduced-motion: no-preference) {
-  .ib {transition: background-color .16s, color .16s;}
+  .ib {transition: background-color var(--dur-xs), color var(--dur-xs);}
   .cutter .take:active {transform: scale(.98);}
 }
 
-/* The header. */
-.top .sp {flex: 1;}
+/* The header. The account (the language and Sign in, or the person's picture) stands at the far end;
+   the free room before it is the first to go on a narrow phone, with no gap kept around it. */
+.top > :is(.glang, .me) {margin-inline-start: auto;}
 .me img.av {object-fit: cover; padding: 0;}
 .ddesc {font-size: 15px; line-height: 1.45; color: var(--soft);}
 .q.wait {opacity: .5;}
 .tog .tt {min-width: 2.6em;}
 .snote {margin: -4px 0 0; font-size: 13px; line-height: 1.35; color: var(--muted); text-wrap: pretty;}
 
-/* The settings: rows of the deep colour, each with its buttons on the right;
+/* The settings: rows of the deep colour, each with its buttons at the end;
    a key goes in under its row, as one field with its check. */
 #prefsBody {position: relative; container: prefs / inline-size;}
 #prefs .group {margin: 18px 0 6px; font-size: 14px; font-weight: 600; color: var(--soft);}
 #prefs .group:first-child {margin-top: 0;}
-.srow {display: flex; align-items: center; gap: 14px; min-height: 60px; padding: 10px 10px 10px 12px; background: var(--deep);}
+.srow {display: flex; align-items: center; gap: 14px; min-height: 60px; padding: 10px; padding-inline-start: 12px; background: var(--deep);}
 .srow > .ic, .srow > .lgi {flex: none; width: 20px; height: 20px; margin-inline: 8px; color: var(--soft);}
+.srow > .av {flex: none; width: 28px; height: 28px; margin-inline: 4px; display: grid; place-items: center; background: var(--ink); color: var(--field); font-weight: 700; object-fit: cover;}
 .srow .l {flex: 1; min-width: 0;}
 .srow .l b {display: block; font-weight: 700;}
 .srow .l > span {display: block; font-size: 14px; color: var(--muted); overflow-wrap: anywhere;}
@@ -554,25 +700,30 @@ input.search::placeholder {color: var(--muted);}
 .srow > button {flex: none; height: 40px; padding: 0 14px; display: flex; align-items: center; justify-content: center; gap: 6px; background: var(--field); font-weight: 600;}
 .srow > button .ic {width: 16px; height: 16px;}
 .srow > button.primary {background: var(--ink); color: var(--field);}
-.srow > button.danger {box-shadow: inset 0 0 0 1px var(--line);}
+/* Deleting the account is the one button framed rather than filled, with the bin: it ends everything else here. */
+.srow > button.danger {background: none; border: 2px solid var(--ink);}
 .srow > button:disabled, .kform button:disabled {opacity: .55; cursor: default;}
 .srow > button[data-wait] {min-width: 108px;}
 .srow > button.fixw {min-width: 148px;}
 .srow.bad {box-shadow: inset 3px 0 0 var(--soft);}
+[dir="rtl"] .srow.bad {box-shadow: inset -3px 0 0 var(--soft);}
 .srow .l button.link-t {display: inline; height: auto; padding: 0; background: none; font-size: inherit;}
 .srow select.pick {flex: none; height: 40px; max-width: 46%; padding: 0 10px; background: var(--field); color: var(--ink); font-weight: 600;}
 .srow .l .spent {display: block; margin-top: 2px; font-size: 13px; color: var(--soft);}
 .srow > button.tog {height: 44px; padding: 0 4px; background: none;}
-/* Narrow, or a key with a problem to read: the buttons go under the text. */
-.srow.two.bad {flex-wrap: wrap; row-gap: 10px;}
-.srow.two.bad .l {flex-basis: calc(100% - 50px);}
-.srow.two.bad > button:first-of-type {margin-inline-start: 50px;}
+/* Narrow, or a key with a problem to read: the buttons of every row go under the text,
+   each line of them where the text starts. The row is indented by the mark's
+   place and the mark sits back in it, so a button that does not fit beside
+   the one before starts under the text too, not under the mark. */
+.srow.btns.bad {flex-wrap: wrap; row-gap: 10px; padding-inline-start: 62px;}
+.srow.btns.bad > .ic, .srow.btns.bad > .lgi {margin-inline-start: -42px;}
+.srow.btns.bad .l {flex-basis: 100%;}
 @container prefs (max-width: 440px) {
-  .srow.two {flex-wrap: wrap; row-gap: 10px;}
-  .srow.two .l {flex-basis: calc(100% - 50px);}
-  .srow.two > button:first-of-type, .srow.two > select {margin-inline-start: 50px;}
+  .srow.btns {flex-wrap: wrap; row-gap: 10px; padding-inline-start: 62px;}
+  .srow.btns > .ic, .srow.btns > .lgi {margin-inline-start: -42px;}
+  .srow.btns .l {flex-basis: 100%;}
 }
-.kform {display: grid; grid-template-columns: minmax(0, 1fr) auto 40px; gap: 6px; margin-top: calc(-1 * var(--gap)); padding: 0 10px 12px 12px; background: var(--deep);}
+.kform {display: grid; grid-template-columns: minmax(0, 1fr) auto 40px; gap: 6px; margin-top: calc(-1 * var(--gap)); padding: 0 10px 12px; padding-inline-start: 12px; background: var(--deep);}
 .kform input {min-width: 0; height: 40px; padding: 0 12px; background: var(--field); color: var(--ink); letter-spacing: .04em;}
 .kform input::placeholder {color: var(--muted); letter-spacing: 0;}
 .kform input[aria-invalid="true"] {box-shadow: inset 0 0 0 1px var(--soft);}
@@ -617,25 +768,36 @@ input.search::placeholder {color: var(--muted);}
 .tab {height: 40px; padding: 0 14px; display: flex; align-items: center; gap: 8px; background: var(--deep); color: var(--ink); font-weight: 600; text-decoration: none;}
 @media (max-width: 520px) {
   .tab {width: 44px; padding: 0; justify-content: center;}
-  .tab .t {display: none;}
+  /* Only the icon shows; the word stays the tab's name for a screen reader. */
+  .tab .t {position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;}
 }
 
 /* The library: the runs by day, a grid of covers with the prompt and the model under each. */
 main.library {display: grid; gap: 18px; padding: 6px 0 calc(48px + env(safe-area-inset-bottom, 0px));}
 .libhead {display: flex; flex-wrap: wrap; align-items: center; gap: 12px;}
-.libhead h1 {margin: 0 auto 0 0; font: 700 36px/1 var(--display);}
+.libhead h1 {margin: 0; margin-inline-end: auto; font: 700 36px/1 var(--display);}
 .libhead .seg {width: 340px; max-width: 100%;}
 .libhead .seg > button {min-height: 42px;}
 .lsearch {position: relative; display: flex; align-items: center; width: 280px; max-width: 100%;}
-.lsearch > .ic {position: absolute; left: 12px; width: 16px; height: 16px; color: var(--muted); pointer-events: none;}
-.lsearch input {flex: 1; min-width: 0; height: 42px; padding: 0 40px 0 38px; background: var(--deep); font-size: 15px;}
+.lsearch > .ic {position: absolute; inset-inline-start: 12px; width: 16px; height: 16px; color: var(--muted); pointer-events: none;}
+.lsearch input {flex: 1; min-width: 0; height: 42px; padding: 0; padding-inline: 38px 40px; background: var(--deep); font-size: 15px;}
 .lsearch input::placeholder {color: var(--muted);}
 .lsearch input::-webkit-search-cancel-button {display: none;}
-.lsearch .clr {position: absolute; right: 4px; width: 34px; height: 34px; display: grid; place-items: center; color: var(--soft); opacity: 0; pointer-events: none;}
+.lsearch .clr {position: absolute; inset-inline-end: 4px; width: 34px; height: 34px; display: grid; place-items: center; color: var(--soft); opacity: 0; pointer-events: none;}
 .lsearch .clr .ic {width: 14px; height: 14px;}
 .lsearch.has .clr {opacity: 1; pointer-events: auto;}
+/* Search and the filter of the runs that did not work share a row, the search taking what is left. */
+.lfind {display: flex; align-items: center; gap: var(--gap); min-width: 0; max-width: 100%;}
+.lfail {flex: none; height: 42px; padding: 0 14px; display: inline-flex; align-items: center; gap: 8px; background: var(--deep); font-weight: 600; white-space: nowrap;}
+.lfail[aria-pressed="true"] {background: var(--ink); color: var(--field);}
+.lfail .ic {width: 16px; height: 16px;}
+.lbulk {display: flex;}
+.lbulk .x {height: 40px; padding: 0 14px; display: inline-flex; align-items: center; gap: 8px; background: var(--deep); color: var(--ink); font-weight: 600;}
+.lbulk .x:disabled {opacity: .5;}
 @media (max-width: 959px) {
-  .libhead .seg, .lsearch {width: 100%;}
+  .libhead .seg, .lfind {width: 100%;}
+  /* A width of 0 so the field adds nothing to the least the row needs; it grows into the room that is left. */
+  .lfind .lsearch {flex: 1 1 0; width: 0; min-width: 120px;}
 }
 .lday {display: grid; gap: 12px;}
 .lday + .lday {margin-top: 10px;}
@@ -648,8 +810,11 @@ main.library {display: grid; gap: 18px; padding: 6px 0 calc(48px + env(safe-area
 .lempty h2 {margin: 0; font: 700 28px/1.1 var(--display);}
 .lempty p {margin: 0; color: var(--soft); max-width: 46ch;}
 .lempty .go {margin-top: 8px;}
+.lempty .two {display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 8px;}
+.lempty .two .go {margin-top: 0;}
 .lempty.slim {grid-template-columns: minmax(0, 1fr); padding: 20px;}
 .lempty .x {height: 40px; padding: 0 14px; display: inline-flex; align-items: center; gap: 8px; background: var(--field); font-weight: 600;}
+.lempty a.x {color: var(--ink); text-decoration: none;}
 .lframe {position: relative; width: 132px; aspect-ratio: 4 / 3; background: var(--field);}
 .lframe > i, .li .cover.none > i {position: absolute; width: 22px; aspect-ratio: 1; border: 0 solid var(--soft);}
 .lframe > i:nth-of-type(1), .li .cover.none > i:nth-of-type(1) {left: 10px; top: 10px; border-width: 3px 0 0 3px;}
@@ -674,8 +839,8 @@ main.library {display: grid; gap: 18px; padding: 6px 0 calc(48px + env(safe-area
 .li .cover .c .ic {width: 26px; height: 26px; color: var(--line);}
 .li .cover .c b {font-size: 14px; font-weight: 600; color: var(--soft); line-height: 1.25;}
 .li .cover.none > i {width: 16%; border-color: var(--line);}
-.li .badge {position: absolute; right: 0; top: 0; padding: 3px 6px; display: flex; gap: 4px; align-items: center; background: var(--deep); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;}
-.li .badge.n {right: auto; left: 0;}
+.li .badge {position: absolute; inset-inline-end: 0; top: 0; padding: 3px 6px; display: flex; gap: 4px; align-items: center; background: var(--deep); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;}
+.li .badge.n {inset-inline: 0 auto;}
 .li .badge .ic {width: 10px; height: 10px;}
 .li .cover.mosaic {grid-template: minmax(0, 1fr) / minmax(0, 1fr) minmax(0, 1fr); gap: 2px; place-items: stretch;}
 .li .cover.m3, .li .cover.m4 {grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);}
@@ -686,11 +851,11 @@ main.library {display: grid; gap: 18px; padding: 6px 0 calc(48px + env(safe-area
 .li .m > span {white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
 .li:focus-visible {outline-offset: 4px;}
 @media (hover: hover) {
-  .tab:not([aria-current="page"]):hover, .libmore .x:hover, .lempty .x:hover {background-color: var(--line);}
+  .tab:not([aria-current="page"]):hover, .libmore .x:hover, .lempty .x:hover, .lbulk .x:not(:disabled):hover, .lfail[aria-pressed="false"]:hover {background-color: var(--line);}
   .li:hover .p {text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px;}
 }
 @media (prefers-reduced-motion: no-preference) {
-  .tab, .libmore .x, .lempty .x {transition: background-color .16s, color .16s;}
+  .tab, .libmore .x, .lempty .x, .lbulk .x, .lfail {transition: background-color var(--dur-xs), color var(--dur-xs);}
 }
 
 /* The viewer: one run on a sheet. On a wide screen the result stands beside what it says. */
@@ -698,7 +863,12 @@ main.library {display: grid; gap: 18px; padding: 6px 0 calc(48px + env(safe-area
 .vnav:empty {display: none;}
 .vnav .ib {width: 38px; min-height: 38px; height: 38px;}
 .vnav .ib:disabled {opacity: .35; cursor: default;}
-#viewer h3 {min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
+/* The viewer's title is the kind's word while it fits whole beside the arrows and Close, and the
+   kind's icon when it does not: the word then wraps to a second line out of sight, where it stays the
+   dialog's name for a screen reader. The icon takes no room and lies under the word, which covers it. */
+#viewer h3 {min-width: 20px; height: 24px; display: flex; flex-wrap: wrap; align-content: flex-start; row-gap: 24px; overflow: hidden;}
+#viewer h3 > .ic {flex: none; width: 20px; height: 20px; margin-block: 2px; margin-inline-end: -20px;}
+#viewer h3 > .t {position: relative; white-space: nowrap; line-height: 24px; background: var(--field);}
 .vrun {display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; min-width: 0;}
 @media (min-width: 900px) {
   .vrun {grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; align-items: start;}
@@ -721,15 +891,15 @@ main.library {display: grid; gap: 18px; padding: 6px 0 calc(48px + env(safe-area
 .vins .thumb {width: 52px; height: 52px;}
 #viewBody .jprompt > .tx {display: block; overflow: visible; -webkit-line-clamp: none; color: var(--soft);}
 #viewBody .jacts, #full .jacts {flex-wrap: wrap;}
-#viewBody .jacts > button:disabled, #full .jacts > button:disabled {opacity: .55;}
+#viewBody .jacts button:disabled, #full .jacts button:disabled {opacity: .55;}
 #viewBody .jacts > button > .t .usd, #full .jacts > button > .t .usd {font-weight: 600;}
 @media (max-width: 959px) {
   /* Again says its price: it keeps its words on a phone. */
-  #viewBody .jacts > .sq2, #full .jacts > .sq2 {width: auto; padding: 0 14px;}
-  #viewBody .jacts > .sq2 > .t, #full .jacts > .sq2 > .t {display: inline;}
+  #viewBody :is(.jacts, .sqs) > .sq2, #full :is(.jacts, .sqs) > .sq2 {width: auto; padding: 0 14px;}
+  #viewBody :is(.jacts, .sqs) > .sq2 > .t, #full :is(.jacts, .sqs) > .sq2 > .t {display: inline;}
 }
 .vbox.zoom > img {cursor: zoom-in;}
-.vexp {position: absolute; right: 0; top: 0; z-index: 1; width: 44px; height: 44px; display: grid; place-items: center; background: rgba(0, 69, 79, .85);}
+.vexp {position: absolute; inset-inline-end: 0; top: 0; z-index: 1; width: 44px; height: 44px; display: grid; place-items: center; background: rgba(0, 69, 79, .85);}
 .vexp .ic {width: 16px; height: 16px;}
 /* The whole screen for a run's results. */
 html.full-on {overflow: hidden;}
@@ -751,6 +921,10 @@ html.full-on {overflow: hidden;}
 .full .fnav .ic {width: 18px; height: 18px;}
 @media (hover: none) { .full .fnav {display: none;} }
 .full .fbot {display: grid; gap: 12px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));}
+/* Telegram's fullscreen (library.js, tgFull): the screen's edges and Telegram's own buttons over the
+   top are its insets, which it sets only for a fullscreen Mini App. */
+html.tgfull .full .fbar {padding-top: calc(10px + var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px));}
+html.tgfull .full .fbot {padding-bottom: calc(12px + var(--tg-safe-area-inset-bottom, 0px) + var(--tg-content-safe-area-inset-bottom, 0px));}
 .full .jacts {justify-content: center;}
 .dots {display: flex; justify-content: center; gap: 6px; height: 6px;}
 .dots > i {width: 6px; height: 6px; background: var(--line);}
@@ -766,10 +940,10 @@ html.full-on {overflow: hidden;}
 .fseg > button {position: relative; flex-direction: row; gap: 8px; padding-inline: 6px;}
 .fseg > button.all {flex: 0 0 auto; padding-inline: 16px;}
 .fseg .shp, .scopetip .shp {flex: none; border: 2px solid currentColor;}
-.fseg .dot {position: absolute; right: 5px; top: 5px; width: 6px; height: 6px; background: currentColor;}
+.fseg .dot {position: absolute; inset-inline-end: 5px; top: 5px; width: 6px; height: 6px; background: currentColor;}
 .addfr {flex: none; min-width: var(--row); min-height: var(--row); padding: 0 12px; display: flex; align-items: center; justify-content: center; gap: 12px; background: var(--deep); font-weight: 600;}
 .addfr:disabled {opacity: .35;}
-.addfr.wide {width: 100%; justify-content: flex-start; padding: 10px 14px; min-height: 60px; text-align: left;}
+.addfr.wide {width: 100%; justify-content: flex-start; padding: 10px 14px; min-height: 60px; text-align: start;}
 .addfr.wide > span {display: grid; gap: 1px;}
 .addfr.wide small {font-size: 13px; font-weight: 400; color: var(--muted);}
 .fnote {font-size: 14px; color: var(--muted); line-height: 1.45;}
@@ -777,17 +951,22 @@ html.full-on {overflow: hidden;}
 .chipbtn .more {flex: none; font-size: 13px; color: var(--muted);}
 .chipbtn .cnt {font-weight: 700;}
 .shead {display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-height: 36px;}
-.shead .scopetip {margin-right: auto;}
-.scopetip {display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 0 0 10px; background: var(--ink); color: var(--field); font-size: 14px; font-weight: 600; min-width: 0;}
+.shead .scopetip {margin-inline-end: auto;}
+.scopetip {display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0; padding-inline-start: 10px; background: var(--ink); color: var(--field); font-size: 14px; font-weight: 600; min-width: 0;}
 .scopetip .t {white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
 .scopetip button {width: 34px; height: 36px; display: grid; place-items: center; color: var(--field);}
 .scopetip button .ic {width: 12px; height: 12px;}
 .board {position: relative; isolation: isolate;}
 .board > .cell {position: absolute;}
 .ghost.cell {cursor: pointer;}
-.ghost[aria-pressed="true"] {outline: 2px solid var(--ink); outline-offset: -2px;}
-.ghost[aria-pressed="true"] > i {border-color: var(--ink);}
-.ghost[aria-pressed="true"] .c b {color: var(--soft);}
+/* A frame's own button lies under what the frame says, which stays readable to the pointer (a chip's title). */
+.cell > .fhit {cursor: inherit;}
+/* Focus rings inside the edge that marks the frame being set up, so the two never look alike. */
+.ghost.cell > .fhit:focus-visible {outline-offset: -6px;}
+.ghost.cell > .c {position: relative;}
+.ghost.on {outline: 2px solid var(--ink); outline-offset: -2px;}
+.ghost.on > i {border-color: var(--ink);}
+.ghost.on .c b {color: var(--soft);}
 .ghost .fown {display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; max-width: 100%; margin-top: 4px;}
 .cell.narrow .c small {display: none;}
 .ghost.narrow .fown {flex-direction: column; align-items: center;}
@@ -795,12 +974,13 @@ html.full-on {overflow: hidden;}
 .ghost.narrow .chip > span {display: none;}
 .chip {max-width: 100%; height: 24px; padding: 0 7px; display: inline-flex; align-items: center; gap: 5px; overflow: hidden; background: var(--field); font-size: 12px; font-weight: 600; white-space: nowrap;}
 .chip > span {overflow: hidden; text-overflow: ellipsis;}
-.chip .lg.s, .chip .lgi {width: 14px; height: 14px;}
+/* 16 px, not less: the marks drawn in thin lines (OpenAI, MiniMax, Alibaba) close up into a blot at 14. */
+.chip .lg.s, .chip .lgi {width: 16px; height: 16px;}
 .chip .lg.s {color: inherit;}
 .chip .ic {width: 12px; height: 12px;}
 .chip.warn, .chip.own {background: var(--ink); color: var(--field);}
 .chip:not(.own):not(.warn) {background: rgba(0, 96, 110, .72); color: var(--soft); font-weight: 500;}
-.ghost .frm {position: absolute; left: 50%; top: 8px; transform: translateX(-50%); width: 32px; height: 32px; display: grid; place-items: center; background: var(--field); opacity: 0; transition: opacity .15s;}
+.ghost .frm {position: absolute; left: 50%; top: 8px; transform: translateX(-50%); width: 32px; height: 32px; display: grid; place-items: center; background: var(--field); opacity: 0; transition: opacity var(--dur-xs);}
 .ghost .frm .ic {width: 12px; height: 12px;}
 .ghost:hover .frm, .ghost:focus-within .frm {opacity: 1;}
 @media (hover: none) { .ghost .frm {display: none;} .strip .ghost .frm {display: grid;} }
@@ -809,20 +989,102 @@ html.full-on {overflow: hidden;}
 .strip::-webkit-scrollbar {display: none;}
 .strip > * {flex: none; position: relative; scroll-snap-align: start;}
 .strip > :last-child {scroll-snap-align: end;}
-.strip .ghost .frm {opacity: 1; left: auto; right: 8px; top: 8px; transform: none; width: 44px; height: 44px; background: rgba(0, 54, 61, .92);}
+.strip .ghost .frm {opacity: 1; inset-inline: auto 8px; top: 8px; transform: none; width: 44px; height: 44px; background: rgba(0, 54, 61, .92);}
 .strip .ghost .frm .ic {width: 14px; height: 14px;}
 @media (max-width: 959px) { .shead .addf {height: 44px; padding: 0 16px;} }
-.jbox.cell .num {position: absolute; left: 6px; top: 6px; z-index: 1; min-width: 22px; height: 22px; padding: 0 4px; display: grid; place-items: center; background: var(--deep); font-size: 12px; font-weight: 700;}
-.jbox.cell .tm {position: absolute; left: 6px; bottom: 6px; z-index: 1; max-width: calc(100% - 60px);}
+.jbox.cell .num {position: absolute; inset-inline-start: 6px; top: 6px; z-index: 1; min-width: 22px; height: 22px; padding: 0 4px; display: grid; place-items: center; background: var(--deep); font-size: 12px; font-weight: 700;}
+.jbox.cell .tm {position: absolute; inset-inline-start: 6px; bottom: 6px; z-index: 1; max-width: calc(100% - 60px);}
 .jbox.cell:not(.done) .tm {display: none;}
 .jbox.cell.done {cursor: zoom-in;}
-.jbox.cell > .tdl {position: absolute; right: 6px; top: 6px; z-index: 1; width: 36px; height: 36px; display: grid; place-items: center; background: var(--deep); color: var(--ink); opacity: 0; transition: opacity .15s;}
+.jbox.cell > .tdl {position: absolute; inset-inline-end: 6px; top: 6px; z-index: 1; width: 36px; height: 36px; display: grid; place-items: center; background: var(--deep); color: var(--ink); opacity: 0; transition: opacity var(--dur-xs);}
 .jbox.cell > .tdl > .t {display: none;}
 .jbox.cell:hover > .tdl, .jbox.cell:focus-within > .tdl {opacity: 1;}
 @media (hover: none) { .jbox.cell > .tdl {opacity: 1;} }
+.jbox.cell > .tpp {position: absolute; right: 6px; bottom: 6px; z-index: 1; width: 36px; height: 36px; display: grid; place-items: center; background: var(--deep); color: var(--ink); opacity: 0; transition: opacity var(--dur-xs);}
+.jbox.cell:hover > .tpp, .jbox.cell:focus-within > .tpp, .jbox.cell > .tpp.still {opacity: 1;}
+@media (hover: none) { .jbox.cell > .tpp {opacity: 1;} }
 .jbox.cell.narrow .tm > span {display: none;}
 .jbox.cell > video {display: block; width: 100%; height: 100%; object-fit: contain;}
 .jbox.cell.ht .c {padding: 0 12px 16px;}
 @media (hover: hover) {
-  .addfr:not(:disabled):hover, .ghost.cell:not([aria-pressed="true"]):hover {background-color: var(--line);}
+  .addfr:not(:disabled):hover, .ghost.cell:not(.on):hover {background-color: var(--line);}
+}
+
+/* A finger needs about 44 px. On a touch screen the controls a finger presses are at least that tall,
+   and where a control is drawn smaller (a variant, a cross on a tile, the copy of a prompt, the buttons
+   of a header) it reaches that far around its drawing, into the space beside it and never over a
+   neighbour. A cross on a tile reaches outward, and inward no farther than the tile's middle. */
+@media (pointer: coarse) {
+  :where(.pill, .jprompt > .cp, .x, .signin, .me, .logo, .lfail, .tab, .link, .morebtn, .scopetip button, .vnav .ib, .link-t, .mnote button, .dold button, .seg.kind > button, .sets .ratios.one > .rt) {position: relative;}
+  :where(.pill, .jprompt > .cp, .x, .signin, .me, .logo, .lfail, .tab, .link, .morebtn, .scopetip button, .vnav .ib, .link-t, .mnote button, .dold button, .seg.kind > button, .sets .ratios.one > .rt, .jbox.cell > .tdl)::after {
+    content: ""; position: absolute; inset: min(0px, calc(50% - 22px)) var(--reach, 0px);}
+  /* A link in a line of text reaches 10 px over and under it, as far as the gaps around such lines go. */
+  :is(.link-t, .mnote button, .dold button)::after {inset-block: -10px;}
+  .pill {height: 36px; min-width: 40px; justify-content: center; --reach: -2px;}
+  .fvars {gap: 8px 4px;}
+  .jprompt > .cp {--reach: -8px;}
+  .vnav .ib {--reach: -3px;}
+  .jbox.cell > .tdl {--reach: -4px;}
+  .scopetip button {--reach: -4px;}
+  .sets .ratios.one > .rt {--reach: -1px;}
+  /* The kind's two buttons stand 2 px apart: each reaches 1 px into that gap and 3 px to its outer side. */
+  .seg.kind > button:first-of-type::after {inset-inline: -3px -1px;}
+  .seg.kind > button:last-of-type::after {inset-inline: -1px -3px;}
+  .thumb .rm::after {content: ""; position: absolute; inset: -8px -3px -3px;}
+  :is(.jacts, .sqs) > :is(button, a) {height: 44px;}
+  .jacts > .busy {min-height: 44px;}
+  .libhead .seg > button {min-height: 44px;}
+  .lsearch input {height: 44px; padding-inline-end: 44px;}
+  .lsearch .clr {inset-inline-end: 0; width: 44px; height: 44px;}
+  .srow > button, .srow select.pick, .kform input, .kform button, .ofield input {height: 44px;}
+  .kform {grid-template-columns: minmax(0, 1fr) auto 44px;}
+  .pbar .ib {width: 44px; height: 44px; min-height: 44px;}
+  .ptrack {height: 44px;}
+  .glang {height: 44px;}
+}
+@media (pointer: coarse) and (max-width: 959px) {
+  .sqs > .sq, .jacts.tight > .primary {width: 44px;}
+}
+@media (pointer: coarse) and (max-width: 389.98px) {
+  .sqs > .sq2 {width: 44px;}
+}
+
+/* The system's contrast colours (Windows contrast themes): the system paints every fill with its page
+   colour, so what a fill alone showed is drawn here in the system's own colours. The choice made has
+   the selection colour, a control has a frame, and a maker's mark, a slider, a switch and the dots of a
+   strip are drawn in the colour of the text around them. The choice made keeps its colours over the
+   fills of a hover and of a variant row, and the system draws no page colour behind its words. */
+@media (forced-colors: active) {
+  .ind {display: none;}
+  :where(button, textarea, select, input:not([type="range"], [type="file"], [type="checkbox"], [type="radio"]), .tab, .jacts a):not(.link-t, .mnote button, .dold button, .morebtn, .tog, .gap, .old, [tabindex="-1"]:not([role="radio"])) {border: 1px solid;}
+  :is([role="radio"][aria-checked="true"], .tab[aria-current="page"], .rcard[aria-current="true"], .pill[aria-pressed="true"]) {forced-color-adjust: none; background-color: Highlight !important; color: HighlightText !important; border-color: Highlight !important;}
+  :is([role="radio"][aria-checked="true"], .tab[aria-current="page"], .rcard[aria-current="true"], .pill[aria-pressed="true"]):focus-visible {outline-color: CanvasText;}
+  :is([role="radio"][aria-checked="true"], .tab[aria-current="page"], .rcard[aria-current="true"], .pill[aria-pressed="true"]) * {color: inherit !important;}
+  .ic {color: inherit !important;}
+  .lg {background-color: transparent;}
+  .lg > i, .lgi, .fseg .dot {background-color: CanvasText;}
+  button :is(.lg > i, .lgi, .dot) {background-color: ButtonText;}
+  button:disabled :is(.lg > i, .lgi, .dot) {background-color: GrayText;}
+  :is([role="radio"][aria-checked="true"], .tab[aria-current="page"], .rcard[aria-current="true"], .pill[aria-pressed="true"]) :is(.lg > i, .lgi, .dot) {background-color: HighlightText;}
+  .frow[aria-current="true"]::before {background-color: Highlight;}
+  .frow[aria-current="true"] > .fhit {border: 2px solid Highlight;}
+  .ghost[aria-pressed="true"], .vpicks button[aria-pressed="true"] {outline: 3px solid Highlight; outline-offset: -3px;}
+  .ghost[aria-pressed="true"] > i {border-color: Highlight;}
+  .steps .ticks button.on {color: Highlight;}
+  input[type="range"] {forced-color-adjust: none; --fill: linear-gradient(to right, Highlight calc(10px + (100% - 20px) * var(--f, 0)), GrayText 0);}
+  [dir="rtl"] input[type="range"] {--fill: linear-gradient(to left, Highlight calc(10px + (100% - 20px) * var(--f, 0)), GrayText 0);}
+  input[type="range"]::-webkit-slider-thumb {background: ButtonText;}
+  input[type="range"]::-moz-range-thumb {background: ButtonText;}
+  input[type="range"]:focus-visible {outline-color: CanvasText;}
+  .tog .knob {border: 1px solid; background-color: transparent;}
+  .tog .knob::after {top: 3px; inset-inline-start: 3px; background-color: ButtonText;}
+  .tog[aria-checked="true"] .knob {background-color: Highlight; border-color: Highlight;}
+  .tog[aria-checked="true"] .knob::after {background-color: HighlightText;}
+  .pseg, .dots > i {background-color: GrayText;}
+  .pseg > i, .dots > i.on {background-color: Highlight;}
+  .timeline .ph {background-color: CanvasText;}
+  .toast {border: 2px solid;}
+  .tip, .scopetip, .ownmark, .chip.own, .chip.warn {border: 1px solid;}
+  .srow.bad {border-inline-start: 3px solid;}
+  .kform input[aria-invalid="true"] {border-width: 2px;}
 }

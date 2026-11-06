@@ -4,6 +4,8 @@ package catalog
 import (
 	"fmt"
 	"slices"
+	"strconv"
+	"strings"
 )
 
 // Inputs is how many files of each kind one run of an offer takes, from the
@@ -28,6 +30,10 @@ type ImageInputs struct {
 	// the model has (first, then last).
 	Refs   int `json:"refs"`
 	Frames int `json:"frames"`
+	// RefDurations are the only lengths, in seconds, of a video made from
+	// reference images, where the model makes those at fewer lengths than
+	// it lists; nil when it makes them at any.
+	RefDurations []float64 `json:"ref_durations,omitempty"`
 }
 
 // ClipInputs are the attached videos or sounds of a run.
@@ -79,6 +85,9 @@ func InputsOf(m Model, of Offer) Inputs {
 	}
 	if m.Kind == Video && takes("image") {
 		img.Refs = refs.Image
+		if img.Refs > 0 {
+			img.RefDurations = refs.ImageDurations
+		}
 		if p, ok := of.Params[framesParam]; ok {
 			img.Frames = len(p.Values)
 		}
@@ -136,6 +145,20 @@ type Count struct {
 	// and AudioBytes its size, where known.
 	VideoSecs, AudioSecs   []float64
 	VideoBytes, AudioBytes []int64
+	// Duration is the length the run asks for, in seconds; 0 when it sets
+	// none.
+	Duration float64
+}
+
+// Durations are the only lengths a video of these files can have, nil when
+// it can have any the offer lists: a model that makes a video from
+// reference images at fewer lengths (RefDurations) has those when the run
+// has a reference.
+func (in Inputs) Durations(c Count) []float64 {
+	if in.Images == nil || c.Images-c.Frames <= 0 {
+		return nil
+	}
+	return in.Images.RefDurations
 }
 
 // Check says what the run's files break of the offer's limits, nil when
@@ -165,10 +188,25 @@ func (in Inputs) Check(kind Kind, c Count) error {
 	case in.Files > 0 && c.Images+c.Videos+c.Audio > in.Files:
 		return fmt.Errorf("at most %d files in all, and %d are attached", in.Files, c.Images+c.Videos+c.Audio)
 	}
+	if d := in.Durations(c); kind == Video && len(d) > 0 && c.Duration > 0 && !slices.Contains(d, c.Duration) {
+		return fmt.Errorf("a video from reference images is %s s long, and %g s is set", seconds(d), c.Duration)
+	}
 	if err := in.Videos.check("videos", c.Videos, c.VideoSecs, c.VideoBytes); err != nil {
 		return err
 	}
 	return in.Audio.check("sounds", c.Audio, c.AudioSecs, c.AudioBytes)
+}
+
+// seconds lists lengths as a sentence says them: "8", "8 or 10".
+func seconds(d []float64) string {
+	words := make([]string, len(d))
+	for i, s := range d {
+		words[i] = strconv.FormatFloat(s, 'g', -1, 64)
+	}
+	if len(words) < 2 {
+		return strings.Join(words, "")
+	}
+	return strings.Join(words[:len(words)-1], ", ") + " or " + words[len(words)-1]
 }
 
 // secsSlack is how much longer than its limit a clip may be. A part cut to

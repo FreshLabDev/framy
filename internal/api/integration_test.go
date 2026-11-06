@@ -33,6 +33,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/FreshLabDev/framy/internal/auth"
 	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/db"
 	"github.com/FreshLabDev/framy/internal/free"
@@ -286,8 +287,11 @@ func (n *notices) within(d time.Duration) []event {
 		if err := json.Unmarshal([]byte(note.Payload), &e); err != nil {
 			n.t.Fatalf("a notice that is not JSON: %q", note.Payload)
 		}
-		if len(note.Payload) > 200 {
-			n.t.Errorf("the payload is %d bytes; it should stay small", len(note.Payload))
+		// Any role of the shared database may listen: the notice names the
+		// job and its number, and nobody.
+		var fields map[string]any
+		if err := json.Unmarshal([]byte(note.Payload), &fields); err != nil || len(fields) != 2 || fields["job"] == nil || fields["seq"] == nil {
+			n.t.Errorf("the notice carries more than the job and its number: %s", note.Payload)
 		}
 		out = append(out, e)
 	}
@@ -318,7 +322,7 @@ func TestEveryVisibleChangeIsNumberedAndAnnounced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := n.within(300 * time.Millisecond); len(got) != 1 || got[0] != (event{Job: id, User: alice, Seq: 1, Status: "queued"}) {
+	if got := n.within(300 * time.Millisecond); len(got) != 1 || got[0] != (event{Job: id, Seq: 1}) {
 		t.Fatalf("a new job: %+v", got)
 	}
 
@@ -330,17 +334,17 @@ func TestEveryVisibleChangeIsNumberedAndAnnounced(t *testing.T) {
 	}
 
 	// Each thing a person sees is one.
-	for i, c := range []struct{ sql, status string }{
-		{`UPDATE job SET status='running', started_at=now() WHERE id=$1`, "running"},
-		{`UPDATE job SET error_class='unavailable', error='503' WHERE id=$1`, "running"},
-		{`UPDATE job SET results=1 WHERE id=$1`, "running"},
-		{`UPDATE job SET actual_usd=0.03 WHERE id=$1`, "running"},
-		{`UPDATE job SET status='done', finished_at=now() WHERE id=$1`, "done"},
+	for i, sql := range []string{
+		`UPDATE job SET status='running', started_at=now() WHERE id=$1`,
+		`UPDATE job SET error_class='unavailable', error='503' WHERE id=$1`,
+		`UPDATE job SET results=1 WHERE id=$1`,
+		`UPDATE job SET actual_usd=0.03 WHERE id=$1`,
+		`UPDATE job SET status='done', finished_at=now() WHERE id=$1`,
 	} {
-		exec(t, w.pool, c.sql, id)
+		exec(t, w.pool, sql, id)
 		got := n.within(300 * time.Millisecond)
-		if len(got) != 1 || got[0] != (event{Job: id, User: alice, Seq: int64(i + 2), Status: c.status}) {
-			t.Fatalf("%s: %+v", c.sql, got)
+		if len(got) != 1 || got[0] != (event{Job: id, Seq: int64(i + 2)}) {
+			t.Fatalf("%s: %+v", sql, got)
 		}
 	}
 }
@@ -365,16 +369,24 @@ func TestTheQueuesOwnTransitionsAreAnnounced(t *testing.T) {
 	if err := w.queue.Cancel(ctx, queued); err != nil {
 		t.Fatal(err)
 	}
+	// Each job is announced as drafted or queued, then as queued or
+	// cancelled.
 	var got []string
 	for _, e := range n.within(400 * time.Millisecond) {
-		got = append(got, fmt.Sprintf("%d:%d:%s", e.Job, e.Seq, e.Status))
+		got = append(got, fmt.Sprintf("%d:%d", e.Job, e.Seq))
 	}
 	want := []string{
-		fmt.Sprintf("%d:1:draft", draft), fmt.Sprintf("%d:2:queued", draft),
-		fmt.Sprintf("%d:1:queued", queued), fmt.Sprintf("%d:2:cancelled", queued),
+		fmt.Sprintf("%d:1", draft), fmt.Sprintf("%d:2", draft),
+		fmt.Sprintf("%d:1", queued), fmt.Sprintf("%d:2", queued),
 	}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Errorf("got %v, want %v", got, want)
+	}
+	for id, status := range map[int64]string{draft: "queued", queued: "cancelled"} {
+		var now string
+		if err := w.pool.QueryRow(ctx, `SELECT status FROM job WHERE id = $1`, id).Scan(&now); err != nil || now != status {
+			t.Errorf("job %d is %q, want %q: %v", id, now, status, err)
+		}
 	}
 }
 
@@ -497,8 +509,14 @@ func TestAJobsWholeLifeArrivesOverTheStreamInOrder(t *testing.T) {
 	s.quiet(150 * time.Millisecond)
 
 	close(w.prov.release)
+	// What the provider charged comes first, written before the results are
+	// copied, so that no ending can lose it.
 	evID, m := s.event(wait)
-	if evID != 3 || m["status"] != "done" {
+	if c, _ := m["cost"].(map[string]any); evID != 3 || m["status"] != "running" || c["usd"] != 0.0391 {
+		t.Fatalf("%d %v", evID, m)
+	}
+	evID, m = s.event(wait)
+	if evID != 4 || m["status"] != "done" {
 		t.Fatalf("%d %v", evID, m)
 	}
 	cost := m["cost"].(map[string]any)
@@ -527,20 +545,21 @@ func TestAStreamOpenedLateOrResumedMissesNothing(t *testing.T) {
 	_, m, _ := in.post(alice, "late", body(paidOffer, "key"))
 	id := idOf(t, m)
 	path := fmt.Sprintf("/api/jobs/%d/events", id)
-	eventually(t, "the job to end", func() bool { return seqOf(t, w.pool, id) == 3 })
+	// queued, running, the cost, done.
+	eventually(t, "the job to end", func() bool { return seqOf(t, w.pool, id) == 4 })
 
 	// Late: the end, and nothing of what led to it.
 	s := in.openStream(alice, path)
-	if evID, m := s.event(wait); evID != 3 || m["status"] != "done" || len(m["results"].([]any)) != 1 {
+	if evID, m := s.event(wait); evID != 4 || m["status"] != "done" || len(m["results"].([]any)) != 1 {
 		t.Fatalf("%d %v", evID, m)
 	}
 	if !s.ended(wait) {
 		t.Error("the stream should end")
 	}
 	// Resumed from any id before the end: the end, once.
-	for _, last := range []string{"1", "2"} {
+	for _, last := range []string{"1", "2", "3"} {
 		s = in.openStream(alice, path, "Last-Event-ID", last)
-		if evID, _ := s.event(wait); evID != 3 {
+		if evID, _ := s.event(wait); evID != 4 {
 			t.Errorf("from %s: event %d", last, evID)
 		}
 		if !s.ended(wait) {
@@ -548,7 +567,7 @@ func TestAStreamOpenedLateOrResumedMissesNothing(t *testing.T) {
 		}
 	}
 	// From the end: nothing, and 204 so that EventSource stops.
-	if s = in.openStream(alice, path, "Last-Event-ID", "3"); s.resp.StatusCode != http.StatusNoContent {
+	if s = in.openStream(alice, path, "Last-Event-ID", "4"); s.resp.StatusCode != http.StatusNoContent {
 		t.Errorf("%d", s.resp.StatusCode)
 	}
 }
@@ -578,13 +597,14 @@ func TestARestartLosesNoResult(t *testing.T) {
 		t.Fatal("a stream outlived its process")
 	}
 	close(w.prov.release)
-	eventually(t, "the job to end", func() bool { return seqOf(t, w.pool, id) == last+1 })
+	// The cost, then the end.
+	eventually(t, "the job to end", func() bool { return seqOf(t, w.pool, id) == last+2 })
 
 	// The next process: the client reconnects with the id it had.
 	second := w.instance()
 	s = second.openStream(alice, path, "Last-Event-ID", strconv.FormatInt(last, 10))
 	evID, m := s.event(wait)
-	if evID != last+1 || m["status"] != "done" || len(m["results"].([]any)) != 1 {
+	if evID != last+2 || m["status"] != "done" || len(m["results"].([]any)) != 1 {
 		t.Fatalf("%d %v", evID, m)
 	}
 }
@@ -627,6 +647,42 @@ func TestAListenerDropAndReconnectLosesNothing(t *testing.T) {
 	}
 }
 
+// Sessions another process ended are forgotten here at once, and on each
+// connection, since a notice may have gone by while there was none; a job's
+// notice does not touch them.
+func TestTheListenerForgetsSessionsEndedElsewhere(t *testing.T) {
+	w := newWorld(t)
+	var forgot atomic.Int64
+	in := w.instance(func(o *rigOptions) {
+		prev := o.cfg
+		o.cfg = func(c *Config) {
+			prev(c)
+			c.SessionsEnded = func() { forgot.Add(1) }
+		}
+	})
+	eventually(t, "the sessions to be forgotten on connecting", func() bool { return forgot.Load() == 1 })
+
+	_, m, _ := in.post(alice, "sessions", body(paidOffer, "key"))
+	id := idOf(t, m)
+	s := in.openStream(alice, fmt.Sprintf("/api/jobs/%d/events", id))
+	s.event(wait)
+	exec(t, w.pool, `UPDATE job SET status='running', started_at=now() WHERE id=$1`, id)
+	s.event(wait)
+	if n := forgot.Load(); n != 1 {
+		t.Errorf("a job's notice forgot the sessions: %d", n)
+	}
+
+	exec(t, w.pool, `SELECT pg_notify($1, '')`, auth.SessionsChannel)
+	eventually(t, "the sessions to be forgotten on a notice", func() bool { return forgot.Load() == 2 })
+
+	reconnects := w.listening.Load()
+	exec(t, w.pool, `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = 'framy-events' AND datname = current_database()`)
+	eventually(t, "the listener to connect again", func() bool { return w.listening.Load() > reconnects })
+	if n := forgot.Load(); n != 3 {
+		t.Errorf("forgotten %d times after a reconnect, want 3", n)
+	}
+}
+
 func TestAnotherPersonsJobIsNotFoundEverywhere(t *testing.T) {
 	w := newWorld(t)
 	in := w.instance()
@@ -659,12 +715,19 @@ func TestAFailedJobSaysWhatTheProviderSaid(t *testing.T) {
 		provider_message='The input video may contain real person.' WHERE id=$1`, id)
 	path := fmt.Sprintf("/api/jobs/%d", id)
 	got := jsonOf(t, in.do(alice, "GET", path, nil))["error"].(map[string]any)
-	if got["class"] != "faces" || got["message"] != "The input video may contain real person." {
+	if got["class"] != "faces" || got["message"] != "The input video may contain real person." || got["from_provider"] != true {
 		t.Fatalf("error = %v", got)
 	}
 	exec(t, w.pool, `UPDATE job SET error_class='invalid_request', error='invalid_request: fast is not a setting', provider_message=NULL WHERE id=$1`, id)
 	got = jsonOf(t, in.do(alice, "GET", path, nil))["error"].(map[string]any)
-	if got["class"] != "invalid_request" || got["message"] != "invalid_request: fast is not a setting" {
+	if got["class"] != "invalid_request" || got["message"] != "invalid_request: fast is not a setting" || got["from_provider"] != nil {
+		t.Fatalf("error = %v", got)
+	}
+	// A refusal with no words of the provider's keeps framy's line, which the
+	// site must not show as the provider's.
+	exec(t, w.pool, `UPDATE job SET error_class='moderation', error='moderation: gemini blocked the prompt (SAFETY)' WHERE id=$1`, id)
+	got = jsonOf(t, in.do(alice, "GET", path, nil))["error"].(map[string]any)
+	if got["class"] != "moderation" || got["message"] != "moderation: gemini blocked the prompt (SAFETY)" || got["from_provider"] != nil {
 		t.Fatalf("error = %v", got)
 	}
 }
@@ -927,7 +990,7 @@ func TestAPhotoBroughtOverHTTPIsAJobInputOfItsOwnerAlone(t *testing.T) {
 	}
 
 	// The photo goes in with a job, and the job keeps the order.
-	in2 := fmt.Sprintf(`{"offer":%q,"prompt":"p","pay":"key","inputs":[%d]}`, paidOffer, asset)
+	in2 := fmt.Sprintf(`{"offer":%q,"prompt":"p","pay":"key","inputs":[%d],"shown_usd":%s}`, paidOffer, asset, seenUSD)
 	status, job, _ := in.post(alice, "photo", in2)
 	if status != http.StatusAccepted {
 		t.Fatalf("%d %v", status, job)
@@ -1070,7 +1133,7 @@ func TestAPressIsItsJobsInTheDatabase(t *testing.T) {
 	w := newWorld(t)
 	in := w.instance()
 	key := "press-1"
-	body := `{"prompt":"a fox","frames":[{"offer":"` + freeOffer + `","pay":"key"},{"offer":"` + freeOffer + `","pay":"key"},{"offer":"` + paidOffer + `","pay":"key"}]}`
+	body := `{"prompt":"a fox","shown_usd":` + seenUSD + `,"frames":[{"offer":"` + freeOffer + `","pay":"key"},{"offer":"` + freeOffer + `","pay":"key"},{"offer":"` + paidOffer + `","pay":"key"}]}`
 	post := func() (int, map[string]any, http.Header) {
 		resp := in.do(alice, http.MethodPost, "/api/batches", strings.NewReader(body), "Content-Type", "application/json", "Idempotency-Key", key)
 		return resp.StatusCode, jsonOf(t, resp), resp.Header

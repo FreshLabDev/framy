@@ -35,6 +35,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/jobs"
 	"github.com/FreshLabDev/framy/internal/media"
 	"github.com/FreshLabDev/framy/internal/r2"
@@ -46,9 +47,15 @@ const (
 	DefaultMaxUpload = 50 << 20
 	// DefaultMaxResult bounds a result fetched from a provider's link.
 	DefaultMaxResult = 512 << 20
-	// DefaultInputTTL is how long a provider may fetch an input: one call,
-	// with room for a slow queue. Each submit presigns anew.
+	// DefaultInputTTL is how long a provider may fetch an input of a
+	// picture: during its one call, with room for a slow queue. Each submit
+	// presigns anew.
 	DefaultInputTTL = 15 * time.Minute
+	// DefaultVideoInputTTL is the same for a video run, which a provider
+	// takes and may start later, when its own queue lets it: as long as
+	// framy waits for the run (an hour, jobs' runDeadline), with a margin
+	// for the clocks, so a run is never lost to a link that died first.
+	DefaultVideoInputTTL = 65 * time.Minute
 	// DefaultLinkTTL is how long the owner's link to a file lives at the
 	// least: from the end of the window it was made in.
 	DefaultLinkTTL = 10 * time.Minute
@@ -67,6 +74,13 @@ const (
 	// uploads on Generate and the chat right before its draft, so an upload
 	// older than this that no job took is left from a failure.
 	UploadTTL = time.Hour
+	// sweepBatch is how many uploads one look for those no job took finds:
+	// the look reads every upload, so it is made once for many.
+	sweepBatch = 100
+	// bucketEvery is the least time between two sums of the bucket. A sum
+	// reads every row of asset, and a step of 10 GB told a minute late is
+	// told in time.
+	bucketEvery = time.Minute
 )
 
 var (
@@ -82,17 +96,22 @@ type Bucket interface {
 	Get(ctx context.Context, key string) (io.ReadCloser, error)
 	Head(ctx context.Context, key string) (r2.Object, error)
 	Delete(ctx context.Context, key string) error
+	List(ctx context.Context, prefix string) ([]string, error)
 	PresignGet(key string, ttl time.Duration, disposition string) (string, error)
 	PresignGetAt(key string, at time.Time, ttl time.Duration, disposition, cacheControl string) (string, error)
-	PresignPut(key string, ttl time.Duration) (string, error)
+	PresignPut(key string, size int64, ttl time.Duration) (string, error)
 }
 
 // Config is the store's setup. Pool's search_path is framy.
 type Config struct {
 	Pool   *pgxpool.Pool
 	Bucket Bucket
-	Media  *media.Converter
-	Work   media.Work
+	// Incoming is where the site's browser puts a clip with a presigned
+	// PUT: a bucket of its own whose token reaches nothing else. Nil puts
+	// clips into Bucket, under incoming/.
+	Incoming Bucket
+	Media    *media.Converter
+	Work     media.Work
 	// Fetch downloads results from providers' links: safehttp.Client, so a
 	// link cannot point framy at its own network.
 	Fetch *http.Client
@@ -111,7 +130,10 @@ type Config struct {
 	// put it.
 	MaxVideo    int64
 	IncomingTTL time.Duration
-	InputTTL    time.Duration
+	// InputTTL and VideoInputTTL are how long the links to a picture run's
+	// inputs and to a video run's live.
+	InputTTL      time.Duration
+	VideoInputTTL time.Duration
 	// LinkTTL and LinkWindow: a link to an owner's file is signed at the
 	// start of the LinkWindow it is made in and lives LinkWindow plus
 	// LinkTTL, so it has LinkTTL left at the least.
@@ -124,18 +146,28 @@ type Config struct {
 
 // Store keeps the files.
 type Store struct {
-	pool   *pgxpool.Pool
-	bucket Bucket
-	media  *media.Converter
-	work   media.Work
-	fetch  *http.Client
-	notify func(ctx context.Context, text string) error
-	log    *slog.Logger
-	cfg    Config
+	pool     *pgxpool.Pool
+	bucket   Bucket
+	incoming Bucket
+	media    *media.Converter
+	work     media.Work
+	fetch    *http.Client
+	notify   func(ctx context.Context, text string) error
+	log      *slog.Logger
+	cfg      Config
 
 	// thumbErr says why results get no thumbnails: an ffmpeg without WebP.
 	thumbOnce sync.Once
 	thumbErr  error
+	// thumb is makeThumb; tests stand in for it.
+	thumb func(ctx context.Context, a Asset, fill func(dst string) error) (*Thumb, error)
+
+	// bucketAt is when a write may sum the bucket again (checkBucket), and
+	// bucketOwed says a write came sooner and was not summed, which
+	// CatchUpBucket sums.
+	bucketMu   sync.Mutex
+	bucketAt   time.Time
+	bucketOwed bool
 }
 
 // New checks cfg and fills its defaults.
@@ -151,16 +183,22 @@ func New(cfg Config) (*Store, error) {
 	setDefault(&cfg.MaxVideo, DefaultMaxVideo)
 	setDefault(&cfg.IncomingTTL, DefaultIncomingTTL)
 	setDefault(&cfg.InputTTL, DefaultInputTTL)
+	setDefault(&cfg.VideoInputTTL, DefaultVideoInputTTL)
 	setDefault(&cfg.LinkTTL, DefaultLinkTTL)
 	setDefault(&cfg.LinkWindow, DefaultLinkWindow)
 	setDefault(&cfg.AlertStep, DefaultAlertStep)
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
-	return &Store{
-		pool: cfg.Pool, bucket: cfg.Bucket, media: cfg.Media, work: cfg.Work, fetch: cfg.Fetch,
+	if cfg.Incoming == nil {
+		cfg.Incoming = cfg.Bucket
+	}
+	s := &Store{
+		pool: cfg.Pool, bucket: cfg.Bucket, incoming: cfg.Incoming, media: cfg.Media, work: cfg.Work, fetch: cfg.Fetch,
 		notify: cfg.Notify, log: cfg.Log, cfg: cfg,
-	}, nil
+	}
+	s.thumb = s.makeThumb
+	return s, nil
 }
 
 func setDefault[T int64 | time.Duration](v *T, d T) {
@@ -217,18 +255,30 @@ func (a Asset) audio() *bool {
 	return &a.Audio
 }
 
+// Gate waits for room to convert a photo whose bytes are all in, and gives
+// back what returns the room; an error ends the upload with it, and nothing
+// is kept.
+type Gate func(ctx context.Context) (release func(), err error)
+
 // Upload normalizes a photo the person brought and keeps it. The person is
 // in core.person already, as core.touch puts them. A file that is not a
 // picture framy takes comes back as media.ErrUnsupported, ErrTooLarge or
-// ErrUnreadable, one over the limit as ErrTooBig.
-func (s *Store) Upload(ctx context.Context, userID int64, r io.Reader) (Asset, error) {
-	return s.UploadCopy(ctx, userID, r, "")
+// ErrUnreadable, one over the limit as ErrTooBig. The body is read to a
+// working file first, however slowly it comes, and only its conversion
+// passes gate, when there is one: a slow line holds no room of the
+// conversion's.
+func (s *Store) Upload(ctx context.Context, userID int64, r io.Reader, gate Gate) (Asset, error) {
+	return s.upload(ctx, userID, r, "", gate)
 }
 
 // UploadCopy is Upload that also leaves a copy of the normalized picture at
 // copyTo, a path of the caller's, when it is set: the chat draws its preview
 // from the same picture the provider gets.
 func (s *Store) UploadCopy(ctx context.Context, userID int64, r io.Reader, copyTo string) (Asset, error) {
+	return s.upload(ctx, userID, r, copyTo, nil)
+}
+
+func (s *Store) upload(ctx context.Context, userID int64, r io.Reader, copyTo string, gate Gate) (Asset, error) {
 	dir, done, err := s.work.Dir("upload")
 	if err != nil {
 		return Asset{}, err
@@ -248,7 +298,14 @@ func (s *Store) UploadCopy(ctx context.Context, userID int64, r io.Reader, copyT
 	case n > s.cfg.MaxUpload:
 		return Asset{}, ErrTooBig
 	}
+	release := func() {}
+	if gate != nil {
+		if release, err = gate(ctx); err != nil {
+			return Asset{}, err
+		}
+	}
 	img, err := s.media.Normalize(ctx, dir)
+	release()
 	if err != nil {
 		return Asset{}, err
 	}
@@ -258,7 +315,7 @@ func (s *Store) UploadCopy(ctx context.Context, userID int64, r io.Reader, copyT
 		}
 	}
 	a := Asset{
-		UserID: userID, Kind: "upload", Key: s.cfg.Prefix + fmt.Sprintf("u/%d/in/%s%s", userID, random(), ext(img.ContentType)),
+		UserID: userID, Kind: "upload", Key: s.uploadKey(img.ContentType),
 		ContentType: img.ContentType, Bytes: img.Bytes, Width: img.Width, Height: img.Height,
 	}
 	if err := s.putFile(ctx, &a, img.Path); err != nil {
@@ -280,11 +337,42 @@ func (s *Store) UploadCopy(ctx context.Context, userID int64, r io.Reader, copyT
 	return a, nil
 }
 
+// Shrink makes a picture the size an upload is, from its bytes: the long
+// side at most 2048 px, JPEG, or PNG when it has alpha. Gemini, which carries
+// a run's files inline, takes it for results used as inputs when the files
+// would not fit otherwise.
+func (s *Store) Shrink(ctx context.Context, data []byte) ([]byte, string, error) {
+	dir, done, err := s.work.Dir("shrink")
+	if err != nil {
+		return nil, "", err
+	}
+	defer done()
+	if err := os.WriteFile(filepath.Join(dir, media.In), data, 0o600); err != nil {
+		return nil, "", err
+	}
+	img, err := s.media.Normalize(ctx, dir)
+	if err != nil {
+		return nil, "", err
+	}
+	out, err := os.ReadFile(img.Path)
+	if err != nil {
+		return nil, "", err
+	}
+	return out, img.ContentType, nil
+}
+
 // Inputs presigns a job's files for its provider: jobs.Inputs. A file the
-// person deleted fails the job before anything is paid.
+// person deleted fails the job before anything is paid. A picture's
+// provider fetches them during its call; a video's may fetch them when the
+// run starts, after its own queue, so their links live as long as framy
+// waits for the run.
 func (s *Store) Inputs(ctx context.Context, j jobs.Job) ([]jobs.Input, error) {
+	ttl := s.cfg.InputTTL
+	if j.Kind == catalog.Video {
+		ttl = s.cfg.VideoInputTTL
+	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT i.position, a.object_key, a.content_type
+		SELECT i.position, a.object_key, a.content_type, a.bytes
 		FROM job_input i LEFT JOIN asset a ON a.id = i.asset_id
 		WHERE i.job_id = $1
 		ORDER BY i.position`, j.ID)
@@ -294,10 +382,11 @@ func (s *Store) Inputs(ctx context.Context, j jobs.Job) ([]jobs.Input, error) {
 	type input struct {
 		pos              int
 		key, contentType *string
+		bytes            *int64
 	}
 	list, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (input, error) {
 		var in input
-		return in, r.Scan(&in.pos, &in.key, &in.contentType)
+		return in, r.Scan(&in.pos, &in.key, &in.contentType, &in.bytes)
 	})
 	if err != nil {
 		return nil, err
@@ -307,11 +396,11 @@ func (s *Store) Inputs(ctx context.Context, j jobs.Job) ([]jobs.Input, error) {
 		if in.key == nil {
 			return nil, &jobs.Error{Class: jobs.Storage, Err: fmt.Errorf("input %d was deleted before the run", in.pos+1)}
 		}
-		link, err := s.bucket.PresignGet(*in.key, s.cfg.InputTTL, "")
+		link, err := s.bucket.PresignGet(*in.key, ttl, "")
 		if err != nil {
 			return nil, &jobs.Error{Class: jobs.Storage, Err: err}
 		}
-		out = append(out, jobs.Input{ContentType: *in.contentType, URL: link})
+		out = append(out, jobs.Input{ContentType: *in.contentType, URL: link, Bytes: *in.bytes})
 	}
 	return out, nil
 }
@@ -338,12 +427,12 @@ func (s *Store) keep(ctx context.Context, j jobs.Job, i int, r jobs.Result) erro
 	switch {
 	case r.Data != nil:
 		a.ContentType = resultType(r.ContentType, r.Data)
+		s.noteType(j, r.ContentType, a.ContentType)
 		if err := s.checkType(a.ContentType); err != nil {
 			return err
 		}
 		a.Key = resultKey(s.cfg.Prefix, j, i, a.ContentType)
-		info, _ := media.Inspect(bytes.NewReader(r.Data), int64(len(r.Data)))
-		a.Width, a.Height = info.Width, info.Height
+		a.Width, a.Height = measure(a.ContentType, bytes.NewReader(r.Data), int64(len(r.Data)))
 		if strings.HasPrefix(a.ContentType, "video/") {
 			if err := s.probeData(ctx, &a, r.Data); err != nil {
 				return err
@@ -361,22 +450,25 @@ func (s *Store) keep(ctx context.Context, j jobs.Job, i int, r jobs.Result) erro
 			return err
 		}
 		defer done()
-		path, contentType, err := s.download(ctx, r.URL, dir)
+		path, served, head, err := s.download(ctx, r.URL, dir)
 		if err != nil {
 			return err
 		}
-		a.ContentType = contentType
-		if r.ContentType != "" {
-			a.ContentType = r.ContentType
+		// What the provider's answer said of the file, and else what its
+		// link served it as; the bytes decide over both.
+		declared := r.ContentType
+		if generic(declared) {
+			declared = served
 		}
+		a.ContentType = resultType(declared, head)
+		s.noteType(j, declared, a.ContentType)
 		if err := s.checkType(a.ContentType); err != nil {
 			return err
 		}
 		a.Key = resultKey(s.cfg.Prefix, j, i, a.ContentType)
 		if f, err := os.Open(path); err == nil {
 			if st, err := f.Stat(); err == nil {
-				info, _ := media.Inspect(f, st.Size())
-				a.Width, a.Height = info.Width, info.Height
+				a.Width, a.Height = measure(a.ContentType, f, st.Size())
 			}
 			f.Close()
 		}
@@ -420,9 +512,10 @@ func (s *Store) thumbs(ctx context.Context) bool {
 
 // keepThumb makes the thumbnail of the result a as it is kept. A failure
 // never holds the result back: it is kept without one, and FillThumbs tries
-// again.
+// again. An SVG gets none: ffmpeg does not draw one, and the file itself is
+// small and sharp at any size, so the site shows it as it is.
 func (s *Store) keepThumb(ctx context.Context, a Asset, fill func(dst string) error) *Thumb {
-	if !s.thumbs(ctx) {
+	if a.ContentType == svgType || !s.thumbs(ctx) {
 		return nil
 	}
 	t, err := s.makeThumb(ctx, a, fill)
@@ -466,7 +559,7 @@ func (s *Store) makeThumb(ctx context.Context, a Asset, fill func(dst string) er
 }
 
 // thumbKey is where the thumbnail of the object under key goes: next to it,
-// u/<person>/out/<job>-<n>.thumb.webp for a result.
+// out/<job>-<n>.thumb.webp for a result.
 func thumbKey(key string) string {
 	return strings.TrimSuffix(key, filepath.Ext(key)) + ".thumb.webp"
 }
@@ -493,83 +586,103 @@ func (s *Store) FillThumbs(ctx context.Context, limit int) (int, error) {
 }
 
 // fillThumb makes the thumbnail of one result that lacks it, and reports
-// false when none does. The row is locked while the thumbnail is made, so a
-// delete of the result waits for it and then takes the thumbnail too.
+// false when none does. The try is counted on the row first, in a statement
+// of its own, and no lock is held while the file is read, encoded and put:
+// a person deleting the result does not wait for its thumbnail. A delete
+// that comes first leaves no row to name the thumbnail, which then goes
+// again; one that comes after finds it on the row and takes it.
 func (s *Store) fillThumb(ctx context.Context) (found, made bool, err error) {
-	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		var a Asset
-		err := tx.QueryRow(ctx, `
-			SELECT id, object_key, content_type FROM asset
-			WHERE kind IN ('result', 'joined') AND thumb_key IS NULL AND thumb_tries < $1
+	var a Asset
+	err = s.pool.QueryRow(ctx, `
+		UPDATE asset SET thumb_tries = thumb_tries + 1
+		WHERE id = (
+			SELECT id FROM asset
+			WHERE kind IN ('result', 'joined') AND thumb_key IS NULL AND thumb_tries < $1 AND content_type <> 'image/svg+xml'
 			ORDER BY thumb_tries, id DESC
 			LIMIT 1
-			FOR UPDATE SKIP LOCKED`, maxThumbTries).Scan(&a.ID, &a.Key, &a.ContentType)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
+			FOR UPDATE SKIP LOCKED)
+		RETURNING id, object_key, content_type`, maxThumbTries).Scan(&a.ID, &a.Key, &a.ContentType)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, false, nil
+	}
+	if err != nil {
+		return false, false, err
+	}
+	t, err := s.thumb(ctx, a, func(dst string) error { return s.fetchObject(ctx, a.Key, dst, s.cfg.MaxResult) })
+	if err != nil {
+		if ctx.Err() != nil {
+			// A stop cut the try short: it is not counted.
+			_, _ = s.pool.Exec(context.WithoutCancel(ctx), `UPDATE asset SET thumb_tries = thumb_tries - 1 WHERE id = $1 AND thumb_tries > 0`, a.ID)
+			return true, false, ctx.Err()
 		}
-		if err != nil {
-			return err
-		}
-		found = true
-		t, err := s.makeThumb(ctx, a, func(dst string) error { return s.fetchObject(ctx, a.Key, dst, s.cfg.MaxResult) })
-		if err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			s.log.Warn("no thumbnail for a result", "asset", a.ID, "error", err)
-			_, err := tx.Exec(ctx, `UPDATE asset SET thumb_tries = thumb_tries + 1 WHERE id = $1`, a.ID)
-			return err
-		}
-		_, err = tx.Exec(ctx, `UPDATE asset SET thumb_key = $2, thumb_width = $3, thumb_height = $4, thumb_bytes = $5 WHERE id = $1`,
-			a.ID, t.Key, t.Width, t.Height, t.Bytes)
-		made = err == nil
-		return err
-	})
-	return found, made, err
+		s.log.Warn("no thumbnail for a result", "asset", a.ID, "error", err)
+		return true, false, nil
+	}
+	tag, err := s.pool.Exec(context.WithoutCancel(ctx), `
+		UPDATE asset SET thumb_key = $2, thumb_width = $3, thumb_height = $4, thumb_bytes = $5 WHERE id = $1`,
+		a.ID, t.Key, t.Width, t.Height, t.Bytes)
+	if err == nil && tag.RowsAffected() == 1 {
+		return true, true, nil
+	}
+	// The result went while its thumbnail was made, or the row could not be
+	// written: no row names the thumbnail, so it goes too.
+	if derr := s.bucket.Delete(context.WithoutCancel(ctx), t.Key); derr != nil {
+		s.log.Error("a thumbnail outlived its result", "key", t.Key, "error", derr)
+	}
+	return true, false, err
 }
 
-// download fetches a provider's link into dir under the result limit.
-func (s *Store) download(ctx context.Context, link, dir string) (path, contentType string, err error) {
+// noteType logs a result whose bytes are not what its provider called
+// them, so a provider that says the wrong type can be told.
+func (s *Store) noteType(j jobs.Job, declared, kept string) {
+	if !generic(declared) && declared != kept {
+		s.log.Info("a result's bytes are not the type its provider named", "job", j.ID, "named", declared, "kept_as", kept)
+	}
+}
+
+// download fetches a provider's link into dir under the result limit, and
+// says the type the link served it as and its first bytes.
+func (s *Store) download(ctx context.Context, link, dir string) (path, served string, head []byte, err error) {
 	ctx, cancel := context.WithTimeout(ctx, DefaultFetchTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, link, nil)
 	if err != nil {
-		return "", "", fmt.Errorf("the result's link: %w", err)
+		return "", "", nil, fmt.Errorf("the result's link: %w", err)
 	}
 	resp, err := s.fetch.Do(req)
 	if err != nil {
 		// The provider's link may carry a token: the error names the host
 		// only.
-		return "", "", fmt.Errorf("fetch the result from %s: %w", host(link), unwrapURL(err))
+		return "", "", nil, fmt.Errorf("fetch the result from %s: %w", host(link), unwrapURL(err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("fetch the result from %s: %d", host(link), resp.StatusCode)
+		return "", "", nil, fmt.Errorf("fetch the result from %s: %d", host(link), resp.StatusCode)
 	}
 	if resp.ContentLength > s.cfg.MaxResult {
-		return "", "", fmt.Errorf("the result is %d bytes, over %d", resp.ContentLength, s.cfg.MaxResult)
+		return "", "", nil, fmt.Errorf("the result is %d bytes, over %d", resp.ContentLength, s.cfg.MaxResult)
 	}
 	path = filepath.Join(dir, "result")
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
-	head := &headBuffer{max: 512}
-	n, err := io.Copy(io.MultiWriter(f, head), io.LimitReader(resp.Body, s.cfg.MaxResult+1))
+	buf := &headBuffer{max: 512}
+	n, err := io.Copy(io.MultiWriter(f, buf), io.LimitReader(resp.Body, s.cfg.MaxResult+1))
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
 	switch {
 	case err != nil:
-		return "", "", fmt.Errorf("fetch the result from %s: %w", host(link), unwrapURL(err))
+		return "", "", nil, fmt.Errorf("fetch the result from %s: %w", host(link), unwrapURL(err))
 	case n > s.cfg.MaxResult:
-		return "", "", fmt.Errorf("the result is over %d bytes", s.cfg.MaxResult)
+		return "", "", nil, fmt.Errorf("the result is over %d bytes", s.cfg.MaxResult)
 	}
-	contentType = resp.Header.Get("Content-Type")
-	if mt, _, err := mime.ParseMediaType(contentType); err == nil {
-		contentType = mt
+	served = resp.Header.Get("Content-Type")
+	if mt, _, err := mime.ParseMediaType(served); err == nil {
+		served = mt
 	}
-	return path, resultType(contentType, head.b), nil
+	return path, served, buf.b, nil
 }
 
 // putFile hashes the file at path and puts it under a.Key.
@@ -641,34 +754,55 @@ func (s *Store) dropLateThumb(ctx context.Context, before, after *string) {
 }
 
 // SweepUploads deletes the uploads no job took within age, the object and
-// then the row, and returns how many went. The row is locked while its
-// object goes, so a job taking the file at that moment either waits and
-// finds it gone, or holds it first and the sweep passes it by.
+// then the row, and returns how many went. They are looked for sweepBatch at
+// a time, in the order of their ids, and each is checked again under its
+// row's lock while its object goes, so a job taking the file at that moment
+// either waits and finds it gone, or holds it first and the sweep passes it
+// by.
 func (s *Store) SweepUploads(ctx context.Context, age time.Duration) (int, error) {
 	n := 0
+	var after int64
 	for {
-		gone, err := s.sweepUpload(ctx, age)
-		if err != nil || !gone {
+		rows, err := s.pool.Query(ctx, `
+			SELECT a.id FROM asset a
+			WHERE a.kind = 'upload' AND a.created_at <= now() - make_interval(secs => $1) AND a.id > $2
+			  AND NOT EXISTS (SELECT 1 FROM job_input i WHERE i.asset_id = a.id)
+			ORDER BY a.id
+			LIMIT $3`, age.Seconds(), after, sweepBatch)
+		if err != nil {
 			return n, err
 		}
-		n++
+		ids, err := pgx.CollectRows(rows, pgx.RowTo[int64])
+		if err != nil {
+			return n, err
+		}
+		for _, id := range ids {
+			gone, err := s.sweepUpload(ctx, id, age)
+			if err != nil {
+				return n, err
+			}
+			if gone {
+				n++
+			}
+		}
+		if len(ids) < sweepBatch {
+			return n, nil
+		}
+		after = ids[len(ids)-1]
 	}
 }
 
-// sweepUpload deletes the oldest upload no job took within age, and reports
-// false when there is none.
-func (s *Store) sweepUpload(ctx context.Context, age time.Duration) (bool, error) {
+// sweepUpload deletes the upload id if no job took it within age, and
+// reports whether it went. One a job holds or took meanwhile stays.
+func (s *Store) sweepUpload(ctx context.Context, id int64, age time.Duration) (bool, error) {
 	var gone bool
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		var id int64
 		var key string
 		err := tx.QueryRow(ctx, `
-			SELECT a.id, a.object_key FROM asset a
-			WHERE a.kind = 'upload' AND a.created_at <= now() - make_interval(secs => $1)
+			SELECT a.object_key FROM asset a
+			WHERE a.id = $1 AND a.kind = 'upload' AND a.created_at <= now() - make_interval(secs => $2)
 			  AND NOT EXISTS (SELECT 1 FROM job_input i WHERE i.asset_id = a.id)
-			ORDER BY a.id
-			LIMIT 1
-			FOR UPDATE SKIP LOCKED`, age.Seconds()).Scan(&id, &key)
+			FOR UPDATE SKIP LOCKED`, id, age.Seconds()).Scan(&key)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
@@ -765,10 +899,13 @@ const deleteWorkers = 8
 
 // DeleteAll removes every file of the person's kept before before, uploads
 // and results, the object first and then its row, and returns how many went.
-// A file kept later, by a run that started while the account was being
-// deleted, is left. It stops at the first object that would not go; what
-// went stays gone, so a second call carries on.
+// A file kept later is left: the account's deletion calls it once before
+// its rows go and once after, and what is kept after that belongs to a run
+// of a person who came back. It stops at the first object that would not
+// go; what went stays gone, so a second call carries on. The clips the
+// person put into incoming/ and framy never took go too.
 func (s *Store) DeleteAll(ctx context.Context, userID int64, before time.Time) (int, error) {
+	s.dropIncomingOf(ctx, userID)
 	n := 0
 	for {
 		rows, err := s.pool.Query(ctx, `
@@ -1022,12 +1159,45 @@ func (s *Store) Usage(ctx context.Context, userID int64) (Usage, error) {
 	return u, err
 }
 
+// CatchUpBucket sums the bucket when a write since the last sum came too
+// soon to be summed. Production calls it every minute, so a step crossed by
+// the last write of a busy minute is told a minute or two later, not at the
+// next write, which may be hours away.
+func (s *Store) CatchUpBucket(ctx context.Context) {
+	s.bucketMu.Lock()
+	owed := s.bucketOwed
+	s.bucketMu.Unlock()
+	if owed {
+		s.checkBucket(ctx)
+	}
+}
+
 // checkBucket tells the operator chat when the bucket passes another step.
 // Two writes crossing it at once tell it once: the step is swapped, not
-// set. It never fails the write that called it.
+// set. It never fails the write that called it. The bucket is summed at
+// most once in bucketEvery, a write that comes sooner is left to
+// CatchUpBucket, and a sum or a message that failed is tried again by the
+// next write or the next catch-up.
 func (s *Store) checkBucket(ctx context.Context) {
 	if s.notify == nil {
 		return
+	}
+	at := s.cfg.Now()
+	s.bucketMu.Lock()
+	due := !at.Before(s.bucketAt)
+	if due {
+		s.bucketAt, s.bucketOwed = at.Add(bucketEvery), false
+	} else {
+		s.bucketOwed = true
+	}
+	s.bucketMu.Unlock()
+	if !due {
+		return
+	}
+	failed := func() {
+		s.bucketMu.Lock()
+		s.bucketAt, s.bucketOwed = time.Time{}, true
+		s.bucketMu.Unlock()
 	}
 	ctx = context.WithoutCancel(ctx)
 	var total int64
@@ -1035,6 +1205,7 @@ func (s *Store) checkBucket(ctx context.Context) {
 	if err := s.pool.QueryRow(ctx, `
 		SELECT COALESCE((SELECT sum(bytes + COALESCE(thumb_bytes, 0)) FROM asset), 0)::bigint, bucket_alert_step FROM runtime_state`).Scan(&total, &step); err != nil {
 		s.log.Error("bucket usage", "error", err)
+		failed()
 		return
 	}
 	now := int(total / s.cfg.AlertStep)
@@ -1054,17 +1225,35 @@ func (s *Store) checkBucket(ctx context.Context) {
 		s.log.Error("tell the operator chat", "error", err)
 		// The next write tries again.
 		_, _ = s.pool.Exec(ctx, `UPDATE runtime_state SET bucket_alert_step=$1 WHERE bucket_alert_step=$2`, step, now)
+		failed()
 	}
 }
 
-// resultType keeps a provider's type unless it is missing or generic, and
-// reads the bytes then.
+// resultType is what a result is. Its first bytes decide when they name a
+// format framy knows: a provider's word can be wrong, a WebP sent as
+// image/png, and the file would be kept and served under the wrong type
+// and extension. The provider's type is kept for bytes framy cannot tell,
+// and Go's sniffing has the last word when that type is missing or
+// generic.
 func resultType(declared string, head []byte) string {
-	if declared != "" && declared != "application/octet-stream" && declared != "binary/octet-stream" {
+	if t := sniffType(head); t != "" {
+		return t
+	}
+	if !generic(declared) {
 		return declared
 	}
+	return http.DetectContentType(head)
+}
+
+// sniffType names the picture or video whose first bytes are head, of the
+// formats framy knows, or "".
+func sniffType(head []byte) string {
 	if f := media.Sniff(head); f != "" {
 		return "image/" + string(f)
+	}
+	// Go's own sniffing calls an SVG text.
+	if _, _, ok := media.SVGSize(bytes.NewReader(head)); ok {
+		return svgType
 	}
 	// An ISO BMFF that is not a still image is a video; Go's own sniffing
 	// knows only the mp4 brands.
@@ -1074,17 +1263,59 @@ func resultType(declared string, head []byte) string {
 		}
 		return "video/mp4"
 	}
-	return http.DetectContentType(head)
+	switch t := http.DetectContentType(head); t {
+	case "image/gif", "video/webm":
+		return t
+	}
+	return ""
 }
 
+// generic: a type that says nothing of what the file is.
+func generic(contentType string) bool {
+	return contentType == "" || contentType == "application/octet-stream" || contentType == "binary/octet-stream"
+}
+
+// Keys of the files a person brings and those their runs make (docs/
+// design.md, Storage and retention). A provider gets the link to an input,
+// and the link names its key, so a key never holds the person's Telegram
+// id: an upload is named by chance, a result by its job, which is enough
+// for keeping it again after a crash to write the same object. Files kept
+// before had u/<person>/ in front; their rows keep those keys.
+
+// uploadKey is where a new upload of that type goes.
+func (s *Store) uploadKey(contentType string) string {
+	return s.cfg.Prefix + "in/" + random() + ext(contentType)
+}
+
+// resultKey is where the i-th result of job j goes.
 func resultKey(prefix string, j jobs.Job, i int, contentType string) string {
-	return prefix + fmt.Sprintf("u/%d/out/%d-%d%s", j.UserID, j.ID, i, ext(contentType))
+	return prefix + fmt.Sprintf("out/%d-%d%s", j.ID, i, ext(contentType))
 }
 
 var exts = map[string]string{
 	"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/avif": ".avif", "image/heif": ".heic",
-	"image/gif": ".gif", "video/mp4": ".mp4", "video/webm": ".webm", "video/quicktime": ".mov",
+	"image/gif": ".gif", svgType: ".svg", "video/mp4": ".mp4", "video/webm": ".webm", "video/quicktime": ".mov",
 	"audio/mpeg": ".mp3", "audio/wav": ".wav",
+}
+
+// svgType is a vector picture: Recraft's vector models draw one.
+const svgType = "image/svg+xml"
+
+// Raster tells a picture made of pixels: any image but an SVG, which
+// Telegram shows only as a file and no video model takes as a frame.
+func Raster(contentType string) bool {
+	return strings.HasPrefix(contentType, "image/") && contentType != svgType
+}
+
+// measure reads the size of the picture of size bytes in r: from its
+// header, or from the root of an SVG. Zero when it tells none.
+func measure(contentType string, r io.ReaderAt, size int64) (width, height int) {
+	if contentType == svgType {
+		width, height, _ = media.SVGSize(io.NewSectionReader(r, 0, size))
+		return width, height
+	}
+	info, _ := media.Inspect(r, size)
+	return info.Width, info.Height
 }
 
 // Ext is the file extension of a content type framy keeps, with its dot:

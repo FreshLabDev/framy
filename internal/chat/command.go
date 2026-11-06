@@ -94,7 +94,12 @@ func sourcesOf(m *tg.Message) found {
 	}
 	if r := m.ReplyToMessage; r != nil {
 		if s, ok := mediaOf(r.Photo, r.Document, r.Animation, r.Video, r.VideoNote); ok {
-			s.group = r.MediaGroupID
+			// A reply to one picture of a bot's album is about that picture:
+			// no bot gets another bot's messages, nor its own, so the album
+			// is never noted to be taken whole.
+			if !fromBot(r) {
+				s.group = r.MediaGroupID
+			}
 			return s
 		}
 		return found{}
@@ -105,6 +110,21 @@ func sourcesOf(m *tg.Message) found {
 		}
 	}
 	return found{}
+}
+
+// Telegram names a bot as the sender of a person's message in a group when
+// it hides who sent it: GroupAnonymousBot for an anonymous admin, and
+// Channel_Bot for a message sent on behalf of a channel. framy gets those
+// messages as anyone's, and notes their albums.
+const (
+	groupAnonymousBot = 1087968824
+	channelBot        = 136817688
+)
+
+// fromBot tells whether a bot sent m: no bot gets such a message, another
+// bot's or its own.
+func fromBot(m *tg.Message) bool {
+	return m.From != nil && m.From.IsBot && m.From.ID != groupAnonymousBot && m.From.ID != channelBot
 }
 
 // mediaOf is the picture or the clip among a message's attachments. An
@@ -197,12 +217,18 @@ type draft struct {
 	// the key that could go free.
 	hasKey   bool
 	freeLeft bool
+	// many: the run's results may be several (severalResults), so the card
+	// offers n.
+	many bool
 }
 
 // video tells whether the run makes a video.
 func (d draft) video() bool { return d.offer.Kind == catalog.Video }
 
 func (f *Flow) command(ctx context.Context, m *tg.Message, command, prompt string) error {
+	if handled, err := f.keyInCommand(ctx, m, prompt); handled {
+		return err
+	}
 	lang := f.langOf(ctx, m)
 	edit, motion := command == CommandVideo, command == commandMotion
 	if prompt == "" {
@@ -212,6 +238,11 @@ func (f *Flow) command(ctx context.Context, m *tg.Message, command, prompt strin
 		return f.reply(ctx, m, t(lang, "run.empty"))
 	}
 	key := dedupeKey(f.cfg.Stack, m)
+	release, ok := f.claim(key)
+	if !ok {
+		return nil
+	}
+	defer release()
 	if _, seen, err := f.cfg.Store.JobByKey(ctx, key); err != nil {
 		return err
 	} else if seen {
@@ -227,8 +258,14 @@ func (f *Flow) command(ctx context.Context, m *tg.Message, command, prompt strin
 		return f.reply(ctx, m, t(lang, "run.video_edit"))
 	}
 	thread := threadOf(m)
-	if err := f.cfg.Telegram.SendChatAction(ctx, m.Chat.ID, thread, chatAction(edit || motion)); err != nil {
-		f.log.Debug("chat action not sent", "chat", m.Chat.ID, "error", err)
+	// A run a reply started sends no chat action: the chat would see framy
+	// sending a picture that only one person gets. The action is a nicety:
+	// a chat Telegram asked to wait for goes without it rather than holding
+	// the command up.
+	if !isQuiet(ctx) {
+		if err := f.cfg.Telegram.SendChatAction(noWait(ctx), m.Chat.ID, thread, chatAction(edit || motion)); err != nil {
+			f.log.Debug("chat action not sent", "chat", m.Chat.ID, "error", err)
+		}
 	}
 	dir, done, err := f.cfg.Work.Dir("chat")
 	if err != nil {
@@ -238,26 +275,27 @@ func (f *Flow) command(ctx context.Context, m *tg.Message, command, prompt strin
 
 	var (
 		d       draft
-		refusal string
+		refused refusal
 	)
 	switch {
 	case edit:
-		d, refusal, err = f.draftVideo(ctx, m, *src.clip, cutPrompt(prompt), key, dir)
+		d, refused, err = f.draftVideo(ctx, m, *src.clip, cutPrompt(prompt), key, dir)
 	case motion:
-		d, refusal, err = f.draftMotion(ctx, m, src, cutPrompt(prompt), key, dir)
+		d, refused, err = f.draftMotion(ctx, m, src, cutPrompt(prompt), key, dir)
 	default:
-		d, refusal, err = f.draft(ctx, m, src, cutPrompt(prompt), key, dir)
+		d, refused, err = f.draft(ctx, m, src, cutPrompt(prompt), key, dir)
 	}
 	if err != nil {
 		return f.fail(ctx, m, lang, err)
 	}
-	if refusal != "" {
-		return f.reply(ctx, m, refusal)
+	if refused.text != "" {
+		return f.replyWith(ctx, m, refused.text, f.refusalKeyboard(lang, m.Chat.Type == "private", refused))
 	}
 	if d.id == 0 {
 		// The same command came again while its draft was being made.
 		return nil
 	}
+	d.many = m.Chat.Type == "private"
 	preview, ephemeral, err := f.sendPreview(ctx, m, d, prompt, lang, dir, "", foldAll)
 	if err != nil {
 		f.cancel(ctx, d.id)
@@ -279,6 +317,18 @@ func (f *Flow) command(ctx context.Context, m *tg.Message, command, prompt strin
 	return nil
 }
 
+// claim marks a command's key as being worked. The job exists only once
+// its files are downloaded and kept, so until then a second copy of the
+// command (Image pressed twice on the question of a DM, a replayed update)
+// would download and keep them all again for a draft the key then refuses.
+// ok is false while another works the key.
+func (f *Flow) claim(key string) (release func(), ok bool) {
+	if _, busy := f.drafting.LoadOrStore(key, struct{}{}); busy {
+		return nil, false
+	}
+	return func() { f.drafting.Delete(key) }, true
+}
+
 // fail tells the chat a command could not be worked. The error goes on to
 // the log.
 func (f *Flow) fail(ctx context.Context, m *tg.Message, lang string, err error) error {
@@ -289,10 +339,10 @@ func (f *Flow) fail(ctx context.Context, m *tg.Message, lang string, err error) 
 }
 
 // draft collects the photos, keeps them, prices the run and makes the job.
-// A refusal is the text to answer with instead, when the run cannot start:
-// the free tier is used up and the person has no key. A zero id with no
-// refusal is a job the same command made already.
-func (f *Flow) draft(ctx context.Context, m *tg.Message, src found, prompt, key, dir string) (draft, string, error) {
+// A refusal is what to answer with instead, when the run cannot start: the
+// free tier is used up and the person has no key. A zero id with no refusal
+// is a job the same command made already.
+func (f *Flow) draft(ctx context.Context, m *tg.Message, src found, prompt, key, dir string) (draft, refusal, error) {
 	lang := f.langOf(ctx, m)
 	user := m.From.ID
 	var d draft
@@ -307,25 +357,28 @@ func (f *Flow) draft(ctx context.Context, m *tg.Message, src found, prompt, key,
 	}
 	plan, err := free.ForImages(len(photos))
 	if err != nil {
-		return d, "", err
+		return d, refusal{}, err
 	}
 	model, offer, err := f.cfg.Store.Offer(ctx, plan.Offer)
 	if err != nil {
-		return d, "", fmt.Errorf("the free model %s: %w", plan.Offer, err)
+		return d, refusal{}, fmt.Errorf("the free model %s: %w", plan.Offer, err)
 	}
 	inputs, sizes, paths, err := f.keep(ctx, user, dir, photos)
 	if err != nil {
-		return d, "", err
+		return d, refusal{}, err
 	}
 	settings := plan.SettingsFor(len(inputs))
 	d.model, d.offer, d.paths, d.taken, d.settings, d.images = model, offer, paths, len(inputs), settings, sizes
 	d.estimate = price.Of(model, offer, priceRequest(prompt, settings, sizes, nil))
 	if d.quote, err = f.quote(ctx, user, lang); err != nil {
-		return d, "", err
+		return d, refusal{}, err
 	}
 	d.pay = payFree
-	if refusal, err := f.queueDraft(ctx, lang, newJob(m, key, prompt, inputs, &d), &d, false); refusal != "" || err != nil || d.id == 0 {
-		return draft{}, refusal, err
+	if e, ok := f.ownModel(ctx, user, lang, prompt, d); ok {
+		d.onOwn(e)
+	}
+	if r, err := f.queueDraft(ctx, lang, newJob(m, key, prompt, inputs, &d), &d, false); r.text != "" || err != nil || d.id == 0 {
+		return draft{}, r, err
 	}
 	if d.pay == payFree {
 		u, err := f.cfg.Allowance.Usage(ctx, user)
@@ -334,19 +387,19 @@ func (f *Flow) draft(ctx context.Context, m *tg.Message, src found, prompt, key,
 		}
 		d.usage = u.Images
 	}
-	return d, "", nil
+	return d, refusal{}, nil
 }
 
 // draftMotion keeps the photo, if there is one, and makes the job of a
 // video from the prompt with the photo as its start frame: on the free
 // video while the week's is left, on the person's key past it. A video
 // takes one start frame, so of more photos the first goes.
-func (f *Flow) draftMotion(ctx context.Context, m *tg.Message, src found, prompt, key, dir string) (draft, string, error) {
+func (f *Flow) draftMotion(ctx context.Context, m *tg.Message, src found, prompt, key, dir string) (draft, refusal, error) {
 	lang := f.langOf(ctx, m)
 	user := m.From.ID
 	plan, model, offer, err := f.videoPlan(ctx)
 	if err != nil {
-		return draft{}, "", err
+		return draft{}, refusal{}, err
 	}
 	photos := src.photos
 	if len(photos) > plan.MaxInputs {
@@ -354,16 +407,19 @@ func (f *Flow) draftMotion(ctx context.Context, m *tg.Message, src found, prompt
 	}
 	inputs, sizes, paths, err := f.keep(ctx, user, dir, photos)
 	if err != nil {
-		return draft{}, "", err
+		return draft{}, refusal{}, err
 	}
 	settings := plan.SettingsFor(len(inputs))
 	d := draft{model: model, offer: offer, pay: payFree, paths: paths, taken: len(inputs), settings: settings, images: sizes}
 	d.estimate = price.Of(model, offer, priceRequest(prompt, settings, sizes, nil))
 	if d.quote, err = f.quote(ctx, user, lang); err != nil {
-		return draft{}, "", err
+		return draft{}, refusal{}, err
 	}
-	if refusal, err := f.queueDraft(ctx, lang, newJob(m, key, prompt, inputs, &d), &d, false); refusal != "" || err != nil || d.id == 0 {
-		return draft{}, refusal, err
+	if e, ok := f.ownModel(ctx, user, lang, prompt, d); ok {
+		d.onOwn(e)
+	}
+	if r, err := f.queueDraft(ctx, lang, newJob(m, key, prompt, inputs, &d), &d, false); r.text != "" || err != nil || d.id == 0 {
+		return draft{}, r, err
 	}
 	if d.pay == payFree {
 		u, err := f.cfg.Allowance.Usage(ctx, user)
@@ -372,7 +428,7 @@ func (f *Flow) draftMotion(ctx context.Context, m *tg.Message, src found, prompt
 		}
 		d.usage = u.Videos
 	}
-	return d, "", nil
+	return d, refusal{}, nil
 }
 
 // errNoVideoModel: neither free video model is in the catalog.
@@ -422,7 +478,7 @@ func requestOf(prompt string, settings map[string]any, inputs []storage.Asset) p
 		case !strings.HasPrefix(a.ContentType, "video/"):
 			images = append(images, price.Image{Width: a.Width, Height: a.Height})
 		case video == nil:
-			video = &price.Video{Seconds: a.Seconds, Width: a.Width, Height: a.Height}
+			video = &price.Video{Seconds: a.Seconds, Width: a.Width, Height: a.Height, FPS: a.FPS}
 		}
 	}
 	return priceRequest(prompt, settings, images, video)
@@ -460,11 +516,14 @@ func newJob(m *tg.Message, key, prompt string, inputs []int64, d *draft) jobs.Ne
 }
 
 // queueDraft makes the job and puts its id in d. Past the free tier the
-// person's own key runs the same model, at the price the preview shows;
-// without one the reason is the answer, worded for an alert when alert is
-// true and for a message otherwise. A zero id with no refusal is a job the
-// same command made already.
-func (f *Flow) queueDraft(ctx context.Context, lang string, n jobs.New, d *draft, alert bool) (string, error) {
+// person's own key runs the same model, at the price the preview shows. With
+// no key for its provider but one for another, the run goes on a model that
+// key runs (keyEntry), which the preview shows with its price before
+// anything runs. With neither the reason is the answer, worded for an alert
+// when alert is true and for a message otherwise, with the provider whose
+// key would run it. A zero id with no refusal is a job the same command made
+// already.
+func (f *Flow) queueDraft(ctx context.Context, lang string, n jobs.New, d *draft, alert bool) (refusal, error) {
 	id, created, err := f.cfg.Queue.Draft(ctx, n)
 	var (
 		limit  *free.LimitError
@@ -473,28 +532,75 @@ func (f *Flow) queueDraft(ctx context.Context, lang string, n jobs.New, d *draft
 	if n.Free && (errors.As(err, &limit) || errors.As(err, &closed)) {
 		has, kerr := f.hasKey(ctx, n.UserID, n.Offer.Provider)
 		if kerr != nil {
-			return "", kerr
+			return refusal{}, kerr
 		}
 		if !has {
-			switch {
-			case limit != nil && alert:
-				return f.limitText(lang, limit), nil
-			case limit != nil:
-				return f.limitMessage(lang, limit), nil
+			e, ok, kerr := f.keyEntry(ctx, n.UserID, lang, n.Prompt, *d)
+			if kerr != nil {
+				return refusal{}, kerr
 			}
-			return closedText(lang, n.Offer.Kind), nil
+			r := refusal{text: closedText(lang, n.Offer.Kind), connect: n.Offer.Provider}
+			switch {
+			case ok:
+				d.model, d.offer, d.settings, d.estimate = e.model, e.offer, e.settings, e.estimate
+				n.Offer, n.Settings, n.Estimate = e.offer, e.settings, &d.estimate
+			case limit != nil && alert:
+				r.text = f.limitText(lang, limit)
+			case limit != nil:
+				r.text = f.limitMessage(lang, limit)
+			}
+			if !ok {
+				return r, nil
+			}
 		}
 		// The queue just said no to the free run, whatever the meter said.
 		n.Free, d.pay, d.hasKey, d.freeLeft = false, payKey, true, false
 		id, created, err = f.cfg.Queue.Draft(ctx, n)
 	}
 	if err != nil {
-		return "", err
+		return refusal{}, err
 	}
 	if created {
 		d.id = id
 	}
-	return "", nil
+	return refusal{}, nil
+}
+
+// keyEntry is the model a run goes on past the free tier when the person
+// has no key for the free model's provider but has one for another, such as
+// OpenAI or Gemini. It is framy's own pick, as the site's composer opens on
+// one (autoModel in state.js), among the models their keys run: the first
+// the picker suggests for the run, else the first the Model list shows, on
+// the offer, the settings and the price the list would give it. ok is false
+// when no key of theirs runs a model that takes the run, and for an edit of
+// a clip, which keeps its model.
+func (f *Flow) keyEntry(ctx context.Context, user int64, lang, prompt string, d draft) (e entry, ok bool, err error) {
+	l, err := f.listing(ctx, user, lang, prompt, d)
+	if err != nil {
+		return entry{}, false, err
+	}
+	sit := situation(d.taken)
+	if d.video() {
+		sit = catalog.ForVideo
+	}
+	place := func(p entry) int {
+		if at := p.model.Traits.Recommend[sit]; at > 0 {
+			return at
+		}
+		return math.MaxInt
+	}
+	for _, g := range l.groups {
+		for _, p := range g.picks {
+			// A free model is what the free tier just refused.
+			if p.free || !p.key || p.why != "" {
+				continue
+			}
+			if !ok || place(p) < place(e) {
+				e, ok = p, true
+			}
+		}
+	}
+	return e, ok, nil
 }
 
 // clipSlack is how much longer than a run takes a clip may be and still go
@@ -506,13 +612,13 @@ const clipSlack = 0.05
 // first, as for images, and takes the first seconds its plan allows; past
 // it, the person's key takes as much as the model does. A refusal is the
 // text to answer with instead.
-func (f *Flow) draftVideo(ctx context.Context, m *tg.Message, c clip, prompt, key, dir string) (draft, string, error) {
+func (f *Flow) draftVideo(ctx context.Context, m *tg.Message, c clip, prompt, key, dir string) (draft, refusal, error) {
 	lang := f.langOf(ctx, m)
 	user := m.From.ID
 	plan := free.VideoEdit
 	model, offer, err := f.cfg.Store.Offer(ctx, plan.Offer)
 	if err != nil {
-		return draft{}, "", fmt.Errorf("the free model %s: %w", plan.Offer, err)
+		return draft{}, refusal{}, fmt.Errorf("the free model %s: %w", plan.Offer, err)
 	}
 	d := draft{clip: true, source: c, model: model, offer: offer, pay: payFree, settings: plan.SettingsFor(1), taken: 1}
 	// The meter tells ahead whether the week's free video is left, so the
@@ -525,12 +631,12 @@ func (f *Flow) draftVideo(ctx context.Context, m *tg.Message, c clip, prompt, ke
 	case u.Videos.Limit > 0 && u.Videos.Left() == 0:
 		has, err := f.hasKey(ctx, user, offer.Provider)
 		if err != nil {
-			return draft{}, "", err
+			return draft{}, refusal{}, err
 		}
 		if !has {
-			return draft{}, f.limitMessage(lang, &free.LimitError{
+			return draft{}, refusal{text: f.limitMessage(lang, &free.LimitError{
 				Kind: catalog.Video, Limit: u.Videos.Limit, Window: u.Videos.Window, FreesAt: u.Videos.FreesAt,
-			}), nil
+			}), connect: offer.Provider}, nil
 		}
 		d.pay, d.hasKey = payKey, true
 	default:
@@ -538,18 +644,18 @@ func (f *Flow) draftVideo(ctx context.Context, m *tg.Message, c clip, prompt, ke
 	}
 	src := filepath.Join(dir, media.In)
 	if err := f.download(ctx, c.fileID, c.size, f.cfg.MaxVideo, src); err != nil {
-		return draft{}, "", err
+		return draft{}, refusal{}, err
 	}
 	v, err := f.cfg.Clips.ProbeVideo(ctx, src)
 	if err != nil {
-		return draft{}, "", err
+		return draft{}, refusal{}, err
 	}
 	var limits catalog.SourceVideo
 	if s := model.Traits.SourceVideo; s != nil {
 		limits = *s
 	}
 	if v.Seconds < limits.MinSeconds {
-		return draft{}, t(lang, "edit.too_short", "min", strconv.Itoa(int(math.Ceil(limits.MinSeconds)))), nil
+		return draft{}, refusal{text: t(lang, "edit.too_short", "min", strconv.Itoa(int(math.Ceil(limits.MinSeconds))))}, nil
 	}
 	longest := plan.MaxSourceSeconds
 	if d.pay == payKey {
@@ -564,28 +670,28 @@ func (f *Flow) draftVideo(ctx context.Context, m *tg.Message, c clip, prompt, ke
 	if d.pay == payFree && v.Seconds > plan.MaxSourceSeconds+clipSlack {
 		// The preview offers the clip on the key, marked when there is none.
 		if d.hasKey, err = f.hasKey(ctx, user, offer.Provider); err != nil {
-			return draft{}, "", err
+			return draft{}, refusal{}, err
 		}
 	}
 	a, err := f.cfg.Files.KeepVideo(ctx, user, src, cut)
 	if err != nil {
-		return draft{}, "", err
+		return draft{}, refusal{}, err
 	}
 	if limits.MaxMiB > 0 && a.Bytes > int64(limits.MaxMiB)<<20 {
-		return draft{}, "", errTooBig
+		return draft{}, refusal{}, &tooBigError{int64(limits.MaxMiB) << 20}
 	}
 	d.keptSeconds = a.Seconds
 	poster, err := f.cfg.Clips.Poster(ctx, dir)
 	if err != nil {
-		return draft{}, "", err
+		return draft{}, refusal{}, err
 	}
 	d.paths = []string{poster}
-	d.estimate = price.Of(model, offer, priceRequest(prompt, d.settings, nil, &price.Video{Seconds: a.Seconds, Width: a.Width, Height: a.Height}))
+	d.estimate = price.Of(model, offer, priceRequest(prompt, d.settings, nil, &price.Video{Seconds: a.Seconds, Width: a.Width, Height: a.Height, FPS: a.FPS}))
 	if d.quote, err = f.quote(ctx, user, lang); err != nil {
-		return draft{}, "", err
+		return draft{}, refusal{}, err
 	}
-	if refusal, err := f.queueDraft(ctx, lang, newJob(m, key, prompt, []int64{a.ID}, &d), &d, false); refusal != "" || err != nil || d.id == 0 {
-		return draft{}, refusal, err
+	if r, err := f.queueDraft(ctx, lang, newJob(m, key, prompt, []int64{a.ID}, &d), &d, false); r.text != "" || err != nil || d.id == 0 {
+		return draft{}, r, err
 	}
 	if d.pay == payFree {
 		u, err := f.cfg.Allowance.Usage(ctx, user)
@@ -594,7 +700,7 @@ func (f *Flow) draftVideo(ctx context.Context, m *tg.Message, c clip, prompt, ke
 		}
 		d.usage = u.Videos
 	}
-	return d, "", nil
+	return d, refusal{}, nil
 }
 
 // chatAction is what the chat sees framy doing while a run of the kind is
@@ -619,7 +725,8 @@ func (f *Flow) album(ctx context.Context, chatID int64, group string, one []phot
 	}
 	var photos []photo
 	for _, it := range items {
-		// A video or a file in the album is not a photo to edit.
+		// A video in the album is not a photo to edit; a picture sent as a
+		// file is one (db.AlbumPhoto).
 		if it.Kind == db.AlbumPhoto {
 			photos = append(photos, photo{fileID: it.FileID, size: it.FileSize, w: it.Width, h: it.Height})
 		}
@@ -668,10 +775,11 @@ func (f *Flow) keep(ctx context.Context, user int64, dir string, photos []photo)
 }
 
 // download reads a file from Telegram into dst. One over limit, by what the
-// message says, by what getFile says or by Telegram's own cap, is errTooBig.
+// message says or by what getFile says, is a tooBigError; one over
+// Telegram's own cap is errTooBig.
 func (f *Flow) download(ctx context.Context, fileID string, size, limit int64, dst string) error {
 	if size > limit {
-		return errTooBig
+		return &tooBigError{limit}
 	}
 	file, err := f.cfg.Telegram.GetFile(ctx, fileID)
 	if err != nil {
@@ -682,7 +790,7 @@ func (f *Flow) download(ctx context.Context, fileID string, size, limit int64, d
 		return fmt.Errorf("get file: %w", err)
 	}
 	if file.FileSize > limit {
-		return errTooBig
+		return &tooBigError{limit}
 	}
 	if err := f.cfg.Telegram.DownloadToFile(ctx, file.FilePath, dst, limit); err != nil {
 		return fmt.Errorf("download file: %w", err)
@@ -771,13 +879,42 @@ func (f *Flow) deleteEphemeral(ctx context.Context, chatID, userID, ephemeralID 
 	}
 }
 
+// cleanupTries is how many holds of a chat a delete waits out before it
+// gives up.
+const cleanupTries = 3
+
+// deleteMessage deletes a message of framy's that is done with: the loop
+// under a result, a preview that expired, a question that was answered.
+// Left out, it would sit in the chat for good; waited for in the call, a
+// chat Telegram asked to wait for would hold up the round, and with it every
+// other chat, or be refused past maxHold. So a delete to a held chat, or one
+// that Telegram answers with a 429, goes in the background once the wait is
+// over.
 func (f *Flow) deleteMessage(ctx context.Context, chatID, messageID int64) {
-	if messageID == 0 {
+	if messageID == 0 || f.tryDelete(ctx, chatID, messageID) {
 		return
 	}
-	if err := f.cfg.Telegram.DeleteMessage(ctx, chatID, messageID); err != nil {
+	f.wg.Go(func() {
+		for range cleanupTries {
+			if f.pace.sleep(ctx, f.pace.left(chatID)) != nil || f.tryDelete(ctx, chatID, messageID) {
+				return
+			}
+		}
+		f.log.Warn("message not deleted: Telegram kept asking to wait", "chat", chatID, "message", messageID)
+	})
+}
+
+// tryDelete deletes a message unless Telegram asks to wait first. It
+// reports false when the delete is still to be done.
+func (f *Flow) tryDelete(ctx context.Context, chatID, messageID int64) bool {
+	err := f.cfg.Telegram.DeleteMessage(noWait(ctx), chatID, messageID)
+	if errors.Is(err, errHeld) || tg.IsTooManyRequests(err) {
+		return false
+	}
+	if err != nil {
 		f.log.Warn("message not deleted", "chat", chatID, "message", messageID, "error", err)
 	}
+	return true
 }
 
 // detach lets the cleanup after a failure finish when the failure was the

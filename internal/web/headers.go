@@ -39,12 +39,19 @@ var telegramPhotos = []string{"https://t.me", "https://*.telesco.pe"}
 //     parent domain is not framy's) and no preload.
 //   - COOP same-origin: the sign-in is a redirect, not a popup. It has no
 //     effect inside the Telegram Web iframe, which is not a top-level page.
+//   - Permissions-Policy: the page asks for no camera, microphone, place,
+//     payment or USB device (a photo is picked through the system's own
+//     picker), so a script that got in cannot either. Fullscreen and the
+//     clipboard stay, for the whole screen of a result and Copy.
 func setStaticHeaders(h http.Header) {
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Referrer-Policy", "no-referrer")
 	h.Set("Strict-Transport-Security", "max-age=31536000")
 	h.Set("Cross-Origin-Opener-Policy", "same-origin")
+	h.Set("Permissions-Policy", permissionsPolicy)
 }
+
+const permissionsPolicy = "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
 
 // InlineHash is the CSP source for an inline script or style whose text is
 // exactly body, the bytes between the tags. Pass it in Config.CSPExtra under
@@ -117,6 +124,10 @@ func buildCSP(r2Endpoint string, extra map[string][]string) (string, error) {
 		sources = append(sources, extra[d.name]...)
 		parts = append(parts, d.name+" "+strings.Join(slices.Compact(sources), " "))
 	}
+	// What the policy refuses is reported (cspreport.go): report-to for
+	// Chromium, with Reporting-Endpoints beside the policy, report-uri for
+	// the rest.
+	parts = append(parts, "report-uri "+cspReportPath, "report-to csp")
 	return strings.Join(parts, "; "), nil
 }
 

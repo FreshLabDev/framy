@@ -20,10 +20,12 @@ these counts as a vulnerability:
 - a way to spend the free allowance past its limits, or framy's own key outside
   the free allowance.
 
-Use GitHub's private vulnerability reporting for `FreshLabDev/framy`. If it is
-not available, contact an Asterfield maintainer privately through an existing
-trusted channel and include only the minimum reproduction details needed to
-investigate.
+Report it privately through GitHub:
+[Security → Report a vulnerability](https://github.com/FreshLabDev/framy/security/advisories/new)
+on `FreshLabDev/framy`. Only you and the maintainers see the report. If the
+form does not open for you, open an issue titled "Security contact" with no
+details in it, and a maintainer will reach you privately. Include only the
+minimum reproduction details needed to investigate.
 
 We will acknowledge a report, assess affected versions, coordinate a fix, and
 publish an advisory when disclosure is safe.
@@ -33,9 +35,13 @@ publish an advisory when disclosure is safe.
 - Keep `.env`, file secrets, PostgreSQL dumps and the R2 credentials outside
   Git.
 - Keep the key-encryption key (KEK) apart from the database backups. A dump and
-  its KEK together give away every stored key.
+  its KEK together give away every stored key, so a backup of the stack's
+  directory must leave out `secrets/kek`, and the copy that restores it is kept
+  elsewhere, behind something other than the backups' password.
 - Use a unique strong password for the `framy_core` role.
-- Give the R2 API token access to framy's two buckets only. Keep the bucket
-  `framy` private; files are served through presigned links.
+- Give the R2 API token access to the bucket `framy` alone, and the clips'
+  token, when `R2_INCOMING_BUCKET` is set, to that bucket alone. A token that
+  also reaches a bucket of backups can delete the data and its copy together.
+  Keep the bucket `framy` private; files are served through presigned links.
 - Do not publish the PostgreSQL port or the service port to the internet. The
   service is reached only through the Cloudflare Tunnel.

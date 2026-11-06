@@ -21,10 +21,11 @@ const (
 	// DefaultMaxVideo bounds a clip put into incoming/: a minute of 4K from
 	// a phone fits.
 	DefaultMaxVideo = 512 << 20
-	// DefaultIncomingTTL is how long the link to put a clip lives. A slow
-	// uplink takes minutes for a large clip, and the link has to last until
-	// the PUT begins.
-	DefaultIncomingTTL = 30 * time.Minute
+	// DefaultIncomingTTL is how long the link to put a clip lives. R2 checks
+	// it when the PUT begins, so a slow uplink that takes longer still ends;
+	// the site asks for the link right before it starts the PUT, and a try
+	// that failed asks for a new one.
+	DefaultIncomingTTL = 10 * time.Minute
 )
 
 var (
@@ -35,9 +36,12 @@ var (
 )
 
 // VideoUpload is where the browser puts a clip: a presigned PUT straight
-// into the bucket's incoming/, which the bucket's lifecycle rule clears
+// into incoming/ of the clips' bucket, which its lifecycle rule clears
 // after a day (docs/design.md, Storage and retention). Cloudflare takes at
-// most 100 MB in a request to the service, and a clip is often more.
+// most 100 MB in a request to the service, and a clip is often more. The
+// link signs the host and the clip's length, so the clips' bucket has a
+// token of its own that reaches no other: a header the signature does not
+// cover cannot make R2 copy someone else's file in.
 type VideoUpload struct {
 	Token      string
 	URL        string
@@ -46,11 +50,18 @@ type VideoUpload struct {
 	MaxSeconds float64
 }
 
-// VideoUpload makes a link to put one clip. The token names it to TakeVideo
-// and is the person's alone: the key it stands for has their id in it.
-func (s *Store) VideoUpload(userID int64) (VideoUpload, error) {
+// VideoUpload makes a link to put one clip of size bytes, the size the
+// browser read of the file, or ErrTooBig over MaxVideo, with MaxBytes set
+// to say the limit. The link takes a body of that length and no other, so
+// it cannot be used to fill the bucket with more. The token names it to
+// TakeVideo and is the person's alone: the key it stands for has their id
+// in it.
+func (s *Store) VideoUpload(userID, size int64) (VideoUpload, error) {
+	if size > s.cfg.MaxVideo {
+		return VideoUpload{MaxBytes: s.cfg.MaxVideo}, ErrTooBig
+	}
 	token := random()
-	link, err := s.bucket.PresignPut(s.incomingKey(userID, token), s.cfg.IncomingTTL)
+	link, err := s.incoming.PresignPut(s.incomingKey(userID, token), size, s.cfg.IncomingTTL)
 	if err != nil {
 		return VideoUpload{}, err
 	}
@@ -89,7 +100,7 @@ func (s *Store) TakeVideo(ctx context.Context, userID int64, token string, cut *
 		return Asset{}, ErrNoUpload
 	}
 	key := s.incomingKey(userID, token)
-	obj, err := s.bucket.Head(ctx, key)
+	obj, err := s.incoming.Head(ctx, key)
 	switch {
 	case errors.Is(err, r2.ErrNotFound):
 		return Asset{}, ErrNoUpload
@@ -104,7 +115,7 @@ func (s *Store) TakeVideo(ctx context.Context, userID int64, token string, cut *
 		return Asset{}, err
 	}
 	defer done()
-	if err := s.fetchObject(ctx, key, filepath.Join(dir, media.In), s.cfg.MaxVideo); err != nil {
+	if err := fetchFrom(ctx, s.incoming, key, filepath.Join(dir, media.In), s.cfg.MaxVideo); err != nil {
 		if errors.Is(err, ErrTooBig) {
 			s.dropIncoming(ctx, key)
 		}
@@ -123,8 +134,21 @@ func (s *Store) TakeVideo(ctx context.Context, userID int64, token string, cut *
 	return a, nil
 }
 
+// dropIncomingOf removes the clips the person put into incoming/ that framy
+// never took, as their account goes. It never fails the deletion: what it
+// leaves, the lifecycle rule takes within a day.
+func (s *Store) dropIncomingOf(ctx context.Context, userID int64) {
+	keys, err := s.incoming.List(ctx, s.incomingKey(userID, ""))
+	if err != nil {
+		s.log.Warn("the clips of a deleted account stay in incoming/ until the lifecycle rule", "error", err)
+	}
+	for _, key := range keys {
+		s.dropIncoming(ctx, key)
+	}
+}
+
 func (s *Store) dropIncoming(ctx context.Context, key string) {
-	if err := s.bucket.Delete(context.WithoutCancel(ctx), key); err != nil {
+	if err := s.incoming.Delete(context.WithoutCancel(ctx), key); err != nil {
 		s.log.Warn("a clip stays in incoming/ until the lifecycle rule", "key", key, "error", err)
 	}
 }
@@ -244,9 +268,14 @@ func (s *Store) clip(ctx context.Context, userID, assetID int64, sounds bool) (A
 	return a, nil
 }
 
-// fetchObject reads key into path, at most limit bytes.
+// fetchObject reads key of the bucket into path, at most limit bytes.
 func (s *Store) fetchObject(ctx context.Context, key, path string, limit int64) error {
-	body, err := s.bucket.Get(ctx, key)
+	return fetchFrom(ctx, s.bucket, key, path, limit)
+}
+
+// fetchFrom reads key of b into path, at most limit bytes.
+func fetchFrom(ctx context.Context, b Bucket, key, path string, limit int64) error {
+	body, err := b.Get(ctx, key)
 	if errors.Is(err, r2.ErrNotFound) {
 		return ErrNoUpload
 	}
@@ -283,7 +312,7 @@ func (s *Store) keepClip(ctx context.Context, userID int64, dir string, cut *med
 		return Asset{}, err
 	}
 	a := Asset{
-		UserID: userID, Kind: "upload", Key: s.cfg.Prefix + fmt.Sprintf("u/%d/in/%s%s", userID, random(), ext(v.ContentType)),
+		UserID: userID, Kind: "upload", Key: s.uploadKey(v.ContentType),
 		ContentType: v.ContentType, Width: v.Width, Height: v.Height, Seconds: v.Seconds, FPS: v.FPS, Audio: v.Audio,
 	}
 	if err := s.putFile(ctx, &a, v.Path); err != nil {

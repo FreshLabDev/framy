@@ -10,9 +10,12 @@ import (
 
 	"github.com/FreshLabDev/tg"
 
+	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/db"
+	"github.com/FreshLabDev/framy/internal/free"
 	"github.com/FreshLabDev/framy/internal/i18n"
 	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/FreshLabDev/framy/internal/keys"
 	"github.com/FreshLabDev/framy/internal/storage"
 )
 
@@ -118,6 +121,39 @@ func TestAgainOnAKeyRunNeedsTheKey(t *testing.T) {
 	}
 	if job := h.store.jobs[2]; job == nil || job.n.Free {
 		t.Fatalf("job = %+v", job)
+	}
+}
+
+// Again on a free run past the free tier, with a key only for another
+// provider than the free model's, goes on a model that key runs, as a
+// command's draft does: the preview shows it and its price before anything
+// runs.
+func TestAgainPastTheFreeTierGoesOnAnotherProvidersKey(t *testing.T) {
+	h := newHarness(t)
+	h.store.models = panelCatalog()
+	if err := h.command(photoReply("/img make it snow"), CommandImage, "make it snow"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.press(1, 7, actGenerate); err != nil {
+		t.Fatal(err)
+	}
+	h.delivered(t, 1, picture)
+	h.flow.cfg.Keys = fakeKeys{conns: []keys.Connection{{Provider: catalog.Gemini, Status: keys.Valid}}}
+	h.queue.refuse = &free.LimitError{Kind: catalog.Image, Limit: 5, Window: free.ImageWindow, FreesAt: clock.Add(time.Hour)}
+	h.tg.reset()
+	if err := h.onResult(1, 7, actAgain, "cq-1"); err != nil {
+		t.Fatal(err)
+	}
+	job := h.store.jobs[2]
+	if job == nil || job.status != jobs.Draft || job.n.Free || job.n.Offer.ID != "gemini:google/nano-banana-pro" || job.n.Estimate == nil {
+		t.Fatalf("job = %+v", job)
+	}
+	sent := h.tg.methods("sendRichMessage")
+	if len(sent) != 1 || !strings.Contains(sent[0].text, "Model: <b>Nano Banana Pro</b>") {
+		t.Fatalf("preview = %+v", sent)
+	}
+	if len(h.tg.answers) != 1 || h.tg.answers[0] != "" {
+		t.Fatalf("answers = %v", h.tg.answers)
 	}
 }
 
@@ -338,6 +374,78 @@ func TestAVideoResultHasAgain(t *testing.T) {
 	}
 }
 
+// A video sent to a large group comes back with no id while Telegram
+// re-encodes it. Again under it, once it is in the chat, is pressed on the
+// message with the result's file, which is then the result's: a new draft
+// answers it, and a press on another message still makes nothing. Before,
+// Again under such a video did nothing for good.
+func TestAgainUnderAVideoThatHadNoIDWorks(t *testing.T) {
+	h := videoHarness(t)
+	withHeyGen(h)
+	h.tg.videoUnnumbered = true
+	id := h.generatingVideo(t)
+	h.store.setStatus(id, jobs.Done, "")
+	h.files.results[id] = []storage.Asset{{ID: 60, UserID: 7, Kind: "result", ContentType: "video/mp4", Width: 1280, Height: 720, Seconds: 4.2, Bytes: 2 << 20}}
+	h.flow.step(context.Background(), id)
+	if r := h.store.runs[id]; r.Stage != db.StageDone || r.ResultMessageID != 0 || r.ResultFileUniqueID != "video-unique" {
+		t.Fatalf("run = %+v", r)
+	}
+	press := func(qid string, msg tg.Message) {
+		t.Helper()
+		cq := &tg.CallbackQuery{ID: qid, From: tg.User{ID: 7, LanguageCode: "en"}, Data: callback(id, actAgain), Message: &msg}
+		if err := h.flow.press(context.Background(), cq); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Another message of the chat, and one with another file, are not it.
+	press("cq-0", tg.Message{MessageID: 555, Chat: group, Date: 1, Video: &tg.Video{FileUniqueID: "other"}})
+	press("cq-1", tg.Message{MessageID: 555, Chat: group, Date: 1})
+	if len(h.store.jobs) != 1 || h.store.runs[id].ResultMessageID != 0 {
+		t.Fatalf("jobs %d, run %+v", len(h.store.jobs), h.store.runs[id])
+	}
+	press("cq-2", tg.Message{MessageID: 777, Chat: group, Date: 1, Video: &tg.Video{FileID: "video-file", FileUniqueID: "video-unique"}})
+	if r := h.store.runs[id]; r.ResultMessageID != 777 {
+		t.Fatalf("result message not recorded: %+v", r)
+	}
+	if job := h.store.jobs[2]; job == nil || job.status != jobs.Draft || job.n.MessageID != 777 {
+		t.Fatalf("job = %+v", job)
+	}
+	// From now on the result is that message and no other.
+	h.now = h.now.Add(10 * time.Second)
+	press("cq-3", tg.Message{MessageID: 778, Chat: group, Date: 1, Video: &tg.Video{FileUniqueID: "video-unique"}})
+	if len(h.store.jobs) != 2 {
+		t.Fatalf("jobs %d", len(h.store.jobs))
+	}
+}
+
+// When its file changed in the re-encoding, the result is framy's video
+// answering the command.
+func TestAVideoThatHadNoIDIsFramysAnswerToTheCommand(t *testing.T) {
+	run := db.ChatRun{JobID: 1, ChatID: group.ID, CommandMessageID: 10, Stage: db.StageDone, ResultFileUniqueID: "video-unique"}
+	bot := &tg.User{ID: 1, IsBot: true}
+	for _, c := range []struct {
+		msg  tg.Message
+		want bool
+	}{
+		{tg.Message{MessageID: 5, Chat: group, From: bot, Video: &tg.Video{FileUniqueID: "re-encoded"}, ReplyToMessage: &tg.Message{MessageID: 10}}, true},
+		{tg.Message{MessageID: 5, Chat: group, From: bot, Video: &tg.Video{FileUniqueID: "re-encoded"}, ReplyToMessage: &tg.Message{MessageID: 11}}, false},
+		{tg.Message{MessageID: 5, Chat: group, From: &tg.User{ID: 7}, Video: &tg.Video{FileUniqueID: "re-encoded"}, ReplyToMessage: &tg.Message{MessageID: 10}}, false},
+		{tg.Message{MessageID: 5, Chat: group, From: bot, Photo: []tg.Photo{{FileUniqueID: "p"}}, ReplyToMessage: &tg.Message{MessageID: 10}}, false},
+		{tg.Message{EphemeralMessageID: 5, Chat: group, From: bot, Video: &tg.Video{FileUniqueID: "video-unique"}}, false},
+	} {
+		cq := &tg.CallbackQuery{Data: callback(1, actAgain), Message: &c.msg}
+		if _, ok := pressedOn(cq, run, actAgain); ok != c.want {
+			t.Errorf("%+v: pressed %v", c.msg, ok)
+		}
+	}
+	// A run not yet done has no result to press on.
+	run.Stage = db.StageGenerating
+	cq := &tg.CallbackQuery{Data: callback(1, actAgain), Message: &tg.Message{MessageID: 5, Chat: group, Video: &tg.Video{FileUniqueID: "video-unique"}}}
+	if _, ok := pressedOn(cq, run, actAgain); ok {
+		t.Error("pressed on a run still generating")
+	}
+}
+
 // A guest run's buttons are on its inline answer, which has none of these.
 func TestAGuestRunHasNoResultButtons(t *testing.T) {
 	run := db.ChatRun{JobID: 1, InlineMessageID: "inline-1", Stage: db.StageFailed}
@@ -349,5 +457,33 @@ func TestAGuestRunHasNoResultButtons(t *testing.T) {
 	}
 	if kb := failureKeyboard(run); kb != nil {
 		t.Fatalf("a guest card's buttons: %v", buttons(kb))
+	}
+}
+
+// Two buttons share a row only when both labels fit half of it; a long
+// one, as in Belarusian, takes a row of its own, so neither is cut.
+func TestALongLabelTakesARowOfItsOwn(t *testing.T) {
+	run := db.ChatRun{JobID: 1, CommandMessageID: 10, Status: string(jobs.Failed), ErrorClass: string(jobs.Internal)}
+	for lang, want := range map[string][][]string{
+		"en": {{callback(1, actRetry), callback(1, actOther)}},
+		"be": {{callback(1, actRetry)}, {callback(1, actOther)}},
+	} {
+		run.Lang = lang
+		if got := buttons(failureKeyboard(run)); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: %v (%q), want %v", lang, got, labels(failureKeyboard(run)), want)
+		}
+	}
+	// The same for what a guest run's card can change: Model and Make a
+	// video share a row in English, not in French.
+	d := draft{pay: payFree, offer: catalog.Offer{Kind: catalog.Image}, taken: 1}
+	for lang, rows := range map[string]int{"en": 2, "fr": 3} {
+		if got := previewKeyboard(lang, 1, d).InlineKeyboard; len(got) != rows {
+			t.Errorf("%s: %q", lang, labels(previewKeyboard(lang, 1, d)))
+		}
+	}
+	// Three that fit go two and one.
+	three := []tg.InlineKeyboardButton{{Text: "a"}, {Text: "b"}, {Text: "c"}}
+	if rows := inPairs(three); len(rows) != 2 || len(rows[0]) != 2 || len(rows[1]) != 1 {
+		t.Errorf("rows = %v", rows)
 	}
 }

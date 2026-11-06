@@ -101,6 +101,24 @@ func labels(kb *tg.InlineKeyboardMarkup) [][]string {
 // pick is the data of a model's button.
 func pick(model string) string { return actPickModel + modelHash(model) }
 
+// The panel's set.* lines are the names of the settings it shows; a value
+// on a button is in the site's words (web.val.*), so a set.* line for
+// anything else is read by nobody and translated for nothing.
+func TestTheBotsSettingLinesAreTheSettingsItShows(t *testing.T) {
+	shown := map[string]bool{}
+	for _, name := range shownSettings {
+		shown[name] = true
+		if !i18n.Has("set." + name) {
+			t.Errorf("set.%s is missing", name)
+		}
+	}
+	for _, key := range i18n.Keys() {
+		if name, ok := strings.CutPrefix(key, "set."); ok && !shown[name] {
+			t.Errorf("%s names no setting the panel shows", key)
+		}
+	}
+}
+
 // A free run has its settings fixed, so its preview has the model and no
 // settings; a run on the key has both. The keyboard keeps Generate, No and
 // Make a video.
@@ -136,9 +154,10 @@ func TestThePreviewHasModelAndSettingsWhenThereAreAny(t *testing.T) {
 	if gen := e.markup.InlineKeyboard[0][0].Text; gen != i18n.T("en", "run.generate") {
 		t.Fatalf("generate = %q", gen)
 	}
-	// After a model, both lists are folded.
+	// After a model, both lists are folded. In a group one run makes one
+	// result, so there is no count.
 	if !strings.Contains(e.text, "<details><summary>Model: <b>Nano Banana Pro</b></summary>") ||
-		!strings.Contains(e.text, "<details><summary>Settings: <b>Auto · 1K · ×1</b></summary>") {
+		!strings.Contains(e.text, "<details><summary>Settings: <b>Auto · 1K</b></summary>") || strings.Contains(e.text, "Sn#") {
 		t.Fatalf("preview = %s", e.text)
 	}
 }
@@ -172,7 +191,7 @@ func TestModelOpensAPanelOnlyTheRequesterSees(t *testing.T) {
 	// OpenAI's needs a key, so it folds into the last row.
 	got := labels(p.markup)
 	want := [][]string{{"FLUX 3 Image Klein · free"}, {"✓ MAI-Image-2.6 Flash · free"}, {"Nano Banana Pro"},
-		{"🔑 " + i18n.T("en", "panel.more_key", "n", "1")}, {i18n.T("en", "btn.back")}}
+		{i18n.T("en", "panel.more_key", "n", "1")}, {i18n.T("en", "btn.back")}}
 	if len(got) != len(want) {
 		t.Fatalf("list = %v", got)
 	}
@@ -299,18 +318,18 @@ func TestASettingChangesTheRunOnTheKey(t *testing.T) {
 	}
 	kb := edits[0].markup
 	got := labels(kb)
-	// A label row, then the values; the boolean seed is not offered.
+	// A label row, then the values; the boolean seed is not offered, nor
+	// the count in a group, where one run makes one result.
 	if got[0][0] != i18n.T("en", "set.aspect_ratio") || kb.InlineKeyboard[0][0].Disabled == nil || kb.InlineKeyboard[0][0].CallbackData != "" ||
 		strings.Join(got[1], "|") != "✓ "+i18n.T("en", "web.val.auto")+"|1:1|16:9|9:16" || strings.Join(got[2], "|") != "4:3" ||
-		got[3][0] != i18n.T("en", "set.resolution") || strings.Join(got[4], "|") != "✓ 1K|2K|4K" ||
-		got[5][0] != i18n.T("en", "set.n") || strings.Join(got[6], "|") != "✓ ×1|×2|×3|×4" || len(got) != 8 {
+		got[3][0] != i18n.T("en", "set.resolution") || strings.Join(got[4], "|") != "✓ 1K|2K|4K" || len(got) != 6 {
 		t.Fatalf("settings = %v", got)
 	}
-	if kb.InlineKeyboard[1][2].CallbackData != "j:1:S0.2" {
+	if kb.InlineKeyboard[1][2].CallbackData != "j:1:Saspect_ratio#"+valueHash("16:9") {
 		t.Fatalf("16:9 = %+v", kb.InlineKeyboard[1][2])
 	}
 	h.tg.reset()
-	if err := h.pressPanel(1, 7, actPickSetting+"0.2"); err != nil {
+	if err := h.pressPanel(1, 7, kb.InlineKeyboard[1][2].CallbackData[len("j:1:"):]); err != nil {
 		t.Fatal(err)
 	}
 	n := h.queue.revised[len(h.queue.revised)-1]
@@ -325,7 +344,8 @@ func TestASettingChangesTheRunOnTheKey(t *testing.T) {
 	if len(eph) != 1 || labels(eph[0].markup)[1][2] != "✓ 16:9" {
 		t.Fatalf("panel = %+v", eph)
 	}
-	// The same value again changes nothing.
+	// The same value again changes nothing, and a panel's button sent
+	// before the values were hashed, which numbers both, still means it.
 	h.tg.reset()
 	revised := len(h.queue.revised)
 	if err := h.pressPanel(1, 7, actPickSetting+"0.2"); err != nil {
@@ -419,14 +439,40 @@ func TestAnAdminSendsThePreviewToTheRequesterAlone(t *testing.T) {
 	if !r.PreviewEphemeral || r.PreviewMessageID == 0 || r.CommandEphemeral {
 		t.Fatalf("run = %+v", r)
 	}
-	// A model changes the preview itself: it is the requester's already.
+	// A model gives the requester a new preview with the new card, a reply
+	// to the command as the first was, and deletes the one they had: the
+	// Bot API server aborts on an ephemeral rich edit that uploads a card.
 	h.tg.reset()
 	if err := h.press(1, 7, pick("black-forest-labs/flux-3-image-klein")); err != nil {
 		t.Fatal(err)
 	}
-	eph := h.tg.methods("editEphemeralMessageRich")
-	if len(eph) != 1 || eph[0].messageID != r.PreviewMessageID || eph[0].action != "7" || eph[0].file != "card photo upload:framy.png" ||
-		len(h.tg.methods("editMessageRich")) != 0 {
+	old := r.PreviewMessageID
+	sent := h.tg.methods("sendRichMessage")
+	if len(sent) != 1 || sent[0].messageID != 10 || sent[0].file != "card photo upload:framy.png" || sent[0].ephemeral == nil ||
+		*sent[0].ephemeral != (tg.Ephemeral{ReceiverUserID: 7, CallbackQueryID: "cq"}) || len(h.tg.methods("editMessageRich")) != 0 {
+		t.Fatalf("calls = %+v", h.tg.calls)
+	}
+	if !strings.Contains(sent[0].text, "Model: <b>FLUX 3 Image Klein</b>") {
+		t.Fatalf("preview = %s", sent[0].text)
+	}
+	if del := h.tg.methods("deleteEphemeralMessage"); len(del) != 1 || del[0].messageID != old || del[0].action != "7" ||
+		h.tg.calls[len(h.tg.calls)-1].method != "deleteEphemeralMessage" {
+		t.Fatalf("calls = %+v", h.tg.calls)
+	}
+	// The press lets framy send it while it is unanswered.
+	if len(h.tg.answers) != 1 || h.tg.answers[0] != "" || h.tg.answeredAt[0] != len(h.tg.calls) {
+		t.Fatalf("answers = %q at %v of %+v", h.tg.answers, h.tg.answeredAt, h.tg.calls)
+	}
+	r = run(t, h)
+	if !r.PreviewEphemeral || r.PreviewMessageID == old || r.PreviewMessageID == 0 {
+		t.Fatalf("run = %+v", r)
+	}
+	// The old preview takes no press now.
+	h.tg.reset()
+	if err := h.pressOn(1, 7, actGenerate, tg.Message{EphemeralMessageID: old, Chat: group, Date: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.tg.calls) != 0 || h.store.stage(1) != db.StagePreview {
 		t.Fatalf("calls = %+v", h.tg.calls)
 	}
 	// Generate: the chat sees the loop, as a reply to the command.
@@ -447,10 +493,136 @@ func TestAnAdminSendsThePreviewToTheRequesterAlone(t *testing.T) {
 	}
 }
 
+// adminPreview is a run of /img whose preview an admin framy sent the
+// requester alone, the calls forgotten.
+func adminPreview(t *testing.T) (*harness, db.ChatRun) {
+	t.Helper()
+	h := newHarness(t)
+	h.store.models = panelCatalog()
+	h.flow.SetAlbums(fakeAlbums{admin: true})
+	if err := h.command(photoReply("/img make it night"), CommandImage, "make it night"); err != nil {
+		t.Fatal(err)
+	}
+	r := run(t, h)
+	if !r.PreviewEphemeral {
+		t.Fatalf("run = %+v", r)
+	}
+	h.tg.reset()
+	return h, r
+}
+
+// The loop goes by the file_id Telegram gave it. A send that got no answer
+// may have reached the chat, so nothing goes after it; one Telegram refused
+// sent nothing, so the loop is uploaded again.
+func TestTheLoopGoesOnceWhateverItsSendAnswered(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		err     error
+		uploads int
+	}{
+		{"no answer", errBoom, 0},
+		{"file refused", &tg.APIError{Method: "sendAnimation", StatusCode: 400, ErrorCode: 400, Description: "Bad Request: wrong file identifier/HTTP URL specified"}, 1},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h, _ := adminPreview(t)
+			h.flow.files.Store("loop-1", "anim-file")
+			h.tg.failOnce["sendAnimation"] = c.err
+			if err := h.press(1, 7, actGenerate); err != nil {
+				t.Fatal(err)
+			}
+			loops := h.tg.methods("sendAnimation")
+			if len(loops) != c.uploads || len(h.tg.methods("sendMessage")) != 0 {
+				t.Fatalf("calls = %+v", h.tg.calls)
+			}
+			if c.uploads > 0 && loops[0].file != "upload:framy.mp4" {
+				t.Fatalf("loop = %+v", loops[0])
+			}
+			if r := run(t, h); r.PreviewEphemeral || (c.uploads == 0) != (r.PreviewMessageID == 0) {
+				t.Fatalf("run = %+v", r)
+			}
+		})
+	}
+}
+
+// An edit changes the same message whichever way it went: the error card
+// whose edit by file_id got no answer goes again by upload, and stays the
+// card, rather than give way to a line that says the same.
+func TestAnEditWithNoAnswerGoesAgain(t *testing.T) {
+	h := newHarness(t)
+	id := h.generating(t)
+	h.flow.files.Store("card", "card-file")
+	h.tg.failOnce["editMessageMedia"] = errBoom
+	h.store.setStatus(id, jobs.Failed, jobs.Internal)
+	h.flow.step(context.Background(), id)
+	edits := h.tg.methods("editMessageMedia")
+	if len(edits) != 1 || edits[0].file != "photo upload:framy.png" {
+		t.Fatalf("edits = %+v", edits)
+	}
+	if len(h.tg.methods("sendMessage")) != 0 || len(h.tg.methods("deleteMessage")) != 0 {
+		t.Fatalf("the card gave way: %+v", h.tg.calls)
+	}
+}
+
+// Telegram may refuse the press for the new preview, or the reply to a
+// command that is gone; an admin framy sends it plainly then.
+func TestARefusedPressSendsTheNewPreviewPlainly(t *testing.T) {
+	h, r := adminPreview(t)
+	h.tg.fail["press"] = &tg.APIError{Method: "sendRichMessage", StatusCode: 400, ErrorCode: 400, Description: "Bad Request: query is too old"}
+	if err := h.press(1, 7, pick("black-forest-labs/flux-3-image-klein")); err != nil {
+		t.Fatal(err)
+	}
+	sent := h.tg.methods("sendRichMessage")
+	if len(sent) != 1 || sent[0].messageID != 0 || *sent[0].ephemeral != (tg.Ephemeral{ReceiverUserID: 7}) {
+		t.Fatalf("calls = %+v", h.tg.calls)
+	}
+	if got := run(t, h); got.PreviewMessageID == r.PreviewMessageID || !got.PreviewEphemeral {
+		t.Fatalf("run = %+v", got)
+	}
+	if del := h.tg.methods("deleteEphemeralMessage"); len(del) != 1 || del[0].messageID != r.PreviewMessageID {
+		t.Fatalf("calls = %+v", h.tg.calls)
+	}
+}
+
+// A send that may have reached Telegram is not tried plainly, and the old
+// preview stays the run's.
+func TestAPreviewNotSentAgainKeepsTheOldOne(t *testing.T) {
+	h, r := adminPreview(t)
+	h.tg.fail["ephemeral"] = errBoom
+	err := h.press(1, 7, pick("black-forest-labs/flux-3-image-klein"))
+	if err == nil || !strings.Contains(err.Error(), "preview not redrawn") {
+		t.Fatalf("err = %v", err)
+	}
+	if len(h.tg.methods("deleteEphemeralMessage")) != 0 {
+		t.Fatalf("calls = %+v", h.tg.calls)
+	}
+	if got := run(t, h); got.PreviewMessageID != r.PreviewMessageID {
+		t.Fatalf("run = %+v", got)
+	}
+}
+
+// A new preview the run could not record would take no press: it goes, and
+// the old one stays.
+func TestAnUnrecordedPreviewIsDeletedAgain(t *testing.T) {
+	h, r := adminPreview(t)
+	h.store.previewErr = errBoom
+	if err := h.press(1, 7, pick("black-forest-labs/flux-3-image-klein")); err == nil {
+		t.Fatal("no error")
+	}
+	sent := h.tg.methods("sendRichMessage")
+	del := h.tg.methods("deleteEphemeralMessage")
+	if len(sent) != 1 || len(del) != 1 || del[0].messageID == r.PreviewMessageID {
+		t.Fatalf("calls = %+v", h.tg.calls)
+	}
+}
+
+// errEphemeral is Telegram refusing an ephemeral message, which it then
+// did not send.
+var errEphemeral = &tg.APIError{Method: "sendRichMessage", StatusCode: 400, ErrorCode: 400, Description: "Bad Request: ephemeral messages are not allowed here"}
+
 func TestARefusedEphemeralPreviewGoesToTheChat(t *testing.T) {
 	h := newHarness(t)
 	h.flow.SetAlbums(fakeAlbums{admin: true})
-	h.tg.fail["ephemeral"] = errBoom
+	h.tg.fail["ephemeral"] = errEphemeral
 	if err := h.command(command("/img a fox"), CommandImage, "a fox"); err != nil {
 		t.Fatal(err)
 	}
@@ -460,6 +632,24 @@ func TestARefusedEphemeralPreviewGoesToTheChat(t *testing.T) {
 	}
 	if r := run(t, h); r.PreviewEphemeral {
 		t.Fatalf("run = %+v", r)
+	}
+}
+
+// An ephemeral preview that got no answer may have reached the requester:
+// the chat does not get it too, with their photo and their words, and the
+// draft, which no preview the run knows shows, goes.
+func TestAnEphemeralPreviewWithNoAnswerIsNotSentToTheChat(t *testing.T) {
+	h := newHarness(t)
+	h.flow.SetAlbums(fakeAlbums{admin: true})
+	h.tg.fail["ephemeral"] = errBoom
+	if err := h.command(photoReply("/img make it night"), CommandImage, "make it night"); err == nil {
+		t.Fatal("a preview with no answer went as sent")
+	}
+	if sent := h.tg.methods("sendRichMessage"); len(sent) != 0 {
+		t.Fatalf("the chat got the preview: %+v", sent)
+	}
+	if len(h.queue.cancelled) != 1 {
+		t.Fatalf("cancelled = %v", h.queue.cancelled)
 	}
 }
 
@@ -520,12 +710,22 @@ func TestAnEphemeralCommandIsRefusedToItsSenderAlone(t *testing.T) {
 	if len(sent) != 1 || sent[0].ephemeral == nil || sent[0].ephemeral.ReceiverUserID != 7 || sent[0].replyEphemeral != 5 || sent[0].text != i18n.T("en", "run.empty") {
 		t.Fatalf("reply = %+v", sent)
 	}
+	// Refused, it goes to the chat; with no answer it may have reached
+	// the sender, and the chat is not told it too.
 	h.tg.reset()
-	h.tg.fail["ephemeral"] = errBoom
+	h.tg.fail["ephemeral"] = errEphemeral
 	if err := h.command(m, CommandImage, ""); err != nil {
 		t.Fatal(err)
 	}
 	if sent := h.tg.methods("sendMessage"); len(sent) != 1 || sent[0].ephemeral != nil {
+		t.Fatalf("reply = %+v", sent)
+	}
+	h.tg.reset()
+	h.tg.fail["ephemeral"] = errBoom
+	if err := h.command(m, CommandImage, ""); err == nil {
+		t.Fatal("a reply with no answer went as sent")
+	}
+	if sent := h.tg.methods("sendMessage"); len(sent) != 0 {
 		t.Fatalf("reply = %+v", sent)
 	}
 }
@@ -550,7 +750,7 @@ func TestInADirectChatTheListIsOnThePreview(t *testing.T) {
 	}
 	// From words alone Recraft, which takes no photo, is listed too, but
 	// not its vector variant: Telegram shows an SVG as a file.
-	if got := labels(edits[0].markup); len(got) != 6 || got[3][0] != "Recraft V4.1" || got[4][0] != "🔑 "+i18n.T("en", "panel.more_key", "n", "1") {
+	if got := labels(edits[0].markup); len(got) != 6 || got[3][0] != "Recraft V4.1" || got[4][0] != i18n.T("en", "panel.more_key", "n", "1") {
 		t.Fatalf("list = %v", got)
 	}
 	h.tg.reset()
@@ -573,6 +773,96 @@ func TestThePanelIsForAPreviewOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(h.tg.calls) != 0 || h.store.jobs[1].status != jobs.Queued {
+		t.Fatalf("calls = %+v", h.tg.calls)
+	}
+}
+
+// A card that cannot be drawn again leaves the draft as the card still
+// shows it, and the press says so: Generate runs only what the requester
+// saw.
+func TestACardNotDrawnPutsTheDraftBack(t *testing.T) {
+	h := panelHarness(t)
+	before := h.store.jobs[1].n
+	h.tg.fail["editMessageRich"] = errBoom
+	if err := h.press(1, 7, pick("google/nano-banana-pro")); err == nil {
+		t.Fatal("no error")
+	}
+	if got := h.tg.answers; len(got) != 1 || got[0] != "alert:"+i18n.T("en", "run.not_redrawn") {
+		t.Fatalf("answers = %q", got)
+	}
+	after := h.store.jobs[1].n
+	if after.Offer.ID != before.Offer.ID || !after.Free || !reflect.DeepEqual(after.Settings, before.Settings) ||
+		after.Estimate == nil || !reflect.DeepEqual(*after.Estimate, *before.Estimate) {
+		t.Fatalf("draft = %+v, was %+v", after, before)
+	}
+	if len(h.queue.cancelled) != 0 {
+		t.Fatalf("cancelled = %v", h.queue.cancelled)
+	}
+	// A setting goes back as well.
+	delete(h.tg.fail, "editMessageRich")
+	if err := h.press(1, 7, pick("google/nano-banana-pro")); err != nil {
+		t.Fatal(err)
+	}
+	onKey := h.store.jobs[1].n
+	h.tg.fail["editMessageRich"] = errBoom
+	if err := h.press(1, 7, actPickSetting+"resolution.2"); err == nil {
+		t.Fatal("no error")
+	}
+	if got := h.store.jobs[1].n; got.Offer.ID != onKey.Offer.ID || got.Free || !reflect.DeepEqual(got.Settings, onKey.Settings) {
+		t.Fatalf("draft = %+v, was %+v", got, onKey)
+	}
+}
+
+// A draft that will not go back is cancelled, so it cannot run unseen, and
+// its preview goes: the press says it expired rather than asking to try a
+// draft that is gone.
+func TestADraftThatWillNotGoBackIsCancelled(t *testing.T) {
+	h := panelHarness(t)
+	preview := run(t, h).PreviewMessageID
+	h.tg.fail["editMessageRich"] = errBoom
+	// The free run went to the key; going back to the free tier is refused.
+	h.queue.refuse = &free.LimitError{Kind: catalog.Image, Limit: 5}
+	if err := h.press(1, 7, pick("google/nano-banana-pro")); err == nil {
+		t.Fatal("no error")
+	}
+	if !reflect.DeepEqual(h.queue.cancelled, []int64{1}) || h.store.jobs[1].status != jobs.Cancelled {
+		t.Fatalf("cancelled = %v, status %s", h.queue.cancelled, h.store.jobs[1].status)
+	}
+	if got := h.tg.answers; len(got) != 1 || got[0] != "alert:"+i18n.T("en", "run.expired") {
+		t.Fatalf("answers = %q", got)
+	}
+	if del := h.tg.methods("deleteMessage"); len(del) != 1 || del[0].messageID != preview || h.store.stage(1) != db.StageGone {
+		t.Fatalf("calls = %+v, stage %s", h.tg.calls, h.store.stage(1))
+	}
+}
+
+// An edit that failed with no answer from Telegram may have reached it, so
+// the message may show the new model; once the draft is back, the card is
+// drawn again from it. A refused edit changed nothing and is not redrawn.
+func TestAnEditWithNoAnswerIsDrawnAgainFromTheDraftPutBack(t *testing.T) {
+	h := panelHarness(t)
+	before := h.store.jobs[1].n
+	h.tg.failOnce["editMessageRich"] = errBoom
+	if err := h.press(1, 7, pick("google/nano-banana-pro")); err == nil {
+		t.Fatal("no error")
+	}
+	if got := h.store.jobs[1].n; got.Offer.ID != before.Offer.ID || !got.Free {
+		t.Fatalf("draft = %+v, was %+v", got, before)
+	}
+	edits := h.tg.methods("editMessageRich")
+	if len(edits) != 1 || !strings.Contains(edits[0].text, "Model: <b>MAI-Image-2.6 Flash</b>") {
+		t.Fatalf("calls = %+v", h.tg.calls)
+	}
+	if got := h.tg.answers; len(got) != 1 || got[0] != "alert:"+i18n.T("en", "run.not_redrawn") {
+		t.Fatalf("answers = %q", got)
+	}
+
+	h.tg.reset()
+	h.tg.failOnce["editMessageRich"] = &tg.APIError{Method: "editMessageText", StatusCode: 400, ErrorCode: 400, Description: "Bad Request: message to edit not found"}
+	if err := h.press(1, 7, pick("google/nano-banana-pro")); err == nil {
+		t.Fatal("no error")
+	}
+	if got := h.tg.methods("editMessageRich"); len(got) != 0 {
 		t.Fatalf("calls = %+v", h.tg.calls)
 	}
 }

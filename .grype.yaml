@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+# The image scan in CI (.github/workflows/ci.yml) is for the packages of the
+# image's Alpine: ffmpeg and the libraries that decode what people upload.
+# framy's own Go modules and the standard library are govulncheck's, which
+# also knows whether the vulnerable code is ever called; here they would
+# fail CI for code framy never runs.
+ignore:
+  - package:
+      type: go-module

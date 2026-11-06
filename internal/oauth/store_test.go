@@ -30,6 +30,48 @@ func testStoreContract(t *testing.T, newStore func(t *testing.T) Store) {
 		}
 	}
 
+	t.Run("a flow keeps whether a ticket started it", func(t *testing.T) {
+		s := newStore(t)
+		f := flow(ann, "state-t", "verifier-t", 10*time.Minute)
+		f.Ticketed = true
+		if err := s.Put(ctx, f, now); err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.Take(ctx, f.State)
+		if err != nil || !got.Ticketed {
+			t.Errorf("got %+v, %v; want a ticketed flow", got, err)
+		}
+	})
+
+	t.Run("a ticket is taken once, the newer one of a person wins, and expired ones go", func(t *testing.T) {
+		s := newStore(t)
+		ticket := func(user int64, tk string, ttl time.Duration) Ticket {
+			return Ticket{Hash: hashState(tk), UserID: user, Provider: Provider, ExpiresAt: now.Add(ttl)}
+		}
+		old, fresh, stale := ticket(ann, "ticket-1", 5*time.Minute), ticket(ann, "ticket-2", 5*time.Minute), ticket(bob, "ticket-3", -time.Minute)
+		for _, x := range []struct {
+			t  Ticket
+			at time.Time
+		}{{stale, now.Add(-time.Hour)}, {old, now}, {fresh, now}} {
+			if err := s.PutTicket(ctx, x.t, x.at); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := s.TakeTicket(ctx, old.Hash); !errors.Is(err, ErrNoTicket) {
+			t.Errorf("the replaced ticket: %v, want ErrNoTicket", err)
+		}
+		if _, err := s.TakeTicket(ctx, stale.Hash); !errors.Is(err, ErrNoTicket) {
+			t.Errorf("the expired ticket: %v, want ErrNoTicket", err)
+		}
+		got, err := s.TakeTicket(ctx, fresh.Hash)
+		if err != nil || got.UserID != ann || got.Provider != Provider || !got.ExpiresAt.Equal(fresh.ExpiresAt) {
+			t.Errorf("got %+v, %v", got, err)
+		}
+		if _, err := s.TakeTicket(ctx, fresh.Hash); !errors.Is(err, ErrNoTicket) {
+			t.Errorf("taken twice: %v", err)
+		}
+	})
+
 	t.Run("a flow is taken once", func(t *testing.T) {
 		s := newStore(t)
 		f := flow(ann, "state-1", "verifier-1", 10*time.Minute)

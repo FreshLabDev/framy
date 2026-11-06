@@ -7,11 +7,14 @@
 //     at oauth.telegram.org: GET /auth/login sends the browser there, GET
 //     /auth/callback checks what comes back and starts a session. The session
 //     is a random value in a `__Host-framy_session` cookie; the database holds
-//     only its SHA-256. Telegram issues no refresh token, so a session lasts
-//     SessionLife and then the person signs in again.
+//     only its SHA-256. Telegram issues no refresh token, so framy keeps the
+//     session going itself: it lasts SessionLife from the last time the site
+//     loaded the person (Renew), and then the person signs in again.
 //   - The Mini App posts its initData to POST /auth/miniapp, which checks the
-//     HMAC and answers a bearer token that lasts MiniAppTokenLife. Cookies in
-//     the Telegram Web iframe are unreliable, so the Mini App carries
+//     HMAC and answers a bearer token that ends with the initData, at most
+//     MiniAppTokenLife from now. One launch gets one token: it is kept while
+//     it lasts and given again to the same initData. Cookies in the Telegram
+//     Web iframe are unreliable, so the Mini App carries
 //     `Authorization: Bearer <token>`.
 //
 // Other code asks two things of an *Auth: Person for who a request is from,
@@ -21,12 +24,14 @@
 //
 // Sign-in on the site needs the Telegram Login client (a client id and
 // secret from BotFather) and SiteURL; without them /auth/login and
-// /auth/callback answer 503 and everything else runs. The Mini App needs
+// /auth/callback send the browser back to the site with
+// ?sign_in=unavailable and everything else runs. The Mini App needs
 // only the bot token.
 package auth
 
 import (
 	"context"
+	"crypto/hkdf"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -52,28 +57,40 @@ const (
 	// makes a browser refuse it unless it is Secure, has Path=/ and no Domain,
 	// so no other host of the domain can set one for the site.
 	SessionCookie = "__Host-framy_session"
-	// SessionLife is how long a site session lasts, counted from sign-in. It
-	// is fixed, not extended by use: the cookie's Max-Age is set once, and
-	// Telegram would make the person sign in again with one tap.
+	// SessionLife is how long a site session lasts after it was last used:
+	// Renew moves its end, in the database and in the cookie's Max-Age, when
+	// the site loads the person. Someone who comes back within a month is
+	// never signed out in the middle of their work; a session nobody uses
+	// ends. The settings say so, counted from the last visit
+	// (web.prefs.signed_sub, TestTheSiteSaysHowLongASignInLasts).
 	SessionLife = 30 * 24 * time.Hour
-	// MiniAppTokenLife is how long a Mini App's bearer token lasts. It matches
-	// MaxInitDataAge: the same initData cannot be exchanged again after an
-	// hour, so a Mini App left open longer has to be opened again.
+	// renewEvery is how stale a session's end may get before Renew moves it:
+	// at most one write per session a day, however often the site loads.
+	renewEvery = 24 * time.Hour
+	// MiniAppTokenLife is how long a Mini App's bearer token lasts at most.
+	// It ends with the initData it was exchanged for, MaxInitDataAge after
+	// Telegram signed it, however late the exchange: one launch is good for
+	// an hour in all, and a Mini App left open longer has to be opened
+	// again.
 	MiniAppTokenLife = time.Hour
+	// minTokenLife is the least a token is worth making for: initData with
+	// less of its hour left is answered as too old, which tells the person
+	// to open the Mini App again at once instead of after one more refusal.
+	minTokenLife = time.Minute
 	// DefaultIssuer is Telegram's OpenID Connect provider.
 	DefaultIssuer = "https://oauth.telegram.org"
 
 	// cacheTTL is how long a found session is believed without asking the
 	// database again. Logout and "sign out everywhere" drop entries at once,
-	// so it matters only for rows deleted behind this process's back.
+	// in this process and, through SessionsChannel, in every other one, so it
+	// matters only for a notice that did not come (the listener was
+	// reconnecting) and rows deleted otherwise (the person left core).
 	cacheTTL = 30 * time.Second
 	// maxCached bounds the cache. Only live sessions are cached, so it takes
 	// that many signed-in people to reach it; it is then emptied.
 	maxCached = 10_000
-	// sweepEvery is how often a new session removes the expired ones.
-	sweepEvery = time.Hour
-	// sweepGrace keeps an expired row a day before it goes, for whoever looks
-	// at why a person was signed out.
+	// sweepGrace keeps an expired row a day before Sweep removes it, for
+	// whoever looks at why a person was signed out.
 	sweepGrace = 24 * time.Hour
 )
 
@@ -125,6 +142,9 @@ type Auth struct {
 	initData               *Verifier
 	log                    *slog.Logger
 	now                    func() time.Time
+	// loginKey signs the login cookie. It is derived from the client
+	// secret, so it outlives a restart and stays the stack's own.
+	loginKey []byte
 
 	provMu sync.Mutex
 	prov   *provider
@@ -135,14 +155,30 @@ type Auth struct {
 	cache   map[[32]byte]cached
 	gen     uint64
 
-	sweepMu sync.Mutex
-	sweepAt time.Time
+	// minted is the Mini App token each launch got, by its initData's
+	// hash, while the token lasts: the same launch asking again gets the
+	// same token instead of a new row. mintLocks keep two exchanges of one
+	// launch from both making one; a launch takes the lock its hash falls
+	// on.
+	mintMu    sync.Mutex
+	minted    map[[32]byte]mintedToken
+	mintLocks [64]sync.Mutex
+}
+
+// mintedToken is a Mini App token kept for the launch it was made for.
+type mintedToken struct {
+	secret  string
+	hash    [32]byte
+	user    int64
+	expires time.Time
 }
 
 type cached struct {
-	user  int64
-	kind  Kind
-	until time.Time
+	user int64
+	kind Kind
+	// until is when the entry stops being believed; expires is when the
+	// session itself ends.
+	until, expires time.Time
 }
 
 // New checks the settings and builds the Auth. It makes no network call:
@@ -165,6 +201,7 @@ func New(cfg Config) (*Auth, error) {
 		log:          cfg.Log,
 		now:          cfg.Now,
 		cache:        map[[32]byte]cached{},
+		minted:       map[[32]byte]mintedToken{},
 	}
 	if a.issuer == "" {
 		a.issuer = DefaultIssuer
@@ -189,6 +226,9 @@ func New(cfg Config) (*Auth, error) {
 			return nil, fmt.Errorf("auth: SiteURL %w", err)
 		}
 		a.redirectURL = origin + "/auth/callback"
+		if a.loginKey, err = hkdf.Key(sha256.New, []byte(cfg.ClientSecret), nil, loginKeyInfo, sha256.Size); err != nil {
+			return nil, fmt.Errorf("auth: the key of the login cookie: %w", err)
+		}
 	}
 	return a, nil
 }
@@ -204,9 +244,13 @@ func (a *Auth) SiteEnabled() bool { return a.clientID != "" }
 //	POST /auth/logout       ends the session or token of the request
 //	POST /auth/logout/all   ends every session and token of the person
 //	POST /auth/miniapp      {"init_data": "..."} -> a bearer token
+//
+// The two a browser navigates to send it back to the site with
+// ?sign_in=unavailable when they are over their rate limit, as when Telegram
+// cannot be reached, so the person reads why on the page they came from.
 func (a *Auth) Mount(site *web.Server) {
-	site.Handle("GET /auth/login", a.Login())
-	site.Handle("GET /auth/callback", a.Callback())
+	site.Handle("GET /auth/login", a.Login(), web.OnLimit(unavailablePath))
+	site.Handle("GET /auth/callback", a.Callback(), web.OnLimit(unavailablePath))
 	site.Handle("POST /auth/logout", a.Logout())
 	site.Handle("POST /auth/logout/all", a.Require(a.LogoutAll()))
 	// initData is a kilobyte or two.
@@ -236,6 +280,13 @@ func (a *Auth) Person(r *http.Request) (userID int64, ok bool) {
 		return 0, false
 	}
 	return id, ok
+}
+
+// Identify is Person for a caller that answers a failed lookup itself:
+// (0, false, nil) is nobody signed in, an error a database that did not
+// answer. The job API gives 503 for the one and 401 for the other.
+func (a *Auth) Identify(r *http.Request) (userID int64, ok bool, err error) {
+	return a.identify(r)
 }
 
 // PersonKey is Person for web.Config.Person: the user id as text, or "" when
@@ -316,12 +367,18 @@ func bearer(r *http.Request) (token string, present bool) {
 }
 
 func (a *Auth) lookup(ctx context.Context, kind Kind, hash [32]byte) (int64, bool, error) {
+	e, ok, err := a.find(ctx, kind, hash)
+	return e.user, ok, err
+}
+
+// find is lookup with the session's end.
+func (a *Auth) find(ctx context.Context, kind Kind, hash [32]byte) (cached, bool, error) {
 	now := a.now()
 	a.cacheMu.Lock()
 	if e, ok := a.cache[hash]; ok {
 		if e.kind == kind && now.Before(e.until) {
 			a.cacheMu.Unlock()
-			return e.user, true, nil
+			return e, true, nil
 		}
 		delete(a.cache, hash)
 	}
@@ -330,70 +387,183 @@ func (a *Auth) lookup(ctx context.Context, kind Kind, hash [32]byte) (int64, boo
 
 	s, found, err := a.sessions.Lookup(ctx, hash, kind, now)
 	if err != nil || !found {
-		return 0, false, err
+		return cached{}, false, err
 	}
+	e := cached{user: s.UserID, kind: kind, until: minTime(s.Expires, now.Add(cacheTTL)), expires: s.Expires}
 	a.cacheMu.Lock()
 	if a.gen == gen {
 		if len(a.cache) >= maxCached {
 			clear(a.cache)
 		}
-		a.cache[hash] = cached{user: s.UserID, kind: kind, until: minTime(s.Expires, now.Add(cacheTTL))}
+		a.cache[hash] = e
 	}
 	a.cacheMu.Unlock()
-	return s.UserID, true, nil
+	return e, true, nil
 }
 
-// forget drops one session from the cache; forgetUser drops a person's.
-func (a *Auth) forget(hash [32]byte) {
+// Renew keeps the site session of the request going while it is used. The
+// site calls it when it loads the person (GET /api/me), at every visit and
+// on coming back to the tab: a session renewed more than renewEvery ago
+// lasts SessionLife from now, in the database and in the cookie, whose
+// Max-Age is set again. A bearer token is not renewed; the Mini App's ends
+// with the initData it came from. A failure is only logged: the session
+// still lasts until its old end.
+//
+// A renewal also tells core the person was here, as a sign-in does: with
+// the session kept going, the site may see no sign-in for months, and the
+// family's presence would stop at the last one. Only the id goes, so the
+// names and the language core holds stay as they are.
+func (a *Auth) Renew(w http.ResponseWriter, r *http.Request) {
+	if _, present := bearer(r); present {
+		return
+	}
+	c, err := r.Cookie(SessionCookie)
+	if err != nil {
+		return
+	}
+	hash, ok := hashToken(c.Value)
+	if !ok {
+		return
+	}
+	e, ok, err := a.find(r.Context(), KindSite, hash)
+	if err != nil || !ok {
+		return
+	}
+	now := a.now()
+	if e.expires.Sub(now) > SessionLife-renewEvery {
+		return
+	}
+	expires := now.Add(SessionLife)
+	found, err := a.sessions.Extend(r.Context(), hash, expires, now)
+	if err != nil {
+		a.log.Warn("renew a session", "error", err)
+		return
+	}
+	if !found {
+		// Ended meanwhile: logged out in another tab, or everywhere.
+		a.forget(hash)
+		return
+	}
+	a.cacheMu.Lock()
+	if e, ok := a.cache[hash]; ok {
+		e.expires = expires
+		a.cache[hash] = e
+	}
+	a.cacheMu.Unlock()
+	a.setSessionCookie(w, c.Value, expires)
+	if err := a.people.Touch(r.Context(), tg.User{ID: e.user}, nil); err != nil {
+		a.log.Warn("record the person in core at a renewal", "error", err)
+	}
+}
+
+// ForgetAll drops every session this process remembers, so each is looked
+// up in the database again on its next request. framy calls it when another
+// process ended sessions (SessionsChannel), and when its listener connects,
+// since a notice may have gone by meanwhile.
+func (a *Auth) ForgetAll() {
 	a.cacheMu.Lock()
 	defer a.cacheMu.Unlock()
 	a.gen++
+	clear(a.cache)
+}
+
+// forget drops one session from the cache; forgetUser drops a person's.
+// A Mini App token kept for its launch goes with its session, so the launch
+// asking again gets a new one, and a token that ended stays ended.
+func (a *Auth) forget(hash [32]byte) {
+	a.cacheMu.Lock()
+	a.gen++
 	delete(a.cache, hash)
+	a.cacheMu.Unlock()
+	a.unmint(func(t mintedToken) bool { return t.hash == hash })
 }
 
 func (a *Auth) forgetUser(userID int64) {
 	a.cacheMu.Lock()
-	defer a.cacheMu.Unlock()
 	a.gen++
 	for h, e := range a.cache {
 		if e.user == userID {
 			delete(a.cache, h)
 		}
 	}
+	a.cacheMu.Unlock()
+	a.unmint(func(t mintedToken) bool { return t.user == userID })
 }
 
-// newSession stores a session for the person and returns the secret that
-// opens it, which is the only copy there will ever be.
-func (a *Auth) newSession(ctx context.Context, userID int64, kind Kind, life time.Duration) (secret string, expires time.Time, err error) {
-	secret, hash, err := newToken()
-	if err != nil {
-		return "", time.Time{}, err
+// mintedFor returns the token kept for a Mini App launch, if it is still
+// worth giving out: its session is live and has at least minTokenLife left.
+// One that is not is dropped.
+func (a *Auth) mintedFor(ctx context.Context, launch [32]byte, userID int64) (mintedToken, bool) {
+	a.mintMu.Lock()
+	t, ok := a.minted[launch]
+	a.mintMu.Unlock()
+	if !ok {
+		return mintedToken{}, false
 	}
+	if t.user == userID && t.expires.Sub(a.now()) >= minTokenLife {
+		if e, live, err := a.find(ctx, KindMiniApp, t.hash); err == nil && live && e.user == userID {
+			return t, true
+		}
+	}
+	a.mintMu.Lock()
+	if a.minted[launch] == t {
+		delete(a.minted, launch)
+	}
+	a.mintMu.Unlock()
+	return mintedToken{}, false
+}
+
+// mint keeps the token made for a Mini App launch. The map holds a token
+// per launch of the last hour; past maxCached the ended ones go, and if that
+// is not enough, all of them, which costs a row per launch asking again.
+func (a *Auth) mint(launch [32]byte, t mintedToken) {
 	now := a.now()
-	expires = now.Add(life)
-	if err := a.sessions.Create(ctx, Session{Hash: hash, UserID: userID, Kind: kind, Created: now, Expires: expires}); err != nil {
-		return "", time.Time{}, err
+	a.mintMu.Lock()
+	defer a.mintMu.Unlock()
+	if len(a.minted) >= maxCached {
+		for k, m := range a.minted {
+			if !now.Before(m.expires) {
+				delete(a.minted, k)
+			}
+		}
+		if len(a.minted) >= maxCached {
+			clear(a.minted)
+		}
 	}
-	a.sweep(ctx, now)
-	return secret, expires, nil
+	a.minted[launch] = t
 }
 
-// sweep removes expired sessions, at most once an hour and only when someone
-// signs in, so there is no goroutine to stop. A row that has expired is never
-// accepted, so a failed sweep costs nothing.
-func (a *Auth) sweep(ctx context.Context, now time.Time) {
-	a.sweepMu.Lock()
-	due := !now.Before(a.sweepAt)
-	if due {
-		a.sweepAt = now.Add(sweepEvery)
+func (a *Auth) unmint(match func(mintedToken) bool) {
+	a.mintMu.Lock()
+	defer a.mintMu.Unlock()
+	for k, t := range a.minted {
+		if match(t) {
+			delete(a.minted, k)
+		}
 	}
-	a.sweepMu.Unlock()
-	if !due {
-		return
+}
+
+// newSession stores a session for the person that ends at expires and
+// returns the secret that opens it, with its hash. The site's secret lives
+// only in the cookie; a Mini App's is also kept for its launch while it
+// lasts (mint).
+func (a *Auth) newSession(ctx context.Context, userID int64, kind Kind, expires time.Time) (secret string, hash [32]byte, err error) {
+	secret, hash, err = newToken()
+	if err != nil {
+		return "", hash, err
 	}
-	if _, err := a.sessions.DeleteExpired(ctx, now.Add(-sweepGrace)); err != nil {
-		a.log.Warn("sweep expired sessions", "error", err)
+	if err := a.sessions.Create(ctx, Session{Hash: hash, UserID: userID, Kind: kind, Created: a.now(), Expires: expires}); err != nil {
+		return "", hash, err
 	}
+	return secret, hash, nil
+}
+
+// Sweep removes the sessions and tokens that expired more than sweepGrace
+// ago, and says how many. A row that has expired is never accepted, so this
+// only keeps the table small; the service calls it at start and every hour
+// on the stack that keeps the shared tables.
+func (a *Auth) Sweep(ctx context.Context) (int64, error) {
+	return a.sessions.DeleteExpired(ctx, a.now().Add(-sweepGrace))
 }
 
 // newToken makes a secret of 256 random bits and its hash. The secret is

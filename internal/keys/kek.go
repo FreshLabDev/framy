@@ -20,8 +20,9 @@ const maxKEKVersion = 1_000_000
 // KEK is the set of key-encryption keys read from the KEK file, each under a
 // version number. The highest version wraps new data keys; the older ones stay
 // in the file for as long as a row is still wrapped under them, so a rotation
-// is: add a line with the next version, start the service, which rewraps
-// every data key (Service.Rotate), then remove the old line.
+// is: add a line with the next version to production's file, restart
+// production, which rewraps every data key (Service.Rotate), copy the file to
+// the other stacks, then remove the old line.
 //
 // The file is text, one key a line, the base64 of 32 random bytes after the
 // version and a colon. Blank lines and lines starting with # are ignored:

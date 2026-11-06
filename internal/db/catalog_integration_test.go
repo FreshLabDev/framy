@@ -218,8 +218,25 @@ func TestCatalogLeavesUnchangedRowsAlone(t *testing.T) {
 		WHERE o.id = 'gemini:gemini-nano-banana-2.1'`).Scan(&modelUpdated, &offerUpdated, &fetched); err != nil {
 		t.Fatal(err)
 	}
-	if !modelUpdated.Equal(t0) || !offerUpdated.Equal(t0) || !fetched.Equal(t0.Add(time.Hour)) {
-		t.Fatalf("model updated %v, offer updated %v, fetched %v: only fetched_at moves when nothing changed", modelUpdated, offerUpdated, fetched)
+	if !modelUpdated.Equal(t0) || !offerUpdated.Equal(t0) || !fetched.Equal(t0) {
+		t.Fatalf("model updated %v, offer updated %v, fetched %v: nothing moves when nothing changed", modelUpdated, offerUpdated, fetched)
+	}
+	// The row was not written at all: no new version, so no WAL and no
+	// vacuum for a sync that found nothing new. The sync's own time is
+	// kept in runtime_state.
+	var updates int64
+	if err := store.pool.QueryRow(ctx, `SELECT xmin::text::bigint FROM catalog_offer WHERE id = 'gemini:gemini-nano-banana-2.1'`).Scan(&updates); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SaveCatalog(ctx, snap, t0.Add(90*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	var after int64
+	if err := store.pool.QueryRow(ctx, `SELECT xmin::text::bigint FROM catalog_offer WHERE id = 'gemini:gemini-nano-banana-2.1'`).Scan(&after); err != nil || after != updates {
+		t.Fatalf("the offer row was rewritten by a sync that changed nothing: xmin %d -> %d, %v", updates, after, err)
+	}
+	if at, err := store.CatalogSyncedAt(ctx); err != nil || !at.Equal(t0.Add(90*time.Minute)) {
+		t.Fatalf("catalog_synced_at = %v, %v; the sync's time still moves", at, err)
 	}
 
 	// A price change shows in updated_at.
@@ -228,7 +245,8 @@ func TestCatalogLeavesUnchangedRowsAlone(t *testing.T) {
 	if _, err := store.SaveCatalog(ctx, catalog.Snapshot{Models: []catalog.Model{changed}}, t0.Add(2*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.pool.QueryRow(ctx, `SELECT updated_at FROM catalog_offer WHERE id = 'gemini:gemini-nano-banana-2.1'`).Scan(&offerUpdated); err != nil || !offerUpdated.Equal(t0.Add(2*time.Hour)) {
-		t.Fatalf("offer updated %v, %v", offerUpdated, err)
+	if err := store.pool.QueryRow(ctx, `SELECT updated_at, fetched_at FROM catalog_offer WHERE id = 'gemini:gemini-nano-banana-2.1'`).Scan(&offerUpdated, &fetched); err != nil ||
+		!offerUpdated.Equal(t0.Add(2*time.Hour)) || !fetched.Equal(t0.Add(2*time.Hour)) {
+		t.Fatalf("offer updated %v, fetched %v, %v", offerUpdated, fetched, err)
 	}
 }

@@ -4,54 +4,124 @@
 import { $ } from "./dom.js";
 import { t } from "./i18n.js";
 import { api, watchJob, isFinal, outsOf } from "./api.js";
-import { S, M, payOf, settings, fastOf, going, clip, contFits, keyOk, runItem, plan, paidItems, newFrame } from "./state.js";
+import { S, M, reopenText, payOf, settings, fastOf, going, clip, contFits, keyOk, runItem, plan, paidItems, newFrame, next, renewFiles, holdFiles, freeLinks } from "./state.js";
 import { C, offerOf, PNAME, framesOf, photoLimit } from "./catalog.js";
-import { known, knownTotal, priceText, clearPrices } from "./price.js";
-import { act, render, renderBar } from "./composer.js";
-import { renderStage, runChanged } from "./stage.js";
+import { priced, knownTotal, priceText, clearPrices } from "./price.js";
+import { act, render, renderBar, toComposer } from "./composer.js";
+import { renderStage, runChanged, showStage } from "./stage.js";
 import { upload } from "./files.js";
 import { takeClip, openCut } from "./clips.js";
 import { openPicker } from "./picker.js";
-import { refusal, failure, providerOf } from "./errors.js";
+import { refusal, failure, providerOf, launchGone } from "./errors.js";
 import { toast, ask } from "./ui.js";
+import { keepDraft, dropDraft } from "./draft.js";
 
-export function signIn() {
+// The composer goes along: what the person put together is there after the load (draft.js).
+// Back from the browser's page cache, the page is as it was and the load did not happen.
+let leaving = false;
+addEventListener("pageshow", (e) => { leaving = false; if (e.persisted) dropDraft(); });
+export async function signIn() {
+  if (leaving) return;
+  leaving = true;
+  try { sessionStorage.setItem("framy.draft", $("#prompt").value); } catch {}
+  await keepDraft();
   // The Mini App signs in with its launch data, which a load trades again.
   if (S.mini) { location.reload(); return; }
-  try { sessionStorage.setItem("framy.draft", $("#prompt").value); } catch {}
-  // Back where the person was: the composer, the library or one run of it.
-  const back = /^\/(library|r\/\d+)$/.test(location.pathname) ? location.pathname : "/";
+  // Back where the person was: the composer, the library or one run of it. A run the stage
+  // still follows comes back as that run of the library, which goes on following it.
+  const r = S.run, on = r?.phase === "job" && r.job && !(r.jobs || [r.job]).every((j) => isFinal(j.status));
+  const back = on ? "/r/" + r.job.id : /^\/(library|r\/\d+)$/.test(location.pathname) ? location.pathname : "/";
   location.assign("/auth/login?return_to=" + encodeURIComponent(back));
+}
+
+// The Mini App's session ended (framy refused its launch data): Telegram closes it, to be
+// opened again from the bot, and what was typed waits for that next open.
+export function closeMini() {
+  keepPrompt();
+  if (S.tg?.close) S.tg.close(); else toast(reopenText(), { ms: 8000 });
+}
+// What is typed in a Mini App whose session ended is kept as it is typed, not only on Close:
+// it is as often closed by Telegram's own button or a swipe, which the page does not hear.
+export function keepPrompt() {
+  const text = $("#prompt")?.value || "";
+  try { if (text.trim()) localStorage.setItem("framy.kept", JSON.stringify({ text, at: Date.now() })); else localStorage.removeItem("framy.kept"); } catch {}
 }
 
 export async function signOut() {
   const yes = await ask({ title: t("auth.signout_q"), yes: t("auth.signout") });
   if (!yes) return;
-  try { await api("/auth/logout", { method: "POST" }); } catch {}
+  // Only the server's yes ends the session. On a refusal, or with no
+  // connection, the cookie still opens the account: the person is told so,
+  // and does not walk away from a shared computer thinking they are out.
+  try { await api("/auth/logout", { method: "POST" }); }
+  catch (e) { toast(t(e.code === "network" ? "err.network" : "auth.not_signed_out")); return; }
+  forget();
+  toast(t("auth.signed_out"));
+}
+// Every session of the person's ends, on the site and in the Mini App, on every device and
+// this one: what a cookie or a token that got out opens. It is no sign-out until the server
+// says so, since one kept elsewhere would go on working.
+export async function signOutAll() {
+  const yes = await ask({ title: t("auth.signout_all_q"), yes: t("auth.signout_all") });
+  if (!yes) return;
+  try { await api("/auth/logout/all", { method: "POST" }); }
+  catch (e) {
+    // Signed out already, here at least: the page says so.
+    if (e.status !== 401) { toast(t(e.code === "network" ? "err.network" : "err.busy")); return; }
+  }
   forget();
   toast(t("auth.signed_out"));
 }
 // Nobody is signed in any more: signed out, the account deleted, or the session gone.
-export function forget() {
-  stopWatch?.();
-  S.signed = false; S.me = null; S.run = null;
+// A press still sending its files stops there: they would go up for nobody
+// (a clip to the bucket needs no session), and Create is free again.
+// A session that ended by itself (signed out elsewhere, the Mini App's hour)
+// leaves a run still being made on the stage, saying it goes on on the
+// server, and signing in again comes back to it (signIn). A sign-out pressed
+// here, or a run that is over, clears the stage.
+export function forget(ended = false) {
+  stopWatch?.(); stopWatch = null;
+  if (S.run?.phase === "prep" && !S.run.sending) S.run.stop.abort();
+  const r = S.run, on = ended && r?.phase === "job" && jobsOf(r).some((j) => !isFinal(j.status));
+  if (on) r.net = S.mini ? "reopen" : "signin";
+  // A read of the account already on its way is older than this: its answer
+  // does not show the person signed in again (refreshMe).
+  S.meV++;
+  S.signed = false; S.me = null; S.run = on ? r : null; S.busy = false;
+  freeLinks();
   clearPrices();
+  if (on) runChanged();
   window.dispatchEvent(new Event("framy:me"));
 }
 
+// Reads the account again; true once framy answered who it is or that
+// nobody is signed in, false when it could not be asked.
 export async function refreshMe() {
   const v = S.meV;
+  let said = true;
   try {
     const me = await api("/api/me");
+    S.unsure = false;
     // A setting changed meanwhile, and its answer is the newer account.
-    if (S.meV !== v) return;
+    if (S.meV !== v) return true;
     const was = S.me?.currency;
     S.me = me; S.signed = true;
     if (was && was !== me.currency) clearPrices();
   } catch (e) {
-    if (e.status === 401) { S.me = null; S.signed = false; }
+    // The session is gone (signed out everywhere, the account deleted): the page forgets the person.
+    // A Mini App's token ends with its launch, an hour after Telegram signed it, and only opening
+    // framy again gets a new one: the page says so, once, instead of just showing nobody.
+    if (e.status === 401) {
+      const gone = S.signed && launchGone(e);
+      S.unsure = false;
+      forget(true);
+      if (gone) toast(t(gone), { ms: 8000 });
+      return true;
+    }
+    said = false;
   }
   window.dispatchEvent(new Event("framy:me"));
+  return said;
 }
 
 /* A run: what was pressed, and where it stands. phase is "prep" while the
@@ -62,7 +132,7 @@ const newKey = () => "site-" + crypto.randomUUID();
 export const shownOf = (e) => (e && e.kind !== "unknown" ? (e.kind === "up_to" ? e.max_usd : e.usd) : null);
 
 function fromComposer() {
-  const m0 = M(), pay = payOf(m0), { m, set } = fastOf(m0, pay, settings(m0, pay)), e = known(runItem(m, pay, set))?.estimate;
+  const m0 = M(), pay = payOf(m0), { m, set } = fastOf(m0, pay, settings(m0, pay)), e = priced(runItem(m, pay, set))?.estimate;
   const files = going(m, pay), c = clip();
   return { kind: m.kind, model: m.id, pay, offer: offerOf(m, pay).id, prompt: $("#prompt").value.trim(), settings: set, files,
     clip: files.includes(c) ? c : null, cut: files.includes(c) && S.cut ? { ...S.cut } : null, cont: contFits(m, pay) ? S.cont : null,
@@ -93,6 +163,10 @@ const pressOfRun = (run) => run?.press || run;
 
 export function generate() {
   if (!M() || S.busy) return;
+  // A run on a key starts at the price the bar shows: never before it shows
+  // one, whatever pressed (the button, Ctrl+Enter, Telegram's main button).
+  const nx = next($("#prompt").value);
+  if (nx.act !== "create" || !nx.on) return;
   start(plan().length > 1 ? pressOf() : fromComposer());
 }
 
@@ -109,22 +183,18 @@ async function start(base, key = newKey()) {
   stopWatch?.(); stopWatch = null;
   const run = { ...base, n: ++seq, key, phase: "prep", step: null, job: null, why: null, net: "", stop: new AbortController(), t0: Date.now() };
   S.run = run; S.showJob = true; S.busy = true;
-  renderBar(); runChanged();
+  freeLinks();
+  renderBar(); runChanged(); showStage();
   let resend = false;
   try {
-    const inputs = await prepare(run);
-    if (run.stop.signal.aborted) throw new DOMException("stopped", "AbortError");
-    // Once the request is out it is not called back: the job may exist already.
-    run.sending = true; setStep(run, { fig: "start", text: () => t("step.starting") });
-    if (run.multi) { await sendPress(run, inputs); return; }
-    const body = { offer: run.offer, prompt: run.prompt, settings: run.settings, inputs, pay: run.pay === "free" ? "free" : "key", surface: S.mini ? "mini_app" : "site" };
-    if (run.shown != null) body.shown_usd = run.shown;
-    if (run.cont) body.continues = run.cont.job;
-    const job = await api("/api/jobs", { method: "POST", body, headers: { "Idempotency-Key": run.key } });
-    run.phase = "job"; run.job = job; run.step = null;
-    told(job);
-    follow(run);
-    if (run.pay === "free") refreshMe();
+    // framy no longer had a file the run named by id (an upload waits an
+    // hour for a job): the files go up again, and the run is sent once more.
+    try { await send(run); }
+    catch (err) {
+      if (err.code !== "unknown_input" || run.stop.signal.aborted || !renewFiles(run.files, true)) throw err;
+      run.sending = false;
+      await send(run);
+    }
   } catch (err) {
     run.step = null;
     if (err.name === "AbortError") run.phase = "cancelled";
@@ -139,7 +209,7 @@ async function start(base, key = newKey()) {
       if (run.multi) {
         // What turns one run to a key or to a last frame does not fit a press: its frames come back to the composer instead.
         run.why.acts = run.why.acts.filter((a) => a !== "bykey" && a !== "lastframe");
-        if (fi != null) run.why.text = t("fr.n", { n: fi + 1 }) + ". " + run.why.text;
+        if (fi != null) run.why.text = t("fr.why", { n: fi + 1, text: run.why.text });
       }
       // The same press again keeps its key when the server may have made the job.
       if (resend) run.retryKey = run.key;
@@ -148,6 +218,24 @@ async function start(base, key = newKey()) {
   } finally {
     if (S.run === run) { S.busy = false; run.sending = false; renderBar(); runChanged(); }
   }
+}
+
+// The files of a run go up, and the run goes to framy.
+async function send(run) {
+  const inputs = await prepare(run);
+  if (run.stop.signal.aborted) throw new DOMException("stopped", "AbortError");
+  // Once the request is out it is not called back: the job may exist already.
+  run.sending = true; setStep(run, { fig: "start", text: () => t("step.starting") });
+  if (run.multi) { await sendPress(run, inputs); return; }
+  const body = { offer: run.offer, prompt: run.prompt, settings: run.settings, inputs, pay: run.pay === "free" ? "free" : "key", surface: S.mini ? "mini_app" : "site" };
+  if (run.shown != null) body.shown_usd = run.shown;
+  if (run.cont) body.continues = run.cont.job;
+  const job = await api("/api/jobs", { method: "POST", body, headers: { "Idempotency-Key": run.key } });
+  run.phase = "job"; run.job = job; run.step = null;
+  holdFiles(run.files, inputs);
+  told(job);
+  follow(run);
+  if (run.pay === "free") refreshMe();
 }
 
 // The press goes as one request: each frame names its files when they are not
@@ -166,6 +254,7 @@ async function sendPress(run, ids) {
   if (run.shown != null) body.shown_usd = run.shown;
   const r = await api("/api/batches", { method: "POST", body, headers: { "Idempotency-Key": run.key } });
   run.phase = "job"; run.batch = r.batch; run.jobs = r.jobs || []; run.job = run.jobs[0] || null; run.step = null;
+  holdFiles(run.files, ids);
   run.jobs.forEach(told);
   followAll(run);
   if (run.frames.some((fm) => fm.pay === "free")) refreshMe();
@@ -178,16 +267,23 @@ function followAll(run) {
     if (S.run !== run) return;
     if (!was && run.jobs.every((x) => isFinal(x.status))) ended(run);
     runChanged();
-  }, () => {}, (net) => { run.net = net; netState(net); if (S.run === run) runChanged(); }));
+  }, (e) => unwatched(run, e), (net) => { run.net = net; netState(net); if (S.run === run) runChanged(); }));
   stopWatch = () => stops.forEach((f) => f?.());
 }
 
-// The files of a run go up: photos to framy, a clip or a sound to the bucket and then to framy.
+// The files of a run go up: photos to framy, a clip or a sound to the bucket
+// and then to framy. One held too long goes up again (renewFiles), and a
+// clip's last frame framy no longer keeps is taken from the clip again.
 async function prepare(run) {
+  renewFiles(run.files);
   const sig = run.stop.signal, pics = run.files.filter((f) => f.kind === "image" && !f.upload);
   if (pics.length) {
     setStep(run, { fig: "up", text: () => t("step.photos", { n: pics.length }) });
-    await upload(pics, sig);
+    for (const f of pics.filter((x) => !x.file && x.frameOf?.result)) {
+      try { f.upload = (await api(`/api/files/${f.frameOf.result}/last-frame`, { method: "POST", signal: sig })).id; f.upAt = Date.now(); }
+      catch (e) { e.file = f; throw e; }
+    }
+    await upload(pics.filter((f) => f.file), sig);
   }
   const ids = [];
   for (const f of run.files) {
@@ -210,7 +306,25 @@ function follow(run) {
     if (S.run !== run) return;
     if (isFinal(j.status) && !isFinal(was)) ended(run);
     runChanged();
-  }, () => {}, (net) => { run.net = net; netState(net); if (S.run === run) runChanged(); });
+  }, (e) => unwatched(run, e), (net) => { run.net = net; netState(net); if (S.run === run) runChanged(); });
+}
+// The page stopped hearing of a run before it ended. A job that is not the
+// person's (another account signed in in this browser, or theirs deleted)
+// leaves the stage; signed out, or the Mini App's session over, the run stays
+// and says it goes on without the page.
+function unwatched(run, e) {
+  const here = S.run === run;
+  if (e.status === 404) {
+    if (run.gone) return;
+    run.gone = true;
+    toast(t("view.not_found"), { ms: 6000 });
+    if (here) { stopWatch?.(); stopWatch = null; S.run = null; S.showJob = false; runChanged(); renderBar(); }
+  } else {
+    // The Mini App cannot sign in again by itself: it has to be opened anew.
+    run.net = S.mini ? "reopen" : "signin";
+    if (here) runChanged();
+  }
+  refreshMe();
 }
 // What the end of a job changes beyond the stage: the free counts, and a key
 // or the free tier found not to work.
@@ -227,7 +341,7 @@ function afterRefusal(run, err) {
   if (err.code === "free_closed") S.closed[run.kind] = Date.parse(b.until) || 0;
   if (err.code === "price_changed") clearPrices();
   if (err.code === "free_limit" || err.code === "free_closed" || err.code === "connection_invalid") refreshMe();
-  if (err.code === "sign_in") { S.signed = false; S.me = null; window.dispatchEvent(new Event("framy:me")); }
+  if (err.code === "sign_in" || launchGone(err)) { S.signed = false; S.me = null; window.dispatchEvent(new Event("framy:me")); }
   if (err.code === "no_connection") refreshMe();
   render();
 }
@@ -292,6 +406,7 @@ function restore(run, pay = run.pay) {
   const keep = new Set(run.files);
   // A video's files are in their slots already, and the photos beside them would not be.
   S.files = run.hist || run.kind === "video" ? [...run.files] : [...run.files, ...S.files.filter((f) => !keep.has(f) && f.kind === "image")];
+  freeLinks();
   delete S.wanted.frame_images;
   S.cut = run.cut ? { ...run.cut } : null;
   S.cont = run.cont;
@@ -315,12 +430,14 @@ export function editPrompt(run = S.run) {
   const p = $("#prompt");
   p.focus({ preventScroll: true });
   p.setSelectionRange(p.value.length, p.value.length);
+  toComposer();
 }
 // The same run on another model: the run back in the composer, the picker open.
 export function otherModel(run = S.run) {
   run = pressOfRun(run);
   leave(run);
   act(() => { restore(run); S.showJob = false; render(); });
+  toComposer();
   openPicker();
 }
 export function again(run = S.run) {
@@ -341,27 +458,30 @@ export function quiet(run = S.run) {
   if (run.multi) { act(() => { restore({ ...run, frames: run.frames.map((fm) => ("generate_audio" in fm.settings ? { ...fm, settings: { ...fm.settings, generate_audio: false } } : fm)) }); S.showJob = false; render(); }); return; }
   const set = { ...run.settings, generate_audio: false };
   act(() => { restore(run); S.wanted.generate_audio = false; render(); });
-  const e = run.pay === "free" ? null : known(runItem(m, run.pay, set))?.estimate;
+  const e = run.pay === "free" ? null : priced(runItem(m, run.pay, set))?.estimate;
   start(copyOf(run, { settings: set, ...(e ? { shown: shownOf(e), shownLabel: priceText(e), priceLabel: e.label || "" } : {}) }));
 }
 // The price went up: the person agreed to the new one.
 export function takePrice(run = S.run) {
   run = pressOfRun(run);
   const e = run.why?.estimate;
+  // A second press while the first starts would be a second paid run.
+  if (S.busy || !e) return;
   start(copyOf(run, { shown: shownOf(e), shownLabel: priceText(e), priceLabel: e?.label || "" }));
 }
-// A free run that could not go free: the same run on the person's own key.
+// A free run that could not go free: the same run back in the composer on the
+// person's own key, a press with its free frames on their keys. It is not
+// started: the run on a key costs money and may take other settings than the
+// free one, so its price shows on the bar first, and Create starts it.
 export const keyFor = (run) => { const m = C.byId[run.model]; return m?.offers.map((o) => o.provider).find(keyOk) || ""; };
 export function byKey(run = S.run) {
   run = pressOfRun(run);
-  const p = keyFor(run), m = C.byId[run.model];
-  if (!p || !m) return;
+  const p = keyFor(run);
+  if (!p || !C.byId[run.model]) return;
   leave(run);
-  // A press comes back with its free frames on the person's keys, and goes on the next press.
-  if (run.multi) { act(() => { restore({ ...run, frames: run.frames.map((fm) => (fm.pay === "free" ? { ...fm, pay: keyFor(fm) || fm.pay } : fm)) }); S.showJob = false; render(); }); return; }
-  act(() => { restore(run, p); render(); });
-  const r = fastOf(m, p, settings(m, p)), e = known(runItem(r.m, p, r.set))?.estimate;
-  start(copyOf(run, { model: r.m.id, pay: p, offer: offerOf(r.m, p).id, settings: r.set, shown: shownOf(e), shownLabel: e ? priceText(e) : "", priceLabel: e?.label || "" }));
+  if (run.multi) act(() => { restore({ ...run, frames: run.frames.map((fm) => (fm.pay === "free" ? { ...fm, pay: keyFor(fm) || fm.pay } : fm)) }); S.showJob = false; render(); });
+  else act(() => { restore(run, p); S.showJob = false; render(); });
+  $("#go").focus({ preventScroll: true });
 }
 export function drop() { S.showJob = false; renderStage(); renderBar(); }
 // The clip was longer than framy takes whole: its part is picked in the editor.
@@ -377,9 +497,11 @@ export async function copyPrompt(text) {
 // the links Telegram fetches for a result never sent in a chat only an hour,
 // so a press within 50 minutes takes the same message again.
 const shared = new Map();
+// A WebM and an SVG cannot go: Telegram takes neither as a video or a photo.
+const NOSHARE = new Set(["video/webm", "image/svg+xml"]);
 export const canShare = (res) => {
   const tg = S.tg;
-  return !!tg && typeof tg.shareMessage === "function" && !!tg.isVersionAtLeast?.("8.0") && res?.content_type !== "video/webm";
+  return !!tg && typeof tg.shareMessage === "function" && !!tg.isVersionAtLeast?.("8.0") && !!res && !NOSHARE.has(res.content_type);
 };
 let sharing = false;
 export async function share(res, btn) {
@@ -413,17 +535,20 @@ export async function continueFrom(run = S.run, res = outsOf(run.job)[0]) {
     const p = providerOf(j), own = j.results?.[0] || res;
     act(() => {
       S.kind = "video"; S.model.video = j.model; S.pay[j.model] = p;
-      S.files = []; S.cut = null;
+      S.files = []; S.cut = null; freeLinks();
       S.cont = { job: j.id, model: j.model, pay: p, secs: own.seconds || 0, url: own.url, w: own.width, h: own.height, result: res.id };
       $("#prompt").value = "";
       S.showJob = false;
       render();
     });
     $("#prompt").focus({ preventScroll: true });
+    toComposer();
     return;
   }
   await fromLastFrame({ job: j.id, model: j.model, url: res.url, secs: res.seconds || 0, result: res.id });
 }
+const takesFrame = (m) => m && m.kind === "video" && framesOf(m) > 0 && m.offers.some((o) => photoLimit(m, o.provider) > 0);
+const takesPhoto = (m) => m && m.kind === "image" && m.offers.some((o) => photoLimit(m, o.provider) > 0);
 // The last frame of a clip framy keeps becomes the first frame of a new video,
 // on the same model when it takes one, else on the first that does.
 export async function fromLastFrame(src = S.cont) {
@@ -431,18 +556,45 @@ export async function fromLastFrame(src = S.cont) {
   let shot;
   try { shot = await api(`/api/files/${src.result}/last-frame`, { method: "POST" }); }
   catch (e) { toast(refusal(e).text, { ms: 6000 }); return; }
-  const takesFrame = (m) => m && m.kind === "video" && framesOf(m) > 0 && m.offers.some((o) => photoLimit(m, o.provider) > 0);
   const id = takesFrame(C.byId[src.model]) ? src.model : (C.recommend.video || []).find((x) => takesFrame(C.byId[x]));
   act(() => {
     S.kind = "video";
     if (id) S.model.video = id;
     S.cont = null; S.cut = null;
-    S.files = [{ id: "lf" + shot.id, kind: "image", slot: "start", server: true, name: "", upload: shot.id, w: shot.width, h: shot.height,
-      frameOf: { url: src.url, at: Math.max(0, (src.secs || 0) - 0.05) },
+    S.files = [{ id: "lf" + shot.id, kind: "image", slot: "start", server: true, name: "", upload: shot.id, upAt: Date.now(), w: shot.width, h: shot.height,
+      frameOf: { url: src.url, at: Math.max(0, (src.secs || 0) - 0.05), result: src.result },
       meta: { content_type: shot.content_type, bytes: shot.bytes, width: shot.width, height: shot.height } }];
+    freeLinks();
     S.showJob = false;
     render();
   });
+  $("#prompt").focus({ preventScroll: true });
+  toComposer();
+}
+
+/* A picture framy made, back in the composer by its id with nothing to upload:
+   the photo to change (Change the picture), or the first frame of a video
+   (Animate). The model is the one that made it when it takes one, else the
+   kind's own, else the first suggested that does; the prompt is left for
+   what to change or how it moves. */
+export const changePicture = (run, res) => usePicture(run, res, "image");
+export const animate = (run, res) => usePicture(run, res, "video");
+function usePicture(run, res, kind) {
+  const fits = kind === "video" ? takesFrame : takesPhoto;
+  const id = [run.kind === kind ? run.model : "", S.model[kind], ...(C.recommend[kind] || [])].find((x) => fits(C.byId[x]));
+  const was = S.kind;
+  leave(run);
+  act(() => {
+    S.kind = kind;
+    if (id) S.model[kind] = id;
+    S.cont = null; S.cut = null;
+    S.files = [{ id: "r" + res.id, kind: "image", server: true, name: "", upload: res.id, w: res.width, h: res.height, url: res.thumb?.url || res.url,
+      slot: kind === "video" ? "start" : undefined, meta: { content_type: res.content_type, bytes: res.bytes, width: res.width, height: res.height } }];
+    $("#prompt").value = "";
+    S.showJob = false;
+    render();
+  });
+  if (S.kind !== was) window.dispatchEvent(new CustomEvent("framy:kind", { detail: S.kind }));
   $("#prompt").focus({ preventScroll: true });
 }
 
@@ -477,7 +629,7 @@ export function runOfBatch(js) {
 function fileOfInput(f) {
   const meta = { content_type: f.content_type, bytes: f.bytes, width: f.width, height: f.height }, base = { id: "j" + f.id, server: true, name: "", upload: f.id, w: f.width, h: f.height };
   if (String(f.content_type).startsWith("video/"))
-    return { ...base, kind: "video", url: f.url, poster: f.thumb?.url || "", secs: f.seconds || 0, bytes: f.bytes, token: "", cuts: {}, meta: { ...meta, seconds: f.seconds || 0 } };
+    return { ...base, kind: "video", url: f.url, poster: f.thumb?.url || "", secs: f.seconds || 0, fps: f.fps || 0, bytes: f.bytes, token: "", cuts: {}, meta: { ...meta, seconds: f.seconds || 0, ...(f.fps ? { fps: f.fps } : {}) } };
   if (String(f.content_type).startsWith("audio/"))
     return { ...base, kind: "audio", slot: "ref", url: f.url, secs: f.seconds || 0, bytes: f.bytes, token: "", cuts: {}, meta: { content_type: f.content_type, bytes: f.bytes, seconds: f.seconds || 0 } };
   return { ...base, kind: "image", url: f.thumb?.url || f.url, meta };
@@ -493,6 +645,6 @@ const leave = (run) => leaveHist(run);
 export async function removeJob(id) {
   try { await api(`/api/jobs/${id}`, { method: "DELETE" }); }
   catch (e) { if (e.status !== 404) throw e; }
-  if (jobsOf(S.run).some((j) => j.id === id)) { stopWatch?.(); stopWatch = null; S.run = null; S.showJob = false; runChanged(); renderBar(); }
+  if (jobsOf(S.run).some((j) => j.id === id)) { stopWatch?.(); stopWatch = null; S.run = null; S.showJob = false; freeLinks(); runChanged(); renderBar(); }
 }
 export { isFinal };

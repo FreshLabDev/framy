@@ -4,8 +4,10 @@ package chat
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"html"
+	"net/http"
 	"os"
 	"slices"
 	"strconv"
@@ -146,13 +148,14 @@ func (f *Flow) listing(ctx context.Context, user int64, lang, prompt string, d d
 		return m.Name
 	}
 	providers := append([]string{d.offer.Provider}, providerOrder...)
+	left := f.freeLeft(ctx, user, d.offer.Kind)
 	l := listing{current: name(d.model), currentID: d.model.ID, quote: d.quote}
 	byMaker := map[string]int{}
 	for _, m := range models {
 		if !listed(m, d.offer.Kind, byID) {
 			continue
 		}
-		p := pickOf(lang, prompt, d, m, have, providers)
+		p := pickOf(lang, prompt, d, m, have, providers, left)
 		p.name = name(m)
 		i, ok := byMaker[m.Maker]
 		if !ok {
@@ -174,18 +177,19 @@ func (f *Flow) listing(ctx context.Context, user int64, lang, prompt string, d d
 }
 
 // pickOf is how the run would go on m: the run as it is for its own model;
-// on the free tier when m is free and its plan takes the run's photos; else
-// on the person's key, the offers ranked by providers. The settings that go
-// to another model are framy's defaults with what the run set and the model
-// takes, and a video's photo is its first frame where the model has frames.
-func pickOf(lang, prompt string, d draft, m catalog.Model, have map[string]bool, providers []string) entry {
+// on the free tier when m is free, the person has a free run of the kind
+// left and its plan takes the run's photos; else on the person's key, the
+// offers ranked by providers. The settings that go to another model are
+// framy's defaults with what the run set and the model takes, and a video's
+// photo is its first frame where the model has frames.
+func pickOf(lang, prompt string, d draft, m catalog.Model, have map[string]bool, providers []string, freeLeft bool) entry {
 	if m.ID == d.model.ID {
 		return entry{
 			choice:   choice{model: m, offer: d.offer, free: d.pay == payFree, key: d.pay != payFree},
 			settings: d.settings, estimate: d.estimate,
 		}
 	}
-	if m.Free {
+	if m.Free && freeLeft {
 		for _, o := range m.Offers {
 			plan, ok := free.PlanOf(o.ID)
 			if ok && d.taken >= plan.MinInputs && d.taken <= plan.MaxInputs && misfit(lang, m, o, d.taken) == "" {
@@ -225,7 +229,7 @@ func pickOf(lang, prompt string, d draft, m catalog.Model, have map[string]bool,
 	}
 	return entry{
 		choice: choice{model: m, offer: fit[0]},
-		why:    t(lang, "run.need_key", "provider", providerName(fit[0].Provider)), locked: true,
+		why:    t(lang, "run.need_key", "provider", catalog.ProviderName(fit[0].Provider)), locked: true,
 	}
 }
 
@@ -235,8 +239,6 @@ func providerRank(order []string, provider string) int {
 	}
 	return len(order)
 }
-
-func providerName(provider string) string { return cmp.Or(providerNames[provider], provider) }
 
 // misfit is why an offer cannot take a run of taken photos, as the site's
 // picker words it; empty when it can.
@@ -294,12 +296,13 @@ const framesSetting = "frame_images"
 // drawnSettings are the settings the rich preview offers, in its order: the
 // ones the site's composer shows first. A size goes only where the model has
 // neither an aspect ratio nor a resolution, and never on a video, as
-// catalog.Defaults decides. n is how many results, up to maxResults.
+// catalog.Defaults decides. n is how many results, up to maxResults, and
+// only where they may be several (severalResults).
 var drawnSettings = []string{"aspect_ratio", "resolution", "quality", "background", "n", "duration", "generate_audio", "size"}
 
 // settingsOf are the settings of an offer the rich preview offers, with
-// their values.
-func settingsOf(o catalog.Offer) []setting {
+// their values. many: the run may make several results, so n is offered.
+func settingsOf(o catalog.Offer, many bool) []setting {
 	_, ratio := o.Params["aspect_ratio"]
 	_, res := o.Params["resolution"]
 	var out []setting
@@ -313,7 +316,9 @@ func settingsOf(o catalog.Offer) []setting {
 		case catalog.Enum:
 			values = p.Values
 		case catalog.Range:
-			values = results(p)
+			if name == "n" && many {
+				values = results(o)
+			}
 		case catalog.Boolean:
 			if name == "generate_audio" {
 				values = []any{false, true}
@@ -329,18 +334,17 @@ func settingsOf(o catalog.Offer) []setting {
 	return out
 }
 
-// results are the counts of results n offers, up to maxResults; none for
-// another range.
-func results(p catalog.Param) []any {
-	if p.Max == nil {
-		return nil
-	}
+// results are the counts of results the offer's n offers: as many as one
+// run of it makes (catalog.AtOnce, which an upstream of OpenRouter may
+// lower), up to maxResults.
+func results(o catalog.Offer) []any {
+	p := o.Params["n"]
 	lo := 1
 	if p.Min != nil && *p.Min > 1 {
 		lo = int(*p.Min)
 	}
 	var out []any
-	for v := lo; v <= min(int(*p.Max), maxResults); v++ {
+	for v := lo; v <= min(catalog.AtOnce(o), maxResults); v++ {
 		out = append(out, v)
 	}
 	return out
@@ -521,7 +525,7 @@ func richSettings(lang string, jobID int64, d draft, open bool) string {
 	if d.pay == payFree || d.clip {
 		return ""
 	}
-	sets := settingsOf(d.offer)
+	sets := settingsOf(d.offer, d.many)
 	if len(sets) == 0 {
 		return ""
 	}
@@ -535,9 +539,8 @@ func richSettings(lang string, jobID int64, d draft, open bool) string {
 			now = append(now, valueLabel(lang, set.name, cur))
 		}
 		var buttons []string
-		for vi, v := range set.values {
-			data := callback(jobID, actPickSetting+set.name+"."+strconv.Itoa(vi))
-			buttons = append(buttons, richButton(valueLabel(lang, set.name, v), data, has && sameSetting(cur, v)))
+		for _, v := range set.values {
+			buttons = append(buttons, richButton(valueLabel(lang, set.name, v), settingData(jobID, set.name, v), has && sameSetting(cur, v)))
 		}
 		per := 5
 		if labelled(set.name) {
@@ -580,7 +583,7 @@ func richKeyboard(lang string, jobID int64, d draft) *tg.InlineKeyboardMarkup {
 		if !ok {
 			return &tg.InlineKeyboardMarkup{InlineKeyboard: rows}
 		}
-		more = button(c.label(lang, d), callback(jobID, c.action), "")
+		more = button(c.label(lang), callback(jobID, c.action), "")
 	case d.video():
 		more = button(t(lang, "run.as_image"), callback(jobID, actImage), "")
 	case d.taken <= free.VideoHeyGen.MaxInputs:
@@ -634,8 +637,10 @@ func (f *Flow) richState(ctx context.Context, user int64, lang, prompt string, j
 }
 
 // drawRich draws the card of s again and puts the rich preview in place of
-// the one the run has, in the chat or the requester's own.
-func (f *Flow) drawRich(ctx context.Context, run db.ChatRun, v view, s state, dir string, paths []string) error {
+// the one the run has: edited in place when the chat sees it, sent anew
+// when only the requester does (resendRich). press is the press that asked
+// for it, not yet answered, or empty.
+func (f *Flow) drawRich(ctx context.Context, run db.ChatRun, press string, v view, s state, dir string, paths []string) error {
 	open := foldAll
 	if v == viewSettings {
 		open = openSettings
@@ -644,14 +649,71 @@ func (f *Flow) drawRich(ctx context.Context, run db.ChatRun, v view, s state, di
 	if err != nil {
 		return err
 	}
+	if run.PreviewEphemeral {
+		return f.resendRich(ctx, run, press, body, pic, kb)
+	}
 	err = withCard(pic, func(media []tg.RichMedia) error {
-		if run.PreviewEphemeral {
-			return f.cfg.Telegram.EditEphemeralMessageRich(ctx, run.ChatID, run.UserID, run.PreviewMessageID, body, media, kb)
-		}
 		return f.cfg.Telegram.EditMessageRich(ctx, run.ChatID, run.PreviewMessageID, body, media, kb)
 	})
 	if err != nil {
-		return fmt.Errorf("preview not redrawn: %w", err)
+		return fmt.Errorf("preview not redrawn: %w", editFailed(err))
 	}
 	return nil
+}
+
+// resendRich sends the requester's preview again with the new card and
+// deletes the one they had. framy does not edit an ephemeral rich message
+// with a picture it uploads: the Bot API server built from TDLib bc9c263
+// (telegram-bot-api e3e9dd8) aborts on that edit, at
+// MessageQueryManager.cpp:2415, and takes every bot on it down with it.
+// TDLib fixed it in b7e2d530; once the server has that, an edit in place
+// can come back. A send uploads the card by another path, the one the first
+// preview takes.
+//
+// The new preview answers what the old one did. The press lets framy send
+// it, admin or not, while it is unanswered; when Telegram refuses that, an
+// admin framy may still send it plainly. Only the preview the run records
+// takes presses, so the new one is recorded before the old one goes, and a
+// preview that could not be recorded is deleted again.
+func (f *Flow) resendRich(ctx context.Context, run db.ChatRun, press, body string, pic anim.Media, kb *tg.InlineKeyboardMarkup) error {
+	opts := tg.RichOptions{ThreadID: run.ThreadID, Markup: kb, Ephemeral: &tg.Ephemeral{ReceiverUserID: run.UserID, CallbackQueryID: press}}
+	if !run.CommandEphemeral {
+		opts.ReplyTo = run.CommandMessageID
+	}
+	sent, err := f.sendRich(ctx, run.ChatID, body, pic, opts)
+	if refused(err) {
+		// The press may be too old for Telegram, or the message the
+		// preview answered gone.
+		f.log.Info("preview not sent as it was; sent plainly", "job", run.JobID, "error", err)
+		opts.ReplyTo, opts.Ephemeral = 0, &tg.Ephemeral{ReceiverUserID: run.UserID}
+		sent, err = f.sendRich(ctx, run.ChatID, body, pic, opts)
+	}
+	if err == nil && sent.EphemeralMessageID == 0 {
+		err = errors.New("no ephemeral message came back")
+	}
+	if err != nil {
+		return fmt.Errorf("preview not redrawn: %w", err)
+	}
+	if err := f.cfg.Store.SetChatRunPreview(ctx, run.JobID, sent.EphemeralMessageID, true); err != nil {
+		f.deleteEphemeral(ctx, run.ChatID, run.UserID, sent.EphemeralMessageID)
+		return fmt.Errorf("preview not recorded: %w", err)
+	}
+	f.deleteEphemeral(ctx, run.ChatID, run.UserID, run.PreviewMessageID)
+	return nil
+}
+
+// refused tells a request Telegram refused, which sent nothing, from one
+// that may have reached it; no retry changes a refusal. A 403 says the bot
+// may not write there: the person never started it, blocked it or is gone,
+// or the bot was removed from a group or may not post in it. A 400 says the
+// request itself is wrong for Telegram: the chat or the topic is unknown,
+// the bot lacks the right to send that media, or the file is one Telegram
+// does not take.
+func refused(err error) bool {
+	var api *tg.APIError
+	if !errors.As(err, &api) {
+		return false
+	}
+	code := cmp.Or(api.ErrorCode, api.StatusCode)
+	return code == http.StatusBadRequest || code == http.StatusForbidden
 }

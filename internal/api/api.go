@@ -9,10 +9,12 @@
 //
 // Who is asking is not decided here. Config.Person names the signed-in
 // person behind a request, or says there is none: main gives it
-// internal/auth's Person. GET /api/catalog and POST /api/quote answer anyone,
-// since the site shows models and prices before a sign-in; every other route
-// answers 401 {"error":"sign_in"} without a person, and a job is visible to
-// its owner only: anyone else gets 404, as for a job that does not exist.
+// internal/auth's Identify. GET /api/catalog and POST /api/quote answer
+// anyone, since the site shows models and prices before a sign-in; every
+// other route answers 401 {"error":"sign_in"} without a person, 503
+// {"error":"unavailable"} when the sessions cannot be read, and a job is
+// visible to its owner only: anyone else gets 404, as for a job that does
+// not exist.
 //
 // Progress comes from the database. A trigger on framy.job bumps the job's
 // event_seq and does pg_notify('framy_events', …) in the transaction that
@@ -40,6 +42,7 @@ import (
 	"github.com/FreshLabDev/framy/internal/db"
 	"github.com/FreshLabDev/framy/internal/free"
 	"github.com/FreshLabDev/framy/internal/fx"
+	"github.com/FreshLabDev/framy/internal/i18n"
 	"github.com/FreshLabDev/framy/internal/jobs"
 	"github.com/FreshLabDev/framy/internal/keys"
 	"github.com/FreshLabDev/framy/internal/storage"
@@ -60,8 +63,12 @@ const (
 	// blocks until this runs out.
 	DefaultWriteTimeout = 10 * time.Second
 	// DefaultUploadSlots is how many photos are converted at once: ffmpeg
-	// takes a core for every one of them.
+	// takes a core for every one of them. A photo takes a slot once its
+	// bytes are all in.
 	DefaultUploadSlots = 4
+	// maxPersonUploads is how many photos of one person's may be on their
+	// way in at once; the site sends them one after another.
+	maxPersonUploads = 2
 
 	// uploadRead and uploadWrite are the deadlines of POST /api/uploads,
 	// counted from the start of the request: a slow phone connection may take
@@ -71,7 +78,8 @@ const (
 	// uploadSlack is room above the largest photo for what the body may carry
 	// besides it, so the pipeline's own "too big" answer comes first.
 	uploadSlack = 1 << 20
-	// uploadWait is how long an upload waits for a free conversion slot.
+	// uploadWait is how long a photo whose bytes are in waits for a free
+	// conversion slot.
 	uploadWait = 20 * time.Second
 	// retryMillis is the reconnect delay an event stream suggests.
 	retryMillis = 3000
@@ -100,18 +108,16 @@ type Store interface {
 	Currency(ctx context.Context, userID int64) (string, error)
 	// UserLang is the person's language in core, "" when it has none.
 	UserLang(ctx context.Context, userID int64) (string, error)
-	// SetCurrency keeps the person's currency, "" for the default.
-	SetCurrency(ctx context.Context, userID int64, code string) error
-	// SetUserLang is the person's pick in core, for every bot of the family;
-	// ClearUserLang withdraws framy's pick.
-	SetUserLang(ctx context.Context, userID int64, lang string) error
-	ClearUserLang(ctx context.Context, userID int64) error
 	// Settings are the rest of the person's settings: whether framy picked
-	// the language, the composer's models, the DM. SetDefaultModel and
-	// SetDelivery change them.
+	// the language, the composer's models, the DM.
 	Settings(ctx context.Context, userID int64) (db.Settings, error)
-	SetDefaultModel(ctx context.Context, userID int64, kind catalog.Kind, modelID string) error
-	SetDelivery(ctx context.Context, userID int64, on bool) error
+	// ChangeSettings keeps a save of the settings whole or not at all: the
+	// currency, "" for the default; the language, the person's pick in core
+	// for every bot of the family, "" to withdraw framy's; the composer's
+	// models and the DM.
+	ChangeSettings(ctx context.Context, userID int64, c db.SettingsChange) error
+	// ClearUserLang withdraws framy's pick of the language.
+	ClearUserLang(ctx context.Context, userID int64) error
 	// Spent is what the person's runs cost on each of their keys, by
 	// provider.
 	Spent(ctx context.Context, userID int64) (map[string]db.Spent, error)
@@ -123,7 +129,7 @@ type Store interface {
 	Catalog(ctx context.Context) ([]catalog.Model, error)
 	CatalogSyncedAt(ctx context.Context) (time.Time, error)
 	// TypicalSeconds is how long a run of each offer typically takes, for
-	// an offer with enough runs to say.
+	// an offer whose runs, model or family have enough runs to say.
 	TypicalSeconds(ctx context.Context) (map[string]int, error)
 }
 
@@ -135,9 +141,10 @@ type Allowance interface {
 	Check(ctx context.Context, a jobs.Admission) error
 }
 
-// Uploads keeps a photo: *storage.Store.
+// Uploads keeps a photo: *storage.Store. gate is passed once the photo's
+// bytes are all in, before it is converted.
 type Uploads interface {
-	Upload(ctx context.Context, userID int64, r io.Reader) (storage.Asset, error)
+	Upload(ctx context.Context, userID int64, r io.Reader, gate storage.Gate) (storage.Asset, error)
 }
 
 // Links presigns files of the person's: *storage.Store. An id that is not
@@ -196,11 +203,26 @@ type Config struct {
 	// would go.
 	Allowance Allowance
 	// Person names the signed-in person behind a request. No person: ok is
-	// false. It is asked on every request, so it has to be cheap.
-	Person func(*http.Request) (userID int64, ok bool)
+	// false. err is a lookup that failed, which is not nobody: the person is
+	// told to try again, not to sign in. It is asked on every request, so it
+	// has to be cheap.
+	Person func(*http.Request) (userID int64, ok bool, err error)
 	// Revoke ends every session of the person, on the site and in the Mini
 	// App: internal/auth's RevokeAll. Deleting an account calls it last.
 	Revoke func(ctx context.Context, userID int64) error
+	// SessionsEnded is called when a process of framy ended sessions
+	// (auth.SessionsChannel), and each time the listener connects, since a
+	// notice may have gone by meanwhile: internal/auth's ForgetAll, so a
+	// session ended in another process is not believed here from memory.
+	// Nil leaves the sessions to their cache's TTL.
+	SessionsEnded func()
+	// Renew keeps the site session of a request going: internal/auth's
+	// Renew, which may set the cookie again. GET /api/me calls it, since
+	// the site loads the person at every visit. Nil renews nothing.
+	Renew func(http.ResponseWriter, *http.Request)
+	// Notify tells the operator chat, once a day, that something everyone
+	// shares was full (busy.go). Nil only logs it.
+	Notify func(ctx context.Context, text string) error
 	Log    *slog.Logger
 
 	// MaxStreams per person, Ping, WriteTimeout and UploadSlots default to
@@ -212,8 +234,8 @@ type Config struct {
 	UploadSlots  int
 	// VideoSlots is how many clips are worked on at once.
 	VideoSlots int
-	// UploadWait is how long an upload waits for a free slot before it is
-	// sent away with 503.
+	// UploadWait is how long a photo whose bytes are in waits for a free
+	// conversion slot before it is sent away with 503.
 	UploadWait time.Duration
 	MaxUpload  int64
 	// Keepalive is how often the listener checks its connection while no
@@ -246,6 +268,13 @@ type API struct {
 	maxBody int64
 	catalog *catalogCache
 	videos  *videoTasks
+	// uploading counts each person's photos on their way in.
+	uploading personUploads
+	// told is the UTC day the operator chat last heard that each shared
+	// thing was full, and notices the notices on their way.
+	noticeMu sync.Mutex
+	told     map[string]time.Time
+	notices  sync.WaitGroup
 	// bg is the context of the work that outlives a request, a clip's task;
 	// Run's end and Close cancel it.
 	bg     context.Context
@@ -285,6 +314,7 @@ func New(cfg Config) (*API, error) {
 		catalog: &catalogCache{ttl: cfg.CatalogTTL},
 		videos:  newVideoTasks(cfg.VideoSlots, cfg.Now),
 	}
+	a.videos.full = a.full
 	a.bg, a.stopBG = context.WithCancel(context.Background())
 	if a.data == nil {
 		a.data = pgData{pool: cfg.Pool}
@@ -302,7 +332,7 @@ func setDefault[T int | int64 | time.Duration](v *T, d T) {
 func (a *API) Register(site *web.Server) {
 	site.HandleFunc("POST /api/uploads", a.upload,
 		web.Limit(web.ClassUpload), web.Body(a.maxBody), web.Deadlines(uploadRead, uploadWrite))
-	site.HandleFunc("POST /api/videos/uploads", a.videoUpload, web.Limit(web.ClassUpload))
+	site.HandleFunc("POST /api/videos/uploads", a.videoUpload, web.Limit(web.ClassUpload), web.Body(smallBody))
 	site.HandleFunc("POST /api/videos", a.videoStart, web.Limit(web.ClassUpload), web.Body(smallBody))
 	site.HandleFunc("GET /api/videos/{task}", a.videoTask)
 	// The last frame reads the clip from the bucket first.
@@ -333,10 +363,10 @@ func (a *API) Register(site *web.Server) {
 }
 
 // PersonKey makes web.Config.Person of the API's Person: the per-person rate
-// limits count by it.
-func PersonKey(person func(*http.Request) (int64, bool)) func(*http.Request) string {
+// limits count by it. A lookup that failed counts as nobody, by address.
+func PersonKey(person func(*http.Request) (int64, bool, error)) func(*http.Request) string {
 	return func(r *http.Request) string {
-		if id, ok := person(r); ok {
+		if id, ok, err := person(r); ok && err == nil {
 			return strconv.FormatInt(id, 10)
 		}
 		return ""
@@ -356,7 +386,7 @@ func (a *API) Run(ctx context.Context) {
 	}
 	l := &listener{
 		cfg: a.cfg.Pool.Config().ConnConfig.Copy(), hub: a.hub, log: a.log.With("component", "events"),
-		keepalive: a.cfg.Keepalive, backoff: a.cfg.Backoff, connected: a.cfg.listening,
+		keepalive: a.cfg.Keepalive, backoff: a.cfg.Backoff, sessionsEnded: a.cfg.SessionsEnded, connected: a.cfg.listening,
 	}
 	l.run(ctx)
 }
@@ -366,6 +396,7 @@ func (a *API) Run(ctx context.Context) {
 func (a *API) Close() {
 	a.stopBG()
 	a.hub.close()
+	a.notices.Wait()
 }
 
 // ---- answers ----
@@ -374,6 +405,7 @@ func (a *API) Close() {
 // for whoever reads a curl answer.
 const (
 	codeSignIn            = "sign_in"
+	codeUnavailable       = "unavailable"
 	codeBadRequest        = "bad_request"
 	codeNotFound          = "not_found"
 	codeUnknownOffer      = "unknown_offer"
@@ -404,7 +436,9 @@ const (
 	codeBadKey            = "bad_key"
 	codeKeyRejected       = "key_rejected"
 	codeKeyForbidden      = "key_forbidden"
+	codeKeyRegion         = "key_region"
 	codeKeyUnreadable     = "key_unreadable"
+	codeKeyInUse          = "key_in_use"
 	codeCheckUnavailable  = "check_unavailable"
 	codeCannotContinue    = "cannot_continue"
 	codeNoUpload          = "no_upload"
@@ -413,6 +447,7 @@ const (
 	codeFrameTooLarge     = "frame_too_large"
 	codeBadCut            = "bad_cut"
 	codeNotShareable      = "not_shareable"
+	codeKeyInPrompt       = "key_in_prompt"
 	codeTelegramDown      = "telegram_unavailable"
 )
 
@@ -492,50 +527,79 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_, _ = w.Write(append(b, '\n'))
 }
 
-// person is the signed-in person, or false after answering 401.
+// person is the signed-in person, or false after answering 401, or 503
+// when the sessions could not be read: a person whose session is fine is
+// not told to sign in again because the database missed a beat.
 func (a *API) person(w http.ResponseWriter, r *http.Request) (int64, bool) {
-	id, ok := a.cfg.Person(r)
-	if !ok || id == 0 {
+	id, ok, err := a.cfg.Person(r)
+	switch {
+	case err != nil:
+		a.log.Error("look up the person of a request", "method", r.Method, "path", r.URL.Path, "error", err)
+		e := newError(http.StatusServiceUnavailable, codeUnavailable, "framy cannot tell who is signed in just now; try again")
+		e.retryAfter = 5 * time.Second
+		e.write(w)
+		return 0, false
+	case !ok || id == 0:
 		signIn(w)
 		return 0, false
 	}
 	return id, true
 }
 
-// language is the person's language for writing amounts: core's, else the
-// first tag of Accept-Language, else English. userID 0 is nobody signed in.
-func (a *API) language(ctx context.Context, r *http.Request, userID int64) string {
-	var lang string
-	if userID != 0 {
-		var err error
-		if lang, err = a.cfg.Store.UserLang(ctx, userID); err != nil {
-			a.log.Warn("user language", "error", err)
-		}
+// anyone is the signed-in person of a route that answers anyone, 0 for
+// nobody. A lookup that failed is answered as for nobody.
+func (a *API) anyone(r *http.Request) int64 {
+	id, ok, err := a.cfg.Person(r)
+	if err != nil {
+		a.log.Warn("look up the person of a request", "method", r.Method, "path", r.URL.Path, "error", err)
+		return 0
 	}
-	if lang == "" {
-		lang = firstTag(r.Header.Get("Accept-Language"))
+	if !ok {
+		return 0
 	}
-	if lang == "" {
-		lang = "en"
-	}
-	return lang
+	return id
 }
 
-// firstTag is the first language of an Accept-Language value, without its
-// region: "uk-UA,uk;q=0.9,en;q=0.8" gives "uk". "*" and junk give "".
-func firstTag(h string) string {
-	first, _, _ := strings.Cut(h, ",")
-	first, _, _ = strings.Cut(first, ";")
-	tag, _, _ := strings.Cut(strings.ToLower(strings.TrimSpace(first)), "-")
-	if len(tag) < 2 || len(tag) > 3 {
-		return ""
-	}
-	for _, c := range tag {
-		if c < 'a' || c > 'z' {
-			return ""
+// language is the person's language for notes and amounts, picked as the
+// page picks its own: core's where framy speaks it, else the first language
+// of Accept-Language framy speaks, else English. userID 0 is nobody signed in.
+func (a *API) language(ctx context.Context, r *http.Request, userID int64) string {
+	if userID != 0 {
+		lang, err := a.cfg.Store.UserLang(ctx, userID)
+		if err != nil {
+			a.log.Warn("user language", "error", err)
+		}
+		if lang = i18n.Normalize(lang); i18n.IsSupported(lang) {
+			return lang
 		}
 	}
-	return tag
+	if lang := acceptLang(r.Header.Get("Accept-Language")); lang != "" {
+		return lang
+	}
+	return i18n.DefaultLang
+}
+
+// acceptLang is the language of an Accept-Language value framy speaks that
+// the browser prefers most, without its region: "kk-KZ,kk;q=0.9,ru;q=0.8"
+// gives "ru". Of equal weights the first wins; q=0, "*" and junk never do,
+// and none framy speaks gives "".
+func acceptLang(h string) string {
+	best, top := "", 0.0
+	for _, part := range strings.Split(h, ",") {
+		tag, params, _ := strings.Cut(part, ";")
+		q := 1.0
+		if v, ok := strings.CutPrefix(strings.TrimSpace(params), "q="); ok {
+			f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+			if err != nil {
+				continue
+			}
+			q = f
+		}
+		if code := i18n.Normalize(tag); q > top && i18n.IsSupported(code) {
+			best, top = code, q
+		}
+	}
+	return best
 }
 
 // A mutex-guarded set of the streams a person holds.

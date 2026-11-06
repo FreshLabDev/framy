@@ -5,9 +5,12 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/FreshLabDev/tg"
 
@@ -18,6 +21,7 @@ import (
 	"github.com/FreshLabDev/framy/internal/i18n"
 	"github.com/FreshLabDev/framy/internal/jobs"
 	"github.com/FreshLabDev/framy/internal/keys"
+	"github.com/FreshLabDev/framy/internal/media"
 	"github.com/FreshLabDev/framy/internal/price"
 	"github.com/FreshLabDev/framy/internal/storage"
 )
@@ -129,6 +133,60 @@ func TestAnAlbumIsTakenWholeWhenFramyIsAnAdmin(t *testing.T) {
 	}
 }
 
+// A reply to one picture of a bot's album is about that picture: framy is
+// never sent the album, so it waits for nothing and says nothing of it.
+// Telegram names a bot as the sender of an anonymous admin's album, or one
+// sent on behalf of a channel, and those framy is sent: they go whole.
+func TestABotsAlbumIsOnePictureAndAPersonsIsWhole(t *testing.T) {
+	items := []db.AlbumItem{{MessageID: 20, Kind: db.AlbumPhoto, FileID: "pa"}, {MessageID: 21, Kind: db.AlbumPhoto, FileID: "pb"}, {MessageID: 22, Kind: db.AlbumPhoto, FileID: "pc"}}
+	for _, c := range []struct {
+		name   string
+		sender tg.User
+		taken  int
+	}{
+		{"a bot", tg.User{ID: 5, IsBot: true, Username: "some_bot"}, 1},
+		{"an anonymous admin", tg.User{ID: 1087968824, IsBot: true, Username: "GroupAnonymousBot"}, 3},
+		{"a channel", tg.User{ID: 136817688, IsBot: true, Username: "Channel_Bot"}, 3},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.flow.SetAlbums(fakeAlbums{items: items})
+			m := photoReply("/img one style")
+			m.ReplyToMessage.MediaGroupID, m.ReplyToMessage.From = "g1", &c.sender
+			if err := h.command(m, CommandImage, "one style"); err != nil {
+				t.Fatal(err)
+			}
+			run, _ := h.store.ChatRun(context.Background(), 1)
+			if run.Taken != c.taken || (c.taken == 1) != (run.Note == "") {
+				t.Fatalf("run = %+v", run)
+			}
+		})
+	}
+}
+
+// An album of pictures sent as files, uncompressed, is taken whole as well:
+// the cache notes each as a photo.
+func TestAnAlbumOfFilesIsTakenWhole(t *testing.T) {
+	h := newHarness(t)
+	var items []db.AlbumItem
+	for i := range 4 {
+		items = append(items, db.AlbumItem{MessageID: int64(20 + i), Kind: db.AlbumPhoto, FileID: "file-" + string(rune('a'+i))})
+	}
+	h.flow.SetAlbums(fakeAlbums{items: items, admin: true})
+	m := command("/img one style")
+	m.ReplyToMessage = &tg.Message{MessageID: 20, Chat: group, MediaGroupID: "g1",
+		Document: &tg.Document{FileID: "file-a", MimeType: "image/png", FileSize: 9 << 20}}
+	if err := h.command(m, CommandImage, "one style"); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(h.store.jobs[1].n.Inputs); n != 4 {
+		t.Fatalf("%d inputs", n)
+	}
+	if run, _ := h.store.ChatRun(context.Background(), 1); run.Note != "" || run.Taken != 4 {
+		t.Fatalf("run = %+v", run)
+	}
+}
+
 func TestWithoutAdminRightsThePreviewSaysWhatItSaw(t *testing.T) {
 	h := newHarness(t)
 	h.flow.SetAlbums(fakeAlbums{items: []db.AlbumItem{{MessageID: 9, Kind: db.AlbumPhoto, FileID: "big"}}})
@@ -182,6 +240,25 @@ func TestPastTheFreeTierWithoutAKeyTheReasonIsTheAnswer(t *testing.T) {
 	}
 }
 
+// An alert holds at most 200 characters, and Telegram refuses a longer one,
+// so the button would answer nothing. The free limit, said in an alert when
+// a button runs past it, fits in every language with every wait it can show.
+func TestTheFreeLimitFitsAnAlert(t *testing.T) {
+	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+	f := &Flow{now: func() time.Time { return now }}
+	waits := []time.Duration{59 * time.Minute, 23*time.Hour + 59*time.Minute, 6*24*time.Hour + 22*time.Hour + time.Minute, free.VideoWindow}
+	for _, lang := range i18n.Codes() {
+		for _, kind := range []catalog.Kind{catalog.Image, catalog.Video} {
+			for _, wait := range waits {
+				text := f.limitText(lang, &free.LimitError{Kind: kind, Limit: 10, FreesAt: now.Add(wait)})
+				if n := utf8.RuneCountInString(text); n > 200 {
+					t.Errorf("%s, %s, %s: %d characters: %s", lang, kind, wait, n, text)
+				}
+			}
+		}
+	}
+}
+
 func TestPastTheFreeTierTheKeyRunsIt(t *testing.T) {
 	h := newHarness(t)
 	h.flow.cfg.Keys = fakeKeys{conns: []keys.Connection{{Provider: catalog.OpenRouter, Status: keys.Valid}}}
@@ -197,6 +274,119 @@ func TestPastTheFreeTierTheKeyRunsIt(t *testing.T) {
 	card := h.renderer.previews[0]
 	if len(sent) != 1 || card.Free || card.Label != i18n.T("en", "card.key", "provider", "OpenRouter") || card.Price == "" {
 		t.Fatalf("preview = %+v, card = %+v", sent, card)
+	}
+}
+
+// Past the free tier a key of another provider than the free model's runs
+// the command on a model it runs: the one the picker suggests first for the
+// run, else the first the list shows. The preview shows it, on that key and
+// at its price, before anything runs.
+func TestPastTheFreeTierAnotherProvidersKeyRunsItsModel(t *testing.T) {
+	limit := &free.LimitError{Kind: catalog.Image, Limit: 5, Window: free.ImageWindow, FreesAt: clock.Add(2 * time.Hour)}
+	for _, c := range []struct {
+		name      string
+		keys      []string
+		suggested string
+		offer     string
+		provider  string
+	}{
+		{"the only model the key runs", []string{catalog.OpenAI}, "", "openai:openai/gpt-image-2.5", "OpenAI"},
+		{"the first the list shows", []string{catalog.OpenAI, catalog.Gemini}, "", "gemini:google/nano-banana-pro", "AI Studio"},
+		{"the suggested one first", []string{catalog.OpenAI, catalog.Gemini}, "openai/gpt-image-2.5", "openai:openai/gpt-image-2.5", "OpenAI"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.store.models = panelCatalog()
+			for i, m := range h.store.models {
+				if m.ID == c.suggested {
+					h.store.models[i].Traits.Recommend = map[string]int{catalog.ForImage: 1}
+				}
+			}
+			var conns []keys.Connection
+			for _, p := range c.keys {
+				conns = append(conns, keys.Connection{Provider: p, Status: keys.Valid})
+			}
+			h.flow.cfg.Keys = fakeKeys{conns: conns}
+			h.queue.refuse = limit
+			if err := h.command(command("/img a fox"), CommandImage, "a fox"); err != nil {
+				t.Fatal(err)
+			}
+			if got := h.tg.methods("sendMessage"); len(got) != 0 {
+				t.Fatalf("refused: %+v", got)
+			}
+			job := h.store.jobs[1]
+			if job == nil || job.n.Free || job.n.Offer.ID != c.offer || job.n.Estimate == nil {
+				t.Fatalf("job = %+v", job)
+			}
+			card := h.renderer.previews[0]
+			if card.Free || card.Label != i18n.T("en", "card.key", "provider", c.provider) {
+				t.Fatalf("card = %+v", card)
+			}
+		})
+	}
+
+	// With no model a key of theirs runs, the reason stays the answer.
+	h := newHarness(t)
+	h.store.models = panelCatalog()[2:] // without Nano Banana Pro and GPT Image 2.5
+	h.flow.cfg.Keys = fakeKeys{conns: []keys.Connection{{Provider: catalog.OpenAI, Status: keys.Valid}}}
+	h.queue.refuse = limit
+	if err := h.command(command("/img a fox"), CommandImage, "a fox"); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.store.jobs) != 0 || len(h.tg.methods("sendMessage")) != 1 {
+		t.Fatalf("jobs %+v, calls %+v", h.store.jobs, h.tg.calls)
+	}
+}
+
+// Past the free tier no model is listed as free: a free model goes on the
+// person's key, at its price, or needs one, as a pick of it would run.
+func TestPastTheFreeTierNoModelIsListedAsFree(t *testing.T) {
+	limit := &free.LimitError{Kind: catalog.Image, Limit: 5, Window: free.ImageWindow, FreesAt: clock.Add(2 * time.Hour)}
+	freeLabel := " · " + i18n.T("en", "card.free")
+	for _, c := range []struct {
+		name, provider, flux string
+	}{
+		{"an OpenRouter key", catalog.OpenRouter, `<tg-button type="callback_data" data="j:1:` + actPickModel + modelHash("black-forest-labs/flux-3-image-klein") + `">FLUX 3 Image Klein</tg-button>`},
+		{"an OpenAI key", catalog.OpenAI, `<tg-button type="disabled">FLUX 3 Image Klein · ` + i18n.T("en", "run.need_key", "provider", "OpenRouter") + `</tg-button>`},
+	} {
+		h := newHarness(t)
+		h.store.models = panelCatalog()
+		h.flow.cfg.Keys = fakeKeys{conns: []keys.Connection{{Provider: c.provider, Status: keys.Valid}}}
+		h.flow.cfg.Allowance = fakeAllowance{left: 0}
+		h.queue.refuse = limit
+		if err := h.command(command("/img a fox"), CommandImage, "a fox"); err != nil {
+			t.Fatal(err)
+		}
+		body := h.tg.methods("sendRichMessage")[0].text
+		if strings.Contains(body, freeLabel) || !strings.Contains(body, c.flux) {
+			t.Fatalf("%s: preview = %s", c.name, body)
+		}
+	}
+
+	// A pick of the free model goes on the key, as its button said.
+	h := newHarness(t)
+	h.store.models = panelCatalog()
+	h.flow.cfg.Keys = fakeKeys{conns: []keys.Connection{{Provider: catalog.OpenRouter, Status: keys.Valid}}}
+	h.flow.cfg.Allowance = fakeAllowance{left: 0}
+	h.queue.refuse = limit
+	if err := h.command(photoReply("/img make it night"), CommandImage, "make it night"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.press(1, 7, pick("black-forest-labs/flux-3-image-klein")); err != nil {
+		t.Fatal(err)
+	}
+	if n := h.queue.revised[len(h.queue.revised)-1]; n.Free || n.Offer.ID != "openrouter:black-forest-labs/flux-3-image-klein" {
+		t.Fatalf("revision = %+v", n)
+	}
+	// The keyboard's list says the same.
+	h.tg.reset()
+	if err := h.pressPhoto(1, 7, actModel); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range labels(h.tg.cards()[0].markup) {
+		if strings.Contains(strings.Join(row, "|"), freeLabel) {
+			t.Fatalf("list = %v", labels(h.tg.cards()[0].markup))
+		}
 	}
 }
 
@@ -239,6 +429,37 @@ func TestEmptyCommandsVideosAndRepeats(t *testing.T) {
 	}
 	if n := len(h.tg.methods("sendRichMessage")); n != 1 || len(h.store.jobs) != 1 {
 		t.Fatalf("%d previews, %d jobs", n, len(h.store.jobs))
+	}
+}
+
+// A file over a limit says the limit, so the person knows how far to
+// shrink it: framy's on what it reads from Telegram, and the pixels of a
+// picture.
+func TestAPhotoOverALimitSaysTheLimit(t *testing.T) {
+	big := photoReply("/img x")
+	big.ReplyToMessage.Photo = nil
+	big.ReplyToMessage.Document = &tg.Document{FileID: "doc", MimeType: "image/png", FileSize: storage.DefaultMaxUpload + 1}
+	for _, c := range []struct {
+		name  string
+		m     *tg.Message
+		setup func(*harness)
+		want  string
+	}{
+		{"over the bytes", big, nil, "This file is too big: it can be up to 50 MB."},
+		{"over the pixels", photoReply("/img x"), func(h *harness) { h.files.fail = fmt.Errorf("%w: 9000×9000", media.ErrTooLarge) },
+			"This photo is over 64 megapixels. Make it smaller and send it again."},
+	} {
+		h := newHarness(t)
+		if c.setup != nil {
+			c.setup(h)
+		}
+		_ = h.command(c.m, CommandImage, "x")
+		if got := h.tg.methods("sendMessage"); len(got) != 1 || got[0].text != c.want {
+			t.Errorf("%s: answer = %+v, want %q", c.name, got, c.want)
+		}
+		if len(h.store.jobs) != 0 {
+			t.Errorf("%s: a job was made", c.name)
+		}
 	}
 }
 
@@ -356,8 +577,34 @@ func TestGenerateOnAnExpiredDraftDeletesThePreview(t *testing.T) {
 	if err := h.press(id, 7, actGenerate); err != nil {
 		t.Fatal(err)
 	}
-	if h.tg.answers[0] != "alert:"+i18n.T("en", "run.expired") || h.store.stage(id) != db.StageGone || len(h.tg.methods("deleteMessage")) != 1 {
+	if h.tg.answers[0] != "alert:"+i18n.T("en", "run.expired", "command", "/img") || h.store.stage(id) != db.StageGone || len(h.tg.methods("deleteMessage")) != 1 {
 		t.Fatalf("answers %v, stage %s, calls %+v", h.tg.answers, h.store.stage(id), h.tg.calls)
+	}
+}
+
+// A run begins with a command only in a group: a direct chat's began with a
+// plain message, a guest run's with a mention, and an expired preview says
+// to send that again.
+func TestAnExpiredPreviewSaysHowTheRunBegan(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		run  db.ChatRun
+		want string
+	}{
+		{"/img in a group", db.ChatRun{ChatID: -100, UserID: 7, Lang: "en"}, "This preview has expired. Send /img again."},
+		{"/edit in a group", db.ChatRun{ChatID: -100, UserID: 7, Lang: "en", ClipFileID: "clip"}, "This preview has expired. Send /edit again."},
+		{"a direct chat", db.ChatRun{ChatID: 7, UserID: 7, Lang: "en"}, "This preview has expired. Send your message again."},
+		{"a clip in a direct chat", db.ChatRun{ChatID: 7, UserID: 7, Lang: "en", ClipFileID: "clip"}, "This preview has expired. Send your message again."},
+		{"guest mode", db.ChatRun{ChatID: -200, UserID: 7, Lang: "en", InlineMessageID: "inline"}, "This preview has expired. Mention framy again."},
+	} {
+		if got := expiredText(c.run); got != c.want {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		}
+	}
+	for _, code := range i18n.Codes() {
+		if got := expiredText(db.ChatRun{ChatID: -100, UserID: 7, Lang: code}); !strings.Contains(got, "/img") {
+			t.Errorf("%s: %q names no command", code, got)
+		}
 	}
 }
 
@@ -387,23 +634,41 @@ func TestNoCancelsAndDeletes(t *testing.T) {
 	}
 }
 
+// A run the model had started goes on when Stop takes it out of the chat,
+// so the alert says what it costs rather than leaving it to read as given
+// back.
 func TestStopARunningJob(t *testing.T) {
-	h := newHarness(t)
-	id := h.preview(t)
-	if err := h.press(id, 7, actGenerate); err != nil {
-		t.Fatal(err)
-	}
-	h.store.setStatus(id, jobs.Running, "")
-	h.queue.cancelErr = jobs.ErrRunning
-	h.tg.reset()
-	if err := h.press(id, 7, actStop); err != nil {
-		t.Fatal(err)
-	}
-	if !h.store.runs[id].Stopped || h.store.stage(id) != db.StageGone || len(h.tg.methods("deleteMessage")) != 1 {
-		t.Fatalf("run %+v, calls %+v", h.store.runs[id], h.tg.calls)
-	}
-	if h.tg.answers[0] != i18n.T("en", "run.stopped") {
-		t.Fatalf("answers = %v", h.tg.answers)
+	for _, c := range []struct {
+		name  string
+		free  bool
+		offer catalog.Offer
+		want  string
+	}{
+		{"free image", true, catalog.Offer{ID: "openrouter:mai/image", Provider: catalog.OpenRouter, Kind: catalog.Image}, i18n.T("en", "run.stopped_image")},
+		{"free video", true, catalog.Offer{ID: "openrouter:wan/video", Provider: catalog.OpenRouter, Kind: catalog.Video}, i18n.T("en", "run.stopped_video")},
+		{"own key", false, catalog.Offer{ID: "gemini:gemini-3-pro-image", Provider: catalog.Gemini, Kind: catalog.Image},
+			"The model had already started, so the run goes on and your AI Studio key pays for it. The result goes to your library on the site, not to the chat."},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h := newHarness(t)
+			id := h.preview(t)
+			if err := h.press(id, 7, actGenerate); err != nil {
+				t.Fatal(err)
+			}
+			h.store.jobs[id].n.Free, h.store.jobs[id].n.Offer = c.free, c.offer
+			h.store.setStatus(id, jobs.Running, "")
+			h.queue.cancelErr = jobs.ErrRunning
+			h.tg.reset()
+			if err := h.press(id, 7, actStop); err != nil {
+				t.Fatal(err)
+			}
+			if !h.store.runs[id].Stopped || h.store.stage(id) != db.StageGone || len(h.tg.methods("deleteMessage")) != 1 {
+				t.Fatalf("run %+v, calls %+v", h.store.runs[id], h.tg.calls)
+			}
+			if len(h.tg.answers) != 1 || h.tg.answers[0] != "alert:"+c.want {
+				t.Fatalf("answers = %v", h.tg.answers)
+			}
+		})
 	}
 }
 
@@ -418,6 +683,43 @@ func TestStopAQueuedJob(t *testing.T) {
 	}
 	if h.store.jobs[id].status != jobs.Cancelled || h.store.stage(id) != db.StageGone || h.store.runs[id].Stopped {
 		t.Fatalf("status %s, run %+v", h.store.jobs[id].status, h.store.runs[id])
+	}
+	// Nothing had started, so nothing is spent and there is nothing to say.
+	if a := h.tg.answers; a[len(a)-1] != "" {
+		t.Fatalf("answers = %v", a)
+	}
+}
+
+// Stop a moment after the job ended: the result, paid for already, still
+// comes in the loop's place, and so does the card of a run that failed.
+func TestStopAJobThatJustEnded(t *testing.T) {
+	for _, c := range []struct {
+		status jobs.Status
+		stage  string
+	}{
+		{jobs.Done, db.StageDone},
+		{jobs.Failed, db.StageFailed},
+		{jobs.Expired, db.StageFailed},
+	} {
+		t.Run(string(c.status), func(t *testing.T) {
+			h := newHarness(t)
+			id := h.generating(t)
+			h.store.setStatus(id, c.status, "")
+			h.files.results[id] = []storage.Asset{{ID: 50, ContentType: "image/png", Bytes: 100, Width: 10, Height: 10}}
+			if err := h.press(id, 7, actStop); err != nil {
+				t.Fatal(err)
+			}
+			if h.store.stage(id) != db.StageGenerating || len(h.tg.methods("deleteMessage")) != 0 {
+				t.Fatalf("Stop took the loop away: stage %s, calls %+v", h.store.stage(id), h.tg.calls)
+			}
+			if len(h.tg.answers) != 1 || h.tg.answers[0] != "" {
+				t.Fatalf("answers = %v", h.tg.answers)
+			}
+			h.flow.step(context.Background(), id)
+			if h.store.stage(id) != c.stage || len(h.tg.methods("editMessageMedia")) != 1 {
+				t.Fatalf("stage %s, calls %+v", h.store.stage(id), h.tg.calls)
+			}
+		})
 	}
 }
 
@@ -480,6 +782,96 @@ func TestASlowResultIsAReply(t *testing.T) {
 	}
 }
 
+// In a DM a run on the key may make several results: the card offers the
+// count, and they come as one album with the caption on the first, the
+// loop gone, the run on the first picture.
+func TestSeveralResultsOfADirectChatComeAsOneAlbum(t *testing.T) {
+	h := newHarness(t)
+	h.store.models = panelCatalog()
+	h.flow.cfg.Keys = fakeKeys{conns: []keys.Connection{{Provider: catalog.OpenRouter, Status: keys.Valid}}}
+	if err := h.command(photoSaid("make it night"), CommandImage, "make it night"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.press(1, 7, pick("google/nano-banana-pro")); err != nil {
+		t.Fatal(err)
+	}
+	h.tg.reset()
+	if err := h.press(1, 7, actPickSetting+"n.2"); err != nil {
+		t.Fatal(err)
+	}
+	edits := h.tg.methods("editMessageRich")
+	if len(edits) != 1 || !strings.Contains(edits[0].text, "Settings: <b>Auto · 1K · ×3</b>") ||
+		!strings.Contains(edits[0].text, `data="j:1:Sn#`+valueHash(4)+`">×4<`) {
+		t.Fatalf("preview = %+v", edits)
+	}
+	if n := h.queue.revised[len(h.queue.revised)-1]; n.Settings["n"] != 3 {
+		t.Fatalf("revision = %+v", n)
+	}
+	if err := h.press(1, 7, actGenerate); err != nil {
+		t.Fatal(err)
+	}
+	loop := run(t, h).PreviewMessageID
+	h.tg.reset()
+	h.store.setStatus(1, jobs.Done, "")
+	pic := storage.Asset{ID: 50, ContentType: "image/png", Bytes: 1 << 20, Width: 1024, Height: 1024}
+	second, third := pic, pic
+	second.ID, third.ID = 51, 52
+	h.files.results[1] = []storage.Asset{pic, second, third}
+	h.now = h.now.Add(12 * time.Second)
+	before := h.tg.next
+	h.flow.step(context.Background(), 1)
+	first := before + 1 + int64(slices.IndexFunc(h.tg.calls, func(c call) bool { return c.method == "sendMediaGroup" }))
+	sent := h.tg.methods("sendMediaGroup")
+	if len(sent) != 1 || sent[0].chatID != 7 || sent[0].file != strings.Repeat("photo:upload:framy.png,", 2)+"photo:upload:framy.png" ||
+		!strings.Contains(sent[0].text, "make it night") || !strings.Contains(sent[0].text, "Nano Banana Pro") {
+		t.Fatalf("sent = %+v", sent)
+	}
+	if len(h.tg.methods("editMessageMedia")) != 0 || len(h.tg.methods("sendPhoto")) != 0 {
+		t.Fatalf("calls = %+v", h.tg.calls)
+	}
+	if d := h.tg.methods("deleteMessage"); len(d) != 1 || d[0].messageID != loop {
+		t.Fatalf("the loop stayed: %+v", d)
+	}
+	if h.store.stage(1) != db.StageDone || h.store.results[1].MessageID != first || h.store.results[1].FileID != "album-file" {
+		t.Fatalf("stage %s, result %+v", h.store.stage(1), h.store.results[1])
+	}
+}
+
+// In a group one run makes one result: the card has no count, a count
+// pressed anyway changes nothing, and a run that made several anyway, from
+// before, sends its first.
+func TestARunOfAGroupMakesOneResult(t *testing.T) {
+	h := panelHarness(t)
+	if err := h.press(1, 7, pick("google/nano-banana-pro")); err != nil {
+		t.Fatal(err)
+	}
+	if body := h.tg.methods("editMessageRich")[0].text; strings.Contains(body, "Sn#") || strings.Contains(body, "×") {
+		t.Fatalf("preview = %s", body)
+	}
+	h.tg.reset()
+	revised := len(h.queue.revised)
+	if err := h.press(1, 7, actPickSetting+"n.2"); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.queue.revised) != revised || len(h.tg.methods("editMessageRich")) != 0 {
+		t.Fatalf("revised %+v, calls %+v", h.queue.revised, h.tg.calls)
+	}
+	if err := h.press(1, 7, actGenerate); err != nil {
+		t.Fatal(err)
+	}
+	h.tg.reset()
+	h.store.setStatus(1, jobs.Done, "")
+	pic := storage.Asset{ID: 50, ContentType: "image/png", Bytes: 1 << 20, Width: 1024, Height: 1024}
+	second := pic
+	second.ID = 51
+	h.files.results[1] = []storage.Asset{pic, second}
+	h.now = h.now.Add(40 * time.Second)
+	h.flow.step(context.Background(), 1)
+	if len(h.tg.methods("sendMediaGroup")) != 0 || len(h.tg.methods("sendPhoto")) != 1 {
+		t.Fatalf("calls = %+v", h.tg.calls)
+	}
+}
+
 func TestAHugeResultIsADocument(t *testing.T) {
 	h := newHarness(t)
 	id := h.generating(t)
@@ -495,37 +887,80 @@ func TestAHugeResultIsADocument(t *testing.T) {
 	}
 }
 
+// An SVG goes as a file Telegram keeps the name of, with Again and no
+// Animate: no video model takes one as a frame.
+func TestAnSVGIsADocumentWithItsName(t *testing.T) {
+	h := newHarness(t)
+	withHeyGen(h)
+	id := h.generating(t)
+	h.store.setStatus(id, jobs.Done, "")
+	h.files.results[id] = []storage.Asset{{ID: 50, ContentType: "image/svg+xml", Bytes: 40 << 10, Width: 1024, Height: 1024}}
+	h.now = h.now.Add(40 * time.Second)
+	h.flow.step(context.Background(), id)
+	if p := h.tg.methods("sendPhoto"); len(p) != 0 {
+		t.Fatalf("photos = %+v", p)
+	}
+	d := h.tg.methods("sendDocument")
+	if len(d) != 1 || d[0].file != "upload:framy.svg" || !reflect.DeepEqual(buttons(d[0].markup), [][]string{{callback(id, actAgain)}}) {
+		t.Fatalf("documents = %+v", d)
+	}
+	if err := h.onResult(id, 7, actAnimate, "cq-1"); err != nil || len(h.store.jobs) != 1 {
+		t.Fatalf("Animate on an SVG: %v, %d jobs", err, len(h.store.jobs))
+	}
+}
+
 func TestAFailedRunShowsTheCard(t *testing.T) {
 	retry, other := []string{actRetry}, []string{actOther}
+	const topUp = "url:https://openrouter.ai/settings/credits"
+	// Outside the DM the way to the settings is framy's DM (settings.go).
+	const rekey = "url:https://t.me/framyin_bot?start=settings_openrouter"
 	for _, tc := range []struct {
 		status jobs.Status
 		class  jobs.Class
 		free   bool
 		want   string
-		// acts are the buttons under the card.
-		acts []string
+		// acts are the buttons under the card, in one row unless apart.
+		acts  []string
+		apart bool
 	}{
-		{jobs.Failed, jobs.Moderation, true, "err.moderation", other},
+		{jobs.Failed, jobs.Moderation, true, "err.moderation", other, false},
 		// A real person in an input: another model may take it.
-		{jobs.Failed, jobs.Faces, false, "err.faces", other},
+		{jobs.Failed, jobs.Faces, false, "err.faces", other, false},
 		// The model's own sound: the same run without it may pass. This
 		// run had no sound to turn off.
-		{jobs.Failed, jobs.Sound, false, "err.sound", retry},
-		// The person's key needs the site.
-		{jobs.Failed, jobs.Money, false, "err.money", nil},
-		{jobs.Failed, jobs.Money, true, "err.failed", retry},
-		{jobs.Failed, jobs.Key, false, "err.key", nil},
+		{jobs.Failed, jobs.Sound, false, "err.sound", retry, false},
+		// framy's server is where the provider does not serve: another
+		// model, through another provider, may run; the same one cannot.
+		{jobs.Failed, jobs.Region, false, "err.region", other, false},
+		// The person's key out of credits: a link to top it up, then another
+		// try, each on its own row since "Top up OpenRouter" is too long to
+		// share one.
+		{jobs.Failed, jobs.Money, false, "err.money", []string{topUp, actRetry}, true},
+		{jobs.Failed, jobs.Money, true, "run.failed", retry, false},
+		// A refused key is replaced in the settings.
+		{jobs.Failed, jobs.Key, false, "err.key", []string{rekey}, false},
 		// A free run is paid by framy's key, not the person's.
-		{jobs.Failed, jobs.Key, true, "err.failed", retry},
-		{jobs.Expired, "", true, "err.timeout", []string{actRetry, actOther}},
-		{jobs.Failed, jobs.Internal, true, "err.failed", []string{actRetry, actOther}},
+		{jobs.Failed, jobs.Key, true, "run.failed", retry, false},
+		{jobs.Expired, "", true, "err.timeout", []string{actRetry, actOther}, false},
+		// A video whose key stopped working while framy asked about it.
+		{jobs.Expired, jobs.Key, false, "err.key", []string{rekey}, false},
+		{jobs.Expired, jobs.Money, false, "err.money", []string{topUp, actRetry}, true},
+		{jobs.Expired, jobs.Key, true, "run.failed", retry, false},
+		{jobs.Expired, jobs.ProviderFailed, false, "err.timeout", []string{actRetry, actOther}, false},
+		// framy's own failure is not the model's.
+		{jobs.Failed, jobs.Internal, true, "run.failed", []string{actRetry, actOther}, false},
+		// The provider made it and framy could not keep it (a finished video
+		// that could not be fetched within the hour): not "the model could not".
+		{jobs.Failed, jobs.Storage, false, "web.fail.storage", []string{actRetry, actOther}, false},
+		{jobs.Failed, jobs.NoAdapter, false, "run.failed", other, false},
+		{jobs.Failed, jobs.ProviderFailed, false, "err.failed", []string{actRetry, actOther}, false},
 	} {
 		h := newHarness(t)
 		id := h.generating(t)
 		h.store.jobs[id].n.Free = tc.free
 		h.store.setStatus(id, tc.status, tc.class)
 		h.flow.step(context.Background(), id)
-		if len(h.renderer.cards) != 1 || h.renderer.cards[0] != i18n.T("en", tc.want) {
+		if len(h.renderer.cards) != 1 || h.renderer.cards[0] != i18n.T("en", tc.want, "provider", "OpenRouter") {
 			t.Errorf("%s/%s: cards %v, want %s", tc.status, tc.class, h.renderer.cards, tc.want)
 			continue
 		}
@@ -537,12 +972,26 @@ func TestAFailedRunShowsTheCard(t *testing.T) {
 		var want [][]string
 		if tc.acts != nil {
 			want = [][]string{{}}
-			for _, a := range tc.acts {
-				want[0] = append(want[0], callback(id, a))
+			for i, a := range tc.acts {
+				data := a
+				if !strings.HasPrefix(a, "url:") {
+					data = callback(id, a)
+				}
+				if tc.apart && i > 0 {
+					want = append(want, nil)
+				}
+				want[len(want)-1] = append(want[len(want)-1], data)
 			}
 		}
 		if got := buttons(edits[0].markup); !reflect.DeepEqual(got, want) {
 			t.Errorf("%s/%s: buttons %v, want %v", tc.status, tc.class, got, want)
+			continue
+		}
+		if tc.class == jobs.Money && !tc.free {
+			top := edits[0].markup.InlineKeyboard[0][0]
+			if top.Text != i18n.T("en", "web.act.topup", "provider", "OpenRouter") || top.URL != "https://openrouter.ai/settings/credits" {
+				t.Errorf("top up = %+v", top)
+			}
 		}
 	}
 }
@@ -556,7 +1005,14 @@ func buttons(kb *tg.InlineKeyboardMarkup) [][]string {
 	for _, row := range kb.InlineKeyboard {
 		var r []string
 		for _, b := range row {
-			r = append(r, b.CallbackData)
+			switch {
+			case b.URL != "":
+				r = append(r, "url:"+b.URL)
+			case b.WebApp != nil:
+				r = append(r, "app:"+b.WebApp.URL)
+			default:
+				r = append(r, b.CallbackData)
+			}
 		}
 		out = append(out, r)
 	}
@@ -632,6 +1088,67 @@ func TestFollowWorksEveryOpenRun(t *testing.T) {
 	}
 }
 
+// A run delivered while a press waits on it: forget comes from the one
+// that holds the run, and the press must still wait for it to let go.
+func TestARunsLockHoldsUntilItIsLetGo(t *testing.T) {
+	h := newHarness(t)
+	unlock := h.flow.lock(1)
+	h.flow.forget(1)
+	if _, ok := h.flow.tryLock(1); ok {
+		t.Fatal("the run was held twice at once")
+	}
+	got := make(chan struct{})
+	go func() {
+		defer close(got)
+		h.flow.lock(1)()
+	}()
+	select {
+	case <-got:
+		t.Fatal("a press went past the run's holder")
+	case <-time.After(20 * time.Millisecond):
+	}
+	unlock()
+	<-got
+	h.flow.locksMu.Lock()
+	defer h.flow.locksMu.Unlock()
+	if len(h.flow.locks) != 0 {
+		t.Fatalf("%d locks stay after every press let go", len(h.flow.locks))
+	}
+}
+
+func TestPressesOnOneRunGoOneAtATime(t *testing.T) {
+	h := newHarness(t)
+	var (
+		in, most int
+		mu       sync.Mutex
+		wg       sync.WaitGroup
+	)
+	for i := range 50 {
+		wg.Go(func() {
+			unlock := h.flow.lock(7)
+			mu.Lock()
+			in++
+			most = max(most, in)
+			mu.Unlock()
+			if i%5 == 0 {
+				h.flow.forget(7)
+			}
+			time.Sleep(100 * time.Microsecond)
+			mu.Lock()
+			in--
+			mu.Unlock()
+			unlock()
+		})
+	}
+	wg.Wait()
+	if most != 1 {
+		t.Fatalf("%d presses worked the run at once", most)
+	}
+	if len(h.flow.locks) != 0 {
+		t.Fatalf("%d locks stay", len(h.flow.locks))
+	}
+}
+
 func TestCallbackData(t *testing.T) {
 	for data, ok := range map[string]bool{"j:1:go": true, "j:123456789012:stop": true, "j:0:go": false, "j:x:go": false, "j:1:": false, "m:1:home": false} {
 		_, _, got := parseCallback(data)
@@ -651,7 +1168,7 @@ func TestPriceLabels(t *testing.T) {
 		lang string
 		want string
 	}{
-		{price.Estimate{Kind: price.Exact, USD: 0.034, MaxUSD: 0.034}, "en", "$0.034 · ₴1.42"},
+		{price.Estimate{Kind: price.Exact, USD: 0.034, MaxUSD: 0.034}, "en", "$0.034 · ≈ ₴1.42"},
 		{price.Estimate{Kind: price.About, USD: 0.034, MaxUSD: 0.04}, "uk", i18n.T("uk", "run.about", "price", "0,034\u00a0$ · 1,42\u00a0₴")},
 		{price.Estimate{Kind: price.UpTo, USD: 0.02, MaxUSD: 0.05}, "en", i18n.T("en", "run.up_to", "price", "$0.05 · ₴2.08")},
 		{price.Estimate{Kind: price.Unknown}, "en", i18n.T("en", "run.price_unknown")},

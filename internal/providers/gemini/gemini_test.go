@@ -2,6 +2,7 @@
 package gemini
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -240,7 +241,8 @@ func TestSettingsGoWhereGoogleTakesThem(t *testing.T) {
 		t.Errorf("n sent: Gemini has no such field")
 	}
 
-	// Search off sends no tool; the 512 option has its own spelling.
+	// Search off sends no tool; 512 goes as the API reference spells it,
+	// not as the guide's prose writes it ("512px").
 	p, u = serve(t, reply(200, answerOK()))
 	if _, err := p.Submit(context.Background(), jobOf(t, flash31, map[string]any{"google_search": false, "resolution": "512"})); err != nil {
 		t.Fatal(err)
@@ -249,8 +251,8 @@ func TestSettingsGoWhereGoogleTakesThem(t *testing.T) {
 		t.Errorf("tools %v with google_search off", u.body["tools"])
 	}
 	rf, _ = u.body["response_format"].(map[string]any)
-	if rf["image_size"] != "512px" {
-		t.Errorf("image_size %v, want 512px", rf["image_size"])
+	if rf["image_size"] != "512" {
+		t.Errorf("image_size %v, want 512", rf["image_size"])
 	}
 	if _, ok := u.body["generation_config"]; ok {
 		t.Errorf("generation_config %v: no thinking_level was chosen", u.body["generation_config"])
@@ -317,6 +319,67 @@ func TestAnEditSendsItsReferencesInline(t *testing.T) {
 	}
 	if strings.Contains(fmt.Sprint(u.body), "X-Amz-Signature") {
 		t.Errorf("the presigned link reached Google")
+	}
+}
+
+// Results taken as inputs come as their models made them. When a few 4K
+// PNGs would not fit in the request, the largest are made upload-sized, and
+// a run whose files fit goes as it came.
+func TestPicturesOverTheTotalAreShrunk(t *testing.T) {
+	pic := func(mime string, size int) jobs.Input {
+		data := bytes.Repeat([]byte{byte(size)}, size)
+		return jobs.Input{ContentType: mime, URL: "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data)}
+	}
+	small := []byte("\xff\xd8\xff\xe0small")
+	var shrunk []int
+	shrink := func(_ context.Context, data []byte) ([]byte, string, error) {
+		shrunk = append(shrunk, len(data))
+		return small, "image/jpeg", nil
+	}
+	p, u := serve(t, reply(200, answerOK()))
+	p.cfg.MaxInput, p.cfg.MaxInputs, p.cfg.Shrink = 4<<10, 4<<10, shrink
+	_, err := p.Submit(context.Background(), job(t, nil, pic("image/jpeg", 2<<10), pic("image/png", 3<<10), pic("image/jpeg", 1<<10)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The second file took the three past 4 KiB: the largest, itself, was
+	// shrunk, and the third then fitted.
+	if fmt.Sprint(shrunk) != "[3072]" {
+		t.Errorf("shrunk %v, want the 3 KiB PNG alone", shrunk)
+	}
+	input, _ := u.body["input"].([]any)
+	if len(input) != 4 {
+		t.Fatalf("input %v", u.body["input"])
+	}
+	if b := input[2].(map[string]any); b["mime_type"] != "image/jpeg" || b["data"] != base64.StdEncoding.EncodeToString(small) {
+		t.Errorf("the shrunk picture went as %v %v", b["mime_type"], b["data"])
+	}
+	if b := input[1].(map[string]any); b["data"] != base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0}, 2<<10)) {
+		t.Errorf("a picture that fitted was changed")
+	}
+
+	shrunk = nil
+	p.cfg.MaxInputs = 8 << 10
+	if _, err := p.Submit(context.Background(), job(t, nil, pic("image/jpeg", 2<<10), pic("image/png", 3<<10))); err != nil || len(shrunk) != 0 {
+		t.Errorf("files that fit: %v, shrunk %v", err, shrunk)
+	}
+
+	// Nothing to shrink with, or nothing it can make smaller: refused before
+	// anything is paid, saying why.
+	calls := u.calls
+	for name, shrink := range map[string]func(context.Context, []byte) ([]byte, string, error){
+		"no shrink":      nil,
+		"no smaller":     func(_ context.Context, data []byte) ([]byte, string, error) { return data, "image/png", nil },
+		"cannot be read": func(context.Context, []byte) ([]byte, string, error) { return nil, "", errors.New("unreadable") },
+	} {
+		p.cfg.MaxInputs, p.cfg.Shrink = 4<<10, shrink
+		_, err := p.Submit(context.Background(), job(t, nil, pic("image/jpeg", 2<<10), pic("image/png", 3<<10)))
+		if pe := classOf(t, err); pe.Class != jobs.Invalid || !strings.Contains(err.Error(), "together") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if u.calls != calls {
+		t.Errorf("%d paid calls for runs that were refused", u.calls-calls)
 	}
 }
 
@@ -449,6 +512,9 @@ func TestTheKeyWithoutBillingIsNotATemporaryLimit(t *testing.T) {
 			if !strings.HasPrefix(err.Error(), "key: gemini key status needs_billing") {
 				t.Errorf("the text a job row keeps: %q", err.Error())
 			}
+			if want := map[bool]string{true: "You exceeded your current quota.", false: message}[name == "a quota value of 0"]; pe.Said() != want {
+				t.Errorf("said %q, want Google's words %q", pe.Said(), want)
+			}
 			if u.calls != 1 {
 				t.Errorf("%d calls", u.calls)
 			}
@@ -504,7 +570,10 @@ func TestErrorsAreToldApart(t *testing.T) {
 		{"a malformed request", 400, `{"error":{"code":"invalid_request","message":"Invalid value at 'response_format.image_size'"}}`, nil, jobs.Refused, "", 0},
 		{"no billing, in a precondition", 400, `{"error":{"code":"failed_precondition","message":"Gemini API free tier is not available in your country. Please enable billing on your project in Google AI Studio."}}`, nil, jobs.Key, "needs_billing", 0},
 		{"no billing, in the RPC form", 400, `{"error":{"code":400,"status":"FAILED_PRECONDITION","message":"Please enable billing on your project."}}`, nil, jobs.Key, "needs_billing", 0},
-		{"a precondition that is not billing", 400, `{"error":{"code":"failed_precondition","message":"User location is not supported for the API use."}}`, nil, jobs.Refused, "", 0},
+		// framy's server is where Google does not serve: not the key's fault.
+		{"a region Google does not serve", 400, `{"error":{"code":400,"status":"FAILED_PRECONDITION","message":"User location is not supported for the API use."}}`, nil, jobs.Region, "", 0},
+		{"a region, in the Interactions form", 400, `{"error":{"code":"failed_precondition","message":"User location is not supported for the API use."}}`, nil, jobs.Region, "", 0},
+		{"a precondition that is not billing", 400, `{"error":{"code":"failed_precondition","message":"Precondition check failed."}}`, nil, jobs.Refused, "", 0},
 		{"a wrong key, in the RPC form", 400, `{"error":{"code":400,"status":"INVALID_ARGUMENT","message":"API key not valid. Please pass a valid API key.","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"API_KEY_INVALID","domain":"googleapis.com"}]}}`, nil, jobs.Key, "invalid", 0},
 		{"an expired key", 400, `{"error":{"code":"invalid_request","message":"API key expired. Please renew the API key."}}`, nil, jobs.Key, "invalid", 0},
 		{"a missing or revoked key", 401, `{"error":{"code":"authentication","message":"The API key is missing, invalid, or expired."}}`, nil, jobs.Key, "invalid", 0},
@@ -515,7 +584,7 @@ func TestErrorsAreToldApart(t *testing.T) {
 		{"a body too large", 413, `<html>Request Entity Too Large</html>`, nil, jobs.Refused, "", 0},
 		{"overloaded, wait until a date", 503, `{"error":{"code":"service_unavailable","message":"The model is overloaded."}}`, []string{"Retry-After", soon}, jobs.Unavailable, "", 90 * time.Second},
 		{"overloaded, in the RPC form", 503, `{"error":{"code":503,"status":"UNAVAILABLE","message":"The model is overloaded. Please try again later."}}`, nil, jobs.Unavailable, "", 0},
-		{"a proxy's page", 502, `<html>Bad Gateway</html>`, nil, jobs.Unavailable, "", 0},
+		{"a proxy's page, after the request reached it", 502, `<html>Bad Gateway</html>`, nil, jobs.ProviderFailed, "", 0},
 		{"an internal error", 500, `{"error":{"code":"api_error","message":"An unexpected error occurred."}}`, nil, jobs.ProviderFailed, "", 0},
 		{"a deadline", 504, `{"error":{"code":"deadline_exceeded","message":"The request didn't finish."}}`, nil, jobs.Timeout, "", 0},
 		{"the client's cancellation", 499, `{"error":{"code":"cancelled","message":"The client cancelled the request."}}`, nil, jobs.ProviderFailed, "", 0},
@@ -532,6 +601,11 @@ func TestErrorsAreToldApart(t *testing.T) {
 			}
 			if d := pe.RetryAfter - c.wait; d < -2*time.Second || d > 2*time.Second {
 				t.Errorf("retry after %s, want %s", pe.RetryAfter, c.wait)
+			}
+			// A page that is not Google's, such as a proxy's, has no words of
+			// Google's: the status's name in the job's line is framy's.
+			if notGoogles := strings.HasPrefix(c.body, "<"); notGoogles != (pe.Said() == "") {
+				t.Errorf("said %q", pe.Said())
 			}
 			if strings.Contains(err.Error(), testKey) {
 				t.Errorf("the key is in the error: %v", err)
@@ -577,16 +651,16 @@ func TestABlockOnTheWireIsARefusal(t *testing.T) {
 func TestARefusalInAFinishedRunIsNotAFailure(t *testing.T) {
 	const usagePrompt = `{"total_input_tokens":271,"total_output_tokens":0,"total_thought_tokens":0,"input_tokens_by_modality":[{"modality":"text","tokens":271}]}`
 	for _, c := range []struct {
-		name, body, reason, stage string
-		cost                      bool
+		name, body, reason, stage, said string
+		cost                            bool
 	}{
-		{"a prompt feedback block", `{"promptFeedback":{"blockReason":"PROHIBITED_CONTENT"},"usageMetadata":{"promptTokenCount":271}}`, "PROHIBITED_CONTENT", "prompt", false},
-		{"the same, in snake_case", `{"id":"v1_x","status":"failed","prompt_feedback":{"block_reason":"OTHER","block_reason_message":"Blocked, most often because of a reference image."}}`, "OTHER", "prompt", false},
-		{"a candidate's finish reason", `{"candidates":[{"finishReason":"IMAGE_SAFETY","finishMessage":"The image was withheld."}],"usageMetadata":{"promptTokenCount":271}}`, "IMAGE_SAFETY", "result", false},
-		{"a finish reason inside an interaction", `{"id":"v1_x","status":"completed","steps":[{"type":"model_output","finish_reason":"IMAGE_PROHIBITED_CONTENT","content":[]}],"usage":` + usagePrompt + `}`, "IMAGE_PROHIBITED_CONTENT", "result", true},
-		{"an error list", `{"id":"v1_x","status":"failed","errors":[{"code":"unexpected","message":"x"},{"code":"image_safety","message":"Safety violations blocked image generation."}],"usage":` + usagePrompt + `}`, "IMAGE_SAFETY", "result", true},
-		{"an error object", `{"id":"v1_x","status":"failed","error":{"code":"safety","message":"blocked"}}`, "SAFETY", "", false},
-		{"the filter that says nothing", `{"candidates":[{"finishReason":"OTHER"}]}`, "OTHER", "result", false},
+		{"a prompt feedback block", `{"promptFeedback":{"blockReason":"PROHIBITED_CONTENT"},"usageMetadata":{"promptTokenCount":271}}`, "PROHIBITED_CONTENT", "prompt", "", false},
+		{"the same, in snake_case", `{"id":"v1_x","status":"failed","prompt_feedback":{"block_reason":"OTHER","block_reason_message":"Blocked, most often because of a reference image."}}`, "OTHER", "prompt", "Blocked, most often because of a reference image.", false},
+		{"a candidate's finish reason", `{"candidates":[{"finishReason":"IMAGE_SAFETY","finishMessage":"The image was withheld."}],"usageMetadata":{"promptTokenCount":271}}`, "IMAGE_SAFETY", "result", "The image was withheld.", false},
+		{"a finish reason inside an interaction", `{"id":"v1_x","status":"completed","steps":[{"type":"model_output","finish_reason":"IMAGE_PROHIBITED_CONTENT","content":[]}],"usage":` + usagePrompt + `}`, "IMAGE_PROHIBITED_CONTENT", "result", "", true},
+		{"an error list", `{"id":"v1_x","status":"failed","errors":[{"code":"unexpected","message":"x"},{"code":"image_safety","message":"Safety violations blocked image generation."}],"usage":` + usagePrompt + `}`, "IMAGE_SAFETY", "result", "Safety violations blocked image generation.", true},
+		{"an error object", `{"id":"v1_x","status":"failed","error":{"code":"safety","message":"blocked"}}`, "SAFETY", "", "blocked", false},
+		{"the filter that says nothing", `{"candidates":[{"finishReason":"OTHER"}]}`, "OTHER", "result", "", false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			p, _ := serve(t, reply(200, c.body))
@@ -604,6 +678,11 @@ func TestARefusalInAFinishedRunIsNotAFailure(t *testing.T) {
 			var r *Refusal
 			if !errors.As(out.Err, &r) || r.Reason != c.reason || r.Stage != c.stage {
 				t.Errorf("refusal %+v, want %s at %q", r, c.reason, c.stage)
+			}
+			// The person reads Google's words, never framy's line, and nothing
+			// when Google gave only its code.
+			if got := out.Err.Said(); got != c.said {
+				t.Errorf("said %q, want %q", got, c.said)
 			}
 			if (out.CostUSD != nil) != c.cost {
 				t.Errorf("cost %v", out.CostUSD)
@@ -641,6 +720,10 @@ func TestNoImageCarriesTheModelsWords(t *testing.T) {
 			}
 			if !strings.Contains(out.Err.Error(), c.text) {
 				t.Errorf("the job row keeps only the error text, and %q is not in %q", c.text, out.Err.Error())
+			}
+			// What the person reads is the model's words alone.
+			if got := out.Err.Said(); got != c.text {
+				t.Errorf("said %q, want the model's words %q", got, c.text)
 			}
 		})
 	}
@@ -698,6 +781,22 @@ func TestWhatIsNotARefusalFails(t *testing.T) {
 		})
 	}
 
+	// The run is billed in full: a broken picture does not take the good
+	// ones with it.
+	t.Run("one broken picture of two", func(t *testing.T) {
+		p, _ := serve(t, reply(200, answerWith(usage1K, `{"type":"image","mime_type":"image/png","data":"%%%"}`, imageBlock(png, "image/png"))))
+		sub, err := p.Submit(context.Background(), job(t, nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := sub.Outcome
+		if out.Err != nil || len(out.Results) != 1 || out.CostUSD == nil || !near(*out.CostUSD, cost1K) {
+			t.Fatalf("outcome %+v: want the good picture and the cost", out)
+		}
+		if out.Lost == nil || !strings.Contains(out.Lost.Error(), "image 1") {
+			t.Errorf("lost %v, want what happened to image 1", out.Lost)
+		}
+	})
 	t.Run("a paid run with a broken image keeps its cost", func(t *testing.T) {
 		p, _ := serve(t, reply(200, answerWith(usage1K, `{"type":"image","mime_type":"image/png","data":"%%%"}`)))
 		sub, _ := p.Submit(context.Background(), job(t, nil))
@@ -948,21 +1047,33 @@ func TestReferencesThatCannotBeFetched(t *testing.T) {
 			t.Errorf("class %s, calls %d: %v", pe.Class, u.calls, err)
 		}
 	})
-	t.Run("a stop during the download is left to the queue", func(t *testing.T) {
-		release := make(chan struct{})
-		storage := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }))
-		defer storage.Close()
-		defer close(release)
-		p, _ := serve(t, reply(200, answerOK()))
-		p.cfg.Fetch = storage.Client()
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		defer cancel()
-		_, err := p.Submit(ctx, job(t, nil, jobs.Input{ContentType: "image/jpeg", URL: storage.URL + "/x.jpg"}))
-		var pe *jobs.Error
-		if errors.As(err, &pe) || err == nil || ctx.Err() == nil {
-			t.Errorf("%v: the queue reads the deadline itself", err)
-		}
-	})
+	// The download comes before anything goes to Google: one the deadline or
+	// a stop cuts short sent nothing, so it may go again, never a timeout
+	// that may have been paid.
+	for name, answer := range map[string]func(http.ResponseWriter, <-chan struct{}){
+		"before storage answers": func(_ http.ResponseWriter, release <-chan struct{}) { <-release },
+		"while the file is read": func(w http.ResponseWriter, release <-chan struct{}) {
+			w.Header().Set("Content-Length", "1048576")
+			_, _ = w.Write(make([]byte, 1024))
+			w.(http.Flusher).Flush()
+			<-release
+		},
+	} {
+		t.Run("a download the deadline cuts short "+name, func(t *testing.T) {
+			release := make(chan struct{})
+			storage := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { answer(w, release) }))
+			defer storage.Close()
+			defer close(release)
+			p, u := serve(t, reply(200, answerOK()))
+			p.cfg.Fetch = storage.Client()
+			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel()
+			_, err := p.Submit(ctx, job(t, nil, jobs.Input{ContentType: "image/jpeg", URL: storage.URL + "/x.jpg?X-Amz-Signature=sig"}))
+			if pe := classOf(t, err); pe.Class != jobs.Unavailable || u.calls != 0 || strings.Contains(err.Error(), "X-Amz-Signature") {
+				t.Errorf("class %s, calls %d: %v", pe.Class, u.calls, err)
+			}
+		})
+	}
 }
 
 func TestAConnectionNeverMadeIsSafeToRetry(t *testing.T) {

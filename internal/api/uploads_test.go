@@ -115,6 +115,70 @@ func TestOnlyAFewPhotosAreConvertedAtOnce(t *testing.T) {
 	}
 }
 
+// A photo coming in over a slow line holds no conversion slot: another
+// person's photo is converted meanwhile, and the slow one after its bytes
+// are in.
+func TestASlowPhotoKeepsNoOneWaiting(t *testing.T) {
+	r := newRig(t, func(o *rigOptions) {
+		o.cfg = func(c *Config) { c.UploadSlots, c.UploadWait = 1, 100*time.Millisecond }
+	})
+	r.up.asset = storage.Asset{ID: 1, ContentType: "image/jpeg"}
+	pr, pw := io.Pipe()
+	slow := make(chan *http.Response, 1)
+	go func() { slow <- r.do(alice, "POST", "/api/uploads", pr) }()
+	pw.Write([]byte("half"))
+	eventually(t, "the slow photo to come in", func() bool {
+		r.up.mu.Lock()
+		defer r.up.mu.Unlock()
+		return r.up.reading == 1
+	})
+	if resp := r.do(bob, "POST", "/api/uploads", strings.NewReader("x")); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("bob's photo while alice's comes in: %d %v", resp.StatusCode, jsonOf(t, resp))
+	}
+	pw.Write([]byte(" of it"))
+	pw.Close()
+	if resp := <-slow; resp.StatusCode != http.StatusCreated {
+		t.Errorf("the slow one: %d", resp.StatusCode)
+	}
+}
+
+// Two photos of one person's may come in at once, as two tabs send them; a
+// third waits for one of them, and no one else does.
+func TestAPersonSendsTwoPhotosAtOnce(t *testing.T) {
+	r := newRig(t)
+	r.up.asset = storage.Asset{ID: 1, ContentType: "image/jpeg"}
+	var pipes []*io.PipeWriter
+	answers := make(chan *http.Response, 2)
+	for range 2 {
+		pr, pw := io.Pipe()
+		pipes = append(pipes, pw)
+		go func() { answers <- r.do(alice, "POST", "/api/uploads", pr) }()
+	}
+	eventually(t, "two photos to come in", func() bool {
+		r.up.mu.Lock()
+		defer r.up.mu.Unlock()
+		return r.up.reading == 2
+	})
+	third := r.do(alice, "POST", "/api/uploads", strings.NewReader("x"))
+	if m := jsonOf(t, third); third.StatusCode != http.StatusServiceUnavailable || m["error"] != "busy" || third.Header.Get("Retry-After") == "" {
+		t.Errorf("a third: %d %v", third.StatusCode, m)
+	}
+	if resp := r.do(bob, "POST", "/api/uploads", strings.NewReader("x")); resp.StatusCode != http.StatusCreated {
+		t.Errorf("bob's: %d", resp.StatusCode)
+	}
+	for _, pw := range pipes {
+		pw.Close()
+	}
+	for range 2 {
+		if resp := <-answers; resp.StatusCode != http.StatusCreated {
+			t.Errorf("one of the two: %d", resp.StatusCode)
+		}
+	}
+	if resp := r.do(alice, "POST", "/api/uploads", strings.NewReader("x")); resp.StatusCode != http.StatusCreated {
+		t.Errorf("after them: %d", resp.StatusCode)
+	}
+}
+
 // A phone on a slow line sends 50 MB in minutes, and the conversion comes
 // after: the server's ordinary deadlines are for small JSON.
 func TestASlowUploadGetsLongerDeadlines(t *testing.T) {

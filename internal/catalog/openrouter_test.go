@@ -86,8 +86,8 @@ func TestFetchReadsEveryCatalog(t *testing.T) {
 	for _, of := range up.Offers {
 		kinds[of.Kind]++
 	}
-	if kinds[Image] != 62 || kinds[Video] != 31 {
-		t.Fatalf("offers by kind = %v, want 62 images and 31 videos", kinds)
+	if kinds[Image] != 64 || kinds[Video] != 31 {
+		t.Fatalf("offers by kind = %v, want 64 images and 31 videos", kinds)
 	}
 
 	nb := offerByID(t, up.Offers, "openrouter:google/gemini-nano-banana-2.1")
@@ -175,6 +175,97 @@ func TestFetchKeepsAModelWhoseEndpointsFail(t *testing.T) {
 	}
 }
 
+// edited serves a fixture listing after edit has changed its entries.
+func edited(t *testing.T, name string, edit func(entries []map[string]any) []map[string]any) http.HandlerFunc {
+	t.Helper()
+	var l struct {
+		Data []map[string]any `json:"data"`
+	}
+	readJSON(t, filepath.Join(fixtures, name), &l)
+	l.Data = edit(l.Data)
+	body, err := json.Marshal(l)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(body) }
+}
+
+// set changes one field of the entry with id.
+func set(id, field string, value any) func([]map[string]any) []map[string]any {
+	return func(entries []map[string]any) []map[string]any {
+		for _, e := range entries {
+			if e["id"] == id {
+				e[field] = value
+			}
+		}
+		return entries
+	}
+}
+
+// One field OpenRouter changes on one model keeps that model as the store
+// has it, and the rest of the catalog is refreshed.
+func TestFetchKeepsAModelWhoseEntryDoesNotDecode(t *testing.T) {
+	for _, c := range []struct {
+		path, file, id, field string
+		value                 any
+	}{
+		{"/api/v1/videos/models", "videos.json", "heygen/heygen-video-1", "supported_durations", "5 to 30"},
+		{"/api/v1/images/models", "images.json", "krea/k3-edit", "supported_parameters", []any{"n"}},
+		// /models gives a video its input kinds: without them the offer
+		// would lose its images.
+		{"/api/v1/models", "models.json", "bytedance/seedance-2.0-mini", "expiration_date", 20261111},
+	} {
+		t.Run(c.id, func(t *testing.T) {
+			srv := fixtureServer(t, map[string]http.HandlerFunc{c.path: edited(t, c.file, set(c.id, c.field, c.value))})
+			up, err := source(srv).Fetch(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			id := "openrouter:" + c.id
+			if !slices.Equal(up.Partial, []string{id}) || !strings.Contains(up.Why[id], c.path[len("/api/v1"):]) {
+				t.Fatalf("partial %v, why %q", up.Partial, up.Why)
+			}
+			for _, of := range up.Offers {
+				if of.ID == id {
+					t.Fatal("an offer that did not decode was passed on")
+				}
+			}
+			if len(up.Offers) != 94 {
+				t.Errorf("%d offers, want the other 94", len(up.Offers))
+			}
+		})
+	}
+}
+
+func TestFetchSkipsAnEntryWithNoID(t *testing.T) {
+	srv := fixtureServer(t, map[string]http.HandlerFunc{"/api/v1/videos/models": edited(t, "videos.json",
+		func(entries []map[string]any) []map[string]any {
+			return append(entries, map[string]any{"name": "nameless", "supported_durations": "soon"})
+		})})
+	up, err := source(srv).Fetch(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(up.Partial) != 0 || len(up.Unreadable) != 1 || !strings.Contains(up.Unreadable[0], "entry 31") {
+		t.Fatalf("partial %v, unreadable %q", up.Partial, up.Unreadable)
+	}
+}
+
+// A field that changed on most models is OpenRouter's answer changing, not
+// its models: the catalog stays as the last good hour left it.
+func TestFetchFailsWhenMostEntriesDoNotDecode(t *testing.T) {
+	srv := fixtureServer(t, map[string]http.HandlerFunc{"/api/v1/videos/models": edited(t, "videos.json",
+		func(entries []map[string]any) []map[string]any {
+			for _, e := range entries {
+				e["supported_durations"] = "5 to 30"
+			}
+			return entries
+		})})
+	if _, err := source(srv).Fetch(context.Background()); err == nil || !strings.Contains(err.Error(), "31 of 31 entries") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestFetchFailsWhenMostEndpointsFail(t *testing.T) {
 	var calls atomic.Int32
 	srv := fixtureServer(t, nil)
@@ -231,6 +322,14 @@ func TestFetchReadsDiscounts(t *testing.T) {
 	heygen := offerByID(t, up.Offers, "openrouter:heygen/heygen-video-1")
 	if heygen.Routes[0].Discount != 0.5 {
 		t.Fatalf("heygen discount = %v, want 0.5", heygen.Routes[0].Discount)
+	}
+	// A video model's one upstream names its route, so its own options can
+	// be addressed; one whose upstreams were not read stays unnamed.
+	if r := heygen.Routes[0]; r.Upstream != "heygen" || r.Provider != "" {
+		t.Errorf("heygen's route is %+v", r)
+	}
+	if u := offerByID(t, up.Offers, "openrouter:google/veo-3.1").Routes[0].Upstream; u != "" {
+		t.Errorf("veo's unread route is under %q", u)
 	}
 	flash := offerByID(t, up.Offers, "openrouter:google/gemini-3.1-flash-image")
 	got := map[string]float64{}

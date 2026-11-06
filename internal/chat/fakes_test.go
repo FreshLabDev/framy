@@ -28,6 +28,7 @@ import (
 	"github.com/FreshLabDev/framy/internal/jobs"
 	"github.com/FreshLabDev/framy/internal/keys"
 	"github.com/FreshLabDev/framy/internal/media"
+	"github.com/FreshLabDev/framy/internal/price"
 	"github.com/FreshLabDev/framy/internal/storage"
 )
 
@@ -55,12 +56,16 @@ type call struct {
 }
 
 type fakeTelegram struct {
-	mu      sync.Mutex
-	calls   []call
-	next    int64
-	fail    map[string]error // by method
-	answers []string         // "text" or "alert:text"
-	files   map[string]string
+	mu    sync.Mutex
+	calls []call
+	next  int64
+	fail  map[string]error // by method
+	// failOnce fails the next call of a method, and only that one.
+	failOnce map[string]error
+	answers  []string // "text" or "alert:text"
+	files    map[string]string
+	// answeredAt is how many calls were made when each answer came.
+	answeredAt []int
 	// inlineAnswers are the inline answers, in order.
 	inlineAnswers []tg.InlineAnswer
 	// prepared are the results saved for shareMessage, in order.
@@ -72,15 +77,28 @@ type fakeTelegram struct {
 	beforeEphemeral func()
 	// onVideo sees a video send before its files are read.
 	onVideo func(tg.VideoOptions)
+	// beforeDownload runs as a download starts, as a slow one would let
+	// another update come.
+	beforeDownload func()
+	// onPhoto runs as a photo send starts, as a stop would come in the
+	// middle of one; a send whose context has ended by then fails.
+	onPhoto func()
+	// videoUnnumbered has a video come back with the id 0, as one sent to
+	// a large group does while Telegram re-encodes it.
+	videoUnnumbered bool
+	// groupShort has an album come back with its first message only, as a
+	// proxy in front of Telegram might answer.
+	groupShort bool
 }
 
 func newTelegram() *fakeTelegram {
-	return &fakeTelegram{next: 100, fail: map[string]error{}, files: map[string]string{}}
+	return &fakeTelegram{next: 100, fail: map[string]error{}, failOnce: map[string]error{}, files: map[string]string{}}
 }
 
-// record keeps a call. An ephemeral send fails with fail["ephemeral"], and
-// comes back with an ephemeral id instead of a message id; a send with a
-// cover fails with fail["cover"].
+// record keeps a call. An ephemeral send fails with fail["ephemeral"], one
+// a press lets framy make with fail["press"] too, and comes back with an
+// ephemeral id instead of a message id; a send with a cover fails with
+// fail["cover"].
 func (f *fakeTelegram) record(c call) (tg.Message, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -90,10 +108,28 @@ func (f *fakeTelegram) record(c call) (tg.Message, error) {
 	if err := f.fail[c.method]; err != nil {
 		return tg.Message{}, err
 	}
+	if err := f.failOnce[c.method]; err != nil {
+		delete(f.failOnce, c.method)
+		return tg.Message{}, err
+	}
+	// Telegram refuses a caption over 1024 characters, and the media with it.
+	switch c.method {
+	case "sendPhoto", "sendDocument", "sendVideo", "sendAnimation", "sendMediaGroup":
+		if captionLen(c.text) > maxCaption {
+			return tg.Message{}, &tg.APIError{Method: c.method, StatusCode: 400, ErrorCode: 400, Description: "Bad Request: message caption is too long"}
+		}
+	}
 	if err := f.fail["ephemeral"]; err != nil && c.ephemeral != nil {
 		return tg.Message{}, err
 	}
+	if err := f.fail["press"]; err != nil && c.ephemeral != nil && c.ephemeral.CallbackQueryID != "" {
+		return tg.Message{}, err
+	}
 	if err := f.fail["cover"]; err != nil && c.cover != "" {
+		return tg.Message{}, err
+	}
+	// fail["local"] is a server that cannot read a file sent by its path.
+	if err := f.fail["local"]; err != nil && (strings.Contains(c.file, "local:") || strings.Contains(c.cover, "local:")) {
 		return tg.Message{}, err
 	}
 	f.calls = append(f.calls, c)
@@ -111,9 +147,20 @@ func fileOf(file tg.InputFile) string {
 		return "upload:" + v.Filename
 	case tg.InputFileString:
 		return v.Data
+	case tg.InputFileLocal:
+		// The server reads the file in the call: it must be there whole.
+		b, err := os.ReadFile(v.Path)
+		if err != nil || !filepath.IsAbs(v.Path) {
+			return "missing:" + filepath.Base(v.Path)
+		}
+		localRead.Store(v.Path, string(b))
+		return "local:" + filepath.Base(v.Path)
 	}
 	return "?"
 }
+
+// localRead is what the server read of each file sent by its path.
+var localRead sync.Map // path → content
 
 func (f *fakeTelegram) SendReply(_ context.Context, chatID, replyTo int64, threadID int, text string, markup *tg.InlineKeyboardMarkup) (tg.Message, error) {
 	return f.record(call{method: "sendMessage", chatID: chatID, messageID: replyTo, thread: threadID, text: text, markup: markup})
@@ -124,7 +171,13 @@ func (f *fakeTelegram) SendEphemeralMessage(_ context.Context, chatID, receiver,
 		ephemeral: &tg.Ephemeral{ReceiverUserID: receiver}, replyEphemeral: ephemeralID})
 }
 
-func (f *fakeTelegram) SendPhoto(_ context.Context, chatID int64, photo tg.InputFile, o tg.CaptionOptions) (tg.Message, error) {
+func (f *fakeTelegram) SendPhoto(ctx context.Context, chatID int64, photo tg.InputFile, o tg.CaptionOptions) (tg.Message, error) {
+	if f.onPhoto != nil {
+		f.onPhoto()
+		if err := ctx.Err(); err != nil {
+			return tg.Message{}, err
+		}
+	}
 	m, err := f.record(call{method: "sendPhoto", chatID: chatID, messageID: o.ReplyTo, thread: o.ThreadID, text: o.Caption, markup: o.Markup, file: fileOf(photo),
 		ephemeral: o.Ephemeral, replyEphemeral: o.ReplyToEphemeral})
 	m.Photo = []tg.Photo{{FileID: "small"}, {FileID: "photo-file", FileUniqueID: "photo-unique"}}
@@ -155,6 +208,9 @@ func (f *fakeTelegram) SendVideo(_ context.Context, chatID int64, v tg.InputFile
 	}
 	m, err := f.record(c)
 	m.Video = &tg.Video{FileID: "video-file", FileUniqueID: "video-unique"}
+	if f.videoUnnumbered {
+		m.MessageID = 0
+	}
 	return m, err
 }
 
@@ -223,12 +279,6 @@ func (f *fakeTelegram) SendRich(_ context.Context, chatID int64, html string, o 
 
 func (f *fakeTelegram) EditMessageRich(_ context.Context, chatID, messageID int64, html string, media []tg.RichMedia, markup *tg.InlineKeyboardMarkup, _ ...tg.RichOption) error {
 	_, err := f.record(call{method: "editMessageRich", chatID: chatID, messageID: messageID, text: html, markup: markup, file: richFiles(media)})
-	return err
-}
-
-func (f *fakeTelegram) EditEphemeralMessageRich(_ context.Context, chatID, receiver, id int64, html string, media []tg.RichMedia, markup *tg.InlineKeyboardMarkup, _ ...tg.RichOption) error {
-	_, err := f.record(call{method: "editEphemeralMessageRich", chatID: chatID, messageID: id, text: html, markup: markup,
-		file: richFiles(media), action: strconv.FormatInt(receiver, 10)})
 	return err
 }
 
@@ -316,6 +366,9 @@ func (f *fakeTelegram) SendMediaGroup(_ context.Context, chatID int64, items []t
 			out[i].Photo = []tg.Photo{{FileID: id, FileUniqueID: unique}}
 		}
 	}
+	if f.groupShort {
+		out = out[:1]
+	}
 	return out, nil
 }
 
@@ -332,6 +385,9 @@ func (f *fakeTelegram) GetFile(_ context.Context, fileID string) (tg.File, error
 }
 
 func (f *fakeTelegram) DownloadToFile(_ context.Context, filePath, dst string, _ int64) error {
+	if f.beforeDownload != nil {
+		f.beforeDownload()
+	}
 	if _, err := f.record(call{method: "download", file: filePath}); err != nil {
 		return err
 	}
@@ -341,7 +397,7 @@ func (f *fakeTelegram) DownloadToFile(_ context.Context, filePath, dst string, _
 func (f *fakeTelegram) AnswerCallbackQuery(_ context.Context, _ string, text string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.answers = append(f.answers, text)
+	f.answers, f.answeredAt = append(f.answers, text), append(f.answeredAt, len(f.calls))
 	return nil
 }
 
@@ -422,7 +478,7 @@ func (f *fakeTelegram) AnswerInlineQuery(_ context.Context, id string, answer tg
 func (f *fakeTelegram) AnswerCallbackQueryAlert(_ context.Context, _ string, text string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.answers = append(f.answers, "alert:"+text)
+	f.answers, f.answeredAt = append(f.answers, "alert:"+text), append(f.answeredAt, len(f.calls))
 	return nil
 }
 
@@ -434,7 +490,7 @@ func (f *fakeTelegram) cards() []call {
 	var out []call
 	for _, c := range f.calls {
 		switch c.method {
-		case "sendRichMessage", "editMessageRich", "editEphemeralMessageRich", "sendPhoto", "editMessageMedia":
+		case "sendRichMessage", "editMessageRich", "sendPhoto", "editMessageMedia":
 			out = append(out, c)
 		}
 	}
@@ -457,7 +513,7 @@ func (f *fakeTelegram) methods(method string) []call {
 func (f *fakeTelegram) reset() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.calls, f.answers = nil, nil
+	f.calls, f.answers, f.answeredAt = nil, nil, nil
 }
 
 // fakeJob is a job as the fake queue keeps it.
@@ -465,6 +521,10 @@ type fakeJob struct {
 	n      jobs.New
 	status jobs.Status
 	class  jobs.Class
+	// deleted: the person deleted the job, on the site or with the account.
+	deleted bool
+	// finished is when the job ended, as setStatus to an end stamps it.
+	finished time.Time
 }
 
 type fakeStore struct {
@@ -497,6 +557,25 @@ type fakeStore struct {
 	shares map[int64]db.ShareSource
 	// shareOwner is whose each of shares is.
 	shareOwner map[int64]int64
+	// previewErr fails SetChatRunPreview.
+	previewErr error
+	// settings are each person's settings of the site, by user id.
+	settings map[int64]db.Settings
+	// inlineReads counts the reads of inline results.
+	inlineReads int
+	// finishErr fails the next FinishChatRun, as a database hiccup would;
+	// inlineErrs fail as many SetChatRunInline.
+	finishErr  error
+	inlineErrs int
+}
+
+func (s *fakeStore) Settings(_ context.Context, userID int64) (db.Settings, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if st, ok := s.settings[userID]; ok {
+		return st, nil
+	}
+	return db.Settings{Deliver: true}, nil
 }
 
 // ShareSource finds the person's result in s.shares.
@@ -522,6 +601,7 @@ func (s *fakeStore) InlineResults(_ context.Context, user int64, search string, 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.inlineAsked = inlineAsk{user: user, before: before, search: search, limit: limit}
+	s.inlineReads++
 	var out []db.InlineResult
 	for _, r := range s.inline {
 		if (before == 0 || r.JobID < before) && len(out) < limit {
@@ -682,7 +762,51 @@ func (s *fakeStore) AddChatRun(_ context.Context, r db.ChatRun) error {
 func (s *fakeStore) ChatRun(_ context.Context, jobID int64) (db.ChatRun, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.deleted(jobID) {
+		return db.ChatRun{}, db.ErrNoRun
+	}
 	return s.read(jobID)
+}
+
+func (s *fakeStore) deleted(jobID int64) bool {
+	j := s.jobs[jobID]
+	return j != nil && j.deleted
+}
+
+// deleteJob deletes the job as the site does: its run goes with it unless
+// the preview or loop is still in the chat.
+func (s *fakeStore) deleteJob(jobID int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.jobs[jobID].deleted = true
+	s.jobs[jobID].n.Prompt = ""
+	if r, ok := s.runs[jobID]; ok && r.Stage != db.StagePreview && r.Stage != db.StageGenerating {
+		delete(s.runs, jobID)
+	}
+}
+
+func (s *fakeStore) DeletedChatRuns(_ context.Context, open bool) ([]db.ChatRun, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []db.ChatRun
+	for id, r := range s.runs {
+		if s.deleted(id) && (!open || r.Stage == db.StagePreview || r.Stage == db.StageGenerating) {
+			run, _ := s.read(id)
+			out = append(out, run)
+		}
+	}
+	slices.SortFunc(out, func(a, b db.ChatRun) int { return int(a.JobID - b.JobID) })
+	return out, nil
+}
+
+func (s *fakeStore) DropChatRun(_ context.Context, jobID int64) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.runs[jobID]; !ok || !s.deleted(jobID) {
+		return false, nil
+	}
+	delete(s.runs, jobID)
+	return true, nil
 }
 
 func (s *fakeStore) read(jobID int64) (db.ChatRun, error) {
@@ -693,6 +817,7 @@ func (s *fakeStore) read(jobID int64) (db.ChatRun, error) {
 	out := *r
 	if j := s.jobs[jobID]; j != nil {
 		out.UserID, out.Prompt, out.Free, out.Status, out.ErrorClass = j.n.UserID, j.n.Prompt, j.n.Free, string(j.status), string(j.class)
+		out.Finished = j.finished
 		out.Kind = string(j.n.Offer.Kind)
 		m, _, _ := s.offer(j.n.Offer.ID)
 		out.Model, out.OfferID = m.Name, j.n.Offer.ID
@@ -711,6 +836,9 @@ func (s *fakeStore) read(jobID int64) (db.ChatRun, error) {
 func (s *fakeStore) SetChatRunPreview(_ context.Context, jobID, messageID int64, ephemeral bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.previewErr != nil {
+		return s.previewErr
+	}
 	if r, ok := s.runs[jobID]; ok {
 		r.PreviewMessageID, r.PreviewEphemeral, r.PanelMessageID = messageID, ephemeral, 0
 	}
@@ -720,6 +848,10 @@ func (s *fakeStore) SetChatRunPreview(_ context.Context, jobID, messageID int64,
 func (s *fakeStore) SetChatRunInline(_ context.Context, jobID int64, inlineMessageID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.inlineErrs > 0 {
+		s.inlineErrs--
+		return errBoom
+	}
 	if r, ok := s.runs[jobID]; ok {
 		r.InlineMessageID = inlineMessageID
 	}
@@ -740,7 +872,7 @@ func (s *fakeStore) OpenChatRuns(context.Context) ([]db.ChatRun, error) {
 	defer s.mu.Unlock()
 	var out []db.ChatRun
 	for id, r := range s.runs {
-		if r.Stage == db.StagePreview || r.Stage == db.StageGenerating {
+		if (r.Stage == db.StagePreview || r.Stage == db.StageGenerating) && !s.deleted(id) {
 			run, _ := s.read(id)
 			out = append(out, run)
 		}
@@ -797,12 +929,27 @@ func (s *fakeStore) StopChatRun(_ context.Context, jobID int64) (bool, error) {
 func (s *fakeStore) FinishChatRun(_ context.Context, jobID int64, stage string, res db.ChatResult) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.finishErr; err != nil {
+		s.finishErr = nil
+		return false, err
+	}
 	r, ok := s.runs[jobID]
 	if !ok || r.Stage != db.StageGenerating {
 		return false, nil
 	}
-	r.Stage, r.ResultMessageID = stage, res.MessageID
+	r.Stage, r.ResultMessageID, r.ResultFileUniqueID = stage, res.MessageID, res.FileUniqueID
 	s.results[jobID] = res
+	return true, nil
+}
+
+func (s *fakeStore) FoundResultMessage(_ context.Context, jobID, messageID int64) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.runs[jobID]
+	if !ok || r.Stage != db.StageDone || r.ResultMessageID != 0 || messageID <= 0 {
+		return false, nil
+	}
+	r.ResultMessageID = messageID
 	return true, nil
 }
 
@@ -819,6 +966,12 @@ func (s *fakeStore) setStatus(jobID int64, st jobs.Status, class jobs.Class) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.jobs[jobID].status, s.jobs[jobID].class = st, class
+	switch st {
+	case jobs.Done, jobs.Failed, jobs.Cancelled, jobs.Expired:
+		if s.now != nil {
+			s.jobs[jobID].finished = s.now()
+		}
+	}
 }
 
 // fakeQueue makes jobs in the fake store; refuse fails a free draft.
@@ -830,6 +983,8 @@ type fakeQueue struct {
 	cancelErr error
 	cancelled []int64
 	revised   []jobs.New
+	// repromptErr fails Reprompt.
+	repromptErr error
 }
 
 // Revise changes a draft as the queue does; refuse fails a free one.
@@ -848,6 +1003,21 @@ func (q *fakeQueue) Revise(_ context.Context, id int64, n jobs.New) error {
 	if n.Inputs != nil {
 		j.n.Inputs = n.Inputs
 	}
+	return nil
+}
+
+// Reprompt gives a draft new words as the queue does; repromptErr fails it.
+func (q *fakeQueue) Reprompt(_ context.Context, id int64, prompt string, estimate *price.Estimate) error {
+	if q.repromptErr != nil {
+		return q.repromptErr
+	}
+	q.store.mu.Lock()
+	defer q.store.mu.Unlock()
+	j := q.store.jobs[id]
+	if j == nil || j.status != jobs.Draft {
+		return jobs.ErrNotDraft
+	}
+	j.n.Prompt, j.n.Estimate = prompt, estimate
 	return nil
 }
 
@@ -900,6 +1070,9 @@ type fakeFiles struct {
 	uploads int
 	fail    error
 	results map[int64][]storage.Asset
+	// resultsErr fails Results, and openErr Open, as a bucket that does not
+	// answer would.
+	resultsErr, openErr error
 	// joined maps a job to the clip Continue joined it to; opened are the
 	// keys Open read, in order.
 	joined map[int64]storage.Asset
@@ -984,6 +1157,9 @@ func (f *fakeFiles) UploadCopy(_ context.Context, userID int64, r io.Reader, cop
 func (f *fakeFiles) Results(_ context.Context, jobID int64) ([]storage.Asset, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.resultsErr != nil {
+		return nil, f.resultsErr
+	}
 	return f.results[jobID], nil
 }
 
@@ -998,6 +1174,9 @@ func (f *fakeFiles) Open(_ context.Context, a storage.Asset) (io.ReadCloser, err
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.opened = append(f.opened, a.Key)
+	if f.openErr != nil {
+		return nil, f.openErr
+	}
 	if b, ok := f.blobs[a.Key]; ok {
 		return io.NopCloser(bytes.NewReader(b)), nil
 	}
@@ -1187,7 +1366,7 @@ func newHarness(t *testing.T) *harness {
 	}
 	f, err := New(Config{
 		Telegram: h.tg, Store: store, Queue: h.queue, Files: h.files, Allowance: fakeAllowance{left: 5},
-		Renderer: h.renderer, Clips: clips, Work: media.Work{Root: t.TempDir()},
+		Renderer: h.renderer, Clips: clips, Work: media.Work{Root: t.TempDir()}, Username: "framyin_bot",
 	})
 	if err != nil {
 		t.Fatal(err)

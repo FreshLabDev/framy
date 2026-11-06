@@ -46,10 +46,12 @@ func worse(a, b Kind) Kind {
 // Image is the size of an input image after framy's input pipeline.
 type Image struct{ Width, Height int }
 
-// Video is an attached video, as ffprobe reads it.
+// Video is an attached video, as ffprobe reads it. FPS is 0 where it is
+// not known.
 type Video struct {
 	Seconds       float64
 	Width, Height int
+	FPS           float64
 }
 
 // Request is what the person is about to run. Settings carries the value of
@@ -100,15 +102,19 @@ type Estimate struct {
 	// Note says why the price is only a floor, when Kind is From.
 	Note string `json:"note,omitempty"`
 	// Discount is the share the route takes off its listed rates, 0.15 for
-	// 15%, and USD and MaxUSD are after it. ListUSD and ListMaxUSD are the
-	// same figures at the listed rates, for a price shown struck through;
-	// both are zero without a discount.
+	// 15%, and USD and MaxUSD are after it; a rate the discount leaves out,
+	// as HeyGen's past 15 s, is billed in full. ListUSD and ListMaxUSD are
+	// the same figures at the listed rates, for a price shown struck
+	// through; both are zero without a discount.
 	Discount   float64 `json:"discount,omitempty"`
 	ListUSD    float64 `json:"list_usd,omitempty"`
 	ListMaxUSD float64 `json:"list_max_usd,omitempty"`
 	// Lines are at the listed rates, before the discount.
 	Lines []Line `json:"lines,omitempty"`
 }
+
+// Most is the most the run can cost: MaxUSD, or USD where nothing is open.
+func (e Estimate) Most() float64 { return math.Max(e.USD, e.MaxUSD) }
 
 // Of estimates a run of the offer of model m.
 func Of(m catalog.Model, of catalog.Offer, req Request) Estimate {
@@ -144,16 +150,19 @@ func Of(m catalog.Model, of catalog.Offer, req Request) Estimate {
 }
 
 // calc is one route's estimate in progress: lo is the likely total, hi the
-// most it can be.
+// most it can be, both at the listed rates. loKept and hiKept are the parts
+// of them the route's discount leaves out.
 type calc struct {
-	m       catalog.Model
-	of      catalog.Offer
-	hints   catalog.PriceHints
-	req     Request
-	lo, hi  float64
-	kind    Kind
-	unknown []string
-	lines   []Line
+	m              catalog.Model
+	of             catalog.Offer
+	hints          catalog.PriceHints
+	req            Request
+	discount       float64
+	lo, hi         float64
+	loKept, hiKept float64
+	kind           Kind
+	unknown        []string
+	lines          []Line
 }
 
 func route(m catalog.Model, of catalog.Offer, r catalog.Route, req Request) Estimate {
@@ -161,29 +170,51 @@ func route(m catalog.Model, of catalog.Offer, r catalog.Route, req Request) Esti
 	if m.Traits.Price != nil {
 		c.hints = *m.Traits.Price
 	}
-	c.prices(r.Prices)
+	if catalog.Discounted(r.Discount) {
+		c.discount = r.Discount
+	}
+	c.prices(withUnlisted(r.Prices, c.hints.Unlisted))
 	c.skus(r.SKUs)
 	if req.Sounds > 0 {
 		c.cannot("the reference sounds")
 	}
-	e := Estimate{Offer: of.ID, Route: r.Provider, USD: c.lo, MaxUSD: math.Max(c.hi, c.lo), Kind: c.kind, Unknown: c.unknown, Lines: c.lines}
+	e := Estimate{Offer: of.ID, Route: r.Provider, Kind: c.kind, Unknown: c.unknown, Lines: c.lines}
 	if c.hints.From != "" && e.Kind != Unknown {
 		e.Kind, e.Note = From, c.hints.From
 	}
 	if len(e.Unknown) > 0 && e.Kind == Exact {
 		e.Kind = About
 	}
-	if e.Kind == Exact {
-		e.MaxUSD = e.USD
+	// OpenRouter shows the listed rate struck through and bills the
+	// discounted one (docs/design.md, Price and currency), except on what its
+	// page marks as left out of the discount.
+	d := c.discount
+	billed := func(listed, kept float64) float64 { return (listed-kept)*(1-d) + kept }
+	e.USD, e.MaxUSD = billed(c.lo, c.loKept), billed(c.hi, c.hiKept)
+	listMax := c.hi
+	if e.Kind == Exact || e.MaxUSD <= e.USD {
+		e.MaxUSD, listMax = e.USD, c.lo
 	}
-	if d := r.Discount; catalog.Discounted(d) {
-		// OpenRouter shows the listed rate struck through and bills the
-		// discounted one (docs/design.md, Price and currency).
-		e.Discount, e.ListUSD, e.ListMaxUSD = d, e.USD, e.MaxUSD
-		e.USD *= 1 - d
-		e.MaxUSD *= 1 - d
+	if d > 0 {
+		e.Discount, e.ListUSD, e.ListMaxUSD = d, c.lo, math.Max(listMax, c.lo)
 	}
 	return e
+}
+
+// withUnlisted adds the overlay's unlisted lines to a route's prices: each
+// one the route bills without listing it. A route with no prices at all is
+// priced some other way, by SKUs or not at all, and is left as it is.
+func withUnlisted(rows, unlisted []catalog.Price) []catalog.Price {
+	if len(rows) == 0 || len(unlisted) == 0 {
+		return rows
+	}
+	out := slices.Clip(rows)
+	for _, u := range unlisted {
+		if !slices.ContainsFunc(rows, func(p catalog.Price) bool { return p.Billable == u.Billable && p.Unit == u.Unit }) {
+			out = append(out, u)
+		}
+	}
+	return out
 }
 
 // add records a line priced at rate for a quantity between qLo and qHi, and

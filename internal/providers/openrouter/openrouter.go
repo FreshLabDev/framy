@@ -10,17 +10,18 @@ package openrouter
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"strings"
 
 	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/FreshLabDev/framy/internal/providers/answer"
 )
 
 // DefaultBase is OpenRouter's API.
@@ -30,18 +31,25 @@ const DefaultBase = "https://openrouter.ai/api/v1"
 // and a run may return several.
 const DefaultMaxResponse = 256 << 20
 
+// imageTries is how many requests in all an image whose generation did not
+// complete gets: the first and two more.
+const imageTries = 3
+
 // DefaultMaxVideo bounds a finished video, which is held in memory while it
 // is copied to R2. Four video workers then hold 512 MiB at most; a 10 s 1080p
 // clip of today's models is 10 to 30 MB.
 const DefaultMaxVideo = 128 << 20
 
-// AppURL and AppTitle are how framy appears in OpenRouter (HTTP-Referer and
-// X-Title): the production bot, from every stack, the test one included, so
-// the activity and the app rankings point people at the product and not at
-// the repository (owner, 28 October).
+// AppURL, AppTitle and AppCategories are how framy appears in OpenRouter's
+// app attribution (HTTP-Referer, X-OpenRouter-Title and
+// X-OpenRouter-Categories): the production bot, from every stack, the test
+// one included, so the activity and the app rankings point people at the
+// product and not at the repository (owner, 28 October). The categories
+// are two of OpenRouter's list, the most a request may name.
 const (
-	AppURL   = "https://t.me/framyin_bot"
-	AppTitle = "framy"
+	AppURL        = "https://t.me/framyin_bot"
+	AppTitle      = "framy"
+	AppCategories = "image-gen,video-gen"
 )
 
 // Config is how the adapter reaches OpenRouter.
@@ -52,10 +60,13 @@ type Config struct {
 	// client needs no timeout of its own.
 	HTTP      *http.Client
 	UserAgent string
-	// Referer and Title name framy in OpenRouter's app rankings
-	// (HTTP-Referer and X-Title).
-	Referer string
-	Title   string
+	// Referer, Title and Categories name framy in OpenRouter's app
+	// rankings and marketplace (HTTP-Referer, X-OpenRouter-Title and
+	// X-OpenRouter-Categories). A title goes also as X-Title, the name
+	// OpenRouter still takes for older apps.
+	Referer    string
+	Title      string
+	Categories string
 	// Key returns the key that pays for the job: framy's own for the free
 	// allowance, the person's connection otherwise. An *jobs.Error keeps its
 	// class; any other error fails the job as internal. The key never reaches
@@ -150,17 +161,55 @@ func (p *Provider) key(ctx context.Context, j jobs.Job) (string, error) {
 	return key, nil
 }
 
-// imageResponse is the answer of POST /images. An error can come with a 200
-// when it happened after the provider took the request.
+// imageResponse is the answer of POST /images, but for its images, which are
+// read one at a time (answer.Each). An error can come with a 200 when it
+// happened after the provider took the request.
 type imageResponse struct {
-	Data []struct {
-		B64JSON   string `json:"b64_json"`
-		MediaType string `json:"media_type"`
-	} `json:"data"`
-	Usage *struct {
-		Cost *float64 `json:"cost"`
-	} `json:"usage"`
+	Usage *usage     `json:"usage"`
 	Error *errorBody `json:"error"`
+}
+
+// usage is what OpenRouter says a run cost. cost is what it charged the
+// account's credits. When the account runs the model with its own key of
+// the provider behind OpenRouter (BYOK, is_byok), that charge is only
+// OpenRouter's fee, and the provider bills the run itself; OpenRouter gives
+// that bill as cost_details.upstream_inference_cost. It documents that
+// field for BYOK runs only: outside BYOK it is null, 0 or the charge again,
+// so it is read only for a BYOK run.
+type usage struct {
+	Cost        *float64 `json:"cost"`
+	BYOK        bool     `json:"is_byok"`
+	CostDetails *struct {
+		Upstream *float64 `json:"upstream_inference_cost"`
+	} `json:"cost_details"`
+}
+
+// total is what the run cost the person: OpenRouter's charge, and beside it
+// for a BYOK run the provider's own bill. A BYOK run whose bill OpenRouter
+// does not give has no known cost, since the fee alone is a small part of
+// what was spent. It is rounded to a nano-dollar, which hides only binary
+// noise.
+func (u *usage) total() *float64 {
+	switch {
+	case u == nil:
+		return nil
+	case !u.BYOK:
+		return u.Cost
+	case u.CostDetails == nil || u.CostDetails.Upstream == nil:
+		return nil
+	}
+	usd := *u.CostDetails.Upstream
+	if u.Cost != nil {
+		usd += *u.Cost
+	}
+	usd = math.Round(usd*1e9) / 1e9
+	return &usd
+}
+
+// image is one element of the answer's data: base64, or a data URL.
+type image struct {
+	B64JSON   answer.Base64 `json:"b64_json"`
+	MediaType string        `json:"media_type"`
 }
 
 func (p *Provider) images(ctx context.Context, key string, body map[string]any) (jobs.Outcome, error) {
@@ -168,22 +217,11 @@ func (p *Provider) images(ctx context.Context, key string, body map[string]any) 
 	if err != nil {
 		return jobs.Outcome{}, &jobs.Error{Class: jobs.Internal, Err: err}
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.cfg.Base+"/images", bytes.NewReader(raw))
+	req, err := p.newRequest(ctx, key, http.MethodPost, p.cfg.Base+"/images", bytes.NewReader(raw))
 	if err != nil {
-		return jobs.Outcome{}, &jobs.Error{Class: jobs.Internal, Err: err}
+		return jobs.Outcome{}, err
 	}
-	req.Header.Set("Authorization", "Bearer "+key)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	if p.cfg.UserAgent != "" {
-		req.Header.Set("User-Agent", p.cfg.UserAgent)
-	}
-	if p.cfg.Referer != "" {
-		req.Header.Set("HTTP-Referer", p.cfg.Referer)
-	}
-	if p.cfg.Title != "" {
-		req.Header.Set("X-Title", p.cfg.Title)
-	}
 	resp, err := p.cfg.HTTP.Do(req)
 	if err != nil {
 		return jobs.Outcome{}, transportError(err)
@@ -193,10 +231,31 @@ func (p *Provider) images(ctx context.Context, key string, body map[string]any) 
 	limited := http.MaxBytesReader(nil, resp.Body, p.cfg.MaxResponse)
 	if resp.StatusCode != http.StatusOK {
 		data, _ := io.ReadAll(io.LimitReader(limited, 1<<20))
-		return jobs.Outcome{}, statusError(resp.StatusCode, resp.Header, data)
+		pe := statusError(resp.StatusCode, resp.Header, data)
+		if resp.StatusCode == http.StatusBadGateway && pe.Class == jobs.ProviderFailed {
+			// A 502 elsewhere may have been paid, and is not sent again
+			// (class). An image's is not: "When a generation does not
+			// complete, the request returns a 502 Bad Gateway", and "a
+			// generation is either completed and billed in full, or it
+			// fails and is not billed" (OpenRouter, Image Generation).
+			// OpenRouter may have tried the model's other routes by then,
+			// and each try is a whole generation, so a model that failed
+			// on a prompt three times is not asked again.
+			pe.Class, pe.Tries = jobs.Unavailable, imageTries
+		}
+		return jobs.Outcome{}, pe
 	}
 	var r imageResponse
-	if err := json.NewDecoder(limited).Decode(&r); err != nil {
+	var images []image
+	err = answer.Each(limited, "data", func(dec *json.Decoder) error {
+		var im image
+		if err := dec.Decode(&im); err != nil {
+			return err
+		}
+		images = append(images, im)
+		return nil
+	}, &r)
+	if err != nil {
 		if ctx.Err() != nil {
 			// Cut short by the deadline or a stop: the queue reads which.
 			return jobs.Outcome{}, fmt.Errorf("read the answer of openrouter: %w", err)
@@ -208,42 +267,39 @@ func (p *Provider) images(ctx context.Context, key string, body map[string]any) 
 		// The run was likely paid, so this is not tried again.
 		return jobs.Outcome{}, &jobs.Error{Class: jobs.ProviderFailed, Err: fmt.Errorf("read the answer of openrouter: %w", err)}
 	}
-	var out jobs.Outcome
-	if r.Usage != nil {
-		out.CostUSD = r.Usage.Cost
-	}
+	out := jobs.Outcome{CostUSD: r.Usage.total()}
 	if r.Error != nil {
 		out.Err = bodyError(r.Error)
 		return out, nil
 	}
-	for i, d := range r.Data {
-		res, err := result(d.B64JSON, d.MediaType)
+	for i, im := range images {
+		res, err := result(im.B64JSON, im.MediaType)
 		if err != nil {
-			out.Err = &jobs.Error{Class: jobs.ProviderFailed, Err: fmt.Errorf("image %d of the answer: %w", i+1, err)}
-			return out, nil
+			// The run is billed in full: a picture that came broken does
+			// not take the others with it.
+			if out.Lost == nil {
+				out.Lost = fmt.Errorf("image %d of the answer: %w", i+1, err)
+			}
+			continue
 		}
 		out.Results = append(out.Results, res)
+	}
+	if len(out.Results) == 0 && out.Lost != nil {
+		out.Err, out.Lost = &jobs.Error{Class: jobs.ProviderFailed, Err: out.Lost}, nil
 	}
 	return out, nil
 }
 
-// result decodes one image of the answer.
-func result(b64, mediaType string) (jobs.Result, error) {
-	if rest, ok := strings.CutPrefix(b64, "data:"); ok {
-		// A data URL instead of bare base64.
-		meta, data, found := strings.Cut(rest, ",")
-		if !found {
-			return jobs.Result{}, errors.New("a data URL with no data")
-		}
-		if mediaType == "" {
-			mediaType, _, _ = strings.Cut(meta, ";")
-		}
-		b64 = data
+// result is one image of the answer, named by the answer's media type, then
+// by its data URL's, then by its bytes.
+func result(b64 answer.Base64, mediaType string) (jobs.Result, error) {
+	if b64.Err != nil {
+		return jobs.Result{}, b64.Err
 	}
-	data, err := base64.StdEncoding.DecodeString(b64)
-	if err != nil {
-		return jobs.Result{}, fmt.Errorf("decode base64: %w", err)
+	if mediaType == "" {
+		mediaType = b64.MediaType
 	}
+	data := b64.Data
 	if len(data) == 0 {
 		return jobs.Result{}, errors.New("an empty image")
 	}

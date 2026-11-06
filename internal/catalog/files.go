@@ -33,6 +33,9 @@ type Overlay struct {
 	HideExpiringWithinDays int `yaml:"hide_expiring_within_days"`
 	// Hide hides every model whose id matches, with the reason.
 	Hide []HideRule `yaml:"hide"`
+	// Exclude leaves values out of the settings of every model whose id
+	// matches, beside the model's own exclude.
+	Exclude []ExcludeRule `yaml:"exclude"`
 	// Makers maps another name of a maker to the one shown: OpenRouter names
 	// one company two ways, and the picker groups models by maker.
 	Makers map[string]string `yaml:"makers"`
@@ -56,9 +59,40 @@ type FamilyInfo struct {
 
 type HideRule struct {
 	// Match is a path.Match pattern over model ids, so "*" stays within one
-	// segment: google/*-preview matches Google's previews only.
+	// segment: openai/gpt-5*-image* matches OpenAI's models only. A pattern
+	// is for a reason true of every id it can match.
 	Match string `yaml:"match"`
 	Why   string `yaml:"why"`
+}
+
+// ExcludeRule is an exclude for a maker's whole line, so that a new model of
+// it comes without the values too: OpenAI's quality=auto, whose price cannot
+// be known before the run, on every GPT Image OpenRouter adds.
+type ExcludeRule struct {
+	// Match is a path.Match pattern over model ids, as a HideRule's.
+	Match  string           `yaml:"match"`
+	Values map[string][]any `yaml:"values"`
+	Why    string           `yaml:"why"`
+}
+
+// excludeOf is what the settings of a model leave out: its own exclude and
+// that of every rule matching its id.
+func (o Overlay) excludeOf(id string) map[string][]any {
+	out := o.Models[id].Exclude
+	for _, r := range o.Exclude {
+		if ok, _ := path.Match(r.Match, id); !ok {
+			continue
+		}
+		merged := maps.Clone(out)
+		if merged == nil {
+			merged = map[string][]any{}
+		}
+		for name, values := range r.Values {
+			merged[name] = append(slices.Clone(merged[name]), values...)
+		}
+		out = merged
+	}
+	return out
 }
 
 type ModelOverlay struct {
@@ -233,6 +267,22 @@ func (f Files) validate() error {
 		}
 		if _, err := path.Match(r.Match, ""); err != nil || r.Match == "" {
 			return fmt.Errorf("overlay: hide rule %q is not a valid pattern", r.Match)
+		}
+	}
+	for _, r := range o.Exclude {
+		if r.Why == "" {
+			return fmt.Errorf("overlay: exclude rule %q needs a reason", r.Match)
+		}
+		if _, err := path.Match(r.Match, ""); err != nil || r.Match == "" {
+			return fmt.Errorf("overlay: exclude rule %q is not a valid pattern", r.Match)
+		}
+		if len(r.Values) == 0 {
+			return fmt.Errorf("overlay: exclude rule %q lists no values", r.Match)
+		}
+		for name, values := range r.Values {
+			if len(values) == 0 {
+				return fmt.Errorf("overlay: exclude rule %q: %s lists no values", r.Match, name)
+			}
 		}
 	}
 	direct := map[string]bool{}
@@ -423,11 +473,20 @@ func (r *References) validate() error {
 	if r == nil {
 		return nil
 	}
-	if *r == (References{}) {
+	if r.Image == 0 && r.Video == 0 && r.Audio == 0 && r.Files == 0 && r.VideoClip == nil && r.AudioClip == nil &&
+		!r.FrameRequired && len(r.ImageDurations) == 0 {
 		return errors.New("references says nothing")
 	}
 	if r.Image < 0 || r.Video < 0 || r.Audio < 0 || r.Files < 0 {
 		return errors.New("references cannot be negative")
+	}
+	for _, d := range r.ImageDurations {
+		if d <= 0 {
+			return errors.New("references.image_durations are seconds above 0")
+		}
+	}
+	if len(r.ImageDurations) > 0 && r.Image == 0 {
+		return errors.New("references.image_durations without references.image")
 	}
 	for name, c := range map[string]*Clip{"video_clip": r.VideoClip, "audio_clip": r.AudioClip} {
 		if c == nil {
@@ -465,8 +524,19 @@ func (h *PriceHints) validate() error {
 	if h == nil {
 		return nil
 	}
-	if len(h.Tokens) == 0 && len(h.OpenAITokens) == 0 && h.OpenAIInputPatches == 0 && h.InputTokensPerMP == 0 && len(h.Variants) == 0 && len(h.Skip) == 0 && h.From == "" && h.FreeImages == 0 && len(h.Sizes) == 0 && h.ClipMinSeconds == 0 {
+	if len(h.Tokens) == 0 && len(h.OpenAITokens) == 0 && len(h.OpenAITokenFactor) == 0 && h.OpenAIInputPatches == 0 && h.InputTokensPerMP == 0 && len(h.Variants) == 0 && len(h.Skip) == 0 && h.From == "" && h.FreeImages == 0 && len(h.Sizes) == 0 && h.ClipMinSeconds == 0 && len(h.Unlisted) == 0 && h.Long == nil {
 		return errors.New("price says nothing")
+	}
+	for i, p := range h.Unlisted {
+		if p.Billable == "" || p.Unit == "" || !(p.CostUSD > 0) || math.IsInf(p.CostUSD, 0) {
+			return fmt.Errorf("price.unlisted[%d] needs billable, unit and a positive cost_usd", i)
+		}
+		if p.Variant != "" {
+			return fmt.Errorf("price.unlisted[%d]: a line of the overlay has no variant", i)
+		}
+	}
+	if l := h.Long; l != nil && (!(l.AfterSeconds > 0) || math.IsInf(l.AfterSeconds, 0)) {
+		return errors.New("price.long.after_seconds must be above zero")
 	}
 	if h.ClipMinSeconds < 0 || math.IsNaN(h.ClipMinSeconds) || math.IsInf(h.ClipMinSeconds, 0) {
 		return errors.New("price.clip_min_seconds cannot be negative")
@@ -503,6 +573,14 @@ func (h *PriceHints) validate() error {
 	for quality, n := range h.OpenAITokens {
 		if n <= 0 {
 			return fmt.Errorf("price.openai_tokens.%s must be above zero", quality)
+		}
+	}
+	for quality, f := range h.OpenAITokenFactor {
+		switch _, based := h.OpenAITokens[quality]; {
+		case !(f > 0) || math.IsInf(f, 0):
+			return fmt.Errorf("price.openai_token_factor.%s must be above zero", quality)
+		case !based:
+			return fmt.Errorf("price.openai_token_factor.%s has no price.openai_tokens.%s to multiply", quality, quality)
 		}
 	}
 	for variant, when := range h.Variants {

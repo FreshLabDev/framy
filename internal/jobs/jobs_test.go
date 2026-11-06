@@ -2,10 +2,15 @@
 package jobs
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/riverqueue/river"
+
+	"github.com/FreshLabDev/framy/internal/catalog"
 )
 
 func TestRedactTakesPresignedLinksOut(t *testing.T) {
@@ -25,20 +30,85 @@ func TestRedactTakesPresignedLinksOut(t *testing.T) {
 	}
 }
 
-// The limits have to fit inside each other: a call inside its attempt, an
-// attempt inside the time after which River rescues it.
+// The limits have to fit inside each other: a call, the writes that follow
+// it, the copy of its results and the ending, each with its own limit,
+// inside the attempt, and River's own attempt inside the time after which
+// it rescues one.
 func TestTheLimitsFitTogether(t *testing.T) {
-	if imageCall+settleWrites >= attemptLimit || attemptLimit >= rescueAfter {
-		t.Errorf("an image: call %v and writes %v, attempt %v, rescue %v", imageCall, settleWrites, attemptLimit, rescueAfter)
+	if imageCall+settleWrites+imageKeep+settleWrites >= imageAttempt {
+		t.Errorf("an image: call %v, writes %v, copy %v and ending %v, attempt %v", imageCall, settleWrites, imageKeep, settleWrites, imageAttempt)
 	}
-	if videoPoll+videoKeep >= videoAttempt {
-		t.Errorf("a video: poll %v and copy %v, attempt %v", videoPoll, videoKeep, videoAttempt)
+	if videoPoll+settleWrites+videoKeep+settleWrites >= videoAttempt {
+		t.Errorf("a video: poll %v, writes %v, copy %v and ending %v, attempt %v", videoPoll, settleWrites, videoKeep, settleWrites, videoAttempt)
+	}
+	if attemptLimit >= rescueAfter {
+		t.Errorf("the sweep's attempt %v, rescue %v", attemptLimit, rescueAfter)
 	}
 	w := &generateWorker{}
 	if got := w.Timeout(&river.Job[generateArgs]{Args: generateArgs{JobID: 1, Video: true}}); got != videoAttempt {
 		t.Errorf("a video's attempt has %v", got)
 	}
-	if got := w.Timeout(&river.Job[generateArgs]{Args: generateArgs{JobID: 1}}); got != 0 {
-		t.Errorf("an image's attempt has %v, not the client's", got)
+	if got := w.Timeout(&river.Job[generateArgs]{Args: generateArgs{JobID: 1}}); got != imageAttempt {
+		t.Errorf("an image's attempt has %v", got)
+	}
+}
+
+// A video's request gets time for the files it may carry: a prompt alone is
+// answered within a minute, a clip of 48 MiB sent inline is not cut short as
+// a run that may be paid, and no request outlasts a poll.
+func TestAVideoRequestHasTimeForTheFilesItCarries(t *testing.T) {
+	clip := func(n int64) Input { return Input{ContentType: "video/mp4", Bytes: n << 20} }
+	for _, c := range []struct {
+		name string
+		j    Job
+		want time.Duration
+	}{
+		{"a picture", Job{Kind: catalog.Image, Inputs: []Input{clip(40)}}, imageCall},
+		{"a prompt alone", Job{Kind: catalog.Video}, videoCall},
+		{"a photo", Job{Kind: catalog.Video, Inputs: []Input{{ContentType: "image/jpeg", Bytes: 900 << 10}}}, videoCall},
+		{"a clip and a frame", Job{Kind: catalog.Video, Inputs: []Input{clip(48), clip(2)}}, videoCall + 50*sendPerMiB},
+		{"more than any adapter takes", Job{Kind: catalog.Video, Inputs: []Input{clip(200)}}, videoPoll},
+	} {
+		if got := callLimit(c.j); got != c.want {
+			t.Errorf("%s: %v, want %v", c.name, got, c.want)
+		}
+	}
+	if videoPoll+settleWrites >= videoAttempt {
+		t.Errorf("the longest request %v and its writes %v, attempt %v", videoPoll, settleWrites, videoAttempt)
+	}
+}
+
+// Pictures get time to be copied by their size: a small one fails soon when
+// the bucket does not answer, four 4K ones are not cut short.
+func TestTheCopyHasTimeForWhatItCopies(t *testing.T) {
+	img, vid := Job{Kind: catalog.Image}, Job{Kind: catalog.Video}
+	mib := func(n int) Result { return Result{ContentType: "image/png", Data: make([]byte, n<<20)} }
+	for _, c := range []struct {
+		name    string
+		j       Job
+		results []Result
+		want    time.Duration
+	}{
+		{"a small picture", img, []Result{{ContentType: "image/png", Data: []byte("png")}}, settleWrites},
+		{"four 4K pictures", img, []Result{mib(10), mib(10), mib(10), mib(10)}, settleWrites + 40*keepPerMiB},
+		{"more than the most", img, []Result{mib(100)}, imageKeep},
+		{"a picture as a link", img, []Result{{ContentType: "image/png", URL: "https://example.com/a.png"}}, imageKeep},
+		{"a video", vid, []Result{{ContentType: "video/mp4", Data: []byte("mp4")}}, videoKeep},
+	} {
+		if got := keepLimit(c.j, c.results); got != c.want {
+			t.Errorf("%s: %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// A key the database could not give is sent again later, wrapped as the
+// adapters wrap it; any other internal error is not.
+func TestAKeyLookupThatFailedIsTriedAgain(t *testing.T) {
+	lookup := &Error{Class: Internal, Err: fmt.Errorf("find the key: %w", fmt.Errorf("%w: %w", ErrKeyLookup, errors.New("connection refused")))}
+	if !lookup.retryable() {
+		t.Error("a failed key lookup is not tried again")
+	}
+	if (&Error{Class: Internal, Err: errors.New("no provider id")}).retryable() {
+		t.Error("another internal error is tried again")
 	}
 }

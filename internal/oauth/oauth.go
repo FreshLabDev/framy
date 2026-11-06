@@ -5,10 +5,12 @@
 // a key: OpenRouter makes one for framy and framy stores it as it stores a
 // pasted one (keys.Service.Save).
 //
-// Two routes carry the flow, both on the public listener:
+// Two routes carry the flow, both on the public listener, and a third lets
+// the Mini App start it:
 //
-//	GET /oauth/openrouter/start     (Connector.Start)
-//	GET /oauth/openrouter/callback  (Connector.Callback)
+//	GET  /oauth/openrouter/start     (Connector.Start)
+//	GET  /oauth/openrouter/callback  (Connector.Callback)
+//	POST /oauth/openrouter/ticket    (Connector.Ticket)
 //
 // Start, for a signed-in person, makes a random verifier and state, keeps the
 // verifier and the hash of the state for ten minutes (Store), puts the state
@@ -20,9 +22,12 @@
 // is exchanged until all of these hold:
 //
 //   - the browser has the cookie, and the state in the URL is the cookie's;
+//     a callback with another state answers a flow this browser no longer
+//     holds (one a newer start replaced, in another tab) and touches neither
+//     the cookie nor the flow, which stay for the callback they belong to;
 //   - the store has the flow of the cookie's state, and has not yet spent it:
 //     the callback spends it before it checks anything else, so no callback
-//     can use a state twice, and a wrong one burns the flow it hit;
+//     can use a state twice;
 //   - the flow has not expired;
 //   - the person signed in now is the person the flow was started for.
 //
@@ -37,8 +42,27 @@
 // cannot be finished in the session of another account. The cookie: only the
 // browser that started the flow can finish it, so a state that leaked in a URL
 // or a log, or a second browser of the same person, finishes nothing. The
-// single use: whatever a callback finds wrong, it has spent the flow, so there
-// is nothing left to retry or guess at.
+// single use: whatever a callback of the cookie's flow finds wrong, it has
+// spent the flow, so there is nothing left to retry or guess at.
+//
+// The Mini App opens Start in the person's browser (openLink), where nobody
+// may be signed in to framy, and a second sign-in there was the hardest step
+// of connecting. Ticket stands in for it: for the person signed in in the
+// Mini App it makes a random ticket that lives five minutes, keeps only its
+// hash, and answers with the start's address carrying it. Start spends the
+// ticket before it checks anything else, refuses one that expired and one
+// brought to a browser where another person is signed in, and opens the
+// flow for the ticket's person, marked as ticketed. The callback of a
+// ticketed flow takes a browser nobody is signed in on; one where another
+// person is signed in still ends Expired. The cookie, PKCE and the single
+// use hold as for every flow.
+//
+// What a ticket risks: whoever opens it first gets the flow. A stranger who
+// learned it and used it before the person's browser did could connect
+// their own OpenRouter account to the person's framy, and would then see the
+// person's prompts in that account's activity. So a ticket lives minutes,
+// is spent by its first use, travels only in the link the Mini App hands to
+// Telegram, never in a message, and is in no log line.
 package oauth
 
 import (
@@ -68,10 +92,17 @@ const Provider = catalog.OpenRouter
 const (
 	StartPath    = "/oauth/openrouter/start"
 	CallbackPath = "/oauth/openrouter/callback"
+	TicketPath   = "/oauth/openrouter/ticket"
 )
+
+// TicketLifetime is how long a ticket of the Mini App waits for its start:
+// the time Telegram takes to open the browser, with room to spare. The Mini
+// App asks for a new one after four minutes.
+const TicketLifetime = 5 * time.Minute
 
 // FlowLifetime is how long a flow lasts from its start: the time to log in at
 // OpenRouter and press Authorize. OpenRouter's own code lives as long.
+// web.oauth.expired says it (TestTheSiteSaysHowLongAConnectionWaits).
 const FlowLifetime = 10 * time.Minute
 
 // cookieName: the __Host- prefix makes a browser take the cookie only if it
@@ -112,8 +143,9 @@ const (
 	// Refused: OpenRouter, or the check of the key, refused what it was
 	// given. Starting again may help; the same result twice is for the owner.
 	Refused Result = "refused"
-	// Unavailable: OpenRouter or framy could not be reached or failed. Try
-	// again later. Nothing was saved.
+	// Unavailable: OpenRouter or framy could not be reached or failed, or
+	// the browser passed the routes' rate limit. Try again later. Nothing
+	// was saved.
 	Unavailable Result = "unavailable"
 )
 
@@ -156,6 +188,7 @@ type Connector struct {
 	store       Store
 	keys        Saver
 	person      func(*http.Request) (int64, bool)
+	site        string
 	authURL     string
 	apiBase     string
 	callbackURL string
@@ -188,6 +221,7 @@ func New(cfg Config) (*Connector, error) {
 		store:       cfg.Store,
 		keys:        cfg.Keys,
 		person:      cfg.Person,
+		site:        site.Scheme + "://" + site.Host,
 		authURL:     orDefault(cfg.AuthURL, DefaultAuthURL),
 		apiBase:     strings.TrimRight(orDefault(cfg.APIBase, DefaultAPIBase), "/"),
 		callbackURL: site.Scheme + "://" + site.Host + CallbackPath,
@@ -246,11 +280,60 @@ func (c *Connector) Start(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if tk := r.URL.Query().Get("ticket"); tk != "" {
+		c.startTicketed(w, r, tk)
+		return
+	}
 	user, ok := c.person(r)
 	if !ok {
 		http.Redirect(w, r, c.loginPath+"?return_to="+url.QueryEscape(StartPath), http.StatusSeeOther)
 		return
 	}
+	c.open(w, r, user, false)
+}
+
+// startTicketed is Start with a ticket of the Mini App: the ticket names
+// the person, and is spent first, whatever is wrong after.
+func (c *Connector) startTicketed(w http.ResponseWriter, r *http.Request, ticket string) {
+	expired := func(reason string) {
+		c.log.Warn("OpenRouter connect not started", "result", Expired, "reason", reason)
+		http.Redirect(w, r, c.resultURL(Expired, true), http.StatusSeeOther)
+	}
+	if len(ticket) > maxTicketLen {
+		expired("ticket too long")
+		return
+	}
+	t, err := c.store.TakeTicket(r.Context(), hashState(ticket))
+	switch {
+	case errors.Is(err, ErrNoTicket):
+		expired("no such ticket")
+		return
+	case err != nil:
+		c.log.Error("cannot take the OAuth ticket", "error", err)
+		http.Redirect(w, r, c.resultURL(Unavailable, true), http.StatusSeeOther)
+		return
+	case !c.now().Before(t.ExpiresAt):
+		expired("ticket expired")
+		return
+	case t.Provider != Provider:
+		expired("ticket of another provider")
+		return
+	}
+	// Another account signed in here would end the flow at its callback
+	// anyway, after the person had authorized at OpenRouter for nothing.
+	if user, ok := c.person(r); ok && user != t.UserID {
+		expired("another person is signed in in this browser")
+		return
+	}
+	c.open(w, r, t.UserID, true)
+}
+
+// maxTicketLen bounds what is looked up as a ticket; framy's are 43
+// characters (randomToken).
+const maxTicketLen = 128
+
+// open opens a flow for user in this browser and sends it to OpenRouter.
+func (c *Connector) open(w http.ResponseWriter, r *http.Request, user int64, ticketed bool) {
 	state, err := randomToken()
 	if err != nil {
 		c.startFailed(w, r, err)
@@ -268,6 +351,7 @@ func (c *Connector) Start(w http.ResponseWriter, r *http.Request) {
 		Provider:  Provider,
 		Verifier:  verifier,
 		ExpiresAt: now.Add(FlowLifetime),
+		Ticketed:  ticketed,
 	}, now)
 	if err != nil {
 		c.startFailed(w, r, err)
@@ -289,6 +373,51 @@ func (c *Connector) startFailed(w http.ResponseWriter, r *http.Request, err erro
 	c.finish(w, r, Unavailable)
 }
 
+// Ticket makes a ticket for the person signed in, who is in the Mini App,
+// and answers {"url": the start's address with it, "expires_at"}. It is a
+// POST of the page's own script, so the CSRF check of the site covers it.
+// The Mini App asks for it before the person presses Connect: Telegram
+// opens a link only straight from a tap, not after a request.
+func (c *Connector) Ticket(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	user, ok := c.person(r)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "sign_in"})
+		return
+	}
+	tk, err := randomToken()
+	if err != nil {
+		c.ticketFailed(w, err)
+		return
+	}
+	now := c.now()
+	expires := now.Add(TicketLifetime)
+	if err := c.store.PutTicket(r.Context(), Ticket{Hash: hashState(tk), UserID: user, Provider: Provider, ExpiresAt: expires}, now); err != nil {
+		c.ticketFailed(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"url":        c.site + StartPath + "?" + url.Values{"ticket": {tk}}.Encode(),
+		"expires_at": expires.UTC().Format(time.RFC3339),
+	})
+}
+
+func (c *Connector) ticketFailed(w http.ResponseWriter, err error) {
+	c.log.Error("cannot make an OpenRouter connect ticket", "error", err)
+	writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "unavailable"})
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
 // authRedirect is OpenRouter's page for this flow.
 func (c *Connector) authRedirect(state, challenge string) string {
 	q := url.Values{}
@@ -300,9 +429,12 @@ func (c *Connector) authRedirect(state, challenge string) string {
 	return c.authURL + "?" + q.Encode()
 }
 
-// Callback ends a flow. Whatever happens, the cookie is cleared and the
-// browser is sent to the site with a Result; the details of a refusal go to
-// the log without anything secret in them.
+// Callback ends a flow. The browser is sent to the site with a Result, and
+// the details of a refusal go to the log without anything secret in them.
+// The cookie is cleared whatever happens, unless the callback is for another
+// flow than the cookie's: two tabs, the older one's flow replaced by the
+// newer start, end as Expired and Connected, in either order, instead of
+// the older one spending the newer one's flow and both ending Expired.
 func (c *Connector) Callback(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", http.MethodGet)
@@ -311,57 +443,96 @@ func (c *Connector) Callback(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), callbackTimeout)
 	defer cancel()
-	result, reason := c.complete(ctx, r)
+	var result Result
+	var reason string
+	var ticketed bool
+	other := otherFlow(r)
+	if other {
+		result, reason = Expired, "the state of another flow than the cookie's"
+	} else {
+		result, reason, ticketed = c.complete(ctx, r)
+	}
 	metrics.OAuthCallbacks.Inc(string(result))
 	level := slog.LevelWarn
 	if result == Connected || result == Cancelled {
 		level = slog.LevelInfo
 	}
 	c.log.Log(ctx, level, "OpenRouter connect ended", "result", result, "reason", reason)
-	http.SetCookie(w, &http.Cookie{
-		Name: cookieName, Path: "/", MaxAge: -1, HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
-	})
-	c.finish(w, r, result)
+	if !other {
+		http.SetCookie(w, &http.Cookie{
+			Name: cookieName, Path: "/", MaxAge: -1, HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
+		})
+	}
+	http.Redirect(w, r, c.resultURL(result, ticketed), http.StatusSeeOther)
+}
+
+// otherFlow reports a callback that names a state, and not the one of the
+// browser's cookie. A denial carries no state (see complete), so it is never
+// one.
+func otherFlow(r *http.Request) bool {
+	state := r.URL.Query().Get("state")
+	cookie, err := r.Cookie(cookieName)
+	return state != "" && err == nil && cookie.Value != "" &&
+		subtle.ConstantTimeCompare([]byte(state), []byte(cookie.Value)) != 1
 }
 
 // finish sends the browser to the site with the result.
 func (c *Connector) finish(w http.ResponseWriter, r *http.Request, result Result) {
+	http.Redirect(w, r, c.ResultURL(result), http.StatusSeeOther)
+}
+
+// ResultURL is the site's address that tells the frontend how a connect
+// ended. The routes' rate limit sends the browser to ResultURL(Unavailable)
+// (web.OnLimit), so a person turned away reads why on the site.
+func (c *Connector) ResultURL(result Result) string { return c.resultURL(result, false) }
+
+// resultURL is ResultURL, with from=telegram for a flow a ticket of the Mini
+// App started: the person's framy is in Telegram, and this browser may know
+// nobody.
+func (c *Connector) resultURL(result Result, ticketed bool) string {
 	q := url.Values{"connect": {Provider}, "result": {string(result)}}
-	http.Redirect(w, r, c.settings+"?"+q.Encode(), http.StatusSeeOther)
+	if ticketed {
+		q.Set("from", "telegram")
+	}
+	return c.settings + "?" + q.Encode()
 }
 
 // complete runs the callback's checks in order and returns how it ended with
-// a fixed reason for the log. Nothing in either comes from the request.
-func (c *Connector) complete(ctx context.Context, r *http.Request) (Result, string) {
+// a fixed reason for the log, and whether a ticket started the flow. Nothing
+// in either comes from the request.
+func (c *Connector) complete(ctx context.Context, r *http.Request) (Result, string, bool) {
 	cookie, err := r.Cookie(cookieName)
 	if err != nil || cookie.Value == "" {
-		return Expired, "no cookie"
+		return Expired, "no cookie", false
 	}
 	// Spent first: from here on this flow is over, whatever else is wrong.
 	flow, err := c.store.Take(ctx, hashState(cookie.Value))
 	switch {
 	case errors.Is(err, ErrNoFlow):
-		return Expired, "no such flow"
+		return Expired, "no such flow", false
 	case err != nil:
 		c.log.Error("cannot take the OAuth flow", "error", err)
-		return Unavailable, "store"
+		return Unavailable, "store", false
 	}
-	q := r.URL.Query()
-	if subtle.ConstantTimeCompare([]byte(q.Get("state")), []byte(cookie.Value)) != 1 {
-		return Expired, "state differs from the cookie"
-	}
-	if !c.now().Before(flow.ExpiresAt) {
-		return Expired, "flow expired"
-	}
+	result, reason := c.check(ctx, r, flow, cookie.Value)
+	return result, reason, flow.Ticketed
+}
+
+// check is the rest of complete, for the flow the callback spent.
+func (c *Connector) check(ctx context.Context, r *http.Request, flow Flow, state string) (Result, string) {
 	user, ok := c.person(r)
 	switch {
-	case !ok:
+	case !ok && !flow.Ticketed:
 		return SignedOut, "nobody is signed in"
-	case user != flow.UserID:
+	case ok && user != flow.UserID:
 		return Expired, "flow of another person"
 	case flow.Provider != Provider:
 		return Expired, "flow of another provider"
 	}
+	// An answer without a code is read before the state: OpenRouter does
+	// not send the state back when the person denies access, and such an
+	// answer saves nothing, so the state has nothing to guard there.
+	q := r.URL.Query()
 	if e := q.Get("error"); e != "" {
 		if e == "access_denied" {
 			return Cancelled, "access denied"
@@ -369,10 +540,16 @@ func (c *Connector) complete(ctx context.Context, r *http.Request) (Result, stri
 		return Refused, "provider error"
 	}
 	code := q.Get("code")
-	switch {
-	case code == "":
+	if code == "" {
 		return Cancelled, "no code"
-	case len(code) > maxCodeLen:
+	}
+	if subtle.ConstantTimeCompare([]byte(q.Get("state")), []byte(state)) != 1 {
+		return Expired, "state differs from the cookie"
+	}
+	if !c.now().Before(flow.ExpiresAt) {
+		return Expired, "flow expired"
+	}
+	if len(code) > maxCodeLen {
 		return Refused, "code too long"
 	}
 	key, result, reason := c.exchange(ctx, code, flow.Verifier)

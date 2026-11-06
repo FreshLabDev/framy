@@ -5,9 +5,14 @@ package jobs
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 )
 
 // deadlines records how long each step of a job was given.
@@ -49,7 +54,7 @@ func TestAVideoHasTimeToBeDownloadedAndKept(t *testing.T) {
 		cost := 0.3
 		return Outcome{Results: []Result{{ContentType: "video/mp4", Data: []byte("mp4")}}, CostUSD: &cost}, nil
 	}
-	f.onKeep = func(ctx context.Context, j Job) { d.note(string(j.Kind)+" keep", ctx) }
+	f.onKeep = func(ctx context.Context, j Job) error { d.note(string(j.Kind)+" keep", ctx); return nil }
 	q, pool := testQueue(t, f)
 	start(t, q)
 
@@ -79,5 +84,214 @@ func TestAVideoHasTimeToBeDownloadedAndKept(t *testing.T) {
 	}
 	if v := scalar[*bool](t, pool, `SELECT (args->>'video')::bool FROM framy.river_job WHERE (args->>'job_id')::bigint = $1`, image); v != nil {
 		t.Errorf("the image's River job is marked: %v", *v)
+	}
+}
+
+// A copy that takes all of its time still leaves the ending its own: the
+// paid picture is done, or failed as storage with its cost, and never left
+// for the next attempt to call interrupted.
+func TestASlowCopyLeavesTheEndingItsOwnTime(t *testing.T) {
+	ctx := context.Background()
+	for _, c := range []struct {
+		name   string
+		kept   bool
+		status Status
+		class  Class
+	}{
+		{"kept as its time ran out", true, Done, ""},
+		{"not kept in time", false, Failed, Storage},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFake()
+			f.onKeep = func(ctx context.Context, _ Job) error {
+				<-ctx.Done()
+				if c.kept {
+					return nil
+				}
+				return fmt.Errorf("put the result: %w", ctx.Err())
+			}
+			q, _ := testQueue(t, f)
+			q.keepFor = func(Job, []Result) time.Duration { return 200 * time.Millisecond }
+			id := enqueue(t, q, job(alice, imageOffer))
+			if err := q.work(ctx, id); err != nil {
+				t.Fatalf("the attempt: %v", err)
+			}
+			j := get(t, q, id)
+			if j.Status != c.status || j.ErrorClass != c.class || j.ActualUSD == nil || *j.ActualUSD != 0.02 {
+				t.Fatalf("%s %s, cost %v; want %s %s with the cost", j.Status, j.ErrorClass, j.ActualUSD, c.status, c.class)
+			}
+		})
+	}
+}
+
+// What the provider charged is written down before the results are copied,
+// and an attempt that comes after one which kept them and stopped short of
+// the ending finishes the job as done: the person sees the paid pictures,
+// not "interrupted".
+func TestResultsKeptBeforeAStopMakeTheRunDone(t *testing.T) {
+	ctx := context.Background()
+	t.Run("the cost is written before the copy", func(t *testing.T) {
+		f := newFake()
+		q, pool := testQueue(t, f)
+		var noted *float64
+		f.onKeep = func(ctx context.Context, j Job) error {
+			return pool.QueryRow(ctx, `SELECT actual_usd::float8 FROM framy.job WHERE id=$1`, j.ID).Scan(&noted)
+		}
+		id := enqueue(t, q, job(alice, imageOffer))
+		if err := q.work(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+		if noted == nil || *noted != 0.02 {
+			t.Fatalf("the cost while the results were copied: %v", noted)
+		}
+	})
+	t.Run("a later attempt finds the results", func(t *testing.T) {
+		f := newFake()
+		q, pool := testQueue(t, f)
+		id := enqueue(t, q, job(alice, imageOffer))
+		for _, stmt := range []string{
+			`UPDATE framy.job SET status='running', started_at=now(), submitted_at=now(), submits=1, actual_usd=0.02 WHERE id=$1`,
+			`INSERT INTO framy.asset (user_id, kind, job_id, object_key, content_type, bytes, sha256)
+			 VALUES (1001, 'result', $1::bigint, 'u/1001/out/' || $1::bigint::text || '-0.png', 'image/png', 3, 'x')`,
+		} {
+			if _, err := pool.Exec(ctx, stmt, id); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := q.work(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+		j := get(t, q, id)
+		results := scalar[int](t, pool, `SELECT results FROM framy.job WHERE id=$1`, id)
+		if j.Status != Done || results != 1 || j.ActualUSD == nil || *j.ActualUSD != 0.02 || f.count(f.submits, id) != 0 {
+			t.Fatalf("%s %s, %d results, cost %v, sent %d more times", j.Status, j.ErrorClass, results, j.ActualUSD, f.count(f.submits, id))
+		}
+	})
+}
+
+// River's last attempt ends a job by what is known of the money: a video
+// the provider made that framy could not copy is storage with its cost,
+// which the free budget counts; a paid request out with no answer is
+// interrupted; only a job nothing was sent for is internal.
+func TestTheLastAttemptKeepsTheTruthAboutTheMoney(t *testing.T) {
+	ctx := context.Background()
+	last := func(id int64, video bool) *river.Job[generateArgs] {
+		return &river.Job[generateArgs]{JobRow: &rivertype.JobRow{Attempt: maxAttempts, MaxAttempts: maxAttempts}, Args: generateArgs{JobID: id, Video: video}}
+	}
+	t.Run("a video that could not be kept", func(t *testing.T) {
+		f := newFake()
+		f.submit = func(context.Context, Job) (Submission, error) { return Submission{ProviderJobID: "gen-1"}, nil }
+		f.poll = func(context.Context, Job) (Outcome, error) {
+			cost := 0.18
+			return Outcome{Results: []Result{{ContentType: "video/mp4", Data: []byte("mp4")}}, CostUSD: &cost}, nil
+		}
+		f.onKeep = func(context.Context, Job) error { return errors.New("the bucket did not answer") }
+		q, _ := testQueue(t, f)
+		w := &generateWorker{q: q}
+		id := enqueue(t, q, job(alice, videoOffer))
+		if err := q.work(ctx, id); !isSnooze(err) {
+			t.Fatalf("the submit: %v", err)
+		}
+		// An attempt before the last leaves the job for River to try again.
+		if err := q.work(ctx, id); err == nil || get(t, q, id).Status != Running {
+			t.Fatalf("an attempt that could not keep the video: %v, %s", err, get(t, q, id).Status)
+		}
+		var cancel *rivertype.JobCancelError
+		if err := w.Work(ctx, last(id, true)); !errors.As(err, &cancel) {
+			t.Fatalf("the last attempt: %v", err)
+		}
+		if j := get(t, q, id); j.Status != Failed || j.ErrorClass != Storage || j.ActualUSD == nil || *j.ActualUSD != 0.18 {
+			t.Fatalf("%s %s, cost %v; want failed storage with the cost", j.Status, j.ErrorClass, j.ActualUSD)
+		}
+	})
+	// Any other error of framy's own, as the database not answering.
+	for _, c := range []struct {
+		name  string
+		sent  bool
+		class Class
+	}{
+		{"a paid request out", true, Interrupted},
+		{"nothing sent", false, Internal},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			q, pool := testQueue(t, newFake())
+			id := enqueue(t, q, job(alice, imageOffer))
+			if _, err := pool.Exec(ctx, `UPDATE framy.job SET status='running', started_at=now(), submitted_at=CASE WHEN $2 THEN now() END WHERE id=$1`, id, c.sent); err != nil {
+				t.Fatal(err)
+			}
+			if e := q.givenUp(ctx, id, errors.New("the database did not answer")); e.status != Failed || e.class != c.class {
+				t.Fatalf("%s %s, want failed %s", e.status, e.class, c.class)
+			}
+		})
+	}
+}
+
+// A key refused, a balance short or a key the database could not give while
+// a sent video is asked about is trouble with the asking, not an answer about
+// the run: it is likely paid, so framy asks again until the hour is up, and a
+// key put right fetches it. Past the hour it expires with that class, as a
+// run that may be paid.
+func TestAskingAboutAPaidVideoOutlastsTroubleWithTheKey(t *testing.T) {
+	ctx := context.Background()
+	// The adapters wrap a lookup that failed as Internal (openrouter.key).
+	lookup := fmt.Errorf("find the key: %w", fmt.Errorf("%w: %w", ErrKeyLookup, errors.New("connection refused")))
+	for _, tc := range []struct {
+		name  string
+		class Class
+		err   error
+	}{
+		{"key", Key, errors.New("the person has no openrouter key")},
+		{"money", Money, errors.New("the person has no openrouter key")},
+		{"lookup", Internal, lookup},
+	} {
+		class := tc.class
+		t.Run(tc.name, func(t *testing.T) {
+			p := newFake()
+			p.submit = func(context.Context, Job) (Submission, error) { return Submission{ProviderJobID: "gen-1"}, nil }
+			fixed := false
+			p.poll = func(context.Context, Job) (Outcome, error) {
+				if !fixed {
+					return Outcome{}, &Error{Class: class, Err: tc.err}
+				}
+				cost := 1.40
+				return Outcome{Results: []Result{{ContentType: "video/mp4", URL: "https://example.test/v.mp4"}}, CostUSD: &cost}, nil
+			}
+			q, _ := testQueue(t, p)
+			id := enqueue(t, q, job(alice, videoOffer))
+			if err := q.work(ctx, id); !isSnooze(err) {
+				t.Fatalf("after the submit: %v", err)
+			}
+			for i := range 3 {
+				if err := q.work(ctx, id); !isSnooze(err) {
+					t.Fatalf("poll %d with the %s trouble: %v, want a snooze", i+1, class, err)
+				}
+			}
+			if j := get(t, q, id); j.Status != Running {
+				t.Fatalf("after the trouble: %s %s, want the run still asked about", j.Status, j.ErrorClass)
+			}
+			fixed = true
+			if err := q.work(ctx, id); err != nil {
+				t.Fatal(err)
+			}
+			if j := get(t, q, id); j.Status != Done || j.ActualUSD == nil || p.count(p.submits, id) != 1 {
+				t.Fatalf("after the key was put right: %s, cost %v, %d requests", j.Status, j.ActualUSD, p.count(p.submits, id))
+			}
+
+			// Trouble that lasts the hour ends the run as expired, with the class.
+			fixed = false
+			late := enqueue(t, q, job(alice, videoOffer))
+			if err := q.work(ctx, late); !isSnooze(err) {
+				t.Fatalf("after the submit: %v", err)
+			}
+			q.now = func() time.Time { return time.Now().Add(RunDeadline + time.Minute) }
+			defer func() { q.now = time.Now }()
+			if err := q.work(ctx, late); err != nil {
+				t.Fatal(err)
+			}
+			j := get(t, q, late)
+			if j.Status != Expired || j.ErrorClass != class || j.Error != "framy could not ask about the run for an hour: "+string(class)+": "+tc.err.Error() {
+				t.Fatalf("past the hour: %s %s %q", j.Status, j.ErrorClass, j.Error)
+			}
+		})
 	}
 }

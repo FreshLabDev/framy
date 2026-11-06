@@ -60,9 +60,9 @@ type quoteItem struct {
 	Continues int64 `json:"continues"`
 }
 
-// fileMeta is what the browser reads of a file before Generate
-// (docs/design.md, Attachments stay in the browser until Generate). The
-// server checks the real file on Generate and prices the run again.
+// fileMeta is what the browser reads of a file before Create
+// (docs/design.md, Attachments stay in the browser until Create). The
+// server checks the real file on Create and prices the run again.
 type fileMeta struct {
 	ContentType string  `json:"content_type"`
 	Bytes       int64   `json:"bytes"`
@@ -116,10 +116,8 @@ func (a *API) quoteRoute(w http.ResponseWriter, r *http.Request) {
 		aerr.write(w)
 		return
 	}
-	user, signedIn := a.cfg.Person(r)
-	if !signedIn || user == 0 {
-		user, signedIn = 0, false
-	}
+	user := a.anyone(r)
+	signedIn := user != 0
 	models, byOffer, _, err := a.catalog.get(ctx, a.cfg.Store, a.now())
 	if err != nil {
 		a.internal(w, r, err)
@@ -224,6 +222,7 @@ func (a *API) quoteRoute(w http.ResponseWriter, r *http.Request) {
 		count := countOf(settings, inputs, it.Files)
 		fillFrames(settings, m, offer, count.Images)
 		count.Frames = frameCount(settings)
+		fitDuration(settings, m, offer, &count)
 		if !isFree {
 			// The kept files come first, then those still in the browser.
 			sizes := assetSizes(inputs)
@@ -273,7 +272,7 @@ func (a *API) quoteRoute(w http.ResponseWriter, r *http.Request) {
 		case a.cfg.Allowance != nil:
 			err := a.cfg.Allowance.Check(ctx, jobs.Admission{
 				UserID: user, Offer: offer.ID, Kind: offer.Kind, Settings: settings, Inputs: files,
-				Videos: count.VideoSecs, EstimateUSD: est.USD,
+				Videos: count.VideoSecs, EstimateUSD: est.Most(),
 			})
 			if err != nil {
 				e := a.refusal(err)
@@ -335,7 +334,7 @@ func addFiles(req *price.Request, m catalog.Model, files []fileMeta) {
 			req.Images = append(req.Images, price.Image{Width: w, Height: h})
 		case strings.HasPrefix(f.ContentType, "video/"):
 			if req.Video == nil {
-				req.Video = &price.Video{Seconds: f.Seconds, Width: f.Width, Height: f.Height}
+				req.Video = &price.Video{Seconds: f.Seconds, Width: f.Width, Height: f.Height, FPS: f.FPS}
 			}
 			req.Clips = append(req.Clips, f.Seconds)
 		case strings.HasPrefix(f.ContentType, "audio/"):

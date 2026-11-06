@@ -4,7 +4,7 @@
 // seconds), and the part playing stands taller than the others.
 import { h, ic } from "./dom.js";
 import { t, fmtNum } from "./i18n.js";
-import { anim } from "./motion.js";
+import { anim, motion, DUR } from "./motion.js";
 
 export const fmtClock = (s) => {
   const n = Math.max(0, Math.floor(+s || 0));
@@ -27,8 +27,10 @@ document.addEventListener("webkitfullscreenchange", onFs);
 const STEP = 5; // seconds an arrow key moves
 const IDLE = 2500; // how long the bar stays after the last move while playing
 
+// It starts by itself, without sound, unless o.autoplay is false or the
+// person asked for less motion: then it waits on its first frame for Play.
 export function player(res, o = {}) {
-  const v = h("video", { src: res.url, poster: res.thumb?.url || null, playsinline: true, loop: true, muted: true, autoplay: o.autoplay !== false, preload: "metadata" });
+  const v = h("video", { src: res.url, poster: res.thumb?.url || null, playsinline: true, loop: true, muted: true, autoplay: o.autoplay !== false && motion(), preload: "metadata" });
   v.muted = true; // the attribute alone does not mute everywhere, and a sound would stop autoplay
   const B = (icon, label, fn, cls) => h("button", { type: "button", class: "ib" + (cls ? " " + cls : ""), "aria-label": label, title: label, onclick: (e) => { e.stopPropagation(); fn(); wake(); } }, ic(icon));
   const pp = B("play", t("player.play"), toggle, "pp");
@@ -92,7 +94,7 @@ export function player(res, o = {}) {
     if (idle === on) return;
     idle = on;
     el.classList.toggle("idle", on);
-    anim(bar, [{ opacity: on ? 1 : 0 }, { opacity: on ? 0 : 1 }], { duration: on ? 320 : 160 });
+    anim(bar, [{ opacity: on ? 1 : 0 }, { opacity: on ? 0 : 1 }], { duration: on ? DUR.m : DUR.xs });
   }
   function wake() {
     setIdle(false);
@@ -148,7 +150,9 @@ export function player(res, o = {}) {
   track.addEventListener("pointercancel", drop);
   track.addEventListener("click", (e) => e.stopPropagation());
   // Arrows move five seconds, Page keys go between parts, Home and End to the ends.
+  // Until the clip's length is known there is nothing to go to.
   track.addEventListener("keydown", (e) => {
+    if (!parts.length) return;
     const now = pos(), k = Math.max(0, cur);
     let to = null;
     if (e.key === "ArrowRight" || e.key === "ArrowUp") to = now + STEP;
@@ -157,7 +161,7 @@ export function player(res, o = {}) {
     else if (e.key === "End") to = dur;
     else if (e.key === "PageDown") to = parts[k + 1]?.[0] ?? dur;
     else if (e.key === "PageUp") to = now - parts[k][0] > 1 || k === 0 ? parts[k][0] : parts[k - 1][0];
-    if (to == null || !parts.length) return;
+    if (to == null) return;
     e.preventDefault(); e.stopPropagation();
     seekTo(to); wake();
   });

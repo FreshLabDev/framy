@@ -4,6 +4,7 @@ package chat
 import (
 	"context"
 	"reflect"
+	"sync/atomic"
 	"testing"
 
 	"github.com/FreshLabDev/tg"
@@ -93,6 +94,71 @@ func TestWordsInADirectChatAreAskedAbout(t *testing.T) {
 	h.tg.reset()
 	if q := h.ask(t, said("a fox in the snow")); q != 0 || len(h.tg.calls) != 0 {
 		t.Fatalf("asked again: %+v", h.tg.calls)
+	}
+}
+
+// framy's mention is no part of the prompt, wherever it is; another
+// mention is the person's words.
+func TestFramysMentionIsLeftOutOfThePrompt(t *testing.T) {
+	for text, want := range map[string]string{
+		"@framyin_bot a fox in the snow":  "a fox in the snow",
+		"@FramyIn_Bot\na fox in the snow": "a fox in the snow",
+		"a fox @framyin_bot in the snow":  "a fox in the snow",
+		"a fox in the snow @framyin_bot":  "a fox in the snow",
+		"a logo for @framyin_bots":        "a logo for @framyin_bots",
+		"a poster for @maply_bot":         "a poster for @maply_bot",
+	} {
+		h := dmHarness(t)
+		q := h.ask(t, said(text))
+		if err := h.answer(q, "d:10:i", 7, nil); err != nil {
+			t.Fatal(err)
+		}
+		if job := h.store.jobs[1]; job == nil || job.n.Prompt != want {
+			t.Fatalf("%q: job = %+v", text, job)
+		}
+	}
+	// A photo's caption the same; the mention alone is no words.
+	h := dmHarness(t)
+	q := h.ask(t, photoSaid("@framyin_bot make it night"))
+	if err := h.answer(q, "d:10:i", 7, nil); err != nil {
+		t.Fatal(err)
+	}
+	if job := h.store.jobs[1]; job == nil || job.n.Prompt != "make it night" {
+		t.Fatalf("job = %+v", job)
+	}
+	h = dmHarness(t)
+	if q := h.ask(t, photoSaid("@framyin_bot")); q == 0 || h.tg.methods("sendMessage")[0].text != i18n.T("en", "dm.say_what") {
+		t.Fatalf("calls = %+v", h.tg.calls)
+	}
+}
+
+// Image pressed twice: the second press comes while the first keeps the
+// photo, and keeps nothing again.
+func TestADoubleTapOnImageKeepsThePhotoOnce(t *testing.T) {
+	h := dmHarness(t)
+	m := photoSaid("make it night")
+	q := h.ask(t, m)
+	in, out := make(chan struct{}), make(chan struct{})
+	var first atomic.Bool
+	h.tg.beforeDownload = func() {
+		if first.CompareAndSwap(false, true) {
+			close(in)
+			<-out
+		}
+	}
+	done := make(chan error, 1)
+	go func() { done <- h.answer(q, "d:10:i", 7, m) }()
+	<-in
+	err := h.answer(q, "d:10:i", 7, m)
+	close(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if h.files.uploads != 1 || len(h.tg.methods("download")) != 1 || len(h.store.jobs) != 1 || len(h.tg.methods("sendRichMessage")) != 1 {
+		t.Fatalf("%d uploads, %d jobs, calls %+v", h.files.uploads, len(h.store.jobs), h.tg.calls)
 	}
 }
 
@@ -299,6 +365,31 @@ func TestAReplyToFramyTakesOnlyAResult(t *testing.T) {
 		t.Fatalf("job = %+v", job)
 	}
 	if got := h.tg.methods("getFile"); len(got) != 1 || got[0].file != "result-file" {
+		t.Fatalf("getFile = %+v", got)
+	}
+}
+
+// framy's albums are results, and their run notes the first picture
+// alone: a reply to any picture of one is about that picture, as a reply
+// to one result is, and asks the same question.
+func TestAReplyToAPictureOfFramysAlbumIsAboutThatPicture(t *testing.T) {
+	bot := &tg.User{ID: 1, IsBot: true}
+	h := dmHarness(t)
+	h.flow.SetAlbums(fakeAlbums{admin: true})
+	h.store.runs[5] = &db.ChatRun{JobID: 5, ChatID: 7, Stage: db.StageDone, ResultMessageID: 8}
+	m := said("now at night")
+	m.ReplyToMessage = &tg.Message{MessageID: 9, Chat: dm, From: bot, MediaGroupID: "framy-album", Photo: []tg.Photo{{FileID: "album-file-1"}}}
+	q := h.ask(t, m)
+	if q == 0 || len(h.store.jobs) != 0 {
+		t.Fatalf("not asked: jobs %d, calls %+v", len(h.store.jobs), h.tg.calls)
+	}
+	if err := h.answer(q, "d:10:i", 7, nil); err != nil {
+		t.Fatal(err)
+	}
+	if job := h.store.jobs[1]; job == nil || len(job.n.Inputs) != 1 {
+		t.Fatalf("job = %+v", job)
+	}
+	if got := h.tg.methods("getFile"); len(got) != 1 || got[0].file != "album-file-1" {
 		t.Fatalf("getFile = %+v", got)
 	}
 }

@@ -7,13 +7,13 @@ import { $, h, ic } from "./dom.js";
 import { t, fmtNum } from "./i18n.js";
 import { api, ApiError } from "./api.js";
 import { S, M, clip, cutLimits } from "./state.js";
-import { opt, placeSeg } from "./motion.js";
+import { opt, placeSeg, DUR } from "./motion.js";
 import { openSheet, closeSheets } from "./ui.js";
 import { act, render } from "./composer.js";
 
 const TYPES = /^video\/(mp4|quicktime|webm|x-matroska|x-m4v)$/, EXT = /\.(mp4|m4v|mov|webm|mkv)$/i;
 const BY_EXT = { mp4: "video/mp4", m4v: "video/mp4", mov: "video/quicktime", webm: "video/webm", mkv: "video/x-matroska" };
-// The most a clip may weigh before it goes up; POST /api/videos/uploads says the real limit.
+// The most a clip may weigh before it goes up; POST /api/videos/uploads refuses one over the real limit.
 export const MAX_CLIP = 512 * 1048576;
 
 export const looksLikeClip = (f) => f.type.startsWith("video/") || (!f.type && EXT.test(f.name));
@@ -42,20 +42,44 @@ export function readSound(file) {
   });
 }
 
-// What the browser can read of a clip: its length, its size and a frame for
-// the thumbnail. A clip it cannot play (some MKV and HEVC) still goes, with
-// what is known; framy reads it on Create.
-export function readClip(file) {
+// What the browser can read of a clip: its length, its size, its frame rate
+// and a frame for the thumbnail. A clip it cannot play (some MKV and HEVC)
+// still goes, with what is known; framy reads it on Create.
+export async function readClip(file) {
+  const fps = Promise.race([frameRate(file).catch(() => 0), new Promise((ok) => setTimeout(() => ok(0), 3000))]);
+  const f = await readPlayable(file);
+  f.fps = await fps;
+  if (f.fps) f.meta.fps = f.fps;
+  return f;
+}
+// The clip comes into the composer once that is read, or after 8 s with what
+// is known by then. A browser still reading it may get its length later, up
+// to half a minute on: the composer then shows the length and asks its
+// price again. After that, or once it is read, the browser stops reading it.
+function readPlayable(file) {
   const url = URL.createObjectURL(file);
   const f = { kind: "video", file, name: file.name, url, poster: "", w: 0, h: 0, secs: 0, bytes: file.size, upload: 0, token: "", cuts: {} };
   const done = () => {
-    f.meta = { content_type: typeOf(file), bytes: file.size, width: f.w, height: f.h, seconds: f.secs };
+    // A late read keeps the frame rate readClip found.
+    f.meta = { content_type: typeOf(file), bytes: file.size, width: f.w, height: f.h, seconds: f.secs, ...(f.fps ? { fps: f.fps } : {}) };
     return f;
   };
   return new Promise((ok) => {
     const v = document.createElement("video");
-    let end = setTimeout(() => ok(done()), 8000);
-    const stop = () => { clearTimeout(end); end = 0; v.removeAttribute("src"); v.load(); ok(done()); };
+    let given = false, late = 0, stopped = false;
+    const end = setTimeout(() => { given = true; ok(done()); late = setTimeout(stop, 30000); }, 8000);
+    const stop = () => {
+      if (stopped) return;
+      stopped = true;
+      clearTimeout(end); clearTimeout(late);
+      v.onloadedmetadata = v.onseeked = v.onerror = null;
+      v.removeAttribute("src"); v.load();
+      if (!given) { given = true; ok(done()); return; }
+      // Read after the clip came in: what the composer shows of it, and its price, follow.
+      const was = f.meta;
+      done();
+      if (S.files.includes(f) && (was.seconds !== f.secs || was.width !== f.w || f.poster)) render();
+    };
     v.muted = true; v.playsInline = true; v.preload = "auto";
     v.onloadedmetadata = () => {
       f.secs = isFinite(v.duration) ? Math.round(v.duration * 1000) / 1000 : 0;
@@ -75,6 +99,54 @@ export function readClip(file) {
     v.onerror = stop;
     v.src = url;
   });
+}
+
+// The frame rate of an MP4 or QuickTime clip from its index, as ffprobe
+// averages it: the video track's frames over the track's length. An upscale
+// is billed by it, so the price before Create can be exact. 0 where the file
+// does not say (WebM, MKV, a fragmented MP4): the price then allows up to
+// the most framy keeps, and framy reads the rate on Create.
+async function frameRate(file) {
+  const read = async (pos, n) => new DataView(await file.slice(pos, pos + n).arrayBuffer());
+  const type = (v, o) => String.fromCharCode(v.getUint8(o), v.getUint8(o + 1), v.getUint8(o + 2), v.getUint8(o + 3));
+  // A box's size and header: 64-bit when the size says 1, to the end when 0.
+  const size = (v, o, end) => {
+    const s = v.getUint32(o);
+    return s === 1 ? [Number(v.getBigUint64(o + 8)), 16] : s === 0 ? [end - o, 8] : [s, 8];
+  };
+  // The movie box sits among the top-level boxes, before the frames or after them.
+  let moov = null;
+  for (let pos = 0, i = 0; !moov && i < 32 && pos + 16 <= file.size; i++) {
+    const v = await read(pos, 16), [n, head] = size(v, 0, file.size - pos);
+    if (n < head) return 0;
+    if (type(v, 4) === "moov") moov = n <= 64 << 20 ? await read(pos + head, n - head) : null;
+    pos += n;
+  }
+  if (!moov) return 0;
+  const boxes = (from, to) => {
+    const out = [];
+    for (let p = from; p + 8 <= to; ) {
+      const [n, head] = size(moov, p, to);
+      if (n < head || p + n > to) break;
+      out.push({ type: type(moov, p + 4), from: p + head, to: p + n });
+      p += n;
+    }
+    return out;
+  };
+  const child = (box, t) => box && boxes(box.from, box.to).find((b) => b.type === t);
+  for (const trak of boxes(0, moov.byteLength).filter((b) => b.type === "trak")) {
+    const mdia = child(trak, "mdia"), hdlr = child(mdia, "hdlr"), mdhd = child(mdia, "mdhd");
+    if (!hdlr || !mdhd || type(moov, hdlr.from + 8) !== "vide") continue;
+    const long = moov.getUint8(mdhd.from) === 1;
+    const scale = moov.getUint32(mdhd.from + (long ? 20 : 12)), length = long ? Number(moov.getBigUint64(mdhd.from + 24)) : moov.getUint32(mdhd.from + 16);
+    const stts = child(child(child(mdia, "minf"), "stbl"), "stts");
+    if (!stts || !scale || !length) return 0;
+    let frames = 0;
+    for (let i = 0, n = moov.getUint32(stts.from + 4); i < n && stts.from + 16 + i * 8 <= stts.to; i++) frames += moov.getUint32(stts.from + 8 + i * 8);
+    const fps = frames / (length / scale);
+    return isFinite(fps) && fps > 0 ? Math.round(fps * 1000) / 1000 : 0;
+  }
+  return 0;
 }
 
 // A thumbnail of a clip or of a file framy keeps: the poster read before, a
@@ -97,9 +169,11 @@ export function frameEl(url, at) {
 /* Going up. */
 
 const MB = (n) => fmtNum(n / 1048576, { maximumFractionDigits: n < 10 * 1048576 ? 1 : 0 });
+// As api.js wait, but an abort rejects; the listener goes once the pause is over.
 const pause = (ms, sig) => new Promise((ok, no) => {
-  const tm = setTimeout(ok, ms);
-  sig?.addEventListener("abort", () => { clearTimeout(tm); no(new DOMException("stopped", "AbortError")); }, { once: true });
+  const stop = () => { clearTimeout(tm); no(new DOMException("stopped", "AbortError")); };
+  const tm = setTimeout(() => { sig?.removeEventListener("abort", stop); ok(); }, ms);
+  sig?.addEventListener("abort", stop, { once: true });
 });
 
 // One PUT of the clip to the bucket, with how far it has got.
@@ -148,14 +222,15 @@ export async function takeClip(f, cut, { signal, step, again = false }) {
   const key = cut ? cut.start.toFixed(3) + "+" + cut.seconds.toFixed(3) : "";
   if (cut && f.cuts[key]) return f.cuts[key];
   const part = cut ? { start: cut.start, seconds: cut.seconds } : {};
-  const cutText = () => t("step.cutting", { a: fmtNum(cut.start, { maximumFractionDigits: 1 }), b: fmtNum(cut.start + cut.seconds, { maximumFractionDigits: 1 }) });
+  const cutText = () => t("step.cutting", { a: fmtPart(cut.start), b: fmtPart(cut.start + cut.seconds) });
   const snd = f.kind === "audio", text = cut ? cutText : () => t(snd ? "step.sound_prep" : "step.clip_prep"), fig = cut ? "cut" : "strip";
   let body;
   if (f.upload) body = { file: f.upload, ...part };
   else {
     if (!f.token) {
-      const up = await api("/api/videos/uploads", { method: "POST", signal });
-      if (up.max_bytes && f.bytes > up.max_bytes) throw Object.assign(new ApiError(413, { error: "too_large" }), { maxBytes: up.max_bytes });
+      // The link is made for this size: framy refuses a clip over its limit before anything goes up.
+      const up = await api("/api/videos/uploads", { method: "POST", body: { bytes: f.bytes }, signal })
+        .catch((e) => { if (e.code === "too_large") e.maxBytes = e.body.max_bytes; throw e; });
       let sent = 0;
       step({ fig: "fill", prog: () => sent / f.bytes, text: () => t(snd ? "step.sound_up" : "step.clip_up", { a: MB(sent), b: MB(f.bytes) }), tick: true });
       await put(up.url, f.file, f.meta.content_type, (n) => { sent = n; }, signal);
@@ -178,6 +253,7 @@ export async function takeClip(f, cut, { signal, step, again = false }) {
   }
   if (body.upload) f.token = "";
   if (cut) f.cuts[key] = file.id; else f.upload = file.id;
+  f.upAt ||= Date.now();
   if (!f.secs && file.seconds) { f.secs = file.seconds; f.meta.seconds = file.seconds; }
   // How long the clip framy keeps came out, to tell a part a frame too long.
   if (file.seconds) (f.secsOf ||= {})[file.id] = file.seconds;
@@ -187,11 +263,16 @@ export async function takeClip(f, cut, { signal, step, again = false }) {
 /* The editor: the clip's timeline with a window of the length the model takes. */
 
 const ED = {};
-const fmtT = (s, d = 1) => t("unit.s", { n: fmtNum(s, { minimumFractionDigits: d, maximumFractionDigits: d }) });
+/* The editor moves a part's edges by the clip's frames, so its times say
+   hundredths, the edges, the part and its length alike: a step of one frame
+   changes them, and the part read under the timeline is the one on the
+   buttons. The composer then says the part with the same figures. */
+const fmtT = (s, d = 2) => t("unit.s", { n: fmtNum(s, { minimumFractionDigits: d, maximumFractionDigits: d }) });
+export const fmtPart = (s) => fmtNum(s, { maximumFractionDigits: 2 });
 
 export function mountCutter() {
   const el = h("section", { class: "sheet cutter", id: "cutter", hidden: true, role: "dialog", "aria-modal": "true", "aria-labelledby": "cutT" },
-    h("header", {}, h("h3", { id: "cutT" }), h("button", { type: "button", class: "x", "data-close": "" }, t("cancel"))),
+    h("header", { role: "none" }, h("h3", { id: "cutT" }), h("button", { type: "button", class: "x", "data-close": "" }, t("cancel"))),
     h("div", { class: "body", id: "cutBody" }));
   el.addEventListener("closed", () => { stopPlay(); ED.view?.removeAttribute("src"); });
   return el;
@@ -202,8 +283,9 @@ export function openCut() {
   if (!c || !m || !c.secs) return;
   const lims = cutLimits(), fps = c.fps || 30, total = Math.max(1, Math.round(c.secs * fps));
   // framy cuts on the clip's own frames and rounds the end up to one, and
-  // the frame rate is not known here: a part a twentieth of a second under
-  // the limit keeps the cut within it at any rate from 20 frames a second.
+  // the frame rate here is an average or a guess of 30: a part a twentieth
+  // of a second under the limit keeps the cut within it at any rate from 20
+  // frames a second.
   const lim = lims.max, maxF = Math.min(total, lim < c.secs ? Math.floor((lim - 0.05) * fps) : total), minF = Math.max(1, Math.round(Math.max(0.1, lims.min) * fps));
   const start = S.cut ? Math.round(S.cut.start * fps) : 0;
   Object.assign(ED, { c, fps, total, maxF, minF, start, end: Math.min(total, S.cut ? start + Math.round(S.cut.seconds * fps) : start + maxF), edge: "start", playing: false });
@@ -214,8 +296,13 @@ export function openCut() {
   ED.view = view;
   ED.tc = h("span", { class: "tc" });
   ED.play = h("button", { type: "button", class: "ib", "aria-label": t("cut.play"), title: t("cut.play"), onclick: togglePlay }, ic("play"));
-  ED.edges = h("div", { class: "seg edges", role: "radiogroup", "aria-label": t("cut.edge"), "data-seg": "edge", "data-dur": 300 });
-  const tl = h("div", { class: "timeline" });
+  // ← and → move the chosen edge wherever the focus is (cut.keys), on the edges too: they do not
+  // choose between them, and each edge is a stop for Tab.
+  ED.edges = h("div", { class: "seg edges", role: "radiogroup", "aria-label": t("cut.edge"), "data-seg": "edge", "data-dur": DUR.m, "data-arrows": "own" });
+  // Time runs left to right in every language, as on the player's bar: the
+  // frames, the window, the playhead and a press on the timeline all count
+  // from its left, and the buttons above go the same way.
+  const tl = h("div", { class: "timeline", dir: "ltr" });
   ED.tl = tl;
   const n = matchMedia("(min-width: 600px)").matches ? 12 : 8, r = (c.w || 16) / (c.h || 9);
   const cvs = Array.from({ length: n }, () => h("canvas", { width: 120, height: Math.max(1, Math.round(120 / r)) }));
@@ -229,7 +316,7 @@ export function openCut() {
   ED.take = h("button", { type: "button", class: "take", onclick: take }, ic("film"), t("cut.take"));
   $("#cutBody").replaceChildren(
     h("div", { class: "viewer", style: { aspectRatio: `${c.w || 16} / ${c.h || 9}` } }, view, ED.tc),
-    h("div", { class: "transport" },
+    h("div", { class: "transport", dir: "ltr" },
       h("button", { type: "button", class: "ib", "aria-label": t("cut.prev"), title: t("cut.prev"), onclick: () => step(-1) }, ic("prev")), ED.play,
       h("button", { type: "button", class: "ib", "aria-label": t("cut.next"), title: t("cut.next"), onclick: () => step(1) }, ic("next")), ED.edges), tl, ED.read,
     h("p", { class: "note" }, t("cut.keys")), ED.take);
@@ -251,16 +338,16 @@ function layout() {
   Object.assign(ED.l.style, { left: "0", width: a + "%" });
   Object.assign(ED.r.style, { left: b + "%", right: "0" });
   ED.edges.replaceChildren(...[["start", t("cut.start"), start], ["end", t("cut.end"), end]].map(([k, label, f]) =>
-    opt({ key: "edge", v: k, on: ED.edge === k, pick: () => setEdge(k) }, label, h("small", {}, fmtT(f / fps, 2)))));
+    opt({ key: "edge", v: k, on: ED.edge === k, pick: () => setEdge(k) }, label, h("small", {}, fmtT(f / fps)))));
   placeSeg(ED.edges, false, true);
-  ED.read.replaceChildren(t("cut.part") + " ", h("b", {}, fmtT(start / fps, 1) + " – " + fmtT(end / fps, 1)), " · " + fmtT((end - start) / fps, 1));
+  ED.read.replaceChildren(t("cut.part") + " ", h("b", {}, fmtT(start / fps) + " – " + fmtT(end / fps)), " · " + fmtT((end - start) / fps));
 }
 function setEdge(e) { stopPlay(); ED.edge = e; layout(); show(e === "start" ? ED.start : ED.end - 1); }
 function show(f) {
   const { fps, total } = ED;
   ED.cur = Math.max(0, Math.min(total - 1, f));
   if (!ED.playing) { try { ED.view.currentTime = (ED.cur + 0.5) / fps; } catch {} }
-  ED.tc.textContent = fmtT(ED.cur / fps, 2);
+  ED.tc.textContent = fmtT(ED.cur / fps);
   ED.ph.style.transform = `translateX(${((ED.cur + 0.5) / total) * ED.tl.clientWidth}px)`;
 }
 function step(d) {

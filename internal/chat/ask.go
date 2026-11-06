@@ -66,7 +66,7 @@ func (f *Flow) Plain(ctx context.Context, m *tg.Message) {
 }
 
 func (f *Flow) answerPlain(ctx context.Context, m *tg.Message) {
-	f.withSlot(ctx, func() {
+	f.withSlot(ctx, m, func() {
 		if err := f.plain(ctx, m); err != nil && ctx.Err() == nil {
 			f.log.Error("plain message failed", "chat", m.Chat.ID, "message", m.MessageID, "error", err)
 		}
@@ -81,7 +81,7 @@ func (f *Flow) plainAlbumItem(ctx context.Context, m *tg.Message) {
 	v, loaded := f.dmAlbums.LoadOrStore(k, &dmAlbum{first: m})
 	a := v.(*dmAlbum)
 	a.mu.Lock()
-	if a.words == nil && strings.TrimSpace(m.Caption) != "" {
+	if a.words == nil && f.words(m) != "" {
 		a.words = m
 	}
 	a.mu.Unlock()
@@ -109,7 +109,7 @@ func (f *Flow) plain(ctx context.Context, m *tg.Message) error {
 	if err != nil {
 		return err
 	}
-	prompt := strings.TrimSpace(cmp.Or(m.Text, m.Caption))
+	prompt := f.words(m)
 	src := sourcesOf(m)
 	switch {
 	case prompt == "" && src.clip == nil && len(src.photos) == 0:
@@ -144,10 +144,13 @@ func (f *Flow) plain(ctx context.Context, m *tg.Message) error {
 
 // ownSources leaves out what a message answers when that is framy's own
 // message and not a result: a reply to a preview, a question or a panel
-// takes none of its pictures, and one to a result changes it.
+// takes none of its pictures, and one to a result changes it. framy sends
+// an album only of results (several of a DM's run, a press of frames from
+// the site), whose run notes its first picture alone, so a reply to any
+// picture of one is a reply to a result.
 func (f *Flow) ownSources(ctx context.Context, m *tg.Message) (*tg.Message, error) {
 	r := m.ReplyToMessage
-	if r == nil || r.From == nil || !r.From.IsBot {
+	if r == nil || !fromBot(r) || r.MediaGroupID != "" {
 		return m, nil
 	}
 	if _, result, err := f.cfg.Store.ResultRun(ctx, m.Chat.ID, r.MessageID); err != nil || result {
@@ -196,6 +199,18 @@ func (f *Flow) answerAsk(ctx context.Context, cq *tg.CallbackQuery) error {
 		command = commandMotion
 	}
 	var err error
-	f.withSlot(ctx, func() { err = f.command(ctx, m, command, strings.TrimSpace(cmp.Or(m.Text, m.Caption))) })
+	f.withSlot(ctx, m, func() { err = f.command(ctx, m, command, f.words(m)) })
 	return err
+}
+
+// words are a plain message's prompt: its text or caption without framy's
+// mention. Telegram offers inline mode as one types "@framyin_bot", and a
+// person who sends it as text anyway, or writes to framy as in guest mode,
+// means the words after it. Other mentions are the person's words.
+func (f *Flow) words(m *tg.Message) string {
+	text := cmp.Or(m.Text, m.Caption)
+	if f.mention != nil {
+		text = f.mention.ReplaceAllString(text, " ")
+	}
+	return strings.TrimSpace(text)
 }

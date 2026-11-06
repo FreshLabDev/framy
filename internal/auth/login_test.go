@@ -3,12 +3,15 @@
 package auth
 
 import (
+	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -24,22 +27,47 @@ func mustJSON(t *testing.T, s string, v any) {
 	}
 }
 
-// loginStateOf decodes the browser's login cookie.
-func loginStateOf(t *testing.T, b *browser) loginState {
+// loginStatesOf decodes the browser's login cookie: its open sign-ins,
+// oldest first.
+func loginStatesOf(t *testing.T, b *browser) []loginState {
 	t.Helper()
-	raw, err := base64.RawURLEncoding.DecodeString(b.cookies[loginCookie])
+	payload, _, _ := strings.Cut(b.cookies[loginCookie], ".")
+	raw, err := base64.RawURLEncoding.DecodeString(payload)
 	if err != nil {
 		t.Fatalf("login cookie: %v", err)
 	}
-	var st loginState
-	mustJSON(t, string(raw), &st)
-	return st
+	var pending []loginState
+	mustJSON(t, string(raw), &pending)
+	return pending
 }
 
-// setLoginState writes a login cookie into the browser.
-func setLoginState(b *browser, st loginState) {
-	raw, _ := json.Marshal(st)
-	b.cookies[loginCookie] = base64.RawURLEncoding.EncodeToString(raw)
+// loginStateOf is the browser's newest sign-in.
+func loginStateOf(t *testing.T, b *browser) loginState {
+	t.Helper()
+	pending := loginStatesOf(t, b)
+	if len(pending) == 0 {
+		t.Fatal("the login cookie holds no sign-in")
+	}
+	return pending[len(pending)-1]
+}
+
+// sealLoginState writes a login cookie into the browser as framy signs one:
+// what a test needs to reach the checks behind the signature.
+func sealLoginState(b *browser, st loginState) {
+	b.cookies[loginCookie] = b.h.auth.sealLogin([]loginState{st})
+}
+
+// forgeLoginState writes the login cookie a client can make itself: the
+// fields of its choice, signed with key, or not at all when key is nil.
+func forgeLoginState(b *browser, st loginState, key []byte) {
+	raw, _ := json.Marshal([]loginState{st})
+	v := base64.RawURLEncoding.EncodeToString(raw)
+	if key != nil {
+		m := hmac.New(sha256.New, key)
+		m.Write([]byte(v))
+		v += "." + base64.RawURLEncoding.EncodeToString(m.Sum(nil))
+	}
+	b.cookies[loginCookie] = v
 }
 
 func TestSignInThenSignOut(t *testing.T) {
@@ -232,6 +260,8 @@ func TestOnlyTheHashOfASessionIsStored(t *testing.T) {
 	}
 }
 
+// A session the site never loads the person with ends SessionLife after
+// sign-in.
 func TestSessionExpires(t *testing.T) {
 	h := newHarness(t)
 	b := h.browser()
@@ -243,6 +273,112 @@ func TestSessionExpires(t *testing.T) {
 	h.clock.Advance(2 * time.Minute)
 	if _, ok := b.signedIn(); ok {
 		t.Fatal("a session older than SessionLife is accepted")
+	}
+}
+
+// A session is renewed while the site is used, so someone who comes back
+// within a month is never signed out in the middle of their work, and the
+// cookie lasts as long as the session. It is written at most once a day,
+// and one nobody uses still ends.
+func TestSessionIsRenewedWhileUsed(t *testing.T) {
+	h := newHarness(t)
+	b := h.browser()
+	b.signIn("")
+	mem := h.sessions.(*memSessions)
+	secret := b.cookies[SessionCookie]
+
+	h.clock.Advance(time.Hour)
+	if r := b.me(); r.code != http.StatusOK || r.cookie(SessionCookie) != nil {
+		t.Fatalf("an hour after sign-in: %d, cookie %v", r.code, r.header.Values("Set-Cookie"))
+	}
+	// A visit every 20 days for 100 days: the old fixed 30 days would have
+	// signed the person out at the second.
+	for i := range 5 {
+		h.clock.Advance(20 * 24 * time.Hour)
+		r := b.me()
+		if r.code != http.StatusOK {
+			t.Fatalf("visit %d: %d, signed out", i+1, r.code)
+		}
+		line := r.rawSetCookie(SessionCookie)
+		if !strings.Contains(line, SessionCookie+"="+secret+";") || !strings.Contains(line, "Max-Age=2592000") || !strings.Contains(line, "HttpOnly") {
+			t.Fatalf("visit %d set the cookie as %q", i+1, line)
+		}
+		mem.mu.Lock()
+		got := mem.rows[sha(secret)].Expires
+		mem.mu.Unlock()
+		if !got.Equal(h.clock.Now().Add(SessionLife)) {
+			t.Fatalf("visit %d: the session ends %v, want %v", i+1, got, h.clock.Now().Add(SessionLife))
+		}
+	}
+	mem.mu.Lock()
+	writes := mem.extends
+	mem.mu.Unlock()
+	if writes != 5 {
+		t.Errorf("%d renewals written for 5 visits", writes)
+	}
+	// Each renewal tells core the person was here, as the sign-in did, with
+	// the id alone: what core holds of the names and the language stays.
+	touched := h.people.(*memPeople).users()
+	if len(touched) != 6 {
+		t.Fatalf("%d touches for a sign-in and 5 renewals", len(touched))
+	}
+	if u := touched[5]; u.ID != testUserID || u.Username != "" || u.FirstName != "" || u.LastName != "" || u.LanguageCode != "" {
+		t.Errorf("a renewal touched %+v", u)
+	}
+	// Loading again the same day writes nothing more.
+	h.clock.Advance(3 * time.Hour)
+	if r := b.me(); r.code != http.StatusOK || r.cookie(SessionCookie) != nil {
+		t.Errorf("the same day: %d, cookie %v", r.code, r.header.Values("Set-Cookie"))
+	}
+	mem.mu.Lock()
+	writes = mem.extends
+	mem.mu.Unlock()
+	if writes != 5 || len(h.people.(*memPeople).users()) != 6 {
+		t.Errorf("a second load in a day wrote again: %d renewals, %d touches", writes, len(h.people.(*memPeople).users()))
+	}
+	// A Mini App token is not renewed by a site load.
+	mini := h.browser()
+	tok := h.mini(mini, signInitData(testBotToken, miniAppFields(h.clock.Now(), testUserID)), http.StatusOK)
+	h.clock.Advance(30 * time.Minute)
+	if r := mini.me(); r.code != http.StatusOK || r.cookie(SessionCookie) != nil {
+		t.Errorf("a token's /api/me: %d, cookie %v", r.code, r.header.Values("Set-Cookie"))
+	}
+	if s := mem.rows[sha(tok)]; s.Expires.After(h.clock.Now().Add(MiniAppTokenLife)) {
+		t.Errorf("the token was renewed to %v", s.Expires)
+	}
+	// Then nobody comes for a month.
+	h.clock.Advance(SessionLife)
+	if _, ok := b.signedIn(); ok {
+		t.Fatal("a session nobody used for SessionLife is accepted")
+	}
+}
+
+// A session ended in another tab is not brought back by a load that was
+// already on its way.
+func TestARenewalDoesNotRaiseAnEndedSession(t *testing.T) {
+	h := newHarness(t)
+	b := h.browser()
+	b.signIn("")
+	h.clock.Advance(2 * 24 * time.Hour)
+	if _, ok := b.signedIn(); !ok {
+		t.Fatal("not signed in")
+	}
+	// Ended in the database behind the cache's back.
+	if err := h.sessions.Delete(context.Background(), sha(b.cookies[SessionCookie])); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, testSiteURL+"/api/me", nil)
+	req.AddCookie(&http.Cookie{Name: SessionCookie, Value: b.cookies[SessionCookie]})
+	rec := httptest.NewRecorder()
+	h.auth.Renew(rec, req)
+	if len(rec.Result().Cookies()) != 0 {
+		t.Errorf("an ended session's cookie was set again: %v", rec.Header().Values("Set-Cookie"))
+	}
+	if n := h.sessions.(*memSessions).count(); n != 0 {
+		t.Errorf("%d sessions after the renewal", n)
+	}
+	if _, ok := b.signedIn(); ok {
+		t.Error("still signed in")
 	}
 }
 
@@ -445,12 +581,16 @@ func TestStateAndCookieChecks(t *testing.T) {
 			t.Error("the code was traded without a login cookie")
 		}
 	})
-	t.Run("another login in the same browser", func(t *testing.T) {
+	t.Run("a callback of another login leaves this one", func(t *testing.T) {
 		h := newHarness(t)
 		b := h.browser()
-		first := b.approve(b.startLogin(""))
-		b.startLogin("") // a second tab replaces the cookie
-		expectRefused(t, h, b, b.get(first), "failed", "site_state")
+		authURL := b.startLogin("/library")
+		// A page sends the browser to a callback that is not its own.
+		expectRefused(t, h, b, b.get("/auth/callback?code=x&state=the-state-of-an-attackers-login"), "failed", "site_state")
+		// The person's own sign-in is still there to finish.
+		if r := b.get(b.approve(authURL)); r.code != http.StatusSeeOther || r.location() != "/library" {
+			t.Fatalf("the person's callback: %d -> %q", r.code, r.location())
+		}
 	})
 	t.Run("login cookie older than ten minutes", func(t *testing.T) {
 		h := newHarness(t)
@@ -465,8 +605,24 @@ func TestStateAndCookieChecks(t *testing.T) {
 		cb := b.approve(b.startLogin(""))
 		st := loginStateOf(t, b)
 		st.Verifier = "a-verifier-that-never-made-the-challenge-0123456789"
-		setLoginState(b, st)
+		sealLoginState(b, st)
 		expectRefused(t, h, b, b.get(cb), "failed", "site_exchange")
+	})
+	t.Run("a cookie edited in the browser", func(t *testing.T) {
+		h := newHarness(t)
+		b := h.browser()
+		cb := b.approve(b.startLogin(""))
+		payload, sig, _ := strings.Cut(b.cookies[loginCookie], ".")
+		raw, _ := base64.RawURLEncoding.DecodeString(payload)
+		edited := strings.Replace(string(raw), `"t":`, `"r":"/library","t":`, 1)
+		if edited == string(raw) {
+			t.Fatalf("nothing to edit in %s", raw)
+		}
+		b.cookies[loginCookie] = base64.RawURLEncoding.EncodeToString([]byte(edited)) + "." + sig
+		expectRefused(t, h, b, b.get(cb), "expired", "site_cookie")
+		if h.idp.tokenRequestCount() != 0 {
+			t.Error("the code was traded on an edited cookie")
+		}
 	})
 	t.Run("the callback used twice", func(t *testing.T) {
 		h := newHarness(t)
@@ -480,7 +636,7 @@ func TestStateAndCookieChecks(t *testing.T) {
 		expectNoSecondSession(t, h, b.get(cb), "expired", "site_no_state")
 		// ... and a replay with a copy of it meets a code the provider has used.
 		replay := h.browser()
-		setLoginState(replay, st)
+		sealLoginState(replay, st)
 		expectRefused(t, h, replay, replay.get(cb), "failed", "site_exchange")
 		if n := h.sessions.(*memSessions).count(); n != 1 {
 			t.Errorf("%d sessions after a replay", n)
@@ -566,16 +722,134 @@ func TestOpenRedirectsAreRefused(t *testing.T) {
 			}
 		})
 	}
-	// The cookie is the browser's to edit; the callback believes it no more
-	// than the query.
+	// The cookie is signed, so a browser cannot edit where it goes; and the
+	// callback believes even a signed one no more than the query.
 	h := newHarness(t)
 	b := h.browser()
 	cb := b.approve(b.startLogin("/fine"))
 	st := loginStateOf(t, b)
 	st.ReturnTo = "//evil.example"
-	setLoginState(b, st)
+	sealLoginState(b, st)
 	if r := b.get(cb); r.code != http.StatusSeeOther || r.location() != "/" {
 		t.Errorf("a doctored cookie sent the browser to %q", r.location())
+	}
+}
+
+// Two tabs, or Sign in pressed again while Telegram's page was slow: each
+// sign-in finishes on its own, in either order, and only a fourth pushes
+// the oldest out.
+func TestSignInsInTwoTabsBothFinish(t *testing.T) {
+	for _, order := range []string{"first first", "second first"} {
+		t.Run(order, func(t *testing.T) {
+			h := newHarness(t)
+			b := h.browser()
+			first := b.approve(b.startLogin("/library"))
+			second := b.approve(b.startLogin("/r/7"))
+			if n := len(loginStatesOf(t, b)); n != 2 {
+				t.Fatalf("the cookie holds %d sign-ins", n)
+			}
+			calls := []struct{ url, back string }{{first, "/library"}, {second, "/r/7"}}
+			if order == "second first" {
+				calls[0], calls[1] = calls[1], calls[0]
+			}
+			for _, c := range calls {
+				r := b.get(c.url)
+				if r.code != http.StatusSeeOther || r.location() != c.back {
+					t.Fatalf("callback: %d -> %q, want %q", r.code, r.location(), c.back)
+				}
+				if id, ok := b.signedIn(); !ok || id != testUserID {
+					t.Fatalf("not signed in after the callback to %s", c.back)
+				}
+			}
+			if _, ok := b.cookies[loginCookie]; ok {
+				t.Error("the login cookie outlived the sign-ins it held")
+			}
+		})
+	}
+	t.Run("a fourth pushes the oldest out", func(t *testing.T) {
+		h := newHarness(t)
+		b := h.browser()
+		var cbs []string
+		for range maxPending + 1 {
+			cbs = append(cbs, b.approve(b.startLogin("")))
+		}
+		if n := len(loginStatesOf(t, b)); n != maxPending {
+			t.Fatalf("the cookie holds %d sign-ins, want %d", n, maxPending)
+		}
+		expectRefused(t, h, b, b.get(cbs[0]), "failed", "site_state")
+		if r := b.get(cbs[len(cbs)-1]); r.code != http.StatusSeeOther || r.location() != "/" {
+			t.Fatalf("the newest: %d -> %q", r.code, r.location())
+		}
+	})
+	t.Run("an old one is not kept", func(t *testing.T) {
+		h := newHarness(t)
+		b := h.browser()
+		old := b.approve(b.startLogin(""))
+		h.clock.Advance(loginLife + time.Second)
+		b.startLogin("")
+		if n := len(loginStatesOf(t, b)); n != 1 {
+			t.Fatalf("the cookie holds %d sign-ins, the old one too", n)
+		}
+		expectRefused(t, h, b, b.get(old), "failed", "site_state")
+	})
+	t.Run("long return paths still fit a cookie", func(t *testing.T) {
+		h := newHarness(t)
+		b := h.browser()
+		long := "/" + strings.Repeat(`"`, 500)
+		var last string
+		for range maxPending {
+			last = b.approve(b.startLogin(long))
+		}
+		if v := b.cookies[loginCookie]; len(loginCookie)+1+len(v) > 4000 {
+			t.Fatalf("the login cookie is %d bytes", len(loginCookie)+1+len(v))
+		}
+		if r := b.get(last); r.code != http.StatusSeeOther || r.location() != long {
+			t.Fatalf("the newest: %d -> %q", r.code, r.location())
+		}
+	})
+}
+
+// Someone who has another person's code, with the state and the nonce of
+// that sign-in (a callback address in a history, a proxy's log), cannot
+// write a login cookie to match: the callback takes only a cookie framy
+// signed, so it never trades the code. Without the signature only the
+// provider's check of the PKCE verifier stood in the way, and this fake
+// Telegram, like a lax one, does not make it.
+func TestALoginCookieFramyDidNotSignIsRefused(t *testing.T) {
+	for name, key := range map[string][]byte{
+		"unsigned":                             nil,
+		"signed with a key of its own":         []byte("the attacker's own key, 32 bytes!"),
+		"signed with the client secret itself": []byte(testClientSecret),
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			h.idp.mu.Lock()
+			h.idp.laxPKCE = true
+			h.idp.mu.Unlock()
+			victim := h.browser()
+			authURL, _ := url.Parse(victim.startLogin(""))
+			nonce := authURL.Query().Get("nonce")
+			leaked, _ := url.Parse(victim.approve(authURL.String()))
+
+			attacker := h.browser()
+			forgeLoginState(attacker, loginState{
+				State:    leaked.Query().Get("state"),
+				Nonce:    nonce,
+				Verifier: "any-verifier-at-all-since-the-provider-is-lax-0123",
+				At:       h.clock.Now().Unix(),
+			}, key)
+			expectRefused(t, h, attacker, attacker.get(leaked.String()), "expired", "site_cookie")
+			if h.idp.tokenRequestCount() != 0 {
+				t.Fatal("the code was traded on a cookie framy did not sign")
+			}
+			// The code is still the victim's to use.
+			if r := victim.get(leaked.String()); r.code != http.StatusSeeOther || r.location() != "/" {
+				t.Fatalf("the victim's own callback: %d -> %q", r.code, r.location())
+			}
+			if id, ok := victim.signedIn(); !ok || id != testUserID {
+				t.Fatalf("the victim is not signed in: %d %v", id, ok)
+			}
+		})
 	}
 }
 
@@ -585,13 +859,15 @@ func TestSiteSignInNeedsTheClient(t *testing.T) {
 		t.Fatal("enabled without a client")
 	}
 	b := h.browser()
+	// The person is sent back to the site, which says sign-in is not
+	// available, rather than shown a bare 503 page.
 	for _, target := range []string{"/auth/login", "/auth/callback?code=x&state=y"} {
 		r := b.get(target)
-		if r.code != http.StatusServiceUnavailable || !strings.HasPrefix(r.header.Get("Content-Type"), "text/plain") {
-			t.Errorf("%s: %d %q", target, r.code, r.header.Get("Content-Type"))
+		if r.code != http.StatusSeeOther || r.location() != "/?sign_in=unavailable" {
+			t.Errorf("%s: %d -> %q", target, r.code, r.location())
 		}
-		if r.cookie(loginCookie) != nil || r.location() != "" {
-			t.Errorf("%s set a cookie or redirected", target)
+		if r.cookie(loginCookie) != nil {
+			t.Errorf("%s set a login cookie", target)
 		}
 	}
 	// The rest runs: the Mini App does not need the Login client.
@@ -636,8 +912,8 @@ func TestDiscoveryFailureIsNotRemembered(t *testing.T) {
 	h.idp.discovery = http.StatusBadGateway
 	h.idp.mu.Unlock()
 	b := h.browser()
-	if r := b.get("/auth/login"); r.code != http.StatusServiceUnavailable || r.cookie(loginCookie) != nil {
-		t.Fatalf("with Telegram down: %d, cookie %v", r.code, r.cookie(loginCookie))
+	if r := b.get("/auth/login"); r.code != http.StatusSeeOther || r.location() != "/?sign_in=unavailable" || r.cookie(loginCookie) != nil {
+		t.Fatalf("with Telegram down: %d -> %q, cookie %v", r.code, r.location(), r.cookie(loginCookie))
 	}
 	h.idp.mu.Lock()
 	h.idp.discovery = 0
@@ -657,7 +933,7 @@ func TestSignInRoutesAreRateLimitedAndNotCached(t *testing.T) {
 	got429 := -1
 	for i := 0; i < 30; i++ {
 		last = b.get("/auth/login")
-		if last.code == http.StatusTooManyRequests {
+		if last.location() == "/?sign_in=unavailable" {
 			got429 = i
 			break
 		}
@@ -670,12 +946,18 @@ func TestSignInRoutesAreRateLimitedAndNotCached(t *testing.T) {
 			}
 		}
 	}
-	// The auth class: a burst of 10 per address.
-	if got429 != 10 {
-		t.Errorf("the 429 came at request %d, want 10 (the auth class's burst)", got429)
+	// The auth class: a burst of 10 per address. Past it the browser goes
+	// back to the site, which says to try again in a few minutes, as for a
+	// Telegram that cannot be reached; the callback does the same.
+	if got429 != 10 || last.code != http.StatusSeeOther {
+		t.Errorf("the refusal came at request %d as %d, want 10 (the auth class's burst) as 303", got429, last.code)
 	}
-	if last.header.Get("Retry-After") == "" {
-		t.Error("no Retry-After")
+	if r := b.get("/auth/callback?code=x&state=y"); r.code != http.StatusSeeOther || r.location() != "/?sign_in=unavailable" {
+		t.Errorf("the callback over the limit: %d -> %q", r.code, r.location())
+	}
+	// A fetch of the class is still told 429.
+	if r := b.do(http.MethodPost, "/auth/logout", ""); r.code != http.StatusTooManyRequests || r.header.Get("Retry-After") == "" {
+		t.Errorf("logout over the limit: %d, Retry-After %q", r.code, r.header.Get("Retry-After"))
 	}
 }
 

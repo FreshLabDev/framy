@@ -18,6 +18,7 @@ import (
 	"github.com/riverqueue/river/rivermigrate"
 
 	"github.com/FreshLabDev/framy/internal/catalog"
+	"github.com/FreshLabDev/framy/internal/price"
 )
 
 // Schema is where framy's and River's tables live.
@@ -68,31 +69,53 @@ var DefaultWorkers = map[string]int{
 const (
 	imageCall = 180 * time.Second
 	// videoCall bounds sending a video request and asking about a run that
-	// is not done.
-	videoCall = 60 * time.Second
+	// is not done. A request that carries files gets sendPerMiB more for
+	// each MiB of them (callLimit), up to videoPoll.
+	videoCall  = 60 * time.Second
+	sendPerMiB = 3 * time.Second
 	// videoPoll bounds a poll of a video run: the one that finds the video
 	// done downloads it in the same call, up to 128 MiB.
 	videoPoll = 5 * time.Minute
-	// videoKeep bounds what follows that poll: copying the video to R2 and
-	// ending the job. A poll may come back after a stop has begun, so this
-	// runs apart from the attempt's own limit.
-	videoKeep = 3 * time.Minute
-	// settleWrites bounds the writes that follow any other call.
+	// videoKeep bounds copying a finished video to R2, and imageKeep the
+	// pictures of a run, which get keepPerMiB for each MiB (keepLimit). A
+	// call may come back after a stop has begun, so the copy and the writes
+	// that follow it run apart from the attempt's own limit.
+	videoKeep  = 3 * time.Minute
+	imageKeep  = 2 * time.Minute
+	keepPerMiB = 2 * time.Second
+	// settleWrites bounds the writes that follow a call, each on its own:
+	// a slow copy does not eat the time of the write that ends the job.
 	settleWrites = 30 * time.Second
 	attemptLimit = 4 * time.Minute
-	// videoAttempt is a video job's attempt: the poll, the copy, a margin.
-	// River leaves a job alone until its own limit has passed, however old
-	// rescueAfter says it is, so the images keep the shorter rescue.
-	videoAttempt = videoPoll + videoKeep + time.Minute
+	// imageAttempt and videoAttempt are a job's attempt: the call or the
+	// poll, the writes that follow it, the copy, the ending, a margin. River
+	// leaves a job alone until its own limit has passed, however old
+	// rescueAfter says it is, and an attempt still alive is never rescued.
+	imageAttempt = imageCall + settleWrites + imageKeep + settleWrites + time.Minute
+	videoAttempt = videoPoll + settleWrites + videoKeep + settleWrites + time.Minute
 	rescueAfter  = 5 * time.Minute
 	// maxSubmits caps the paid requests refused before the run started.
 	maxSubmits = 5
+	// maxRetryWait is the longest a refused run waits in line to be sent
+	// again, and a background run to be asked about again, whatever the
+	// provider's Retry-After says. A refusal that asks for longer, such as
+	// a day's quota spent, ends the run at once: the person is not left
+	// waiting for hours, and a free run does not hold a slot and the day's
+	// budget all that time.
+	maxRetryWait = 10 * time.Minute
 	// maxAttempts caps River's own retries, for errors that are framy's.
 	maxAttempts = 5
-	draftTTL    = 10 * time.Minute
-	// runDeadline: a run the provider has not finished by then expires.
-	runDeadline = time.Hour
+	// draftTTL is how long a draft waits for "Generate" after it was made
+	// or last changed (updated_at): a person still choosing the model and
+	// the settings of a preview is not timed out by its age.
+	draftTTL = 10 * time.Minute
 )
+
+// RunDeadline: a run the provider has not finished by then, counted from
+// the paid request, expires. Until then framy asks about it, and the key it
+// was sent with stays (keys.Service.Delete). The site says "up to an hour"
+// (TestTheSiteSaysHowLongARunMayTake).
+const RunDeadline = time.Hour
 
 // Config is the queue's setup. Providers are keyed by the catalog's provider
 // name: openai, gemini, openrouter.
@@ -110,7 +133,9 @@ type Config struct {
 	// lets every free job through.
 	Admit Admitter
 	Log   *slog.Logger
-	// MaxRunning is how many jobs one person runs at once; 2 by default.
+	// MaxRunning is how many jobs one person runs at once on this stack; 2
+	// by default. A run out at the provider, which is only asked about, is
+	// not counted.
 	MaxRunning int
 	// Workers per queue, by the queue's name without the stack;
 	// DefaultWorkers by default.
@@ -137,6 +162,9 @@ type Queue struct {
 	log    *slog.Logger
 	now    func() time.Time
 	cancel context.CancelFunc
+	// keepFor is how long a run's results may take to be copied: keepLimit,
+	// short in tests.
+	keepFor func(Job, []Result) time.Duration
 }
 
 // NewQueue builds the queue on pool, whose search_path is framy.
@@ -151,7 +179,7 @@ func NewQueue(pool *pgxpool.Pool, cfg Config) (*Queue, error) {
 	if cfg.Log == nil {
 		cfg.Log = slog.Default()
 	}
-	q := &Queue{pool: pool, cfg: cfg, log: cfg.Log, now: time.Now}
+	q := &Queue{pool: pool, cfg: cfg, log: cfg.Log, now: time.Now, keepFor: keepLimit}
 
 	workers := river.NewWorkers()
 	if err := river.AddWorkerSafely(workers, &generateWorker{q: q}); err != nil {
@@ -177,7 +205,8 @@ func NewQueue(pool *pgxpool.Pool, cfg Config) (*Queue, error) {
 		SoftStopTimeout:      cfg.StopGrace,
 		FetchPollInterval:    cfg.FetchPoll,
 		FetchCooldown:        min(cmp.Or(cfg.FetchPoll, 100*time.Millisecond), 100*time.Millisecond),
-		Logger:               cfg.Log,
+		Logger:               riverLog(cfg.Log),
+		ErrorHandler:         errorHandler{log: cfg.Log},
 		PeriodicJobs: []*river.PeriodicJob{
 			river.NewPeriodicJob(river.PeriodicInterval(time.Minute),
 				func() (river.JobArgs, *river.InsertOpts) { return sweepArgs{}, sweepOpts },
@@ -221,10 +250,24 @@ func (q *Queue) Stop(ctx context.Context) error {
 	return err
 }
 
+// LockPerson takes, until tx ends, the lock under which a person's jobs are
+// created, queued and claimed, and under which their account is deleted
+// (api's Forget). A job made while the account goes is then either seen by
+// the deletion, which refuses or clears it, or made after it, by a person
+// who came back; never half of each, with its files gone and its prompt
+// kept. Take it before the allowance's locks.
+func LockPerson(ctx context.Context, tx pgx.Tx, userID int64) error {
+	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('framy.job.person:' || $1::bigint::text, 0))`, userID)
+	return err
+}
+
 // Enqueue creates a queued job and its River job in one transaction. A job
 // with the same dedupe key is returned instead, and nothing starts.
 func (q *Queue) Enqueue(ctx context.Context, n New) (id int64, created bool, err error) {
 	err = pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
+		if err := LockPerson(ctx, tx, n.UserID); err != nil {
+			return err
+		}
 		if err := q.admitNew(ctx, tx, n); err != nil {
 			return err
 		}
@@ -239,11 +282,22 @@ func (q *Queue) Enqueue(ctx context.Context, n New) (id int64, created bool, err
 
 // EnqueueBatch queues the jobs of one press of the site's Create in one
 // transaction: every one of them, or none when one is refused. Each has its
-// own dedupe key and they share n.Batch. created is false when the first
-// key was taken already: the press was answered before, and ids are the
-// jobs of that batch, in order.
+// own dedupe key and they share n.Batch, and they are one person's. created
+// is false when the first key was taken already: the press was answered
+// before, and ids are the jobs of that batch, in order.
 func (q *Queue) EnqueueBatch(ctx context.Context, ns []New) (ids []int64, created bool, err error) {
+	if len(ns) == 0 {
+		return nil, false, errors.New("a batch of no jobs")
+	}
+	for _, n := range ns[1:] {
+		if n.UserID != ns[0].UserID {
+			return nil, false, errors.New("a batch of more than one person's jobs")
+		}
+	}
 	err = pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
+		if err := LockPerson(ctx, tx, ns[0].UserID); err != nil {
+			return err
+		}
 		ids = make([]int64, 0, len(ns))
 		for i, n := range ns {
 			if err := q.admitNew(ctx, tx, n); err != nil {
@@ -293,6 +347,9 @@ func batchOf(ctx context.Context, tx pgx.Tx, id int64) ([]int64, error) {
 // Draft creates a job that waits for "Generate", as a chat preview does.
 func (q *Queue) Draft(ctx context.Context, n New) (id int64, created bool, err error) {
 	err = pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
+		if err := LockPerson(ctx, tx, n.UserID); err != nil {
+			return err
+		}
 		// A draft takes no slot of the allowance, but a preview that could
 		// never run is not offered.
 		if err := q.admitNew(ctx, tx, n); err != nil {
@@ -304,17 +361,29 @@ func (q *Queue) Draft(ctx context.Context, n New) (id int64, created bool, err e
 	return id, created, err
 }
 
-// Generate queues a draft. A draft older than 10 minutes, already started or
-// cancelled gives ErrNotDraft, so a repeated press starts nothing.
+// Generate queues a draft. A draft left unchanged for 10 minutes, already
+// started or cancelled gives ErrNotDraft, so a repeated press starts nothing.
 func (q *Queue) Generate(ctx context.Context, id int64) error {
 	return pgx.BeginFunc(ctx, q.pool, func(tx pgx.Tx) error {
+		var userID int64
+		// A job without a person is a deleted account's (035): no draft.
+		err := tx.QueryRow(ctx, `SELECT user_id FROM job WHERE id=$1 AND user_id IS NOT NULL`, id).Scan(&userID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotDraft
+		}
+		if err != nil {
+			return err
+		}
+		if err := LockPerson(ctx, tx, userID); err != nil {
+			return err
+		}
 		if err := q.admitDraft(ctx, tx, id); err != nil {
 			return err
 		}
 		var provider, kind string
-		err := tx.QueryRow(ctx, `
+		err = tx.QueryRow(ctx, `
 			UPDATE job SET status='queued', queued_at=now(), updated_at=now()
-			WHERE id=$1 AND status='draft' AND created_at > now() - make_interval(secs => $2)
+			WHERE id=$1 AND status='draft' AND updated_at > now() - make_interval(secs => $2)
 			RETURNING provider, kind`, id, draftTTL.Seconds()).Scan(&provider, &kind)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotDraft
@@ -328,9 +397,9 @@ func (q *Queue) Generate(ctx context.Context, id int64) error {
 
 // Revise changes what a draft runs: the offer, the settings, who pays and
 // the price shown, as the chat's panels do. The person and the prompt stay,
-// and so does the draft's age. The files stay too while n.Inputs is nil;
-// otherwise they are replaced by n.Inputs, in order, which must be the
-// person's own, or ErrNoInput. A job that is not a draft any more gives
+// and the draft's 10 minutes start again. The files stay too while n.Inputs
+// is nil; otherwise they are replaced by n.Inputs, in order, which must be
+// the person's own, or ErrNoInput. A job that is not a draft any more gives
 // ErrNotDraft. A free revision asks the allowance as a new job would, about
 // the files it takes after the change.
 func (q *Queue) Revise(ctx context.Context, id int64, n New) error {
@@ -339,7 +408,7 @@ func (q *Queue) Revise(ctx context.Context, id int64, n New) error {
 		err := tx.QueryRow(ctx, `
 			SELECT user_id, (SELECT count(*) FROM job_input WHERE job_id = job.id)
 			FROM job
-			WHERE id=$1 AND status='draft' AND created_at > now() - make_interval(secs => $2)
+			WHERE id=$1 AND status='draft' AND updated_at > now() - make_interval(secs => $2)
 			FOR UPDATE`, id, draftTTL.Seconds()).Scan(&a.UserID, &a.Inputs)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotDraft
@@ -358,7 +427,7 @@ func (q *Queue) Revise(ctx context.Context, id int64, n New) error {
 		}
 		if n.Free && q.cfg.Admit != nil {
 			if n.Estimate != nil {
-				a.EstimateUSD = n.Estimate.USD
+				a.EstimateUSD = n.Estimate.Most()
 			}
 			if a.Videos, err = draftVideos(ctx, tx, id); err != nil {
 				return err
@@ -397,6 +466,30 @@ func (q *Queue) Revise(ctx context.Context, id int64, n New) error {
 	})
 }
 
+// Reprompt gives a draft new words and the price shown for them, as an edit
+// of the chat message that asked for it does. Nothing else of the draft
+// changes, and the allowance is not asked: Generate asks it, with this
+// price. A job that is not a draft any more, or that its person deleted,
+// gives ErrNotDraft.
+func (q *Queue) Reprompt(ctx context.Context, id int64, prompt string, estimate *price.Estimate) error {
+	var estimateUSD *float64
+	if estimate != nil {
+		estimateUSD = &estimate.USD
+	}
+	tag, err := q.pool.Exec(ctx, `
+		UPDATE job SET prompt=$2, estimate_usd=$3, estimate=$4, updated_at=now()
+		WHERE id=$1 AND status='draft' AND deleted_at IS NULL
+		  AND created_at > now() - make_interval(secs => $5)`,
+		id, prompt, estimateUSD, estimate, draftTTL.Seconds())
+	if err != nil {
+		return fmt.Errorf("reprompt job %d: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotDraft
+	}
+	return nil
+}
+
 // admitNew asks the allowance about a free job about to be created.
 func (q *Queue) admitNew(ctx context.Context, tx pgx.Tx, n New) error {
 	if !n.Free || q.cfg.Admit == nil {
@@ -407,7 +500,7 @@ func (q *Queue) admitNew(ctx context.Context, tx pgx.Tx, n New) error {
 		Settings: n.Settings, Inputs: len(n.Inputs),
 	}
 	if n.Estimate != nil {
-		a.EstimateUSD = n.Estimate.USD
+		a.EstimateUSD = n.Estimate.Most()
 	}
 	if len(n.Inputs) > 0 {
 		rows, err := tx.Query(ctx, `
@@ -443,6 +536,12 @@ func draftVideos(ctx context.Context, tx pgx.Tx, id int64) ([]float64, error) {
 // admitDraft asks the allowance about a free draft about to be queued. The
 // draft is read first and queued after, both under the allowance's locks. A
 // draft that cannot be queued is left to Generate's own update to refuse.
+//
+// The draft is locked as it is read, before the allowance's locks: a second
+// press waits here for the first to queue it, then finds no draft and is
+// refused as ErrNotDraft. Read without the lock, it would be asked about
+// with the first press's job already in the count, and a press on the last
+// free slot would answer that the allowance is used up while its run goes.
 func (q *Queue) admitDraft(ctx context.Context, tx pgx.Tx, id int64) error {
 	if q.cfg.Admit == nil {
 		return nil
@@ -451,10 +550,12 @@ func (q *Queue) admitDraft(ctx context.Context, tx pgx.Tx, id int64) error {
 	var free bool
 	var estimate *float64
 	err := tx.QueryRow(ctx, `
-		SELECT user_id, offer_id, kind, settings, free, estimate_usd::float8,
+		SELECT user_id, offer_id, kind, settings, free,
+		       GREATEST(estimate_usd, (estimate->>'max_usd')::numeric)::float8,
 		       (SELECT count(*) FROM job_input WHERE job_id = job.id)
 		FROM job
-		WHERE id=$1 AND status='draft' AND created_at > now() - make_interval(secs => $2)`, id, draftTTL.Seconds()).Scan(
+		WHERE id=$1 AND status='draft' AND updated_at > now() - make_interval(secs => $2)
+		FOR UPDATE`, id, draftTTL.Seconds()).Scan(
 		&a.UserID, &a.Offer, &a.Kind, &a.Settings, &free, &estimate, &a.Inputs)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !free) {
 		return nil
@@ -595,7 +696,7 @@ func load(ctx context.Context, db querier, id int64) (Job, error) {
 	var dedupe, providerJobID, errClass, errText *string
 	var params, routes []byte
 	err := db.QueryRow(ctx, `
-		SELECT j.id, j.user_id, j.surface, j.chat_id, j.message_id, j.dedupe_key, j.offer_id, j.model_id, j.provider, j.kind,
+		SELECT j.id, COALESCE(j.user_id, 0), j.surface, j.chat_id, j.message_id, j.dedupe_key, j.offer_id, j.model_id, j.provider, j.kind,
 		       j.prompt, j.settings, j.free, j.status, j.idempotency_key::text, j.submits, j.submitted_at, j.retry_at, j.provider_job_id,
 		       j.estimate_usd::float8, j.actual_usd::float8, j.error_class, j.error, j.created_at,
 		       o.provider_model_id, o.name, o.input_modalities, o.params, o.routes

@@ -31,14 +31,14 @@ func (s *Store) SaveRates(ctx context.Context, rates []fx.Rate) error {
 	return nil
 }
 
-// RatesDate is the latest day with a rate of every stored code, zero before
-// the first.
-func (s *Store) RatesDate(ctx context.Context) (time.Time, error) {
+// RatesDate is the latest day with a rate of every code in codes, zero
+// before the first.
+func (s *Store) RatesDate(ctx context.Context, codes []string) (time.Time, error) {
 	var day *time.Time
 	err := s.pool.QueryRow(ctx, `
 		SELECT max(date) FROM (
 			SELECT date FROM fx_rate WHERE code = ANY($1) GROUP BY date HAVING count(*) = cardinality($1::text[])
-		) complete`, fx.Stored).Scan(&day)
+		) complete`, codes).Scan(&day)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("fx rates date: %w", err)
 	}
@@ -49,12 +49,12 @@ func (s *Store) RatesDate(ctx context.Context) (time.Time, error) {
 }
 
 // RateDays are the days from from to to, both in, with a rate of every
-// stored code, oldest first.
-func (s *Store) RateDays(ctx context.Context, from, to time.Time) ([]time.Time, error) {
+// code in codes, oldest first.
+func (s *Store) RateDays(ctx context.Context, codes []string, from, to time.Time) ([]time.Time, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT date FROM fx_rate WHERE code = ANY($1) AND date BETWEEN $2 AND $3
 		GROUP BY date HAVING count(*) = cardinality($1::text[])
-		ORDER BY date`, fx.Stored, from, to)
+		ORDER BY date`, codes, from, to)
 	if err != nil {
 		return nil, fmt.Errorf("fx rate days: %w", err)
 	}
@@ -114,10 +114,14 @@ func (s *Store) Currency(ctx context.Context, userID int64) (string, error) {
 // SetCurrency records the person's choice; empty goes back to the default.
 // The person must be in core already (Touch).
 func (s *Store) SetCurrency(ctx context.Context, userID int64, code string) error {
+	return setCurrency(ctx, s.pool, userID, code)
+}
+
+func setCurrency(ctx context.Context, q execer, userID int64, code string) error {
 	if code != "" && !fx.Valid(code) {
 		return fmt.Errorf("fx: unknown currency %q", code)
 	}
-	_, err := s.pool.Exec(ctx, `
+	_, err := q.Exec(ctx, `
 		INSERT INTO profile (user_id, currency) VALUES ($1, NULLIF($2, ''))
 		ON CONFLICT (user_id) DO UPDATE SET currency = EXCLUDED.currency, updated_at = now()`,
 		userID, code)

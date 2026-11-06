@@ -36,6 +36,11 @@ var Codes = []string{USD, UAH, EUR, PLN, BYN}
 // which the rates are in.
 var Stored = []string{USD, EUR, PLN, BYN}
 
+// NBUCodes are the stored codes the NBU gives. BYN comes from currency-api,
+// whose file of a day is out hours after the NBU's rate of it, so a day can
+// have these and wait for BYN.
+var NBUCodes = []string{USD, EUR, PLN}
+
 // Sources of a rate.
 const (
 	NBU         = "nbu"
@@ -146,47 +151,90 @@ func Default(chosen, country, lang string) string {
 	return USD
 }
 
-// comma are the languages framy speaks that write a decimal comma.
-var comma = map[string]bool{
-	"ru": true, "uk": true, "es": true, "fr": true, "de": true, "it": true, "pl": true,
-	"cs": true, "tr": true, "sv": true, "be": true, "ca": true,
+// style is how a language writes an amount, as CLDR has it and the
+// browser's Intl writes it on the site's own numbers: the decimal mark, the
+// sign that groups the thousands, from how many digits before the mark they
+// are grouped (Spanish writes 1234,50 but 12.345,50), and whether the
+// currency's sign goes first ("$0,02" in Turkish, "0,02 $" in German).
+type style struct {
+	decimal, group string
+	groupFrom      int
+	signFirst      bool
+}
+
+const (
+	nbsp       = "\u00a0"
+	narrowNBSP = "\u202f"
+)
+
+var (
+	english = style{".", ",", 4, true}
+	styles  = map[string]style{
+		"en": english, "zh": english, "ja": english, "ar": english,
+		"ru": {",", nbsp, 4, false}, "uk": {",", nbsp, 4, false}, "cs": {",", nbsp, 4, false}, "sv": {",", nbsp, 4, false},
+		"fr": {",", narrowNBSP, 4, false},
+		"pl": {",", nbsp, 5, false}, "be": {",", nbsp, 5, false},
+		"es": {",", ".", 5, false}, "it": {",", ".", 5, false},
+		"de": {",", ".", 4, false}, "ca": {",", ".", 4, false},
+		"tr": {",", ".", 4, true},
+	}
+)
+
+func styleOf(lang string) style {
+	lang, _, _ = strings.Cut(strings.ToLower(lang), "-")
+	if st, ok := styles[lang]; ok {
+		return st
+	}
+	return english
 }
 
 var symbols = map[string]string{USD: "$", UAH: "₴", EUR: "€", PLN: "zł", BYN: "Br"}
 
-// after are the symbols written after the number even in English.
+// after are the symbols written after the number in every language: zł and
+// Br read as words, and "zł 3.92" is odd where "3.92 zł" is not.
 var after = map[string]bool{PLN: true, BYN: true}
 
 // Format writes an amount of code for lang: "$0.02" in English, "0,89 ₴" in
-// Ukrainian. It never rounds down, as an estimate must not look cheaper
-// than it is: two decimals from 1 up, and below 1 enough decimals, at most
-// four, to keep two significant digits.
+// Ukrainian, "1 234,50 ₴" with the thousands grouped. It never rounds down,
+// as an estimate must not look cheaper than it is: two decimals from 1 up,
+// and below 1 enough decimals, at most four, to keep two significant digits.
 func Format(amount float64, code, lang string) string {
-	lang, _, _ = strings.Cut(strings.ToLower(lang), "-")
-	n := number(amount)
+	st := styleOf(lang)
+	n := st.write(number(amount))
 	symbol := symbols[code]
 	if symbol == "" {
 		symbol = code
 	}
-	if comma[lang] {
-		return strings.Replace(n, ".", ",", 1) + "\u00a0" + symbol
+	if st.signFirst && !after[code] {
+		return symbol + n
 	}
-	if after[code] {
-		// zł and Br read as words: "zł 3.92" is odd, "3.92 zł" is not.
-		return n + "\u00a0" + symbol
-	}
-	return symbol + n
+	return n + nbsp + symbol
 }
 
 // FormatCode is Format with the currency's code after the number in place
 // of its sign: "0,89 UAH". It is for a picture whose faces lack the sign.
 func FormatCode(amount float64, code, lang string) string {
-	lang, _, _ = strings.Cut(strings.ToLower(lang), "-")
-	n := number(amount)
-	if comma[lang] {
-		n = strings.Replace(n, ".", ",", 1)
+	return styleOf(lang).write(number(amount)) + nbsp + code
+}
+
+// write puts a number of number() in the style: its decimal mark, and its
+// thousands grouped.
+func (st style) write(n string) string {
+	whole, frac, _ := strings.Cut(n, ".")
+	if len(whole) >= st.groupFrom {
+		var b strings.Builder
+		for i, d := range whole {
+			if i > 0 && (len(whole)-i)%3 == 0 {
+				b.WriteString(st.group)
+			}
+			b.WriteRune(d)
+		}
+		whole = b.String()
 	}
-	return n + "\u00a0" + code
+	if frac == "" {
+		return whole
+	}
+	return whole + st.decimal + frac
 }
 
 func number(amount float64) string {

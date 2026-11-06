@@ -6,6 +6,7 @@ package db
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/FreshLabDev/tg"
 )
@@ -79,6 +80,9 @@ func TestAChatRunFollowsItsJob(t *testing.T) {
 	if got.PreviewEphemeral || got.CommandEphemeral || got.PanelMessageID != 0 {
 		t.Fatalf("a preview in the chat = %+v", got)
 	}
+	if !got.Finished.IsZero() {
+		t.Fatalf("a draft has ended at %v", got.Finished)
+	}
 	open, err := store.OpenChatRuns(ctx)
 	if err != nil || len(open) != 1 || open[0].JobID != job {
 		t.Fatalf("open = %+v, %v", open, err)
@@ -112,6 +116,13 @@ func TestAChatRunFollowsItsJob(t *testing.T) {
 	}
 	if open, _ := store.OpenChatRuns(ctx); len(open) != 0 {
 		t.Fatalf("a finished run is open: %+v", open)
+	}
+	// When the job ended, which bounds how long a delivery is tried.
+	if _, err := store.pool.Exec(ctx, `UPDATE job SET status = 'done', finished_at = now() - interval '2 hours' WHERE id = $1`, job); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := store.ChatRun(ctx, job); err != nil || time.Since(got.Finished) < time.Hour {
+		t.Fatalf("finished = %v, %v", got.Finished, err)
 	}
 }
 
@@ -206,8 +217,12 @@ func TestAClipRunKeepsItsClip(t *testing.T) {
 	if _, err := store.FinishChatRun(ctx, job, StageDone, ChatResult{MessageID: 42, FileID: "f", FileUniqueID: "u"}); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := store.ChatRun(ctx, job); got.ResultMessageID != 42 {
-		t.Fatalf("result message = %d", got.ResultMessageID)
+	if got, _ := store.ChatRun(ctx, job); got.ResultMessageID != 42 || got.ResultFileUniqueID != "u" {
+		t.Fatalf("result message = %d, file %q", got.ResultMessageID, got.ResultFileUniqueID)
+	}
+	// A result whose message is known keeps it.
+	if found, err := store.FoundResultMessage(ctx, job, 43); err != nil || found {
+		t.Fatalf("a known result message changed: %v %v", found, err)
 	}
 	if id, found, err := store.ResultRun(ctx, -100, 42); err != nil || !found || id != job {
 		t.Fatalf("result run = %d %v %v", id, found, err)
@@ -215,6 +230,37 @@ func TestAClipRunKeepsItsClip(t *testing.T) {
 	// The same message number in another chat is another message.
 	if _, found, err := store.ResultRun(ctx, -101, 42); err != nil || found {
 		t.Fatalf("another chat: %v %v", found, err)
+	}
+
+	// A video sent to a large group comes back with no id; the press on its
+	// message, once it is in the chat, records it.
+	video := chatJob(t, store, 4306, "tg:-100:60")
+	if err := store.AddChatRun(ctx, ChatRun{JobID: video, ChatID: -100, CommandMessageID: 60, PreviewMessageID: 61, Lang: "en"}); err != nil {
+		t.Fatal(err)
+	}
+	if found, err := store.FoundResultMessage(ctx, video, 70); err != nil || found {
+		t.Fatalf("a preview took a result message: %v %v", found, err)
+	}
+	if _, err := store.MoveChatRun(ctx, video, StagePreview, StageGenerating); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.FinishChatRun(ctx, video, StageDone, ChatResult{FileID: "v", FileUniqueID: "vu", FileType: FileVideo}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := store.ChatRun(ctx, video); got.ResultMessageID != 0 || got.ResultFileUniqueID != "vu" {
+		t.Fatalf("an unnumbered result = %+v", got)
+	}
+	if found, err := store.FoundResultMessage(ctx, video, 0); err != nil || found {
+		t.Fatalf("recorded 0: %v %v", found, err)
+	}
+	if found, err := store.FoundResultMessage(ctx, video, 70); err != nil || !found {
+		t.Fatalf("not recorded: %v %v", found, err)
+	}
+	if id, found, err := store.ResultRun(ctx, -100, 70); err != nil || !found || id != video {
+		t.Fatalf("result run = %d %v %v", id, found, err)
+	}
+	if found, err := store.FoundResultMessage(ctx, video, 71); err != nil || found {
+		t.Fatalf("recorded twice: %v %v", found, err)
 	}
 
 	// A run of pictures has no clip, and the columns say so.
@@ -264,5 +310,78 @@ func TestAGuestRunKeepsItsInlineMessage(t *testing.T) {
 	}
 	if _, err := store.pool.Exec(ctx, `UPDATE job SET surface = 'inline' WHERE id = $1`, job); err == nil {
 		t.Fatal("a surface framy has not was taken")
+	}
+}
+
+// A deleted job's run is no one's to press or follow: it waits among the
+// deleted ones of its own bot until that bot takes its message down and
+// drops it. The run of a job still there cannot be dropped that way.
+func TestARunOfADeletedJobWaitsToBeTakenDown(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+	gone := chatJob(t, store, 4311, "tg:-100:31")
+	kept := chatJob(t, store, 4311, "tg:-100:32")
+	for _, job := range []int64{gone, kept} {
+		if err := store.AddChatRun(ctx, ChatRun{JobID: job, ChatID: -100, CommandMessageID: 31, PreviewMessageID: 77, Lang: "en"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	other := chatJob(t, store, 4311, "tg:-100:33")
+	if err := onStack(store, "test").AddChatRun(ctx, ChatRun{JobID: other, ChatID: -100, CommandMessageID: 33, Lang: "en"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.pool.Exec(ctx, `UPDATE job SET deleted_at = now(), prompt = '' WHERE id = ANY($1)`, []int64{gone, other}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := store.ChatRun(ctx, gone); err != ErrNoRun {
+		t.Fatalf("a deleted job's run reads: %v", err)
+	}
+	if open, err := store.OpenChatRuns(ctx); err != nil || len(open) != 1 || open[0].JobID != kept {
+		t.Fatalf("open = %+v, %v", open, err)
+	}
+	deleted, err := store.DeletedChatRuns(ctx, true)
+	if err != nil || len(deleted) != 1 || deleted[0].JobID != gone {
+		t.Fatalf("deleted = %+v, %v", deleted, err)
+	}
+	if r := deleted[0]; r.Stage != StagePreview || r.PreviewMessageID != 77 || r.ChatID != -100 || r.UserID != 4311 || r.Lang != "en" {
+		t.Fatalf("what the takedown needs = %+v", r)
+	}
+	if dropped, err := store.DropChatRun(ctx, kept); err != nil || dropped {
+		t.Fatalf("a kept job's run dropped: %v %v", dropped, err)
+	}
+	if dropped, err := store.DropChatRun(ctx, other); err != nil || dropped {
+		t.Fatalf("the test bot's run dropped by production's: %v %v", dropped, err)
+	}
+	if dropped, err := store.DropChatRun(ctx, gone); err != nil || !dropped {
+		t.Fatalf("drop: %v %v", dropped, err)
+	}
+	if dropped, err := store.DropChatRun(ctx, gone); err != nil || dropped {
+		t.Fatalf("dropped twice: %v %v", dropped, err)
+	}
+	if deleted, err := store.DeletedChatRuns(ctx, false); err != nil || len(deleted) != 0 {
+		t.Fatalf("after the drop = %+v, %v", deleted, err)
+	}
+	if deleted, err := onStack(store, "test").DeletedChatRuns(ctx, true); err != nil || len(deleted) != 1 || deleted[0].JobID != other {
+		t.Fatalf("the test bot's = %+v, %v", deleted, err)
+	}
+
+	// A run that moved on as its job went, its result in the chat already,
+	// is not open: only the look at every run finds it.
+	sent := chatJob(t, store, 4311, "tg:-100:34")
+	if err := store.AddChatRun(ctx, ChatRun{JobID: sent, ChatID: -100, CommandMessageID: 34, Lang: "en"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.pool.Exec(ctx, `UPDATE chat_run SET stage = 'done' WHERE job_id = $1`, sent); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.pool.Exec(ctx, `UPDATE job SET deleted_at = now(), prompt = '' WHERE id = $1`, sent); err != nil {
+		t.Fatal(err)
+	}
+	if deleted, err := store.DeletedChatRuns(ctx, true); err != nil || len(deleted) != 0 {
+		t.Fatalf("open, a run that is not = %+v, %v", deleted, err)
+	}
+	if deleted, err := store.DeletedChatRuns(ctx, false); err != nil || len(deleted) != 1 || deleted[0].JobID != sent || deleted[0].Stage != StageDone {
+		t.Fatalf("every run = %+v, %v", deleted, err)
 	}
 }

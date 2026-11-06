@@ -70,39 +70,152 @@ func TestEachStackWorksOnlyItsOwnJobs(t *testing.T) {
 	}
 }
 
-// A person's runs at once are counted over both stacks, and the job that ends
-// on one wakes the next one waiting on the other.
-func TestAPersonsLimitHoldsAcrossStacks(t *testing.T) {
+// A person's slots and turns are counted on each stack apart: the runs a
+// stopped test bot left running and waiting hold up nothing of the same
+// person's on production, and production leaves them alone.
+func TestAStoppedStackHoldsUpNothingOnTheOther(t *testing.T) {
 	pool := testPool(t)
-	release := make(chan struct{})
-	prodFake, testFake := newFake(), newFake()
-	prodFake.submit = func(ctx context.Context, _ Job) (Submission, error) {
-		select {
-		case <-release:
-		case <-ctx.Done():
-			return Submission{}, ctx.Err()
-		}
-		return done(0.02), nil
-	}
+	prodFake := newFake()
 	prod := stackQueue(t, pool, "", prodFake)
-	test := stackQueue(t, pool, "test", testFake)
-	a1 := enqueue(t, prod, job(alice, imageOffer))
-	a2 := enqueue(t, prod, job(alice, imageOffer))
-	start(t, prod)
-	eventually(t, "alice's two jobs running on production", func() bool { return prodFake.count(prodFake.inFlight, alice) == 2 })
+	test := stackQueue(t, pool, "test", newFake())
+	// The test bot stopped with two of alice's videos at the provider and an
+	// image of hers waiting behind them.
+	t1 := enqueue(t, test, job(alice, videoOffer))
+	t2 := enqueue(t, test, job(alice, videoOffer))
+	t3 := enqueue(t, test, job(alice, imageOffer))
+	if _, err := pool.Exec(context.Background(), `
+		UPDATE framy.job SET status = 'running', started_at = now(), submitted_at = now(), provider_job_id = 'gen-' || id
+		WHERE id = ANY($1)`, []int64{t1, t2}); err != nil {
+		t.Fatal(err)
+	}
 
-	a3 := enqueue(t, test, job(alice, imageOffer))
-	start(t, test)
-	time.Sleep(500 * time.Millisecond)
-	if j := get(t, test, a3); j.Status != Queued || testFake.count(testFake.submits, a3) != 0 {
-		t.Fatalf("the third job: %s, %d requests", j.Status, testFake.count(testFake.submits, a3))
+	p1 := enqueue(t, prod, job(alice, imageOffer))
+	p2 := enqueue(t, prod, job(alice, imageOffer))
+	start(t, prod)
+	for _, id := range []int64{p1, p2} {
+		eventually(t, "alice's jobs on production done", func() bool { return get(t, prod, id).Status == Done })
 	}
-	close(release)
-	for _, id := range []int64{a1, a2, a3} {
-		eventually(t, "every job done", func() bool { return get(t, prod, id).Status == Done })
+	for id, want := range map[int64]Status{t1: Running, t2: Running, t3: Queued} {
+		if j := get(t, prod, id); j.Status != want || prodFake.count(prodFake.submits, id)+prodFake.count(prodFake.polls, id) != 0 {
+			t.Errorf("the test bot's job %d: %s, touched %d times by production, want %s untouched", id, j.Status,
+				prodFake.count(prodFake.submits, id)+prodFake.count(prodFake.polls, id), want)
+		}
 	}
-	if testFake.count(testFake.submits, a3) != 1 || prodFake.count(prodFake.submits, a3) != 0 {
-		t.Errorf("the third job went to the test bot %d times and to production %d times",
-			testFake.count(testFake.submits, a3), prodFake.count(prodFake.submits, a3))
+}
+
+// Each stack's process answers in its metrics for its own jobs: the jobs
+// waiting, and the jobs its sweep ended. Scraped together, the two add up
+// to the whole and count no job twice.
+func TestEachStackCountsOnlyItsOwnJobs(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	prod := stackQueue(t, pool, "", newFake())
+	test := stackQueue(t, pool, "test", newFake())
+	mine := enqueue(t, prod, job(alice, imageOffer))
+	theirs := enqueue(t, test, job(bob, imageOffer))
+	enqueue(t, test, job(bob, imageOffer))
+
+	for q, want := range map[*Queue]float64{prod: 1, test: 2} {
+		if waiting, err := q.Waiting(ctx); err != nil || waiting["queued"] != want {
+			t.Errorf("stack %q: waiting %v, %v; want %v queued", q.cfg.Stack, waiting, err, want)
+		}
+	}
+
+	// River gave up on one job of each stack; production's process sweeps
+	// both, and counts only its own.
+	if _, err := pool.Exec(ctx, `UPDATE framy.river_job SET state='discarded', finalized_at=now()
+		WHERE id IN (SELECT river_job_id FROM framy.job WHERE id = ANY($1))`, []int64{mine, theirs}); err != nil {
+		t.Fatal(err)
+	}
+	internal := `framy_job_failures_total{reason="internal"}`
+	before := sample(t, internal)
+	if n, err := prod.sweep(ctx); err != nil || n != 2 {
+		t.Fatalf("sweep = %d, %v; want 2", n, err)
+	}
+	if got := sample(t, internal) - before; got != 1 {
+		t.Errorf("the sweep counted %v failures, want 1: production's own", got)
+	}
+	for _, id := range []int64{mine, theirs} {
+		if j := get(t, prod, id); j.Status != Failed {
+			t.Errorf("job %d: %s, want failed by the sweep", id, j.Status)
+		}
+	}
+}
+
+// A job that could start and has not for minutes means nothing takes jobs.
+// A job that waits on purpose is not one: for a refusal's retry, for the
+// person's slot, or on another stack.
+func TestStalledFindsOnlyJobsNothingTakes(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	prod := stackQueue(t, pool, "", newFake())
+	test := stackQueue(t, pool, "test", newFake())
+	stalled := func(q *Queue) (int, time.Time) {
+		t.Helper()
+		n, since, err := q.Stalled(ctx, 10*time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n, since
+	}
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("%s: %v", sql, err)
+		}
+	}
+
+	a := enqueue(t, prod, job(alice, imageOffer))
+	b := enqueue(t, prod, job(bob, imageOffer))
+	theirs := enqueue(t, test, job(bob, imageOffer))
+	if n, _ := stalled(prod); n != 0 {
+		t.Fatalf("jobs just queued are stalled: %d", n)
+	}
+
+	exec(`UPDATE framy.job SET queued_at = now() - interval '20 minutes' WHERE id = ANY($1)`, []int64{a, b, theirs})
+	// Bob's job waits out a refusal for another minute.
+	exec(`UPDATE framy.job SET retry_at = now() + interval '1 minute' WHERE id = $1`, b)
+	// Each stack counts its own: production alice's, the test bot bob's
+	// there, which his job waiting on production does not hold back.
+	n, since := stalled(prod)
+	if n != 1 || time.Since(since) < 19*time.Minute || time.Since(since) > 21*time.Minute {
+		t.Errorf("production: %d stalled since %v, want alice's from 20 minutes ago", n, since)
+	}
+	if n, _ := stalled(test); n != 1 {
+		t.Errorf("the test bot: %d stalled, want its own one", n)
+	}
+
+	// Alice's slot was taken until a minute ago: her job could start only then.
+	busy := enqueue(t, prod, job(alice, imageOffer))
+	exec(`UPDATE framy.job SET status = 'cancelled', finished_at = now() - interval '1 minute' WHERE id = $1`, busy)
+	if n, _ := stalled(prod); n != 0 {
+		t.Errorf("a job whose slot freed a minute ago is stalled: %d", n)
+	}
+
+	// Two of hers running leave no slot at all.
+	exec(`UPDATE framy.job SET finished_at = now() - interval '30 minutes' WHERE id = $1`, busy)
+	if n, _ := stalled(prod); n != 1 {
+		t.Fatalf("after the slot freed half an hour ago: %d stalled", n)
+	}
+	var running []int64
+	for range 2 {
+		r := enqueue(t, prod, job(alice, imageOffer))
+		exec(`UPDATE framy.job SET status = 'running', started_at = now() WHERE id = $1`, r)
+		running = append(running, r)
+	}
+	if n, _ := stalled(prod); n != 0 {
+		t.Errorf("a job with no free slot is stalled: %d", n)
+	}
+
+	// A video out at the provider holds no slot, as claim counts them: one
+	// sent a minute ago freed it only then, one sent half an hour ago long
+	// since.
+	exec(`UPDATE framy.job SET provider_job_id = 'gen-1', submitted_at = now() - interval '1 minute' WHERE id = $1`, running[0])
+	if n, _ := stalled(prod); n != 0 {
+		t.Errorf("a job whose slot a video freed a minute ago is stalled: %d", n)
+	}
+	exec(`UPDATE framy.job SET submitted_at = now() - interval '30 minutes' WHERE id = $1`, running[0])
+	if n, _ := stalled(prod); n != 1 {
+		t.Errorf("a job whose slot a video freed half an hour ago: %d stalled, want 1", n)
 	}
 }

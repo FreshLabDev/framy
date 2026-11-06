@@ -17,23 +17,25 @@ careful with people's keys, and production-minded.
   `/metrics` on its own listener, the family's panels on `/start`, the hourly
   model catalog sync, the price estimate, the currency rates, the job queue
   on River, the free allowance, the encrypted store of people's keys, the
-  OpenRouter (images, and video with its webhook), OpenAI and Gemini image
-  adapters, connecting OpenRouter with OAuth PKCE (`internal/oauth`),
+  adapters of OpenRouter (images, and video with its webhook), OpenAI
+  (images) and Gemini (images, and Omni's video), connecting OpenRouter with
+  OAuth PKCE (`internal/oauth`),
   storage in R2 with the ffmpeg photo pipeline, the renderer of the album
   preview, the generating loop and the error card (`internal/anim`), the
   public HTTP server's foundation (`internal/web`: security headers, CSRF,
   cache rules, rate limits), sign-in (`internal/auth`: Telegram Login on the
   site, `initData` in the Mini App, sessions of which the database keeps
-  only a hash), the job API with progress over SSE (`internal/api`), and a
-  clean stop on SIGTERM, and the first three stages of the site and the
-  Mini App (`internal/web/app`): sign-in, the API client with its event
-  stream, the composer and the model picker, the result on the stage, the
-  reasons a run failed or was refused with what helps, retries, cancelling,
-  clips with the editor of their part, Continue, the settings with the
-  keys of each provider, the default models and the DM switch, and the
-  library with the viewer of a run at
-  `/r/<id>`. The editor of a result is still to come.
-- The service will be one Go binary (module `github.com/FreshLabDev/framy`):
+  only a hash), the job API with progress over SSE (`internal/api`), the
+  watch that tells the operator chat about the disk and jobs nothing takes
+  (`internal/watch`), a clean stop on SIGTERM, and the first three stages
+  of the site and the Mini App (`internal/web/app`): sign-in, the API
+  client with its event stream, the composer and the model picker, the
+  result on the stage, the reasons a run failed or was refused with what
+  helps, retries, cancelling, clips with the editor of their part,
+  Continue, the settings with the keys of each provider, the default models
+  and the DM switch, and the library with the viewer of a run at `/r/<id>`.
+  The editor of a result is still to come.
+- The service is one Go binary (module `github.com/FreshLabDev/framy`):
   the HTTP server (site, Mini App, API, SSE, OAuth callbacks, provider
   webhooks), the bot, the job workers, the hourly catalog sync and the
   renderer of loops and cards, all from one process behind a Cloudflare Tunnel
@@ -59,10 +61,11 @@ and a person who knows one of them should recognise framy. Before adding a
 screen, a command or a table, check how the siblings do it.
 
 - **One database.** framy's tables live in the `framy` schema of the shared
-  `core-postgres`, created by core migration `019_framy.sql` and reached as
-  `framy_core`. Identity, presence and language are core's: call `core.touch`
-  for every update with a sender, read the language with
-  `core.effective_language`, write it with `core.set_language` and
+  `core-postgres`. Core migration `019_framy.sql` creates the schema and the
+  `framy_core` role framy reaches it as; framy's own migrations create the
+  tables (docs/design.md, Architecture). Identity, presence and language are
+  core's: call `core.touch` for every update with a sender, read the language
+  with `core.effective_language`, write it with `core.set_language` and
   `core.clear_language`. framy holds `REFERENCES` on `core.person` and
   `core.chat` and no `SELECT`: it learns who a person is from the update or
   the Telegram Login claims. A new grant is a core migration that revokes
@@ -83,7 +86,9 @@ screen, a command or a table, check how the siblings do it.
 - **Version and metrics.** The About card shows the version from the build's
   ldflags, never a commit or a date. Metrics are in the Prometheus text
   format on `METRICS_ADDR`, never on the public listener: counters
-  `framy_*_total`, gauges and histograms `framy_*` named for what they hold.
+  `framy_*_total`, gauges and histograms `framy_*` named for what they hold,
+  beside the process's and the Go runtime's own under Prometheus's standard
+  `process_*` and `go_*` names.
 - **Writing.** No em dash anywhere a person reads; the i18n tests check the
   translations and the strings in Go code.
 
@@ -125,7 +130,7 @@ screen, a command or a table, check how the siblings do it.
   to a photo it edits that photo; in reply to a photo of an album it takes
   every photo of the album with one instruction. `/edit` does the same for a
   video. In a DM a plain message is enough: framy asks whether it is for an
-  image or a video. Allowed on anyone's photo **(owner)**. Nothing is generated until the requester presses Generate, and
+  image or a video. Allowed on anyone's photo **(owner)**. Nothing is generated until the requester presses Create, and
   only the requester can press the buttons of a preview.
 - The catalog is data: synced from OpenRouter every hour, plus hand-written
   descriptors for OpenAI and Gemini in `catalog/`, joined and annotated by
@@ -157,12 +162,18 @@ screen, a command or a table, check how the siblings do it.
   by their hashes (`web.App.CSP`); the boot script asks for the catalog and
   the person while the skeleton paints. The site's lines are the `web.*` keys
   of `internal/i18n/translations.json`. Motion is transform and opacity only,
-  with the Web Animations API, and `go test -tags=browser ./internal/web/`
-  checks the layout at 390 and 1440 px and that no task holds the main thread
+  with the Web Animations API, in four durations (`DUR`) and four curves (`EASE`,
+  `OUT`, `SPRING`, `SNAP`) written once in `motion.js` and mirrored as `--dur-*`
+  tokens in `app.css` (a test refuses any other number), and
+  `go test -tags=browser ./internal/web/` checks the layout at 390 and 1440 px and that no task holds the main thread
   over 50 ms on a CPU four times slower than an M-series laptop: the test
   measures the machine on DOM work like the steps', slows it to that speed,
   and brings a machine already slower than that down to the laptop's times
-  (`cpuRef` in `browser_test.go`). Fonts and libraries are served by
+  (`cpuRef` in `browser_test.go`). The composer, the person's settings, the
+  library and the viewer are walked twice, each time on the page loaded
+  afresh, so a first, cold opening counts. With reduced motion asked, nothing
+  may move on the same walk: no `animate()`, no CSS animation, no transition
+  of a place or a size, no smooth scroll. Fonts and libraries are served by
   the service itself; only `telegram-web-app.js` comes from outside, and only
   the Mini App loads it.
 
@@ -201,14 +212,34 @@ screen, a command or a table, check how the siblings do it.
 
 ## Migrations
 
-- Add new SQL migrations under `migrations/` with the next numeric prefix.
+- Add new SQL migrations under `migrations/` with the next numeric prefix,
+  and name each in `## Unreleased` (`030_batch.sql` or "migration 030"): CI
+  fails on one the changelog does not name.
 - Migrations must be safe to run once and tracked by `schema_migrations`.
 - Do not edit a migration after it may have been applied.
 - The test bot shares production's schema and runs `dev`, so a migration
   reaches production before its code does (docs/design.md, Stacks). Keep it
   additive: new tables, columns that are NULL or have a default, indexes. No
   rename, drop, changed type or key, or NOT NULL without a default while the
-  released binary still uses the old form.
+  released binary still uses the old form. `TestMigrationsAreAdditive`
+  refuses one unless it says why in a line `-- not additive: …`, and
+  `TestRiverBringsNoMigrationProductionLacks` stops an upgrade of River that
+  brings a migration of its own.
+- The runner applies each file in one transaction under `lock_timeout` 5 s
+  and `statement_timeout` 1 min, tries a file again a few times when it
+  waited too long for a lock, and keeps each file's SHA-256 in
+  `schema_migrations`: a file that differs from the one applied stops the
+  start. A file that needs longer raises the limits with its own `SET LOCAL`.
+- A new CHECK or foreign key on a table that has rows goes in `NOT VALID`,
+  and a later migration validates it (`VALIDATE CONSTRAINT` does not block
+  writes). The runner has no migration outside a transaction yet, so an
+  index is a plain `CREATE INDEX`, which blocks writes to its table while it
+  builds: fine at thousands of rows. Before a table holds millions, the
+  runner needs a file that runs alone outside a transaction, for
+  `CREATE INDEX CONCURRENTLY`.
+- A foreign key comes with an index that starts with its column, unless
+  framy never deletes the rows it points at: a delete looks for the rows
+  pointing at it. `TestEveryForeignKeyHasAnIndex` checks it.
 - Anything only one bot can act on (a chat, a message id, a `file_id`, a
   River queue, the getUpdates offset) carries the stack and is read by it.
   Upkeep of shared tables runs on production only (`config.Config.Primary`).
@@ -235,12 +266,21 @@ screen, a command or a table, check how the siblings do it.
 
 ## Planning
 
-- Tasks and their status live in GitHub issues on the
-  [framy project board](https://github.com/orgs/FreshLabDev/projects/3), not in
-  files. The board's Stage field follows the stages of the design, and Area
-  says which part of the service a task touches. Repository labels stay the
-  GitHub defaults, as in every family repository. When the plan changes,
-  change the issues in the same step.
+- Tasks and their status live in GitHub issues of this repository, not in
+  files. The family's [Asterfield board](https://github.com/orgs/FreshLabDev/projects/4)
+  gathers them, with framy on its
+  [framy tab](https://github.com/orgs/FreshLabDev/projects/4/views/3); the
+  framy board (projects/3) is closed. An issue opened from a template by someone
+  who can write to the board lands on it, and any other is added with
+  `gh project item-add 4 --owner FreshLabDev --url <issue>`. On the board it
+  gets Status, Area (which part of the service it touches) and Size.
+- The stage of a task is its milestone, and the milestones follow the stages
+  of the design (`docs/design.md`, Stages): MVP is Images, Video is Video, and
+  After MVP is Telegram in depth and what is deliberately deferred. Give every
+  issue a milestone, Area and Size: the board still shows one without them,
+  but a filter by any of them misses it. Repository labels stay the GitHub
+  defaults, as in every family repository. When the plan changes, change the
+  issues in the same step.
 - A new issue says what to do in its title, and its body ends with
   "Done when …": the check that closes it.
 - Everything public is written in English: issues, the board, docs, code
@@ -272,16 +312,41 @@ FRAMY_TEST_DATABASE_URL=postgres://framy:framy@localhost:5432/framy_test?sslmode
   go test -tags=integration -p 1 ./...
 ```
 
-The media tests need FFmpeg 8.0 or newer and skip without it; CI runs them
-inside the image with `FRAMY_MEDIA_TESTS=1`, which makes a skip a failure.
+The media tests need FFmpeg 8.0 or newer with the libx264 and libwebp
+encoders, as the image has, and skip a test whose encoder is missing:
+Homebrew's ffmpeg has no libwebp, so on a Mac the thumbnail tests skip and say
+so. CI runs them inside the image with `FRAMY_MEDIA_TESTS=1`, which makes a
+skip a failure. They are those of `internal/media`, `internal/storage`,
+`internal/anim` and `internal/api` (a photo brought over HTTP); a new package
+with one goes into that loop of `ci.yml`.
 `internal/media/testdata/make.swift` regenerates the iPhone fixtures on macOS.
+
+The browser tests take about five minutes on a laptop and a little under
+seven in CI, and go test stops a package at ten minutes, so run them as CI
+does, with a timeout of their own (and Chrome at `CHROME_PATH`):
+
+```sh
+go test -tags=browser -run Browser -timeout 20m ./internal/web/
+```
+
+CI prints each test's time (`-v`); when a run nears 15 minutes, split the tests
+or speed them up before raising the limit again.
 
 The live R2 check runs by hand against the real buckets, where the token is:
 `go test -tags r2live -run Live ./internal/r2` with `R2_ACCOUNT_ID`,
 `R2_ACCESS_KEY_ID_FILE` and `R2_SECRET_ACCESS_KEY_FILE`. It writes a few bytes
-under `incoming/` and removes them. Set `R2_FOREIGN_BUCKET` to a throwaway
-bucket of the same account to check the token is refused there. It prints no
-credential and no presigned URL; keep it that way.
+under `incoming/` and removes them, checks that a presigned PUT takes only
+the length it was signed for, and asks whether one can be turned into a copy
+of another file. Set `R2_FOREIGN_BUCKET` to a throwaway
+bucket of the same account to check the token is refused there, and
+`R2_INCOMING_BUCKET` with `R2_INCOMING_ACCESS_KEY_ID_FILE` and
+`R2_INCOMING_SECRET_ACCESS_KEY_FILE` to check the clips' bucket and its own
+token. It prints no credential and no presigned URL; keep it that way.
+
+The few amounts the site writes itself (the dollars of a price hint, the sum of
+several runs in `price.js`) are checked against `fx.Format` string for string
+by `browser_money_test.go`, which bundles `price.js` on its own; change the
+rule in `internal/fx` and in `price.js` together, or that test fails.
 
 Verify the site and the Mini App in a browser at phone width (375×812 and
 320×568) and on a wide screen, with and without the Telegram emulation hash

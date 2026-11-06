@@ -138,21 +138,37 @@ ever be true of either.
 
 ## framy today
 
-The first release is `v0.1.0-alpha.1` (31 October 2026). The line:
+The first release is `v0.1.0-alpha.1` (31 October 2026). Video, inline and
+guest mode came in the alphas of 0.1.0 rather than in a 0.2.0 of their own,
+so the line was aimed again on 5 November:
 
 ```text
-v0.1.0-alpha.N  the service, the site, the free images and /img
-v0.1.0-beta.N   images work end to end on the site, in the Mini App and in groups
+v0.1.0-alpha.N  the service, the site and the Mini App, images and video,
+                the free allowance, /img and /edit, inline and guest mode
+v0.1.0-beta.N   images and video work end to end on the site, in the Mini App
+                and in groups
 v0.1.0-rc.N     a closed week with a few groups, only fixes land
-v0.1.0          first public MVP: images
-v0.2.0          video
+v0.1.0          first public release: the MVP (images) and video
+v0.2.0          the rest of Telegram in depth (docs/design.md, Stages)
 v1.0.0          first stable production contract
 ```
 
 framy needs a test bot from the first alpha. Every run costs money, so a bad cut
 in the free allowance or in the price estimate is paid for by framy or by
-somebody's key. The test bot runs `dev` with its own OpenRouter key and a low
-spending limit on that key.
+somebody's key. The test bot runs the pre-releases of `dev` on production's
+schema with framy's own OpenRouter key, the one production pays the free
+allowance with: the free allowance's daily budget and the key's limit are
+counted once over both bots (docs/design.md, Stacks), so a bad cut on the test
+bot spends from production's budget and cannot spend more than it.
+
+Production has run pre-releases from the first one, the shortcut "Run a
+pre-release in production" above, taken knowingly until `v0.1.0`. For the
+ones it runs (`v0.1.0-alpha.1`, `v0.1.0-alpha.4`), `dev` is merged into
+`main` with a merge commit ("release: merge dev for v0.1.0-alpha.4") and no
+tag of its own, so `main` still answers what production runs, and CI's
+weekly scan of the published image takes the newest tag on `main` for it.
+This is framy's one departure from the rules above, and it ends with the
+first stable version.
 
 ## Breaking-sensitive surface
 

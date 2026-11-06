@@ -6,10 +6,13 @@ package storage_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -72,7 +75,7 @@ func TestAResultIsKeptWithItsThumbnail(t *testing.T) {
 	if err := h.store.Keep(ctx, jobs.Job{ID: job, UserID: alice}, results); err != nil {
 		t.Fatal(err)
 	}
-	base := "u/3001/out/" + strconv.FormatInt(job, 10)
+	base := "out/" + strconv.FormatInt(job, 10)
 	if w, hh := webpSize(t, h, base+"-0.thumb.webp"); w != media.ThumbLongSide || hh != media.ThumbLongSide/2 {
 		t.Errorf("the picture's thumbnail is %d×%d", w, hh)
 	}
@@ -189,5 +192,128 @@ func TestALinkStaysTheSameThroughItsWindow(t *testing.T) {
 	now = now.Add(time.Hour)
 	if next, _ := h.store.LinkAll(ctx, alice, []int64{id}, names); next[id].URL == first[id].URL {
 		t.Error("the next window got the same link")
+	}
+}
+
+// A person deleting a result never waits for its thumbnail: the loop holds
+// no lock on the row while it works, and a thumbnail made for a result that
+// went meanwhile goes too.
+func TestADeleteDoesNotWaitForAThumbnail(t *testing.T) {
+	h := newHarness(t, storage.Config{})
+	ctx := context.Background()
+	job := doneJob(t, h, alice)
+	key := "u/3001/out/" + strconv.FormatInt(job, 10) + "-0.png"
+	id := resultOf(t, h, alice, job, key)
+	started, release := make(chan struct{}), make(chan struct{})
+	storage.SetThumbMaker(h.store, func(ctx context.Context, _, thumb string) (int, int, int64, error) {
+		close(started)
+		<-release
+		h.bucket.Put(thumb, r2test.Object{Data: []byte("webp"), ContentType: "image/webp"})
+		return 320, 320, 4, nil
+	})
+	type result struct {
+		made int
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		made, err := h.store.FillThumbs(ctx, 1)
+		done <- result{made, err}
+	}()
+	<-started
+	deleted := make(chan error, 1)
+	go func() { deleted <- h.store.Delete(ctx, alice, id) }()
+	select {
+	case err := <-deleted:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		close(release)
+		t.Fatal("the delete waited for the thumbnail")
+	}
+	close(release)
+	if r := <-done; r.err != nil || r.made != 0 {
+		t.Fatalf("made %d: %v", r.made, r.err)
+	}
+	if keys := h.bucket.Keys(); len(keys) != 0 {
+		t.Errorf("left in the bucket: %v", keys)
+	}
+}
+
+// A thumbnail made while nothing deletes its result is on the row, and the
+// try counts once.
+func TestAThumbnailIsRecordedOnItsRow(t *testing.T) {
+	h := newHarness(t, storage.Config{})
+	ctx := context.Background()
+	job := doneJob(t, h, alice)
+	key := "u/3001/out/" + strconv.FormatInt(job, 10) + "-0.png"
+	id := resultOf(t, h, alice, job, key)
+	storage.SetThumbMaker(h.store, func(_ context.Context, _, thumb string) (int, int, int64, error) {
+		h.bucket.Put(thumb, r2test.Object{Data: []byte("webp"), ContentType: "image/webp"})
+		return 320, 160, 4, nil
+	})
+	if made, err := h.store.FillThumbs(ctx, 5); err != nil || made != 1 {
+		t.Fatalf("made %d: %v", made, err)
+	}
+	var thumb *string
+	var tries int
+	if err := h.pool.QueryRow(ctx, `SELECT thumb_key, thumb_tries FROM framy.asset WHERE id = $1`, id).Scan(&thumb, &tries); err != nil {
+		t.Fatal(err)
+	}
+	if want := strings.TrimSuffix(key, ".png") + ".thumb.webp"; thumb == nil || *thumb != want || tries != 1 {
+		t.Errorf("thumb %v, tries %d", thumb, tries)
+	}
+	if err := h.store.Delete(ctx, alice, id); err != nil {
+		t.Fatal(err)
+	}
+	if keys := h.bucket.Keys(); len(keys) != 0 {
+		t.Errorf("left in the bucket: %v", keys)
+	}
+}
+
+// An SVG is kept as an .svg with the size its root declares, by bytes or by
+// a link whatever type the provider names, and gets no thumbnail: ffmpeg
+// does not draw one, and the site shows the file itself.
+func TestAnSVGIsKeptAsItCame(t *testing.T) {
+	h := newHarness(t, storage.Config{})
+	ctx := context.Background()
+	drawn := []byte(`<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1365 1024"><rect width="9" height="9"/></svg>`)
+	links := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write(drawn)
+	}))
+	defer links.Close()
+	storage.SetThumbMaker(h.store, func(context.Context, string, string) (int, int, int64, error) {
+		t.Error("a thumbnail was made of an SVG")
+		return 0, 0, 0, errors.New("no")
+	})
+	job := doneJob(t, h, alice)
+	results := []jobs.Result{{ContentType: "image/svg+xml", Data: drawn}, {Data: drawn}, {URL: links.URL + "/out"}}
+	if err := h.store.Keep(ctx, jobs.Job{ID: job, UserID: alice}, results); err != nil {
+		t.Fatal(err)
+	}
+	kept, err := h.store.Results(ctx, job)
+	if err != nil || len(kept) != 3 {
+		t.Fatalf("%d results: %v", len(kept), err)
+	}
+	for i, a := range kept {
+		if want := "out/" + strconv.FormatInt(job, 10) + "-" + strconv.Itoa(i) + ".svg"; a.Key != want ||
+			a.ContentType != "image/svg+xml" || a.Width != 1365 || a.Height != 1024 || a.Thumb != nil {
+			t.Errorf("result %d: %+v", i, a)
+		}
+		if o, ok := h.bucket.Get(a.Key); !ok || o.ContentType != "image/svg+xml" || !bytes.Equal(o.Data, drawn) {
+			t.Errorf("result %d in the bucket: %v %q", i, ok, o.ContentType)
+		}
+	}
+	if made, err := h.store.FillThumbs(ctx, 5); err != nil || made != 0 {
+		t.Fatalf("made %d: %v", made, err)
+	}
+	var tries int
+	if err := h.pool.QueryRow(ctx, `SELECT max(thumb_tries) FROM framy.asset WHERE job_id = $1`, job).Scan(&tries); err != nil || tries != 0 {
+		t.Errorf("tries %d: %v", tries, err)
+	}
+	if storage.Ext("image/svg+xml") != ".svg" {
+		t.Errorf("an SVG downloads as %q", storage.Ext("image/svg+xml"))
 	}
 }

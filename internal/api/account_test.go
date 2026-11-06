@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/db"
@@ -65,6 +66,7 @@ func TestWhatTheKeysServiceRefusesIsSaidPlainly(t *testing.T) {
 		{keys.ErrBadKey, http.StatusUnprocessableEntity, "bad_key"},
 		{keys.ErrRejected, http.StatusUnprocessableEntity, "key_rejected"},
 		{keys.ErrForbidden, http.StatusUnprocessableEntity, "key_forbidden"},
+		{keys.ErrRegion, http.StatusServiceUnavailable, "key_region"},
 		{keys.ErrUnavailable, http.StatusServiceUnavailable, "check_unavailable"},
 		{keys.ErrDisabled, http.StatusServiceUnavailable, "keys_off"},
 		{keys.ErrUnreadable, http.StatusConflict, "key_unreadable"},
@@ -78,6 +80,16 @@ func TestWhatTheKeysServiceRefusesIsSaidPlainly(t *testing.T) {
 		if strings.Contains(m["message"].(string), aKey) {
 			t.Errorf("%v: the message quotes the key", tc.err)
 		}
+	}
+}
+
+// A key a video still needs is not deleted, and the answer says why.
+func TestAKeyAVideoNeedsIsKept(t *testing.T) {
+	r := newRig(t)
+	r.conns.opErr = keys.ErrInUse
+	status, m := r.send(alice, http.MethodDelete, "/api/connections/openrouter", "")
+	if status != http.StatusConflict || m["error"] != "key_in_use" || m["provider"] != "openrouter" {
+		t.Fatalf("%d %v", status, m)
 	}
 }
 
@@ -202,6 +214,20 @@ func TestTheSettingsKeepTheDefaultModelsAndTheDM(t *testing.T) {
 	}
 }
 
+// A save the database cannot keep is framy's failure, and the settings stay
+// as they were: the answer and the next GET agree.
+func TestASettingsSaveThatFailsKeepsNothing(t *testing.T) {
+	r := newRig(t)
+	r.store.changeErr = errors.New("connection reset")
+	if status, m := r.send(alice, http.MethodPatch, "/api/me", `{"currency":"UAH","language":"uk","deliver_to_telegram":false}`); status != http.StatusInternalServerError {
+		t.Fatalf("%d %v", status, m)
+	}
+	m := jsonOf(t, r.do(alice, "GET", "/api/me", nil))
+	if m["currency_chosen"] != false || m["language_chosen"] != false || m["deliver_to_telegram"] != true {
+		t.Errorf("after a failed save: %v", m)
+	}
+}
+
 func TestDeletingTheAccount(t *testing.T) {
 	r := newRig(t)
 	history(r)
@@ -210,11 +236,68 @@ func TestDeletingTheAccount(t *testing.T) {
 	if status != http.StatusNoContent {
 		t.Fatalf("%d", status)
 	}
-	if len(r.files.all) != 1 || len(r.data.forgot) != 1 || len(r.store.cleared) != 1 || len(r.revoked) != 1 || r.revoked[0] != alice {
+	if len(r.files.all) == 0 || len(r.data.forgot) != 1 || len(r.store.cleared) != 1 || len(r.revoked) != 1 || r.revoked[0] != alice {
 		t.Fatalf("files %v, forgot %v, language %v, revoked %v", r.files.all, r.data.forgot, r.store.cleared, r.revoked)
 	}
 	if got := idsOf(t, jsonOf(t, r.do(bob, http.MethodGet, "/api/jobs", nil))); len(got) != 1 {
 		t.Errorf("bob's history %v", got)
+	}
+}
+
+// A run pressed in the bot while the account is being deleted, after its
+// files went and before its rows did, keeps its results then; Forget clears
+// its job, and the results go with the rest. A run of a person who came back
+// after the deletion keeps its own.
+func TestFilesARunKeptDuringTheDeletionGoToo(t *testing.T) {
+	r := newRig(t)
+	r.files.keep(alice)
+	r.files.keep(bob)
+	r.data.beforeForget = func() {
+		time.Sleep(2 * time.Millisecond)
+		r.files.keep(alice)
+	}
+	if status, m := r.send(alice, http.MethodDelete, "/api/me", `{"confirm":true}`); status != http.StatusNoContent {
+		t.Fatalf("%d %v", status, m)
+	}
+	if n := r.files.left(alice); n != 0 {
+		t.Errorf("%d of alice's files left", n)
+	}
+	if n := r.files.left(bob); n != 1 {
+		t.Errorf("%d of bob's files left, want 1", n)
+	}
+	time.Sleep(2 * time.Millisecond)
+	r.files.keep(alice)
+	if n := r.files.left(alice); n != 1 {
+		t.Errorf("a run after the deletion: %d files", n)
+	}
+}
+
+// When the storage fails after the rows went, the sessions stay: the
+// person is told to try again, and the second try takes the rest.
+func TestADeletionWhoseLastFilesWouldNotGoCanBeTriedAgain(t *testing.T) {
+	r := newRig(t)
+	r.data.beforeForget = func() {
+		time.Sleep(2 * time.Millisecond)
+		r.files.keep(alice)
+		r.files.mu.Lock()
+		r.files.err = errors.New("r2 is down")
+		r.files.mu.Unlock()
+	}
+	status, m := r.send(alice, http.MethodDelete, "/api/me", `{"confirm":true}`)
+	if status != http.StatusServiceUnavailable || m["error"] != "storage_unavailable" {
+		t.Fatalf("%d %v", status, m)
+	}
+	if len(r.revoked) != 0 {
+		t.Fatalf("revoked %v: a second try has to be possible", r.revoked)
+	}
+	r.files.mu.Lock()
+	r.files.err = nil
+	r.files.mu.Unlock()
+	if status, m := r.send(alice, http.MethodDelete, "/api/me", `{"confirm":true}`); status != http.StatusNoContent {
+		t.Fatalf("again: %d %v", status, m)
+	}
+	if n := r.files.left(alice); n != 0 || len(r.revoked) != 1 {
+		t.Errorf("%d files left, revoked %v", n, r.revoked)
 	}
 }
 

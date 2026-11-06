@@ -77,7 +77,7 @@ func testStore(t *testing.T) *db.Store {
 func TestPGSessions(t *testing.T) {
 	ctx := context.Background()
 	store := testStore(t)
-	sessions := NewPGSessions(store.Pool())
+	sessions := NewPGSessions(store.Pool(), "")
 	for _, id := range []int64{pgAnn, pgBob} {
 		if err := store.Touch(ctx, tg.User{ID: id, FirstName: "P"}, nil); err != nil {
 			t.Fatal(err)
@@ -110,6 +110,32 @@ func TestPGSessions(t *testing.T) {
 	}
 	if err := sessions.Create(ctx, mk("ghost", 8888, KindSite, now.Add(time.Hour))); err == nil {
 		t.Error("a session for a person core has not seen was stored")
+	}
+
+	// Extend moves the end of a live site session, and of nothing else.
+	later := now.Add(SessionLife)
+	if ok, err := sessions.Extend(ctx, live.Hash, later, now); err != nil || !ok {
+		t.Fatalf("Extend = %v, %v", ok, err)
+	}
+	if got, ok, _ := sessions.Lookup(ctx, live.Hash, KindSite, now); !ok || !got.Expires.Equal(later) {
+		t.Errorf("after Extend: %+v, %v", got, ok)
+	}
+	token := mk("token", pgAnn, KindMiniApp, now.Add(time.Hour))
+	ended := mk("ended", pgAnn, KindSite, now.Add(-time.Minute))
+	for _, s := range []Session{token, ended} {
+		if err := sessions.Create(ctx, s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, hash := range map[string][32]byte{"a Mini App token": token.Hash, "an ended session": ended.Hash, "no session": sha256.Sum256([]byte("nobody"))} {
+		if ok, err := sessions.Extend(ctx, hash, later, now); err != nil || ok {
+			t.Errorf("Extend of %s = %v, %v", name, ok, err)
+		}
+	}
+	for _, s := range []Session{token, ended} {
+		if err := sessions.Delete(ctx, s.Hash); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	// Delete, DeleteUser, DeleteExpired.
@@ -152,12 +178,124 @@ func TestPGSessions(t *testing.T) {
 	}
 }
 
+// A session works only on the stack that made it, and ending a person's
+// sessions ends them on both.
+func TestPGSessionsStayOnTheirStack(t *testing.T) {
+	ctx := context.Background()
+	store := testStore(t)
+	prod, test := NewPGSessions(store.Pool(), ""), NewPGSessions(store.Pool(), "test")
+	if err := store.Touch(ctx, tg.User{ID: pgAnn, FirstName: "P"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Truncate(time.Second)
+	mk := func(secret string) Session {
+		return Session{Hash: sha256.Sum256([]byte(secret)), UserID: pgAnn, Kind: KindMiniApp, Created: now, Expires: now.Add(time.Hour)}
+	}
+	ofTest, ofProd := mk("of test"), mk("of production")
+	if err := test.Create(ctx, ofTest); err != nil {
+		t.Fatal(err)
+	}
+	if err := prod.Create(ctx, ofProd); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name  string
+		store *PGSessions
+		s     Session
+		found bool
+	}{
+		{"the test bot's on the test bot", test, ofTest, true},
+		{"the test bot's on production", prod, ofTest, false},
+		{"production's on production", prod, ofProd, true},
+		{"production's on the test bot", test, ofProd, false},
+	} {
+		if _, ok, err := c.store.Lookup(ctx, c.s.Hash, KindMiniApp, now); err != nil || ok != c.found {
+			t.Errorf("%s: found %v, %v", c.name, ok, err)
+		}
+	}
+	var stack string
+	if err := store.Pool().QueryRow(ctx, `SELECT stack FROM framy.session WHERE token_hash = $1`, ofTest.Hash[:]).Scan(&stack); err != nil || stack != "test" {
+		t.Errorf("the test bot's session is of %q, %v", stack, err)
+	}
+	if n, err := prod.DeleteUser(ctx, pgAnn); err != nil || n != 2 {
+		t.Errorf("DeleteUser = %d, %v", n, err)
+	}
+}
+
+// Ending sessions tells every process of framy, with a notice that names
+// nobody; ending none says nothing.
+func TestPGEndingSessionsIsNoticed(t *testing.T) {
+	ctx := context.Background()
+	store := testStore(t)
+	sessions := NewPGSessions(store.Pool(), "test")
+	if err := store.Touch(ctx, tg.User{ID: pgAnn, FirstName: "P"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := store.Pool().Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, "LISTEN "+SessionsChannel); err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Exec(context.Background(), "UNLISTEN *")
+	notice := func() (string, bool) {
+		t.Helper()
+		wait, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
+		defer cancel()
+		n, err := conn.Conn().WaitForNotification(wait)
+		if err != nil {
+			return "", false
+		}
+		return n.Payload, true
+	}
+	now := time.Now().Truncate(time.Second)
+	mk := func(secret string) Session {
+		return Session{Hash: sha256.Sum256([]byte(secret)), UserID: pgAnn, Kind: KindSite, Created: now, Expires: now.Add(time.Hour)}
+	}
+	one, two, three := mk("one"), mk("two"), mk("three")
+	for _, s := range []Session{one, two, three} {
+		if err := sessions.Create(ctx, s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, ok := notice(); ok {
+		t.Fatal("a new session was noticed as ended")
+	}
+
+	if err := sessions.Delete(ctx, one.Hash); err != nil {
+		t.Fatal(err)
+	}
+	if payload, ok := notice(); !ok || payload != "" {
+		t.Errorf("logging out: noticed %v, %q", ok, payload)
+	}
+	if err := sessions.Delete(ctx, one.Hash); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := notice(); ok {
+		t.Error("ending a gone session was noticed")
+	}
+	if n, err := sessions.DeleteUser(ctx, pgAnn); err != nil || n != 2 {
+		t.Fatalf("DeleteUser = %d, %v", n, err)
+	}
+	if payload, ok := notice(); !ok || payload != "" {
+		t.Errorf("ending everything: noticed %v, %q", ok, payload)
+	}
+	if n, err := sessions.DeleteUser(ctx, pgAnn); err != nil || n != 0 {
+		t.Fatalf("DeleteUser again = %d, %v", n, err)
+	}
+	if _, ok := notice(); ok {
+		t.Error("ending no session was noticed")
+	}
+}
+
 // The site and the bot are one account, and what the database holds of a
 // session is a hash.
 func TestPGSignInEndToEnd(t *testing.T) {
 	ctx := context.Background()
 	store := testStore(t)
-	h := newHarness(t, withSessions(NewPGSessions(store.Pool())), withPeople(store))
+	h := newHarness(t, withSessions(NewPGSessions(store.Pool(), "")), withPeople(store))
 
 	// Ann has talked to the bot: core has her names.
 	if err := store.Touch(ctx, tg.User{ID: pgAnn, FirstName: "Ann", LastName: "Lee", Username: "ann_lee", LanguageCode: "en"}, nil); err != nil {
@@ -212,12 +350,13 @@ func TestPGSignInEndToEnd(t *testing.T) {
 		cols[c] = true
 	}
 	rows.Close()
-	for _, want := range []string{"token_hash", "user_id", "kind", "created_at", "expires_at"} {
+	// stack names the bot that made the session (migration 032).
+	for _, want := range []string{"token_hash", "user_id", "kind", "created_at", "expires_at", "stack"} {
 		if !cols[want] {
 			t.Errorf("column %s is missing from %v", want, cols)
 		}
 	}
-	if len(cols) != 5 {
+	if len(cols) != 6 {
 		t.Errorf("columns = %v: a new column may hold something it should not", cols)
 	}
 
@@ -255,7 +394,7 @@ func TestPGSignInEndToEnd(t *testing.T) {
 func TestPGNewPersonSignsInOnTheSite(t *testing.T) {
 	ctx := context.Background()
 	store := testStore(t)
-	h := newHarness(t, withSessions(NewPGSessions(store.Pool())), withPeople(store))
+	h := newHarness(t, withSessions(NewPGSessions(store.Pool(), "")), withPeople(store))
 	h.idp.userID, h.idp.name, h.idp.username = pgNew, "Nina", "nina_n"
 	b := h.browser()
 	b.signIn("")
@@ -282,7 +421,7 @@ func TestPGNewPersonSignsInOnTheSite(t *testing.T) {
 func TestPGMiniAppTokenExpiresAndIsSwept(t *testing.T) {
 	ctx := context.Background()
 	store := testStore(t)
-	h := newHarness(t, withSessions(NewPGSessions(store.Pool())), withPeople(store))
+	h := newHarness(t, withSessions(NewPGSessions(store.Pool(), "")), withPeople(store))
 	app := h.browser()
 	h.mini(app, signInitData(testBotToken, miniAppFields(h.clock.Now(), pgBob)), http.StatusOK)
 	if _, ok := app.signedIn(); !ok {
@@ -292,15 +431,36 @@ func TestPGMiniAppTokenExpiresAndIsSwept(t *testing.T) {
 	if _, ok := app.signedIn(); ok {
 		t.Error("an expired token works")
 	}
-	// The row stays a day, then the next sign-in sweeps it.
+	// The row stays a day, then the sweep takes it.
 	var n int
 	if err := store.Pool().QueryRow(ctx, `SELECT count(*) FROM framy.session`).Scan(&n); err != nil || n != 1 {
 		t.Fatalf("%d rows, %v", n, err)
 	}
 	h.clock.Advance(sweepGrace + time.Hour)
 	h.mini(h.browser(), signInitData(testBotToken, miniAppFields(h.clock.Now(), pgAnn)), http.StatusOK)
+	if swept, err := h.auth.Sweep(ctx); err != nil || swept != 1 {
+		t.Fatalf("Sweep = %d, %v", swept, err)
+	}
 	if err := store.Pool().QueryRow(ctx, `SELECT count(*) FROM framy.session`).Scan(&n); err != nil || n != 1 {
 		t.Errorf("%d rows after the sweep, want the new token only, %v", n, err)
+	}
+}
+
+// One launch traded again is one row in the database.
+func TestPGALaunchGetsOneToken(t *testing.T) {
+	ctx := context.Background()
+	store := testStore(t)
+	h := newHarness(t, withSessions(NewPGSessions(store.Pool(), "")), withPeople(store))
+	raw := signInitData(testBotToken, miniAppFields(h.clock.Now(), pgBob))
+	token := h.mini(h.browser(), raw, http.StatusOK)
+	for range 3 {
+		if again := h.mini(h.browser(), raw, http.StatusOK); again != token {
+			t.Fatal("the same launch got another token")
+		}
+	}
+	var n int
+	if err := store.Pool().QueryRow(ctx, `SELECT count(*) FROM framy.session`).Scan(&n); err != nil || n != 1 {
+		t.Errorf("%d rows, %v", n, err)
 	}
 }
 

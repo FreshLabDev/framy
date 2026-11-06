@@ -31,6 +31,9 @@ const homeReadTimeout = 3 * time.Second
 type account struct {
 	// appURL is where "Open framy" goes; empty: no button.
 	appURL string
+	// openText names that button when it opens the settings at a key, for
+	// /start settings_<provider>; empty: "Open framy".
+	openText string
 
 	usage    free.Usage
 	hasUsage bool
@@ -126,25 +129,12 @@ func (v view) connectionList(list []keys.Connection) string {
 	slices.SortStableFunc(list, func(a, b keys.Connection) int { return rank(a.Provider) - rank(b.Provider) })
 	names := make([]string, len(list))
 	for i, c := range list {
-		names[i] = html.EscapeString(connectionName(c.Provider))
+		names[i] = html.EscapeString(catalog.ProviderName(c.Provider))
 		if word := v.statusWord(c.Status); word != "" {
 			names[i] += " (" + word + ")"
 		}
 	}
 	return strings.Join(names, ", ")
-}
-
-// connectionName is a brand name, the same in every language.
-func connectionName(provider string) string {
-	switch provider {
-	case catalog.OpenRouter:
-		return "OpenRouter"
-	case catalog.OpenAI:
-		return "OpenAI"
-	case catalog.Gemini:
-		return "Gemini"
-	}
-	return provider
 }
 
 func (v view) statusWord(s keys.Status) string {
@@ -165,6 +155,62 @@ func (v view) statusWord(s keys.Status) string {
 // only in a direct chat, which is why a group's panel has none. It is the one
 // Primary button of the panel (R4): the site is where framy makes things, and
 // it is the only button that leads there.
-func (v view) openButton(appURL string) tg.InlineKeyboardButton {
-	return tg.InlineKeyboardButton{Text: v.t("btn.open"), WebApp: &tg.WebAppInfo{URL: appURL}, Style: tg.StylePrimary}
+func (v view) openButton(appURL, text string) tg.InlineKeyboardButton {
+	if text == "" {
+		text = v.t("btn.open")
+	}
+	return tg.InlineKeyboardButton{Text: text, WebApp: &tg.WebAppInfo{URL: appURL}, Style: tg.StylePrimary}
+}
+
+// directButton is Open framy in a group, where Telegram takes no Mini App
+// button: a link to framy's direct chat, whose panel opens the Mini App
+// signed in. A link to the site would ask the person to sign in again in a
+// browser.
+func (v view) directButton() tg.InlineKeyboardButton {
+	return tg.InlineKeyboardButton{Text: v.t("btn.open"), URL: v.direct, Style: tg.StylePrimary}
+}
+
+// startGroup is the /start parameter of the link from a group to framy's
+// direct chat (directURL). Messages already sent carry it, so it is read
+// for good: as the plain home panel.
+const startGroup = "group"
+
+// directURL is the link a group's panel opens framy by: framy's direct
+// chat with /start group, whose panel opens the Mini App, where the
+// person's history and settings are. It is empty when framy has no name to
+// link to, or no Mini App to open there.
+func (b *Bot) directURL() string {
+	if b.username == "" || b.appURL == "" {
+		return ""
+	}
+	return "https://t.me/" + b.username + "?start=" + startGroup
+}
+
+// addToGroupURL is the link the direct chat's panel adds framy to a group
+// by: Telegram lets the person pick the group, and framy greets it once it
+// is in (onMembership). The parameter is only what the link must carry; the
+// /start it may bring to the group stays unanswered there, as any ordinary
+// /start in a group does. Empty when framy has no name.
+func (b *Bot) addToGroupURL() string {
+	if b.username == "" {
+		return ""
+	}
+	return "https://t.me/" + b.username + "?startgroup=add"
+}
+
+// atKey points the panel's button at provider's key in the settings: the
+// person came from a refusal or an error card in a group or a guest's chat
+// (internal/chat, settings.go) that a key of theirs would fix. The button
+// says what it is for, connecting the key or replacing the one connected. A
+// provider framy does not know leaves the panel as it is.
+func (a *account) atKey(provider string, lang string) {
+	if a.appURL == "" || !slices.Contains(keys.Providers, provider) {
+		return
+	}
+	a.appURL = keys.SettingsURL(a.appURL, provider)
+	key := "web.go.connect"
+	if slices.ContainsFunc(a.connections, func(c keys.Connection) bool { return c.Provider == provider }) {
+		key = "web.go.rekey"
+	}
+	a.openText = i18n.T(lang, key, "provider", catalog.ProviderName(provider))
 }

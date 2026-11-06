@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"image"
 	"image/jpeg"
 	"io"
@@ -237,7 +238,11 @@ func TestEditAnswersWhatItCannotTake(t *testing.T) {
 		{"a photo", photo, CommandVideo, "rain", nil, i18n.T("en", "edit.photo")},
 		{"/img on a video", img, CommandImage, "rain", nil, i18n.T("en", "run.video_edit")},
 		{"too short", short, CommandVideo, "rain", func(h *harness) { h.clips.seconds = 0.5 }, i18n.T("en", "edit.too_short", "min", "1")},
-		{"over the cap", huge, CommandVideo, "rain", nil, i18n.T("en", "run.too_big")},
+		{"over the cap", huge, CommandVideo, "rain", nil, "This file is too big: it can be up to 512 MB."},
+		{"over the model's cap", videoReply("/edit rain"), CommandVideo, "rain", func(h *harness) { h.files.clipBytes = 51 << 20 }, "This file is too big: it can be up to 50 MB."},
+		{"a frame over the pixels", videoReply("/edit rain"), CommandVideo, "rain", func(h *harness) {
+			h.files.fail = fmt.Errorf("%w: 9000×9000", media.ErrVideoTooLarge)
+		}, "A frame of this video is over 64 megapixels. Lower the resolution and send it again."},
 		{"over Telegram's cap", videoReply("/edit rain"), CommandVideo, "rain", func(h *harness) {
 			h.tg.fail["getFile"] = &tg.APIError{ErrorCode: 400, Description: "Bad Request: file is too big"}
 		}, i18n.T("en", "run.too_big")},

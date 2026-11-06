@@ -59,11 +59,16 @@ func frame(offer, pay string, extra ...string) string {
 	return s + "}"
 }
 
+// press is a press as the site sends it, with the price the person saw
+// (seenUSD); a press of free frames only has nothing to check it against.
 func press(frames ...string) string {
-	return `{"prompt":"a fox in the snow","frames":[` + strings.Join(frames, ",") + `]}`
+	return `{"prompt":"a fox in the snow","shown_usd":` + seenUSD + `,"frames":[` + strings.Join(frames, ",") + `]}`
 }
 
 func pressWith(extra string, frames ...string) string {
+	if !strings.Contains(extra, `"shown_usd"`) {
+		extra += `,"shown_usd":` + seenUSD
+	}
 	return `{"prompt":"a fox in the snow",` + extra + `,"frames":[` + strings.Join(frames, ",") + `]}`
 }
 
@@ -225,6 +230,45 @@ func TestAPressDearerThanShownStartsNothing(t *testing.T) {
 		t.Errorf("the new price = %v", e)
 	}
 	if resp := r.post(alice, "/api/batches", nextKey(), pressWith(`"shown_usd":0.08`, frames...)); resp.StatusCode != http.StatusAccepted {
+		t.Errorf("the price shown: %d", resp.StatusCode)
+	}
+	// No price came with it: the person saw none, and the press waits with it.
+	before = len(r.queue.batches)
+	resp = r.post(alice, "/api/batches", nextKey(), `{"prompt":"a fox in the snow","frames":[`+strings.Join(frames, ",")+`]}`)
+	m = jsonOf(t, resp)
+	if resp.StatusCode != http.StatusConflict || m["error"] != codePriceChanged || len(r.queue.batches) != before {
+		t.Fatalf("no price: %d %v", resp.StatusCode, m)
+	}
+	if e := m["estimate"].(map[string]any); e["usd"] != 0.08 {
+		t.Errorf("no price: the price = %v", e)
+	}
+	// Free frames alone cost the person nothing, and need no price.
+	if resp := r.post(alice, "/api/batches", nextKey(), `{"prompt":"a fox in the snow","frames":[`+frame(freeImage, "free")+`]}`); resp.StatusCode != http.StatusAccepted {
+		t.Errorf("free alone: %d %v", resp.StatusCode, jsonOf(t, resp))
+	}
+}
+
+// A frame nobody can price leaves the others' price checked: the press is
+// shown from the sum of the rest, and a rise in it starts nothing.
+func TestAPressWithAFrameOfUnknownPriceStillChecksTheRest(t *testing.T) {
+	r := batchRig(t)
+	r.store.lang[alice] = "en"
+	const unpriced = "openrouter:test/unpriced"
+	m := image(unpriced, catalog.OpenRouter)
+	// Billed in tokens that nobody counts before the run.
+	m.Offers[0].Routes = []catalog.Route{{Prices: []catalog.Price{{Billable: "output_image", Unit: "token", CostUSD: 0.00003}}}}
+	r.store.offers[unpriced] = m
+	frames := []string{frame(testOffer, "key"), frame(unpriced, "key")}
+	before := len(r.queue.batches)
+	resp := r.post(alice, "/api/batches", nextKey(), pressWith(`"shown_usd":0.03`, frames...))
+	got := jsonOf(t, resp)
+	if resp.StatusCode != http.StatusConflict || got["error"] != codePriceChanged || len(r.queue.batches) != before {
+		t.Fatalf("%d %v", resp.StatusCode, got)
+	}
+	if e := got["estimate"].(map[string]any); e["kind"] != "from" || e["usd"] != 0.04 || e["label"] != "$0.04" {
+		t.Errorf("the new price = %v", e)
+	}
+	if resp := r.post(alice, "/api/batches", nextKey(), pressWith(`"shown_usd":0.04`, frames...)); resp.StatusCode != http.StatusAccepted {
 		t.Errorf("the price shown: %d", resp.StatusCode)
 	}
 }

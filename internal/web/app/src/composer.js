@@ -1,50 +1,55 @@
 // The composer: what to make, the model, how to pay, the settings, the price
 // and the one button. Every change goes through act(), which lets the blocks
 // glide from where they stood to where they stand now.
-import { $, $$, h, ic, isPhone, MAC } from "./dom.js";
-import { anim, rise, spin, opt, placeSegs, placeSeg, fitSegs, snap, ticker, roll, follow, EASE, SPRING, OUT, motion } from "./motion.js";
-import { t, fmtNum, fmtIn, fmtSecs } from "./i18n.js";
+import { $, $$, h, ic, isPhone, inFlow, MAC, keepFocus } from "./dom.js";
+import { anim, rise, spin, opt, placeSegs, placeSeg, fitSegs, snap, ticker, roll, follow, EASE, SPRING, OUT, motion, DUR } from "./motion.js";
+import { t, fmtNum, fmtIn, fmtSecs, fmtList, spaced } from "./i18n.js";
 import { C, PNAME, vname, famLogo, lg, provMark, freePlan, pays, offerOf, facts, factEl, deprecation, fieldsOf, SECONDARY, SEARCH, SICON,
-  label, show, ordered, ratioNum, ratioOfSize, sizeK, resScore, needsVideo } from "./catalog.js";
+  label, show, ordered, ratioNum, ratioOfSize, sizeK, resScore, needsVideo, OPEN, SEED_MAX } from "./catalog.js";
 import { S, M, images, clip, payOf, usable, keyOk, connection, freeLeft, freeLimit, freesAt, freePer, settings, route, runItem, altItem, next, sourceRatio, quoteNow,
-  maxSecs, needsCut, contFits, slotOf, sources, inputsOf, placeFiles, refuses,
-  FR, MAXFR, scopeFr, newFrame, common, wanted, setModelHere, setPayHere, setWantedHere, tidy, ownBits, hasOwn, plan, paidItems, cutLimits, cutNeeded } from "./state.js";
-import { priceEl, priceText, known, need, onPrices, usd, needTotal, knownTotal } from "./price.js";
+  maxSecs, needsCut, contFits, slotOf, sources, inputsOf, placeFiles, refuses, refLengths,
+  FR, MAXFR, scopeFr, newFrame, common, wanted, setModelHere, setPayHere, setWantedHere, tidy, ownBits, hasOwn, plan, paidItems, cutLimits, cutNeeded, renewFiles, renewRefused } from "./state.js";
+import { priceEl, priceText, known, need, priced, onPrices, usd, needTotal, knownTotal } from "./price.js";
 import { renderStage, stageFrom, refit, runOver, ratioOf, syncStrip } from "./stage.js";
 import { openPicker } from "./picker.js";
-import { openSheet, closeSheets } from "./ui.js";
-import { addFiles, removeFile, fitModel } from "./files.js";
-import { generate, signIn } from "./run.js";
-import { openCut, thumbMedia, frameEl, looksLikeClip } from "./clips.js";
+import { openSheet, closeSheets, hint, sheetOpen } from "./ui.js";
+import { addFiles, removeFile, fitModel, looksLikePhoto } from "./files.js";
+import { generate, signIn, closeMini, keepPrompt } from "./run.js";
+import { openCut, thumbMedia, frameEl, looksLikeClip, fmtPart } from "./clips.js";
 import { openPrefs } from "./prefs.js";
 
-const FORM = { rel: true, dur: 380, after: 90,
-  enter: (el, i, wait) => anim(el, [{ opacity: 0, transform: "translateY(6px)" }, { opacity: 1, transform: "none" }], { duration: 280, delay: 110 + wait + i * 30, fill: "backwards" }),
-  leave: (g) => anim(g, [{ opacity: 1 }, { opacity: 0 }], { duration: 110, easing: OUT, fill: "forwards" }) };
-const FILES = { dur: 360,
-  enter: (el) => anim(el, [{ transform: "scale(.4) rotate(-6deg)", opacity: 0 }, { transform: "none", opacity: 1 }], { duration: 480, easing: SPRING }),
-  leave: (g) => anim(g, [{ transform: "none", opacity: 1 }, { transform: "scale(.4)", opacity: 0 }], { duration: 220, easing: OUT, fill: "forwards" }) };
+const FORM = { rel: true, dur: DUR.m, after: 90,
+  enter: (el, i, wait) => anim(el, [{ opacity: 0, transform: "translateY(6px)" }, { opacity: 1, transform: "none" }], { duration: DUR.s, delay: 110 + wait + i * 30, fill: "backwards" }),
+  leave: (g) => anim(g, [{ opacity: 1 }, { opacity: 0 }], { duration: DUR.xs, easing: OUT, fill: "forwards" }) };
+const FILES = { dur: DUR.m,
+  enter: (el) => anim(el, [{ transform: "scale(.4) rotate(-6deg)", opacity: 0 }, { transform: "none", opacity: 1 }], { duration: DUR.l, easing: SPRING }),
+  leave: (g) => anim(g, [{ transform: "none", opacity: 1 }, { transform: "scale(.4)", opacity: 0 }], { duration: DUR.s, easing: OUT, fill: "forwards" }) };
 
-const PICS = "image/png,image/jpeg,image/webp,image/gif,image/avif,image/heic";
+// A HEIC is named by its extension too: a system that knows no type for it
+// would grey it out in the file dialog.
+const PICS = "image/png,image/jpeg,image/webp,image/gif,image/avif,image/heic,image/heif,.heic,.heif";
 const CLIPS = "video/mp4,video/quicktime,video/webm,video/x-matroska,.mkv,.mov,.m4v";
 const SOUNDS = "audio/mpeg,audio/wav,audio/ogg,audio/flac,audio/aac,audio/mp4,audio/x-m4a,.mp3,.wav,.ogg,.oga,.opus,.flac,.aac,.m4a";
 
 let ACTING = 0;
 // Every change of the composer: the form's blocks glide, new ones rise, gone ones fade; the frame on the stage refits.
 export function act(fn) {
-  const how = $("#how"), host = $("#composer");
-  const a = snap(how, FORM), b = snap($("#files"), FILES), c = follow(host), d = stageFrom();
-  // A change after a result is the next run being set up: the stage shows its frame again.
-  if (S.showJob && runOver(S.run)) S.showJob = false;
-  ACTING++;
-  try { fn(); renderStage(); } finally { ACTING--; }
-  a(); b(); c(); d();
+  keepFocus(() => {
+    const how = $("#how"), host = $("#composer");
+    const a = snap(how, FORM), b = snap($("#files"), FILES), c = follow(host), d = stageFrom();
+    // A change after a result is the next run being set up: the stage shows its frame again.
+    if (S.showJob && runOver(S.run)) S.showJob = false;
+    ACTING++;
+    try { fn(); renderStage(); } finally { ACTING--; }
+    a(); b(); c(); d();
+  });
 }
 
 export function mountComposer() {
+  // On a phone the kind and the tools share the row over the prompt, the kind first, as Tab goes.
   return h("section", { class: "composer", id: "composer", "aria-label": t("composer.label") },
+    h("div", { class: "seg kind", role: "radiogroup", "aria-label": t("kind.label"), id: "kind", "data-seg": "kind", "data-dur": DUR.l }),
     h("div", { class: "dtools", id: "dtools" }),
-    h("div", { class: "seg kind", role: "radiogroup", "aria-label": t("kind.label"), id: "kind", "data-seg": "kind", "data-dur": 460 }),
     h("div", { id: "pwrap" },
       h("label", { class: "sr", for: "prompt" }, t("prompt.label")),
       h("textarea", { id: "prompt", rows: 3, maxlength: 4000 }),
@@ -54,50 +59,104 @@ export function mountComposer() {
     h("input", { type: "file", id: "slotfile", hidden: true }),
     h("div", { class: "how", id: "how" }),
     h("div", { class: "bar", id: "bar" },
-      h("div", { class: "price", "aria-live": "polite" }, h("b", { class: "pnum", id: "pnum" }), h("span", { id: "pcap" })),
+      // The figure rolls for the eye; a screen reader reads the same price as plain text, and the
+      // live region tells it when the price changes.
+      h("div", { class: "price", "aria-live": "polite" },
+        h("b", { class: "pnum", id: "pnum" }, h("span", { class: "odo", id: "podo", "aria-hidden": "true" }), h("span", { class: "sr", id: "psr" })),
+        h("span", { id: "pcap" })),
       h("button", { type: "button", class: "go", id: "go" })));
 }
 
 export function wireComposer() {
   const p = $("#prompt");
   try { p.value = sessionStorage.getItem("framy.draft") || ""; } catch {}
-  p.addEventListener("input", () => { fitPrompt(); renderBar(); try { sessionStorage.setItem("framy.draft", p.value); } catch {} });
+  // What was typed when a Mini App whose session ended was closed comes back once, within a day.
+  if (S.mini) try {
+    const k = JSON.parse(localStorage.getItem("framy.kept") || "null");
+    localStorage.removeItem("framy.kept");
+    if (!p.value && k?.text && Date.now() - k.at < 864e5) p.value = k.text;
+  } catch {}
+  p.addEventListener("input", () => { fitPrompt(); renderBar(); try { sessionStorage.setItem("framy.draft", p.value); } catch {} if (S.expired) keepPrompt(); });
   p.addEventListener("keydown", (e) => {
     if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey)) return;
     e.preventDefault();
     const b = $("#go");
-    if (!b.disabled) b.click(); else anim(b, [{ transform: "none" }, { transform: "translateX(-4px)" }, { transform: "translateX(4px)" }, { transform: "none" }], { duration: 240 });
+    if (!b.disabled) b.click(); else anim(b, [{ transform: "none" }, { transform: "translateX(-4px)" }, { transform: "translateX(4px)" }, { transform: "none" }], { duration: DUR.s });
   });
   $("#file").addEventListener("change", (e) => { addFiles([...e.target.files]); e.target.value = ""; });
   $("#slotfile").addEventListener("change", (e) => { addFiles([...e.target.files], into); e.target.value = ""; });
-  // Photos come in by drop or paste too.
+  // Photos come in by drop or paste too, where the composer is in sight: on
+  // its page, with no sheet, question or whole screen over it. Anywhere else
+  // a drop is turned away, so the browser does not open the file in framy's
+  // place either, and a paste is the field's.
   const comp = $("#composer");
   comp.dataset.drop = t("files.drop");
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
+  const inSight = () => S.view === "create" && !sheetOpen() && $("#full").hidden && $("#ask").hidden;
   let depth = 0;
-  document.addEventListener("dragenter", (e) => { if (![...(e.dataTransfer?.types || [])].includes("Files")) return; depth++; comp.classList.add("drag"); });
-  document.addEventListener("dragleave", () => { if (--depth <= 0) { depth = 0; comp.classList.remove("drag"); } });
-  document.addEventListener("dragover", (e) => { if ([...(e.dataTransfer?.types || [])].includes("Files")) e.preventDefault(); });
+  document.addEventListener("dragenter", (e) => { if (!hasFiles(e) || !inSight()) return; depth++; comp.classList.add("drag"); });
+  document.addEventListener("dragleave", () => { if (depth && --depth <= 0) { depth = 0; comp.classList.remove("drag"); } });
+  document.addEventListener("dragover", (e) => { if (!hasFiles(e)) return; e.preventDefault(); if (!inSight()) e.dataTransfer.dropEffect = "none"; });
   document.addEventListener("drop", (e) => {
     depth = 0; comp.classList.remove("drag");
     const fs = [...(e.dataTransfer?.files || [])];
+    if (!fs.length) return;
+    e.preventDefault();
     // A slot the files were dropped on says what they are.
-    if (fs.length) { e.preventDefault(); addFiles(fs, e.slot || ""); }
+    if (inSight()) addFiles(fs, e.slot || "");
   });
   document.addEventListener("paste", (e) => {
-    const fs = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith("image/") || looksLikeClip(f));
+    const field = e.target.closest?.("input, textarea, [contenteditable]");
+    if (!inSight() || (field && field.id !== "prompt")) return;
+    const fs = [...(e.clipboardData?.files || [])].filter((f) => looksLikePhoto(f) || looksLikeClip(f));
     if (fs.length) { e.preventDefault(); addFiles(fs); }
   });
   // A price can make a row of tiles stack, and its marker has to follow.
-  onPrices(() => { renderBar(); for (const g of fitSegs($$("#how [data-seg]"))) placeSeg(g, false, true); });
+  onPrices(() => {
+    // A file framy no longer keeps goes up again, and the composer is priced without its id.
+    if (renewRefused()) { render(); return; }
+    renderBar(); for (const g of fitSegs($$("#how [data-seg]"))) placeSeg(g, false, true);
+  });
   // A clip turned the composer to video: the form slides over as on a switch.
-  addEventListener("framy:kind", (e) => anim($("#how"), [{ opacity: 0, transform: `translateX(${e.detail === "video" ? 36 : -36}px)` }, { opacity: 1, transform: "none" }], { duration: 420, easing: EASE }));
+  addEventListener("framy:kind", (e) => anim($("#how"), [{ opacity: 0, transform: `translateX(${e.detail === "video" ? 36 : -36}px)` }, { opacity: 1, transform: "none" }], { duration: DUR.l, easing: EASE }));
   // On a phone the composer is a dock: the page keeps room for it under the stage.
   addEventListener("resize", () => { if (howStale && howShown()) render(); });
   new ResizeObserver(() => { document.documentElement.style.setProperty("--dockh", comp.offsetHeight + "px"); if (isPhone()) refit(); }).observe(comp);
+  watchFlow();
 }
 
-export function render() {
+/* A window under 960 px wide and at most 560 high puts the composer in the page over the stage (inFlow):
+   a dock there would cover most of the window, the stage and its result. On a touch screen it takes a
+   screen held sideways: a phone held upright never takes it, however low its keyboard leaves the window.
+   With a mouse there is no such keyboard, and a page zoomed in takes it on a screen either way up. The
+   layout does not switch while a field is typed in: the field stays where it is. Once the field lets go,
+   the check waits for the keyboard to close. */
+const LOW = matchMedia("(max-width: 959px) and (max-height: 560px)"), MOUSE = matchMedia("(pointer: fine)");
+const heldSideways = () => (screen.orientation?.type || (matchMedia("(orientation: landscape)").matches ? "landscape" : "portrait")).startsWith("landscape");
+const typing = () => !!document.activeElement?.matches?.('textarea, input:not([type="range"], [type="checkbox"], [type="radio"], [type="file"], [type="button"])');
+function watchFlow() {
+  const check = () => {
+    const on = LOW.matches && (MOUSE.matches || heldSideways());
+    if (on === inFlow() || typing()) return;
+    document.documentElement.classList.toggle("flow", on);
+    refit();
+  };
+  check();
+  LOW.addEventListener("change", check);
+  MOUSE.addEventListener("change", check);
+  screen.orientation?.addEventListener?.("change", check);
+  document.addEventListener("focusout", () => setTimeout(check, 300));
+}
+// A dock is always in sight; in a low window the composer is brought into view for the next words.
+export function toComposer() {
+  if (inFlow()) $("#composer").scrollIntoView({ block: "start", behavior: motion() ? "smooth" : "auto" });
+}
+
+// A choice made with the keyboard stays where it was made: the blocks are drawn anew, the focus comes back to the control.
+export function render() { keepFocus(draw); }
+function draw() {
   if (!M()) return;
+  renewFiles();
   tidy();
   const m = M(), pay = payOf(m);
   // A part picked for a model that takes more than the next one does is picked again.
@@ -121,19 +180,20 @@ export function render() {
 function setKind(k) {
   const dir = k === "video" ? 1 : -1;
   act(() => { S.kind = k; placeFiles(); fitModel(); render(); });
-  anim($("#how"), [{ opacity: 0, transform: `translateX(${dir * 36}px)` }, { opacity: 1, transform: "none" }], { duration: 420, easing: EASE });
+  anim($("#how"), [{ opacity: 0, transform: `translateX(${dir * 36}px)` }, { opacity: 1, transform: "none" }], { duration: DUR.l, easing: EASE });
 }
 
 /* Phone: the model and the settings sit in one row over the prompt; the settings open in a sheet.
    Files are added in the row under the prompt, in both kinds, as on the computer in video.
-   The chip names the common model, and how many others the frames have. */
+   The chip names the common model, and how many others the frames have; the settings, how many frames
+   they are for. */
 function renderTools() {
   const P = plan(), m = common(), f = C.famOf[m.id], more = new Set(P.map((it) => it.m.id).filter((id) => id !== m.id)).size;
   $("#dtools").replaceChildren(
-    h("button", { type: "button", class: "chipbtn", "aria-haspopup": "dialog", onclick: () => { if (S.scope[S.kind] != null) { S.scope[S.kind] = null; render(); } openPicker(); } },
+    h("button", { type: "button", class: "chipbtn", id: "mchip", "aria-haspopup": "dialog", onclick: () => { if (S.scope[S.kind] != null) { S.scope[S.kind] = null; render(); } openPicker(); } },
       lg(famLogo(f), f.maker, "o"), h("span", { class: "nm" }, h("span", {}, vname(m))), more ? h("small", { class: "more" }, "+" + fmtNum(more)) : null, ic("chevd")),
-    h("button", { type: "button", class: "chipbtn set", onclick: () => openTune(null), "aria-label": t("tune.title") }, ic("sliders"), h("span", {}, t("tune.short")),
-      P.length > 1 ? h("b", { class: "cnt" }, "×" + fmtNum(P.length)) : null));
+    h("button", { type: "button", class: "chipbtn set", id: "tchip", onclick: () => openTune(null), "aria-label": P.length > 1 ? `${t("tune.title")}, ${t("fr.label")}: ${fmtNum(P.length)}` : t("tune.title") },
+      ic("sliders"), h("span", {}, t("tune.short")), P.length > 1 ? h("b", { class: "cnt" }, "×" + fmtNum(P.length)) : null));
 }
 // On a phone the settings live in a sheet: they are built when it opens, not
 // on every change behind it. A frame pressed on the stage opens it on that frame.
@@ -151,6 +211,8 @@ export function openTune(id = null) {
   placeSegs($("#tune"));
 }
 // In the sheet a swipe to the side goes to the next frame, or back, in the order of the switch: All, 1, 2...
+// The frames follow the finger, as the strip over the sheet does: right to
+// left the next one stands to the left, and a swipe to the right brings it.
 // What scrolls or slides sideways itself keeps its swipe.
 export function wireTuneSwipe() {
   const body = $("#tuneBody");
@@ -165,42 +227,47 @@ export function wireTuneSwipe() {
     on = false;
     const p = e.changedTouches[0], dx = p.clientX - x0, dy = p.clientY - y0;
     if (Math.abs(dx) < 56 || Math.abs(dx) < Math.abs(dy) * 1.6 || e.timeStamp - t0 > 700) return;
-    stepScope(dx < 0 ? 1 : -1);
+    stepScope((dx < 0) !== (document.dir === "rtl") ? 1 : -1);
   }, { passive: true });
 }
 function sideways(el, stop) {
   for (let a = el; a && a !== stop; a = a.parentElement) if (a.scrollWidth > a.clientWidth + 1 && /auto|scroll/.test(getComputedStyle(a).overflowX)) return true;
   return false;
 }
+// The side the next frame stands on: right, or left in a language read right to left.
+const ahead = () => (document.dir === "rtl" ? -1 : 1);
 function stepScope(dir) {
   const ids = [null, ...FR().map((f) => f.id)], i = ids.indexOf(S.scope[S.kind]), to = ids[i + dir];
-  if (to === undefined) { anim($("#how"), [{ transform: "none" }, { transform: `translateX(${-dir * 10}px)` }, { transform: "none" }], { duration: 260 }); return; }
+  if (to === undefined) { anim($("#how"), [{ transform: "none" }, { transform: `translateX(${-dir * ahead() * 10}px)` }, { transform: "none" }], { duration: DUR.s }); return; }
   setScope(to, dir);
 }
 export function tuneClosed() { const how = $("#how"); if (how.parentElement !== $("#composer")) $("#composer").insertBefore(how, $("#bar")); placeSegs($("#composer")); }
 
-/* Files: photos and clips stay in the browser until Create; the ones the model will not take stand apart. */
+/* Files: photos and clips stay in the browser until Create; the ones the model will not take stand apart.
+   The tiles stand in a row of their own, which scrolls sideways on a phone; what is said about them
+   stands beside the row while it fits there, and under it when not, never cut. */
 function renderFiles(m, pay) {
-  const box = $("#files"), R = route(m, pay), c = clip();
+  const box = $("#files"), R = route(m, pay), c = clip(), tiles = h("div", { class: "ftiles" });
   box.replaceChildren();
   const thumb = (f, r) => h("div", { class: "thumb" + (r.go ? "" : " off") + (f.kind === "video" ? " clip" : ""), title: f.name + (r.why ? ": " + r.why : ""), "data-k": "f" + f.id },
     thumbMedia(f),
     f.kind !== "image" ? h("span", { class: "tag" }, ic(f.kind === "audio" ? "audio" : "film"), r.go && r.tag ? r.tag : f.secs ? fmtSecs(f.secs) : "") : f.frameOf ? h("span", { class: "tag" }, ic("next")) : null,
-    h("button", { type: "button", class: "rm", "aria-label": t("files.remove"), onclick: () => act(() => { removeFile(f); render(); }) }, ic("close")));
+    h("button", { type: "button", class: "rm", "aria-label": f.name ? t("files.remove_named", { name: f.name }) : t("files.remove"), onclick: () => act(() => { removeFile(f); render(); }) }, ic("close")));
   const cont = contEl(m, pay), slots = slotted(m, pay);
   if (cont) box.append(cont);
-  if (slots) box.append(...slotGroups(R, thumb));
+  if (slots) tiles.append(...slotGroups(R, thumb));
   else {
     const go = [], off = [];
     S.files.forEach((f, i) => (R[i].go ? go : off).push(thumb(f, R[i])));
     const max = R.filter((r) => r.go).length;
-    if (!off.length) box.append(...go);
+    if (!off.length) tiles.append(...go);
     else {
-      if (go.length) box.append(h("div", { class: "fgroup", "data-k": "g-go" }, h("span", { class: "gl" }, t("files.going", { n: max })), h("div", { class: "gt" }, go)));
-      box.append(h("div", { class: "fgroup out", "data-k": "g-off" }, h("span", { class: "gl" }, t("files.off")), h("div", { class: "gt" }, off)));
+      if (go.length) tiles.append(h("div", { class: "fgroup", "data-k": "g-go" }, h("span", { class: "gl" }, t("files.going", { n: max })), h("div", { class: "gt" }, go)));
+      tiles.append(h("div", { class: "fgroup out", "data-k": "g-off" }, h("span", { class: "gl" }, t("files.off")), h("div", { class: "gt" }, off)));
     }
-    box.append(h("button", { type: "button", class: "addfile", "data-k": "f-add", onclick: () => $("#file").click() }, ic("plus"), t("files.add")));
+    tiles.append(h("button", { type: "button", class: "addfile", "data-k": "f-add", "aria-label": t("files.add_named"), onclick: () => $("#file").click() }, ic("plus"), t("files.add")));
   }
+  box.append(tiles);
   const why = [...new Set(R.filter((r) => !r.go).map((r) => r.why))];
   // The first clip's part: the one picked, or a button to pick it.
   const ci = c ? S.files.indexOf(c) : -1, cutting = ci >= 0 && R[ci].go && c.secs > 0;
@@ -208,7 +275,7 @@ function renderFiles(m, pay) {
   const fc = m.traits?.faces, faces = fc && R.some((r) => r.go) ? t(fc === "adults" ? "files.faces_adults" : "files.faces_no") : "";
   if (cutting) {
     const need = cutNeeded(), mx = cutLimits().max;
-    const what = S.cut ? t("files.cut_taken", { a: fmtNum(S.cut.start, { maximumFractionDigits: 1 }), b: fmtNum(S.cut.start + S.cut.seconds, { maximumFractionDigits: 1 }) })
+    const what = S.cut ? t("files.cut_taken", { a: fmtPart(S.cut.start), b: fmtPart(S.cut.start + S.cut.seconds) })
       : need ? t("files.clip_len", { len: fmtSecs(c.secs), n: fmtNum(mx) }) : "";
     box.append(h("p", { class: "fhint cut", "data-k": "f-cut" }, faces ? h("span", { class: "fw" }, faces) : null, what ? h("span", {}, what + " ") : null,
       h("button", { type: "button", class: "link-t", onclick: openCut }, t(S.cut ? "act.change_part" : "act.pick_part"))));
@@ -218,7 +285,7 @@ function renderFiles(m, pay) {
   const none = !S.files.length && !cont && !slots;
   box.classList.toggle("nofiles", none);
   $("#pwrap").classList.toggle("tools", none);
-  $("#ptools").replaceChildren(...(none ? [h("button", { type: "button", class: "pattach", onclick: () => $("#file").click() }, ic("plus"), t("files.add")), h("span", {}, t("files.or_drop"))] : []));
+  $("#ptools").replaceChildren(...(none ? [h("button", { type: "button", class: "pattach", "aria-label": t("files.add_named"), onclick: () => $("#file").click() }, ic("plus"), t("files.add")), h("span", {}, t("files.or_drop"))] : []));
   fitPrompt();
 }
 // A video is made from what is in its slots: Start, then End, or References.
@@ -281,7 +348,7 @@ function fitPrompt() {
 /* The frames (on a phone), the model card, the payment, the settings. */
 function renderHow(m, pay) {
   const f = C.famOf[m.id], fr = scopeFr();
-  const head = h("button", { type: "button", class: "mhead", "aria-haspopup": "dialog", onclick: openPicker },
+  const head = h("button", { type: "button", class: "mhead", id: "mhead", "aria-haspopup": "dialog", onclick: openPicker },
     lg(famLogo(f), f.maker),
     h("span", { class: "txt" }, h("span", { class: "mname" }, h("span", {}, vname(m))),
       h("span", { class: "facts" }, facts(m, 4).filter((x) => x[0] !== "ticket").slice(0, 3).map((x) => { const e = factEl(x); e.dataset.k = "fa-" + x[0]; return e; }))),
@@ -304,7 +371,7 @@ function framesSec() {
   const lab = h("span", { class: "lab" }, ic("stack"), h("span", { class: "lt" }, t("fr.label")), h("span", { class: "labr" }, h("span", { class: "right fcount" }, framesCount(P))));
   if (n < 2) return h("div", { class: "sec", "data-k": "h-frames" }, lab,
     h("button", { type: "button", class: "addfr wide", onclick: () => addFrame() }, ic("plus"), h("span", {}, t("fr.add_wide"), h("small", {}, t("fr.add_sub")))));
-  const seg = h("div", { class: "seg fseg", role: "radiogroup", "aria-label": t("fr.scope"), "data-seg": "scope", "data-dur": 380 },
+  const seg = h("div", { class: "seg fseg", role: "radiogroup", "aria-label": t("fr.scope"), "data-seg": "scope", "data-dur": DUR.m },
     opt({ key: "scope", v: "all", on: sel == null, cls: "all", pick: () => setScope(null) }, t("fr.all")),
     P.map((it) => opt({ key: "scope", v: it.fr.id, on: sel === it.fr.id, title: t("fr.n", { n: it.i + 1 }), pick: () => setScope(it.fr.id) },
       miniShape(ratioOf(it.set, it.m)), String(it.i + 1), hasOwn(it.fr) ? h("span", { class: "dot" }) : null)));
@@ -333,7 +400,7 @@ export function framesNote(P = plan(), phone = isPhone()) {
   }
   const owned = P.filter((it) => hasOwn(it.fr));
   if (!owned.length) return null;
-  return h("p", { class: "fnote", "data-k": "h-fnote" }, t("fr.owned", { list: owned.map((it) => it.i + 1).join(", ") }) + " ",
+  return h("p", { class: "fnote", "data-k": "h-fnote" }, t("fr.owned", { list: fmtList(owned.map((it) => it.i + 1)) }) + " ",
     h("button", { type: "button", class: "link-t", onclick: () => act(() => { owned.forEach((it) => (it.fr.own = { wanted: {} })); render(); }) }, t("fr.make_same")));
 }
 // Another frame: the form slides to it, its frame on the stage answers, the card's name rolls.
@@ -342,8 +409,9 @@ export function setScope(id, dir = 0) {
   const old = vname(M());
   act(() => { S.scope[S.kind] = id; render(); });
   if (vname(M()) !== old) ticker(name(), old, dir || 1);
-  if (dir) anim($("#how"), [{ opacity: 0, transform: `translateX(${dir * 28}px)` }, { opacity: 1, transform: "none" }], { duration: 340, easing: EASE });
-  if (id != null) anim($(`#stage [data-k="pv-${id}"]`), [{ transform: "scale(.96)" }, { transform: "none" }], { duration: 380, easing: SPRING });
+  // The next frame's settings come in from its side, with the finger.
+  if (dir) anim($("#how"), [{ opacity: 0, transform: `translateX(${dir * ahead() * 28}px)` }, { opacity: 1, transform: "none" }], { duration: DUR.m, easing: EASE });
+  if (id != null) anim($(`#stage [data-k="pv-${id}"]`), [{ transform: "scale(.96)" }, { transform: "none" }], { duration: DUR.m, easing: SPRING });
   syncStrip(id);
 }
 // A new frame starts as the one being set up (or as the common setup), and the others make room.
@@ -375,7 +443,7 @@ function axesControl(f, cur, onPick, id, priceOf) {
     if (vals.length < 2) return null;
     const same = (v) => AX.filter(([k2]) => k2 !== k && val(v, k2) === val(cur, k2)).length;
     const key = `${id}-${k}`;
-    return h("div", { class: "axis" }, h("span", { class: "k" }, t(title)), h("div", { class: "seg", role: "radiogroup", "aria-label": t(title), "data-seg": key, "data-dur": 340 }, vals.map((x) => {
+    return h("div", { class: "axis" }, h("span", { class: "k" }, t(title)), h("div", { class: "seg", role: "radiogroup", "aria-label": t(title), "data-seg": key, "data-dur": DUR.m }, vals.map((x) => {
       const exact = f.cur.find((v) => val(v, k) === x && same(v) === AX.length - 1);
       const near = exact || f.cur.filter((v) => val(v, k) === x).sort((a, b) => same(b) - same(a) || a.rank - b.rank)[0];
       return opt({ key, v: x, on: val(cur, k) === x, cls: exact ? "" : "off", title: exact ? near.label : t("ax.moves_to", { v: near.label }), pick: () => onPick(near) },
@@ -390,12 +458,12 @@ function variantBlock(m) {
   const cur = f.cur.filter((x) => x.id === m.id || !refuses(x.m));
   const kids = [];
   if (cur.length > 1) kids.push(f.axes ? axesControl(f, v, pickVar, "ax", priceNow)
-    : h("div", { class: "seg" + (cur.length > 3 ? " wrapping" : ""), role: "radiogroup", "aria-label": t("var.label"), "data-seg": "var", "data-dur": 420 },
-      cur.map((x) => opt({ key: "var", v: x.id, on: x.id === m.id, title: x.note ? `${x.label}: ${x.note}` : x.label, pick: () => pickVar(x) }, x.label, h("small", {}, priceNow(x.m))))));
+    : h("div", { class: "seg" + (cur.length > 3 ? " wrapping" : ""), role: "radiogroup", "aria-label": t("var.label"), "data-seg": "var", "data-dur": DUR.l },
+      cur.map((x) => opt({ key: "var", v: x.id, on: x.id === m.id, title: x.note ? `${x.label}: ${x.note}` : x.label, pick: () => pickVar(x) }, h("bdi", {}, x.label), h("small", {}, priceNow(x.m))))));
   const dep = deprecation(m);
-  if (dep) kids.push(h("p", { class: "mnote" }, ic("clock"), h("span", {}, dep.to ? [dep.when + ". ", h("button", { type: "button", onclick: () => pickVar(C.varOf[dep.to.id] || { id: dep.to.id }) }, t("var.take", { name: dep.toName }))] : dep.text + ".")));
-  else if (v.by) kids.push(h("p", { class: "mnote" }, ic("clock"), h("span", {}, t("var.outdated", { v: v.by.label }) + " ", h("button", { type: "button", onclick: () => pickVar(v.by) }, t("var.take", { name: v.by.label })))));
-  else if (v.note) kids.push(h("p", { class: "mnote info" }, ic("info"), h("span", {}, f.axes ? h("b", {}, v.label + ": ") : null, v.note)));
+  if (dep) kids.push(h("p", { class: "mnote" }, ic("clock"), h("span", {}, dep.to ? [spaced(dep.when), h("button", { type: "button", onclick: () => pickVar(C.varOf[dep.to.id] || { id: dep.to.id }) }, t("var.take", { name: dep.toName }))] : dep.text)));
+  else if (v.by) kids.push(h("p", { class: "mnote" }, ic("clock"), h("span", {}, spaced(t("var.outdated", { v: v.by.label })), h("button", { type: "button", onclick: () => pickVar(v.by) }, t("var.take", { name: v.by.label })))));
+  else if (v.note) kids.push(h("p", { class: "mnote info" }, ic("info"), h("span", {}, f.axes ? h("b", {}, h("bdi", {}, v.label), ": ") : null, h("bdi", {}, v.note))));
   return kids.length ? h("div", { class: "mvars" }, kids) : null;
 }
 // The model of what is being set up: the frame's own, or the common one.
@@ -421,14 +489,15 @@ function paySec(m, pay) {
   if (ps.length === 1 && usable(m, ps[0]) && !fr?.own.pay) return null;
   if (ps.length === 1) return h("div", { class: "paysec", "data-k": "h-pay" }, h("div", { class: "sec row" }, lab, h("div", { class: "pay1" }, name(ps[0]), h("small", {}, sub(ps[0])))));
   return h("div", { class: "paysec", "data-k": "h-pay" }, h("div", { class: "sec row" }, lab,
-    h("div", { class: "seg", role: "radiogroup", "aria-label": t("pay.label"), "data-seg": "pay", "data-dur": 380 }, ps.map((p) =>
-      opt({ key: "pay", v: p, on: pay === p, cls: usable(m, p) ? "" : "off", title: p === "free" ? freePer(kind) : connection(p) ? t("pay.your_key", { last4: connection(p).last4 }) : null,
+    h("div", { class: "seg", role: "radiogroup", "aria-label": t("pay.label"), "data-seg": "pay", "data-dur": DUR.m }, ps.map((p) =>
+      // Free that cannot pay now is not a choice: a run on it could not go.
+      opt({ key: "pay", v: p, on: pay === p, cls: usable(m, p) ? "" : "off", disabled: p === "free" && !usable(m, p), title: p === "free" ? freePer(kind) : connection(p) ? t("pay.your_key", { last4: connection(p).last4 }) : null,
         pick: () => act(() => { setPayHere(m, p); render(); }) }, h("span", { class: "row" }, name(p)), h("small", {}, sub(p)))))));
 }
 
 /* Settings: the ones a person decides, each as the control that fits it. */
 // Settings whose price usually depends on the value carry the price of each value; the rest do not.
-const PRICED = new Set(["resolution", "quality", "duration", "size", "generate_audio", "thinking_level", "google_search", "image_search", "upscale_factor", "fast"]);
+const PRICED = new Set(["resolution", "quality", "duration", "size", "generate_audio", "thinking_level", "google_search", "image_search", "upscale_factor", "creativity", "fast"]);
 const unpriced = new Map(); // offer id -> Set of names found not to change the price
 function settingsBlock(m, pay) {
   const o = offerOf(m, pay), s = settings(m, pay), box = h("div", { class: "sets", "data-k": "h-sets" });
@@ -438,7 +507,7 @@ function settingsBlock(m, pay) {
     const open = fieldsOf(o).filter((x) => !(x in fixed));
     if (open.includes("aspect_ratio") || open.includes("size")) parts.push(t("free.model_picks"));
     const keyed = m.offers.find((x) => keyOk(x.provider)) || m.offers[0];
-    box.append(h("p", { class: "fixedline", "data-k": "h-fixed" }, t("free.line", { what: parts.join(", ") || t("free.defaults") }) + " ",
+    box.append(h("p", { class: "fixedline", "data-k": "h-fixed" }, t("free.line", { what: parts.length ? fmtList(parts) : t("free.defaults") }) + " ",
       open.length && pays(m).length > 1 ? h("button", { type: "button", class: "link-t", onclick: () => act(() => { setPayHere(m, keyed.provider); render(); }) }, t("free.tune")) : null));
     return box;
   }
@@ -468,11 +537,16 @@ function toggleMore() {
 const setWanted = setWantedHere;
 function settingField(m, pay, o, s, name) {
   if (name === "size") return sizeFields(m, pay, o, s);
-  const p = o.params[name] || { type: "boolean" }, v = s[name], key = "set-" + name;
+  if (OPEN.has(name)) return openField(name, s[name]);
+  // With reference images some models make fewer lengths: only those are offered.
+  const all = o.params[name] || { type: "boolean" }, lens = name === "duration" ? refLengths(m, pay) : null;
+  const fit = lens && all.type === "enum" ? all.values.filter((x) => lens.some((y) => +y === +x)) : lens;
+  const p = lens ? { type: "enum", values: fit.length ? fit : lens } : all, v = s[name], key = "set-" + name;
   const set = (x) => act(() => { setWanted(name, x); render(); });
   const priced = PRICED.has(name) && !unpriced.get(o.id)?.has(name);
   const values = p.type === "enum" ? p.values : p.type === "boolean" ? [false, true] : null;
-  if (priced && values) learnPriced(m, pay, o, s, name, values);
+  // Whether the values change the price is learnt from all of them, not from the few references leave.
+  if (priced && values && !lens) learnPriced(m, pay, o, s, name, values);
   const priceWith = (x) => (priced ? h("small", {}, priceEl(altItem(m, pay, { ...s, [name]: x }))) : null);
   const src = sourceRatio();
   let control;
@@ -491,6 +565,25 @@ function settingField(m, pay, o, s, name) {
     return [sec, h("p", { class: "snote", "data-k": "h-snote" }, t("set.search_note"))];
   return sec;
 }
+// A seed or what to leave out: typed, kept as it is typed, and the page drawn again only when
+// the field is left, so the field keeps the caret. Neither changes the price.
+let openN = 0;
+function openField(name, v) {
+  const seed = name === "seed", hint = "ohint" + ++openN;
+  const el = seed
+    ? h("input", { type: "text", inputmode: "numeric", autocomplete: "off", maxlength: 10, value: v ?? "", placeholder: t("set.seed_any"), "aria-label": label(name), "aria-describedby": hint })
+    : h("textarea", { rows: 2, maxlength: 330, value: v ?? "", placeholder: t("set.leave_out_hint"), "aria-label": label(name), spellcheck: "true" });
+  if (!seed) el.value = v ?? "";
+  el.addEventListener("input", () => {
+    if (seed) { const d = el.value.replace(/\D+/g, ""); if (d !== el.value) el.value = d; }
+    const x = seed ? (el.value === "" ? null : Math.min(+el.value, SEED_MAX)) : el.value.trim() ? el.value : null;
+    setWanted(name, x);
+  });
+  el.addEventListener("change", () => act(() => render()));
+  const kids = [el];
+  if (seed) kids.push(h("small", { id: hint }, t("set.seed_hint")));
+  return fieldSec(name, label(name), SICON[name], [], h("div", { class: "ofield" + (seed ? " seed" : "") }, ...kids));
+}
 // Once the prices of every value are known and all are the same, the setting stops showing them.
 function learnPriced(m, pay, o, s, name, values) {
   const items = values.map((x) => altItem(m, pay, { ...s, [name]: x }));
@@ -506,7 +599,11 @@ function learnPriced(m, pay, o, s, name, values) {
     return true;
   };
   const k = o.id + "|" + name + "|" + JSON.stringify(s);
-  if (!pending.has(k) && !check()) pending.set(k, check);
+  if (!pending.has(k) && !check()) {
+    pending.set(k, check);
+    // A price that never comes (the network was down) must not keep its question for good.
+    if (pending.size > 200) pending.delete(pending.keys().next().value);
+  }
 }
 const pending = new Map();
 onPrices(() => { for (const [k, c] of [...pending]) if (c()) pending.delete(k); });
@@ -516,6 +613,8 @@ function toggle(name, v, set, sub) {
     onclick: (e) => { e.currentTarget.setAttribute("aria-checked", String(!v)); setTimeout(() => set(!v), 160); } },
     h("span", { class: "knob" }), h("span", { class: "tt" }, t(v ? "val.on" : "val.off")), sub);
 }
+// A slider over a long list goes by the value's place in it: a screen reader
+// is told the value ("6 s"), not the place ("4").
 function rangeControl(name, p, v) {
   const vals = p.type === "enum" ? ordered(p.values) : null;
   const step = p.type === "range" ? (p.max - p.min > 3 ? 0.5 : 0.1) : 1;
@@ -523,8 +622,9 @@ function rangeControl(name, p, v) {
     : h("input", { type: "range", min: p.min, max: p.max, step, value: v, "aria-label": label(name) });
   const val = () => (vals ? vals[+r.value] : +r.value);
   const cur = h("b", {}, show(name, v));
+  r.setAttribute("aria-valuetext", cur.textContent);
   fillRange(r);
-  r.addEventListener("input", () => { setWanted(name, val()); cur.textContent = show(name, val()); fillRange(r); renderBar(); });
+  r.addEventListener("input", () => { setWanted(name, val()); cur.textContent = show(name, val()); r.setAttribute("aria-valuetext", cur.textContent); fillRange(r); renderBar(); });
   r.addEventListener("change", () => act(() => render()));
   return h("div", { class: "rng" }, h("div", { class: "rline" }, r, cur),
     h("div", { class: "rends", "aria-hidden": "true" }, h("span", {}, show(name, vals ? vals[0] : p.min)), h("span", {}, show(name, vals ? vals[vals.length - 1] : p.max))));
@@ -555,7 +655,7 @@ function fieldBits(name, v, src) {
   if (fr && name in fr.own.wanted) bits.push(ownMark(fr, () => delete fr.own.wanted[name]));
   else if (!fr && FR().length > 1) {
     const by = plan().filter((it) => name in it.fr.own.wanted && it.pay !== "free" && name in it.set).map((it) => it.i + 1);
-    if (by.length) bits.push(right(t("fr.differ", { list: by.join(", ") })));
+    if (by.length) bits.push(right(t("fr.differ", { list: fmtList(by) })));
   }
   if (!src) return bits;
   // The shape follows the first photo, else the clip.
@@ -573,11 +673,11 @@ function sizeFields(m, pay, o, s) {
   const byK = (r) => all.filter((x) => ratioOfSize(x) === r).sort((a, b) => Math.abs(resScore(sizeK(a)) - resScore(ck)) - Math.abs(resScore(sizeK(b)) - resScore(ck)))[0];
   const byR = (k) => all.filter((x) => sizeK(x) === k).sort((a, b) => Math.abs(Math.log(ratioNum(ratioOfSize(a)) / ratioNum(cr))) - Math.abs(Math.log(ratioNum(ratioOfSize(b)) / ratioNum(cr))))[0];
   const shapes = ratioControl("size-r", { values: R }, cr, (r) => set(find(r, ck) || byK(r)), null,
-    (r) => (find(r, ck) ? null : t("set.only_in", { v: r, list: K.filter((k) => find(r, k)).join(", ") })));
+    (r) => (find(r, ck) ? null : t("set.only_in", { v: r, list: fmtList(K.filter((k) => find(r, k))) })));
   const has = (k) => R.filter((r) => find(r, k));
   const kseg = stepSlider("resolution", K, ck, (k) => setWanted("size", find(cr, k) || byR(k)),
-    (k) => h("small", {}, find(cr, k) ? priceEl(altItem(m, pay, { ...s, size: find(cr, k) })) : has(k).join(", ")),
-    (k) => (find(cr, k) ? null : t("set.only_at", { v: k, list: has(k).join(", ") })));
+    (k) => h("small", {}, find(cr, k) ? priceEl(altItem(m, pay, { ...s, size: find(cr, k) })) : fmtList(has(k))),
+    (k) => (find(cr, k) ? null : t("set.only_at", { v: k, list: fmtList(has(k)) })));
   return [fieldSec("size", label("aspect_ratio"), "ratio", fieldBits("size", v, src), shapes), fieldSec("size-k", label("resolution"), "res", [], kseg)];
 }
 function ratioControl(name, p, v, set, src, gapOf = () => null) {
@@ -591,15 +691,20 @@ function ratioControl(name, p, v, set, src, gapOf = () => null) {
   const tiles = list.map((x) => {
     const auto = x === "auto", r = auto ? src || 1 : ratioNum(x), gap = gapOf(x);
     const b = opt({ key, v: x, on: String(x) === String(v), cls: "rt" + (gap ? " gap" : ""), title: gap || (auto ? t(src ? "set.as_photo" : "val.auto") : String(x)), pick: () => set(x) },
-      shape(r, auto), auto ? t(src ? "val.photo" : "val.auto") : String(x));
+      shape(r, auto), auto ? h("span", { class: "rl" }, t(src ? "val.photo" : "val.auto")) : String(x));
     b.dataset.k = `h-rt-${name}-${x}`; b.dataset.km = "stay";
     return b;
   });
+  // The ratios beyond the common ones open with "+3" and close with "−3": figures fit a tile in any language.
   const hidden = p.values.length - list.length;
+  const few = p.values.filter((x) => COMMON.includes(String(x))), back = p.values.length - few.length - (few.some((x) => String(x) === String(v)) ? 0 : 1);
   if (hidden > 0) tiles.push(h("button", { type: "button", class: "rt more", "data-k": `h-rt-${name}-more`, "data-km": "stay", onclick: () => act(() => { S.allRatios = true; render(); }) }, "+" + hidden));
-  else if (S.allRatios && p.values.length > 8) tiles.push(h("button", { type: "button", class: "rt more", "data-k": `h-rt-${name}-more`, "data-km": "stay", onclick: () => act(() => { S.allRatios = false; render(); }) }, t("set.fewer")));
-  const box = h("div", { class: "ratios one", role: "radiogroup", "aria-label": label("aspect_ratio"), "data-seg": key, "data-dur": 360 }, tiles);
-  box.style.setProperty("--n", Math.ceil(tiles.length / Math.ceil(tiles.length / 8)));
+  else if (S.allRatios && p.values.length > 8 && back > 0) tiles.push(h("button", { type: "button", class: "rt more", "data-k": `h-rt-${name}-more`, "data-km": "stay", title: t("set.fewer"), "aria-label": t("set.fewer"), onclick: () => act(() => { S.allRatios = false; render(); }) }, "−" + back));
+  // "As photo" is a word among figures: its column takes the word's width, and the ratios share the rest.
+  const n = Math.ceil(tiles.length / Math.ceil(tiles.length / 8)), lead = String(list[0]) === "auto" && n > 1;
+  const box = h("div", { class: "ratios one" + (lead ? " lead" : ""), role: "radiogroup", "aria-label": label("aspect_ratio"), "data-seg": key, "data-dur": DUR.m }, tiles);
+  box.style.setProperty("--n", n);
+  if (lead) box.style.setProperty("--m", n - 1);
   return box;
 }
 
@@ -610,32 +715,43 @@ export function renderBar() {
   if (!m) return;
   const nx = next($("#prompt").value), kind = m.kind;
   // One frame is its run's price; several are the server's sum of them.
-  const P = plan(), paid = paidItems(P), one = P.length < 2, qs = one ? paid.map((it) => known(it) || need(it)) : [];
+  const P = plan(), paid = paidItems(P), one = P.length < 2, qs = one ? paid.map((it) => need(it) || priced(it)) : [];
   const tot = one ? null : needTotal(paid), free = !paid.length;
   const ready = one ? qs.every(Boolean) : free || !!tot, e = free || !ready ? null : one ? qs[0].estimate : tot.total;
   const unknown = !free && (!e || e.kind === "unknown");
   const text = free ? t("bar.free") : !ready ? "…" : unknown ? t("price.unknown") : priceText(e);
   const val = free ? 0 : unknown ? 1e9 : e.usd;
   const el = $("#pnum");
-  el.classList.toggle("usd", !free && !unknown);
-  if (!free && !unknown && e.currency && e.currency !== "USD") el.title = usd(e.kind === "up_to" ? e.max_usd : e.usd); else el.removeAttribute("title");
-  if (el.dataset.t !== text) roll(el, text, lastVal == null ? 1 : val >= lastVal ? 1 : -1);
+  // A price in another currency keeps its dollars behind it, for a mouse, a finger and the keyboard alike.
+  hint(el, !free && !unknown && e.currency && e.currency !== "USD" ? usd(e.kind === "up_to" ? e.max_usd : e.usd) : "");
+  const odo = $("#podo");
+  if (odo.dataset.t !== text) roll(odo, text, lastVal == null ? 1 : val >= lastVal ? 1 : -1);
+  // A price on its way is no price: a screen reader hears the next one, not "…" or the last model's.
+  const said = ready ? text : "", sr = $("#psr");
+  if (sr.textContent !== said) sr.textContent = said;
   lastVal = val;
   const cap = $("#pcap"), was = cap.textContent;
   let parts;
   if (nx.why) parts = [nx.why];
-  else if (free) parts = [S.signed ? t("bar.free_left", { left: freeLeft(kind), limit: freeLimit(kind) }) : t("bar.free_signed_out", { per: freePer(kind) })];
+  else if (free) parts = [S.signed ? t("bar.free_left", { left: freeLeft(kind), limit: freeLimit(kind) }) : freePer(kind)];
   else if (unknown && ready) parts = [t("bar.unknown")];
   else if (e && e.discount && e.list_label) parts = [h("s", { class: "was" }, priceText({ ...e, label: e.list_label })), " ", h("b", { class: "off" }, "−" + fmtNum(Math.round(e.discount * 100)) + "%")];
   else parts = [""];
   cap.replaceChildren(...parts);
-  if (was !== cap.textContent && !cap.getAnimations().length) anim(cap, [{ opacity: 0 }, { opacity: 1 }], { duration: 240, delay: 120, fill: "backwards" });
+  if (was !== cap.textContent && !cap.getAnimations().length) anim(cap, [{ opacity: 0 }, { opacity: 1 }], { duration: DUR.s, delay: 120, fill: "backwards" });
   const fc = $("#how .fcount");
   if (fc) fc.textContent = framesCount(P);
   const btn = $("#go");
-  btn.replaceChildren(nx.icon ? ic(nx.icon) : "", nx.label, nx.on ? h("small", { class: "kbd" }, MAC ? "⌘↵" : "Ctrl ↵") : "");
+  btn.parentElement.classList.toggle("says", !!nx.why);
+  // The keys that press it, as the keyboard prints them (Strg on a German one); a screen reader hears them as the shortcut.
+  const keys = MAC ? "⌘↵" : t("kbd.ctrl") + " ↵";
+  // The moment a run is being sent the button says so in the width it had, rather than narrow to
+  // "Starting…" and widen again when the word comes back.
+  btn.style.minWidth = nx.busy ? getComputedStyle(btn).width : "";
+  btn.replaceChildren(nx.icon ? ic(nx.icon) : "", nx.label, nx.on ? h("small", { class: "kbd", "aria-hidden": "true" }, keys) : "");
   btn.disabled = !nx.on;
-  btn.onclick = nx.act === "create" ? generate : nx.act === "signin" ? signIn : nx.act === "cut" ? openCut : nx.act === "key" ? () => openPrefs(nx.provider) : null;
-  btn.title = nx.on ? `${nx.label} (${MAC ? "⌘ Enter" : "Ctrl+Enter"})` : "";
+  if (nx.on) btn.setAttribute("aria-keyshortcuts", MAC ? "Meta+Enter" : "Control+Enter"); else btn.removeAttribute("aria-keyshortcuts");
+  btn.onclick = nx.act === "create" ? generate : nx.act === "signin" ? signIn : nx.act === "cut" ? openCut : nx.act === "key" ? () => openPrefs(nx.provider) : nx.act === "close" ? closeMini : null;
+  btn.title = nx.on ? `${nx.label} (${keys})` : "";
   window.dispatchEvent(new CustomEvent("framy:button", { detail: nx }));
 }

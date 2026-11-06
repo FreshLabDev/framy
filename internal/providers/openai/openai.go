@@ -11,7 +11,6 @@ package openai
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,6 +22,7 @@ import (
 
 	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/FreshLabDev/framy/internal/providers/answer"
 )
 
 // DefaultBase is OpenAI's API.
@@ -112,16 +112,19 @@ func (p *Provider) key(ctx context.Context, j jobs.Job) (string, error) {
 	return key, nil
 }
 
-// imagesResponse is the answer of both endpoints. An error can come with a
-// 200 when it happened after OpenAI took the request.
+// imagesResponse is the answer of both endpoints, but for its images, which
+// are read one at a time (answer.Each). An error can come with a 200 when it
+// happened after OpenAI took the request.
 type imagesResponse struct {
-	Data []struct {
-		B64JSON string `json:"b64_json"`
-	} `json:"data"`
 	// OutputFormat is png, jpeg or webp.
 	OutputFormat string     `json:"output_format"`
 	Usage        *usage     `json:"usage"`
 	Error        *errorBody `json:"error"`
+}
+
+// image is one element of the answer's data.
+type image struct {
+	B64JSON answer.Base64 `json:"b64_json"`
 }
 
 func (p *Provider) call(ctx context.Context, key string, r request) (jobs.Outcome, error) {
@@ -151,7 +154,16 @@ func (p *Provider) call(ctx context.Context, key string, r request) (jobs.Outcom
 		return jobs.Outcome{}, statusError(resp.StatusCode, resp.Header, data, key)
 	}
 	var a imagesResponse
-	if err := json.NewDecoder(limited).Decode(&a); err != nil {
+	var images []image
+	err = answer.Each(limited, "data", func(dec *json.Decoder) error {
+		var im image
+		if err := dec.Decode(&im); err != nil {
+			return err
+		}
+		images = append(images, im)
+		return nil
+	}, &a)
+	if err != nil {
 		if ctx.Err() != nil {
 			// Cut short by the deadline or a stop: the queue reads which.
 			return jobs.Outcome{}, fmt.Errorf("read the answer of openai: %w", err)
@@ -171,13 +183,20 @@ func (p *Provider) call(ctx context.Context, key string, r request) (jobs.Outcom
 		out.Err = bodyError(a.Error, key)
 		return out, nil
 	}
-	for i, d := range a.Data {
-		res, err := result(d.B64JSON, a.OutputFormat, r.body)
+	for i, im := range images {
+		res, err := result(im.B64JSON, a.OutputFormat, r.body)
 		if err != nil {
-			out.Err = &jobs.Error{Class: jobs.ProviderFailed, Err: fmt.Errorf("image %d of the answer: %w", i+1, err)}
-			return out, nil
+			// The run is billed in full: a picture that came broken does
+			// not take the others with it.
+			if out.Lost == nil {
+				out.Lost = fmt.Errorf("image %d of the answer: %w", i+1, err)
+			}
+			continue
 		}
 		out.Results = append(out.Results, res)
+	}
+	if len(out.Results) == 0 && out.Lost != nil {
+		out.Err, out.Lost = &jobs.Error{Class: jobs.ProviderFailed, Err: out.Lost}, nil
 	}
 	return out, nil
 }
@@ -185,11 +204,11 @@ func (p *Provider) call(ctx context.Context, key string, r request) (jobs.Outcom
 // result decodes one image of the answer. The bytes say what they are; the
 // answer's output_format, then the one asked for, name the type when they
 // do not.
-func result(b64, format string, asked map[string]any) (jobs.Result, error) {
-	data, err := base64.StdEncoding.DecodeString(b64)
-	if err != nil {
-		return jobs.Result{}, fmt.Errorf("decode base64: %w", err)
+func result(b64 answer.Base64, format string, asked map[string]any) (jobs.Result, error) {
+	if b64.Err != nil {
+		return jobs.Result{}, b64.Err
 	}
+	data := b64.Data
 	if len(data) == 0 {
 		return jobs.Result{}, errors.New("an empty image")
 	}
@@ -206,13 +225,16 @@ func result(b64, format string, asked map[string]any) (jobs.Result, error) {
 }
 
 // rates are what OpenAI bills per token, in dollars, from the offer's price
-// lines.
+// lines. outputText is the rate of a text output token: the catalog's
+// output_text where it lists one, else the image's, as OpenAI lists no
+// separate rate for GPT Image 2 and later.
 type rates struct {
-	text, image, output float64
+	text, image, output, outputText float64
 }
 
 // usage is the usage object of an answer. The input tokens are text and
-// image tokens (the references), the output tokens are the image.
+// image tokens (the references); the output tokens are the image's and,
+// on some models, text the model wrote, which the details tell apart.
 type usage struct {
 	InputTokens        int64 `json:"input_tokens"`
 	OutputTokens       int64 `json:"output_tokens"`
@@ -220,6 +242,10 @@ type usage struct {
 		TextTokens  int64 `json:"text_tokens"`
 		ImageTokens int64 `json:"image_tokens"`
 	} `json:"input_tokens_details"`
+	OutputTokensDetails *struct {
+		TextTokens  int64 `json:"text_tokens"`
+		ImageTokens int64 `json:"image_tokens"`
+	} `json:"output_tokens_details"`
 }
 
 // ratesOf reads the rates from the offer's route. The lines are the catalog's
@@ -231,7 +257,7 @@ func ratesOf(of catalog.Offer, withReferences bool) (rates, error) {
 		return rates{}, refused("the catalog lists no route for %s", of.ID)
 	}
 	var r rates
-	var seen struct{ text, image, output bool }
+	var seen struct{ text, image, output, outputText bool }
 	for _, p := range of.Routes[0].Prices {
 		if p.Unit != "token" || p.Variant != "" {
 			continue
@@ -243,7 +269,12 @@ func ratesOf(of catalog.Offer, withReferences bool) (rates, error) {
 			r.image, seen.image = p.CostUSD, true
 		case "output_image":
 			r.output, seen.output = p.CostUSD, true
+		case "output_text":
+			r.outputText, seen.outputText = p.CostUSD, true
 		}
+	}
+	if !seen.outputText {
+		r.outputText = r.output
 	}
 	switch {
 	case !seen.text:
@@ -256,18 +287,26 @@ func ratesOf(of catalog.Offer, withReferences bool) (rates, error) {
 	return r, nil
 }
 
-// cost is the run's price: the tokens times the rates. Input tokens the
-// details do not account for, or all of them when the answer has no details,
-// count at the dearer input rate, so the cost is never below what OpenAI
+// cost is the run's price: the tokens times the rates. Tokens the details
+// do not account for, or all of them when the answer has no details, count
+// at the dearer rate of their side, so the cost is never below what OpenAI
 // billed. It is rounded to a nano-dollar, which hides only binary noise.
 func (r rates) cost(u usage) *float64 {
 	var text, image int64
 	if d := u.InputTokensDetails; d != nil {
 		text, image = d.TextTokens, d.ImageTokens
 	}
-	usd := float64(text)*r.text + float64(image)*r.image + float64(u.OutputTokens)*r.output
+	usd := float64(text)*r.text + float64(image)*r.image
 	if rest := u.InputTokens - text - image; rest > 0 {
 		usd += float64(rest) * math.Max(r.text, r.image)
+	}
+	var written, drawn int64
+	if d := u.OutputTokensDetails; d != nil {
+		written, drawn = d.TextTokens, d.ImageTokens
+	}
+	usd += float64(written)*r.outputText + float64(drawn)*r.output
+	if rest := u.OutputTokens - written - drawn; rest > 0 {
+		usd += float64(rest) * math.Max(r.output, r.outputText)
 	}
 	usd = math.Round(usd*1e9) / 1e9
 	return &usd

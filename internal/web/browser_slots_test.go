@@ -5,6 +5,7 @@
 package web
 
 import (
+	"encoding/json"
 	"fmt"
 	"image"
 	_ "image/png"
@@ -86,7 +87,7 @@ func TestBrowserVideoSlots(t *testing.T) {
 	out.job = j ? { inputs: j.inputs, frames: j.settings.frame_images, offer: j.offer } : null;
 	await wait(1500);
 	// Back to the composer: without the start frame, the end frame becomes the start.
-	[...document.querySelectorAll("#stage .jacts > button")].find((b) => b.textContent.trim() === "Edit")?.click();
+	[...document.querySelectorAll("#stage .jacts button")].find((b) => b.textContent.trim() === "Edit")?.click();
 	await wait(900);
 	document.querySelector('#files [data-k="g-start"] .thumb .rm').click();
 	await wait(900);
@@ -166,6 +167,7 @@ func TestBrowserVideoSlots(t *testing.T) {
 func TestBrowserVideoSounds(t *testing.T) {
 	runs := &fakeRuns{}
 	var put, took atomic.Int32
+	var asked atomic.Int64
 	ts := fakeSite(t, func(srv *Server) {
 		runs.mount(srv)
 		srv.HandleFunc("POST /api/uploads", func(w http.ResponseWriter, r *http.Request) {
@@ -177,9 +179,23 @@ func TestBrowserVideoSounds(t *testing.T) {
 			writeTestJSON(w, http.StatusCreated, map[string]any{"id": c.Width, "content_type": "image/png", "bytes": 100, "width": c.Width, "height": c.Height})
 		})
 		srv.HandleFunc("POST /api/videos/uploads", func(w http.ResponseWriter, r *http.Request) {
+			// The link is made for the sound's size, which the page says.
+			var body struct {
+				Bytes int64 `json:"bytes"`
+			}
+			if json.NewDecoder(r.Body).Decode(&body) != nil || body.Bytes < 1 {
+				writeTestJSON(w, http.StatusBadRequest, map[string]any{"error": "bad_request", "field": "bytes"})
+				return
+			}
+			asked.Store(body.Bytes)
 			writeTestJSON(w, http.StatusCreated, map[string]any{"url": "/bucket/sound", "token": "tok", "max_bytes": 100 << 20})
 		})
 		srv.HandleFunc("PUT /bucket/sound", func(w http.ResponseWriter, r *http.Request) {
+			// The bucket takes only the length the link was made for.
+			if r.ContentLength != asked.Load() {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
 			if strings.HasPrefix(r.Header.Get("Content-Type"), "audio/") {
 				put.Add(1)
 			}
@@ -257,6 +273,214 @@ func TestBrowserVideoSounds(t *testing.T) {
 	noErrors(t, ctx)
 }
 
+// TestBrowserClipFrameRate checks that a clip's frame rate, read from the
+// index of an MP4 or a QuickTime file before Create, goes with its quote: an
+// upscale is billed by it, and without it the price is a range up to 60
+// frames a second. A file whose index says none goes without.
+func TestBrowserClipFrameRate(t *testing.T) {
+	ts := fakeSite(t, func(srv *Server) { (&fakeRuns{}).mount(srv) })
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	js[bool](t, ctx, `
+	window.__quotes = [];
+	const fetch0 = window.fetch;
+	window.fetch = (u, o) => {
+	  if (String(u).endsWith("/api/quote")) __quotes.push(JSON.parse(o.body));
+	  return fetch0(u, o);
+	};
+	return true;`)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+slotHelpers+clipHelpers+`
+	const out = {};
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(800);
+	const drop = async (f) => {
+	  const dt = new DataTransfer();
+	  dt.items.add(f);
+	  document.body.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
+	  await wait(1500);
+	  return (own()?.files || []).find((x) => x.content_type?.startsWith("video/")) || null;
+	};
+	const rm = async () => { for (const b of [...document.querySelectorAll("#files .thumb .rm")]) { b.click(); await wait(300); } await wait(500); };
+	// 60 frames of 1001/30000 s after a sound track: 29.97 a second.
+	out.mp4 = await drop(mp4(60, 30000, 1001, "video/mp4", "c.mp4"));
+	await rm();
+	out.mov = await drop(mp4(48, 24, 1, "video/quicktime", "c.mov"));
+	await rm();
+	out.webm = await drop(new File([new Uint8Array(64)], "c.webm", { type: "video/webm" }));
+	return out;`)
+	for name, want := range map[string]any{"mp4": 29.97, "mov": float64(24), "webm": nil} {
+		f, _ := s[name].(map[string]any)
+		if f == nil || f["fps"] != want {
+			t.Errorf("the %s clip in the quote: %v, want fps %v", name, s[name], want)
+		}
+	}
+}
+
+// clipHelpers make an MP4 or QuickTime file with no frames but their index:
+// a sound track, then a video track of n frames of delta at scale a second.
+const clipHelpers = `
+const atom = (type, ...parts) => {
+  const n = 8 + parts.reduce((a, p) => a + p.length, 0), b = new Uint8Array(n);
+  new DataView(b.buffer).setUint32(0, n);
+  b.set([...type].map((c) => c.charCodeAt(0)), 4);
+  let o = 8;
+  for (const p of parts) { b.set(p, o); o += p.length; }
+  return b;
+};
+const u32 = (...xs) => { const b = new Uint8Array(4 * xs.length), v = new DataView(b.buffer); xs.forEach((x, i) => v.setUint32(i * 4, x)); return b; };
+const chars = (s) => Uint8Array.from(s, (c) => c.charCodeAt(0));
+const track = (handler, scale, length, stts) => atom("trak", atom("mdia",
+  atom("mdhd", u32(0, 0, 0, scale, length, 0)),
+  atom("hdlr", u32(0, 0), chars(handler), u32(0, 0, 0), new Uint8Array(1)),
+  atom("minf", atom("stbl", atom("stts", u32(0, 1, ...stts))))));
+const mp4 = (n, scale, delta, type, name) => new File([
+  atom("ftyp", chars("isom"), u32(512), chars("isommp41")),
+  atom("moov", track("soun", 48000, 96000, [94, 1024]), track("vide", scale, n * delta, [n, delta])),
+  atom("mdat"),
+], name, { type });
+`
+
+// TestBrowserReferencesSetTheLength checks a model that makes a video from
+// reference images at fewer lengths than it lists: on Veo 3.1 the length
+// offers 4, 6 and 8 s, only 8 s once pictures go as references, every quote
+// asks for 8 s then, and the person's own choice comes back with the
+// references gone.
+func TestBrowserReferencesSetTheLength(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, func(srv *Server) {
+		runs.mount(srv)
+		srv.HandleFunc("POST /api/uploads", func(w http.ResponseWriter, r *http.Request) {
+			c, _, err := image.DecodeConfig(r.Body)
+			if err != nil {
+				writeTestJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": "unreadable"})
+				return
+			}
+			writeTestJSON(w, http.StatusCreated, map[string]any{"id": c.Width, "content_type": "image/png", "bytes": 100, "width": c.Width, "height": c.Height})
+		})
+	})
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+slotHelpers+`
+	window.__quotes = [];
+	const fetch0 = window.fetch;
+	window.fetch = (u, o) => {
+	  if (String(u).endsWith("/api/quote")) __quotes.push(JSON.parse(o.body));
+	  return fetch0(u, o);
+	};
+	const out = {};
+	const lengths = () => [...document.querySelectorAll("#how [data-seg='set-duration'] > button")].map((b) => b.firstChild.textContent + (b.getAttribute("aria-checked") === "true" ? "*" : ""));
+	const veo = (from) => __quotes.slice(from).flatMap((q) => q.items).filter((it) => it.offer === "openrouter:google/veo-3.1");
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(800);
+	document.querySelector("#how .mhead").click();
+	await wait(700);
+	const q = document.querySelector("#pksearch");
+	q.value = "Veo"; q.dispatchEvent(new Event("input", { bubbles: true }));
+	await wait(800);
+	document.querySelector("#pkrows .frow .fhit").click();
+	await wait(900);
+	out.model = model();
+	[...document.querySelectorAll("#how [data-seg='set-duration'] > button")].find((b) => b.textContent.startsWith("4"))?.click();
+	await wait(900);
+	out.words = lengths();
+	const from = __quotes.length;
+	await dropOn("ref", [await png(40, 40), await png(41, 40)]);
+	out.refs = groups(); out.model2 = model(); out.withRefs = lengths();
+	out.asked = [...new Set(veo(from).map((it) => it.settings?.duration))];
+	for (const b of [...document.querySelectorAll("#files .thumb .rm")]) { b.click(); await wait(300); }
+	await wait(900);
+	out.after = lengths();
+	return out;`)
+	if s["model"] != "Veo 3.1" || s["model2"] != "Veo 3.1" || s["refs"] != "ref:2+" {
+		t.Fatalf("model %v, then %v with %v", s["model"], s["model2"], s["refs"])
+	}
+	if fmt.Sprint(s["words"]) != "[4 s* 6 s 8 s]" {
+		t.Errorf("lengths from words: %v", s["words"])
+	}
+	if fmt.Sprint(s["withRefs"]) != "[8 s*]" || fmt.Sprint(s["asked"]) != "[8]" {
+		t.Errorf("lengths with references: %v, quoted at %v", s["withRefs"], s["asked"])
+	}
+	if fmt.Sprint(s["after"]) != "[4 s* 6 s 8 s]" {
+		t.Errorf("lengths with the references gone: %v", s["after"])
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserSeedAndLeaveOut checks the two settings a person types: a seed
+// takes only digits, what to leave out keeps its words, typing them asks for
+// no price, and the next run carries both. Left empty, neither is sent.
+func TestBrowserSeedAndLeaveOut(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+slotHelpers+`
+	window.__quotes = []; window.__sent = [];
+	const fetch0 = window.fetch;
+	window.fetch = (u, o) => {
+	  const s = String(u);
+	  if (s.endsWith("/api/quote")) __quotes.push(JSON.parse(o.body));
+	  if (s.endsWith("/api/jobs") && o?.method === "POST") __sent.push(JSON.parse(o.body));
+	  return fetch0(u, o);
+	};
+	const out = {};
+	const open = (it) => JSON.stringify([it?.settings?.seed ?? null, it?.settings?.negativePrompt ?? null]);
+	const type = async (el, v) => { el.value = v; el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true })); await wait(400); };
+	const seed = () => document.querySelector("#how .ofield.seed input"), avoid = () => document.querySelector("#how .ofield textarea");
+	const run = async () => {
+	  const n = __sent.length, p = document.querySelector("#prompt");
+	  p.value = "done"; p.dispatchEvent(new Event("input"));
+	  await wait(300);
+	  document.querySelector("#go").click();
+	  for (let i = 0; i < 60 && __sent.length === n; i++) await wait(100);
+	  await wait(600);
+	  return open(__sent[n]);
+	};
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(800);
+	document.querySelector("#how .mhead").click();
+	await wait(700);
+	const q = document.querySelector("#pksearch");
+	q.value = "Veo"; q.dispatchEvent(new Event("input", { bubbles: true }));
+	await wait(800);
+	document.querySelector("#pkrows .frow .fhit").click();
+	await wait(1200);
+	out.model = model();
+	out.labels = [...document.querySelectorAll("#how .ofield")].map((f) => f.closest(".sec").querySelector(".lt").textContent);
+	out.empty = await run();
+	const from = __quotes.length;
+	seed().value = "12a 3"; seed().dispatchEvent(new Event("input", { bubbles: true }));
+	out.typed = seed().value;
+	seed().dispatchEvent(new Event("change", { bubbles: true }));
+	await wait(400);
+	await type(avoid(), "text, blur");
+	await wait(800);
+	out.asked = __quotes.length - from;
+	out.kept = [seed().value, avoid().value];
+	out.run = await run();
+	// Emptied again, they go no more.
+	await type(seed(), "");
+	await type(avoid(), "  ");
+	out.cleared = await run();
+	return out;`)
+	if s["model"] != "Veo 3.1" {
+		t.Fatalf("model %v", s["model"])
+	}
+	if fmt.Sprint(s["labels"]) != "[Leave out Seed]" {
+		t.Errorf("the typed settings: %v", s["labels"])
+	}
+	if s["empty"] != "[null,null]" || s["cleared"] != "[null,null]" {
+		t.Errorf("empty, the run carried %v, and emptied again %v", s["empty"], s["cleared"])
+	}
+	if s["typed"] != "123" || fmt.Sprint(s["kept"]) != "[123 text, blur]" {
+		t.Errorf("typed %q, kept %v", s["typed"], s["kept"])
+	}
+	if s["asked"] != float64(0) {
+		t.Errorf("typing them asked for %v prices", s["asked"])
+	}
+	if s["run"] != `[123,"text, blur"]` {
+		t.Errorf("the run carries %v", s["run"])
+	}
+	noErrors(t, ctx)
+}
+
 // soundHelpers make a WAV of a few seconds of silence.
 const soundHelpers = `
 const wav = (secs) => {
@@ -293,3 +517,115 @@ async function listed() {
   return names;
 }
 `
+
+// TestBrowserCutterRTL checks the editor of a clip's part in Arabic: time
+// runs left to right as on the player's bar, so the first frame of the
+// timeline stands on the left, under the start of the window, and Frame back
+// is the button on the left.
+func TestBrowserCutterRTL(t *testing.T) {
+	runs := &fakeRuns{lang: "ar"}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+`
+	async function until(f, n = 60) { for (let i = 0; i < n; i++) { const v = f(); if (v) return v; await wait(100); } return null; }
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(700);
+	const b = Uint8Array.from(atob(`+jsString(loopWebM)+`), (c) => c.charCodeAt(0));
+	const dt = new DataTransfer();
+	dt.items.add(new File([b], "loop.webm", { type: "video/webm" }));
+	document.body.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
+	// The free run takes no clip; the key does.
+	(await until(() => document.querySelector('#how [data-seg="pay"] [data-v="openrouter"]')))?.click();
+	const link = await until(() => document.querySelector('#files [data-k="f-cut"] .link-t'));
+	if (!link) return { link: false };
+	link.click();
+	await until(() => !document.querySelector("#cutter").hidden && document.querySelector("#cutter .timeline .win").style.width);
+	await wait(500);
+	const tl = document.querySelector("#cutter .timeline"), r = tl.getBoundingClientRect(), x = (el) => Math.round(el.getBoundingClientRect().left - r.left);
+	const cv = [...tl.querySelectorAll("canvas")], ib = [...document.querySelectorAll("#cutter .transport > .ib")];
+	return { dir: document.dir, line: getComputedStyle(tl).direction, first: x(cv[0]), last: x(cv.at(-1)), win: x(tl.querySelector(".win")),
+	  back: ib[0].getAttribute("aria-label") === document.querySelector("#cutter .transport > .ib").getAttribute("aria-label") && x(ib[0]) < x(ib[2]) };`)
+	if s["dir"] != "rtl" || s["line"] != "ltr" || s["first"] != float64(0) || s["last"].(float64) <= 0 || s["win"] != float64(0) || s["back"] != true {
+		t.Errorf("the cutter right to left: %v", s)
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserCutterTimes checks that the editor of a clip's part says its
+// times with the same figures everywhere: on the Start and End buttons, in
+// the part under the timeline, and in the composer once the part is taken.
+func TestBrowserCutterTimes(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 390, 844, true)
+	s := js[map[string]any](t, ctx, pageHelpers+`
+	async function until(f, n = 60) { for (let i = 0; i < n; i++) { const v = f(); if (v) return v; await wait(100); } return null; }
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(700);
+	const b = Uint8Array.from(atob(`+jsString(loopWebM)+`), (c) => c.charCodeAt(0));
+	const dt = new DataTransfer();
+	dt.items.add(new File([b], "loop.webm", { type: "video/webm" }));
+	document.body.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
+	(await until(() => document.querySelector('#how [data-seg="pay"] [data-v="openrouter"]')))?.click();
+	const link = await until(() => document.querySelector('#files [data-k="f-cut"] .link-t'));
+	if (!link) return { link: false };
+	link.click();
+	await until(() => !document.querySelector("#cutter").hidden && document.querySelector("#cutter .timeline .win").style.width);
+	await wait(500);
+	// The end one frame back, where a tenth would round it.
+	document.querySelector('#cutter .edges [data-v="end"]').click(); await wait(100);
+	document.querySelectorAll("#cutter .transport > .ib")[0].click(); await wait(100);
+	const edges = ["start", "end"].map((k) => document.querySelector('#cutter .edges [data-v="' + k + '"] small').textContent), read = document.querySelector("#cutter .readout").textContent;
+	document.querySelector("#cutter .take").click();
+	const taken = (await until(() => document.querySelector('#files [data-k="f-cut"]')?.textContent.match(/Part \S+ s/)?.[0])) || "";
+	return { edges: edges.join(","), read, taken };`)
+	if s["edges"] != "0.00 s,1.97 s" || s["read"] != "Part 0.00 s – 1.97 s · 1.97 s" || s["taken"] != "Part 0–1.97 s" {
+		t.Errorf("the part's times: %v", s)
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserClipReadLate checks a clip the browser reads slowly: it comes
+// into the composer after the wait with no length, and when its length is
+// read later the composer shows it and prices the run with it.
+func TestBrowserClipReadLate(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+`
+	async function until(f, n = 60) { for (let i = 0; i < n; i++) { const v = f(); if (v) return v; await wait(100); } return null; }
+	window.__quotes = [];
+	const fetch0 = window.fetch;
+	window.fetch = (u, o) => { if (String(u).endsWith("/api/quote")) __quotes.push(JSON.parse(o.body)); return fetch0(u, o); };
+	const secsQuoted = () => { for (let i = __quotes.length - 1; i >= 0; i--) for (const it of __quotes[i].items) { const c = (it.files || []).find((f) => f.content_type?.startsWith("video/")); if (c && it.pay) return c.seconds; } return null; };
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(700);
+	// The wait for the clip is short here, and the browser gets to the clip three seconds late:
+	// long after the composer took it, well inside the half minute it may still be read.
+	const st0 = window.setTimeout, mk = document.createElement.bind(document), src = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "src");
+	window.setTimeout = (fn, ms, ...a) => st0(fn, ms === 8000 ? 150 : ms, ...a);
+	let slow = true;
+	document.createElement = (tag, o) => {
+	  const el = mk(tag, o);
+	  if (tag === "video" && slow) { slow = false; Object.defineProperty(el, "src", { configurable: true, get() { return src.get.call(el); }, set(x) { st0(() => src.set.call(el, x), 3000); } }); }
+	  return el;
+	};
+	const b = Uint8Array.from(atob(`+jsString(loopWebM)+`), (c) => c.charCodeAt(0));
+	const dt = new DataTransfer();
+	dt.items.add(new File([b], "loop.webm", { type: "video/webm" }));
+	document.body.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
+	const tag = () => document.querySelector("#files .thumb.clip .tag")?.textContent ?? null;
+	await until(() => tag() !== null);
+	window.setTimeout = st0; document.createElement = mk;
+	(await until(() => document.querySelector('#how [data-seg="pay"] [data-v="openrouter"]')))?.click();
+	await wait(300);
+	const before = { tag: tag(), secs: secsQuoted() };
+	await until(() => /2/.test(tag() || "") && secsQuoted() === 2, 60);
+	return { before, after: { tag: tag(), secs: secsQuoted() }, poster: !!document.querySelector("#files .thumb.clip img") };`)
+	before, _ := s["before"].(map[string]any)
+	after, _ := s["after"].(map[string]any)
+	if before["tag"] != "" || after["tag"] != "2 s" || after["secs"] != float64(2) || s["poster"] != true {
+		t.Errorf("a clip read late: %v", s)
+	}
+	noErrors(t, ctx)
+}

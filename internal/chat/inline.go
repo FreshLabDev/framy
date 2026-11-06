@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/FreshLabDev/tg"
@@ -31,15 +33,77 @@ const (
 // prompt holds the query, newest first, to send again by their file_id, and
 // a button into the Mini App. It returns at once and answers in the
 // background.
+//
+// Telegram sends a query for every letter typed and shows only the answer
+// to the last, so a person's new query ends the one before it, and a first
+// page waits inlineQuiet for the next letter before it reads the history:
+// "a fox" typed at speed is one read, not five. At most inlineAtOnce
+// answers are read at once, whoever types.
 func (f *Flow) Inline(ctx context.Context, q *tg.InlineQuery) {
 	if q == nil {
 		return
 	}
+	ctx, done := f.typing.start(ctx, q.From.ID)
 	f.wg.Go(func() {
+		defer done()
+		if q.Offset == "" && f.inlineWait(ctx) != nil {
+			return
+		}
+		select {
+		case f.inlineSlots <- struct{}{}:
+		case <-ctx.Done():
+			return
+		}
+		defer func() { <-f.inlineSlots }()
+		// A select picks at random among what is ready, so a query the
+		// next letter ended may have got this far: it reads nothing.
+		if ctx.Err() != nil {
+			return
+		}
 		if err := f.inline(ctx, q); err != nil && ctx.Err() == nil {
 			f.log.Error("inline answer failed", "error", err)
 		}
 	})
+}
+
+const (
+	// inlineQuiet is how long a first page waits for the next letter.
+	inlineQuiet = 150 * time.Millisecond
+	// inlineAtOnce bounds the inline answers read at once.
+	inlineAtOnce = 8
+)
+
+// typing is the inline query each person is being answered, which their
+// next one ends.
+type typing struct {
+	mu sync.Mutex
+	m  map[int64]*query
+}
+
+type query struct{ cancel context.CancelFunc }
+
+// start ends the person's query before this one and gives this one its
+// context; done forgets it.
+func (t *typing) start(ctx context.Context, user int64) (context.Context, func()) {
+	ctx, cancel := context.WithCancel(ctx)
+	q := &query{cancel: cancel}
+	t.mu.Lock()
+	if t.m == nil {
+		t.m = map[int64]*query{}
+	}
+	if before := t.m[user]; before != nil {
+		before.cancel()
+	}
+	t.m[user] = q
+	t.mu.Unlock()
+	return ctx, func() {
+		cancel()
+		t.mu.Lock()
+		if t.m[user] == q {
+			delete(t.m, user)
+		}
+		t.mu.Unlock()
+	}
 }
 
 func (f *Flow) inline(ctx context.Context, q *tg.InlineQuery) error {

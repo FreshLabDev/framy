@@ -28,7 +28,7 @@ import (
 // how it went.
 const (
 	// DefaultVideoSlots is how many clips are worked on at once: ffmpeg
-	// takes every core it gets for one.
+	// takes four threads for one (internal/media), the CPUs framy has.
 	DefaultVideoSlots = 2
 	// maxVideoTasks is how many clips may wait or be worked on at once,
 	// everyone's, and maxPersonVideoTasks one person's.
@@ -42,16 +42,23 @@ const (
 
 // Videos keeps clips: *storage.Store.
 type Videos interface {
-	VideoUpload(userID int64) (storage.VideoUpload, error)
+	VideoUpload(userID, size int64) (storage.VideoUpload, error)
 	TakeVideo(ctx context.Context, userID int64, token string, cut *media.Cut) (storage.Asset, error)
 	CutVideo(ctx context.Context, userID, assetID int64, cut media.Cut) (storage.Asset, error)
 	LastFrame(ctx context.Context, userID, assetID int64) (storage.Asset, error)
 }
 
+// videoUploadRequest is the body of POST /api/videos/uploads: the size of
+// the clip about to go up, as the browser read it.
+type videoUploadRequest struct {
+	Bytes int64 `json:"bytes"`
+}
+
 // videoUploadJSON is the answer of POST /api/videos/uploads.
 type videoUploadJSON struct {
 	Token string `json:"token"`
-	// URL takes one PUT of the clip, until ExpiresAt.
+	// URL takes a PUT of the clip, of the size asked for and no other,
+	// until ExpiresAt.
 	URL        string    `json:"url"`
 	ExpiresAt  time.Time `json:"expires_at"`
 	MaxBytes   int64     `json:"max_bytes"`
@@ -98,7 +105,9 @@ const (
 	taskFailed     = "failed"
 )
 
-// videoUpload answers POST /api/videos/uploads: where to put one clip.
+// videoUpload answers POST /api/videos/uploads with {"bytes": n}: where to
+// put one clip of that size. A clip over the limit gets no link, and 413
+// too_large says the limit.
 func (a *API) videoUpload(w http.ResponseWriter, r *http.Request) {
 	user, ok := a.person(w, r)
 	if !ok {
@@ -108,8 +117,21 @@ func (a *API) videoUpload(w http.ResponseWriter, r *http.Request) {
 		storageDown(w)
 		return
 	}
-	up, err := a.cfg.Videos.VideoUpload(user)
-	if err != nil {
+	var req videoUploadRequest
+	if e := decodeSmall(r, &req); e != nil {
+		e.write(w)
+		return
+	}
+	if req.Bytes < 1 {
+		badRequest("bytes", "send the clip's size in bytes: the link takes a body of that length").write(w)
+		return
+	}
+	up, err := a.cfg.Videos.VideoUpload(user, req.Bytes)
+	switch {
+	case errors.Is(err, storage.ErrTooBig):
+		newError(http.StatusRequestEntityTooLarge, codeTooLarge, "the clip is too big").with("max_bytes", up.MaxBytes).write(w)
+		return
+	case err != nil:
 		a.internal(w, r, err)
 		return
 	}
@@ -210,6 +232,7 @@ func (a *API) lastFrame(w http.ResponseWriter, r *http.Request) {
 		wait.Stop()
 		return
 	case <-wait.C:
+		a.full(fullClipSlots)
 		busy(w, "clips are being worked on; try again in a moment")
 		return
 	}
@@ -316,6 +339,8 @@ type videoTasks struct {
 	tasks map[string]*videoTask
 	slots chan struct{}
 	now   func() time.Time
+	// full counts a refusal by what was full; nil counts nothing.
+	full func(what string)
 }
 
 type videoTask struct {
@@ -355,6 +380,13 @@ func (v *videoTasks) start(ctx context.Context, user int64, key string, work fun
 		}
 	}
 	if running >= maxVideoTasks || theirs >= maxPersonVideoTasks {
+		if v.full != nil {
+			what := fullClipPerson
+			if running >= maxVideoTasks {
+				what = fullClipQueue
+			}
+			v.full(what)
+		}
 		e := newError(http.StatusServiceUnavailable, codeBusy, "clips are being worked on; try again in a moment")
 		e.retryAfter = 10 * time.Second
 		return "", e

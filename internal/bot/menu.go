@@ -88,12 +88,20 @@ func scopeOf(chat tg.Chat) scope {
 // view is who a panel is drawn for: the language it is written in, the person
 // whose buttons these are, and where it sits. account is read for the home
 // panel of a direct chat only; empty, that panel says nothing of the person
-// beyond their language.
+// beyond their language. bot is the bot's username, which Help names for
+// guest and inline mode: the test bot has its own. site is the site's https
+// address, which Help names; empty, Help leaves its line out.
 type view struct {
 	lang    string
 	owner   int64
 	sc      scope
 	account account
+	bot     string
+	site    string
+	// direct is the link a group's panel opens framy by (Bot.directURL);
+	// empty: none. addTo is the link the direct chat's panel adds framy to
+	// a group by (Bot.addToGroupURL); empty: none.
+	direct, addTo string
 }
 
 type row = []tg.InlineKeyboardButton
@@ -175,13 +183,18 @@ func (v view) closeButton() tg.InlineKeyboardButton {
 
 // home is two screens. The direct chat gets every tab, since there the panel
 // is the whole bot; a group gets what a group acts on, and its language only
-// for an admin, who is the only one who can change it. In a direct chat Open
-// framy leads, so it is the Primary button (R4); a group's panel has nothing
-// that leads yet, and generating will.
+// for an admin, who is the only one who can change it. Open framy leads in
+// both, so it is the Primary button (R4): in a direct chat it opens the Mini
+// App, and in a group, which takes no Mini App button, it opens framy's
+// direct chat, whose panel does. Each ends its quote with how to start
+// there: /img in a group, a plain message in a direct chat.
 func (v view) home(admin bool, groupLang string) (string, *tg.InlineKeyboardMarkup) {
 	if v.sc == scopeGroup {
-		text := panel(productName, "", v.t("home.hint"), quote(v.t("home.group")))
+		text := v.groupText()
 		var rows []row
+		if v.direct != "" {
+			rows = append(rows, row{v.directButton()})
+		}
 		if admin {
 			rows = append(rows, row{{Text: v.t("btn.group_language", "language", v.languageLabel(groupLang)), CallbackData: cb(v.owner, actGroupLang)}})
 		}
@@ -192,16 +205,35 @@ func (v view) home(admin bool, groupLang string) (string, *tg.InlineKeyboardMark
 		)
 		return text, markup(rows...)
 	}
-	text := panel(productName, "", v.t("home.hint"), quote(append(v.accountLines(), v.t("home.soon"))...))
+	text := panel(productName, "", v.t("home.hint"), quote(append(v.accountLines(), v.t("home.direct"))...))
 	var rows []row
 	if v.account.appURL != "" {
-		rows = append(rows, row{v.openButton(v.account.appURL)})
+		rows = append(rows, row{v.openButton(v.account.appURL, v.account.openText)})
 	}
-	rows = append(rows,
-		row{v.button("btn.language", actLang), v.button("btn.help", actHelp)},
-		row{v.button("btn.about", actAbout)},
-	)
+	last := row{v.button("btn.about", actAbout)}
+	if v.addTo != "" {
+		last = append(row{{Text: v.t("btn.add_group"), URL: v.addTo}}, last...)
+	}
+	rows = append(rows, row{v.button("btn.language", actLang), v.button("btn.help", actHelp)}, last)
 	return text, markup(rows...)
+}
+
+// groupText is what a group's panel says, the same for anyone there: how to
+// start in a group.
+func (v view) groupText() string {
+	return panel(productName, "", v.t("home.hint"), quote(v.t("home.group")))
+}
+
+// welcome is what a group reads once framy is added to it: what anyone's
+// panel there says, how to start with /img, and Open framy. It is nobody's
+// panel, so it has no button that acts: not the group's language, which an
+// admin's own panel offers, and not Close, which only a panel one person
+// sees can take.
+func (v view) welcome() (string, *tg.InlineKeyboardMarkup) {
+	if v.direct == "" {
+		return v.groupText(), nil
+	}
+	return v.groupText(), markup(row{v.directButton()})
 }
 
 func (v view) languageLabel(code string) string {
@@ -211,9 +243,16 @@ func (v view) languageLabel(code string) string {
 	return i18n.LabelOf(code)
 }
 
+// help says every way in. The site's line gives its address, since the
+// other lines send the person there for keys, and a group's Open framy
+// leads to the direct chat, not to the site.
 func (v view) help() (string, *tg.InlineKeyboardMarkup) {
-	return panel(v.t("help.title"), "", v.t("help.hint"), quote(v.t("help.body"))),
-		markup(v.navRow(actHome))
+	lines := []string{v.t("help.body", "bot", "@"+v.bot)}
+	if v.site != "" {
+		host := strings.TrimSuffix(strings.TrimPrefix(v.site, "https://"), "/")
+		lines = append(lines, v.t("help.site", "site", link(v.site, host)))
+	}
+	return panel(v.t("help.title"), "", v.t("help.hint"), quote(lines...)), markup(v.navRow(actHome))
 }
 
 // about is exactly the family's About card: name and version, one line of what

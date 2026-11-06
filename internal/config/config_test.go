@@ -2,6 +2,7 @@
 package config
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,7 +14,8 @@ func setBase(t *testing.T) {
 	t.Helper()
 	for _, k := range []string{"TELEGRAM_BOT_TOKEN", "TELEGRAM_BOT_TOKEN_FILE", "DATABASE_URL", "DATABASE_URL_FILE", "TELEGRAM_API_BASE", "AUTO_MIGRATE", "HTTP_ADDR", "METRICS_ADDR", "LOG_LEVEL", "OPENROUTER_API_BASE", "CATALOG_SYNC_INTERVAL", "FX_SYNC", "JOBS_STOP_GRACE", "OPENROUTER_API_KEY", "OPENROUTER_API_KEY_FILE",
 		"R2_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID_FILE", "R2_SECRET_ACCESS_KEY", "R2_SECRET_ACCESS_KEY_FILE", "R2_ENDPOINT", "R2_ACCOUNT_ID", "R2_BUCKET", "R2_PREFIX",
-		"WORK_DIR", "FFMPEG", "FFPROBE", "OPERATOR_CHAT_ID", "BOT_API_FILES_DIR", "FRAMY_STACK"} {
+		"R2_INCOMING_BUCKET", "R2_INCOMING_ACCESS_KEY_ID", "R2_INCOMING_ACCESS_KEY_ID_FILE", "R2_INCOMING_SECRET_ACCESS_KEY", "R2_INCOMING_SECRET_ACCESS_KEY_FILE",
+		"WORK_DIR", "FFMPEG", "FFPROBE", "OPERATOR_CHAT_ID", "BOT_API_FILES_DIR", "BOT_API_BOT_DIR", "FRAMY_STACK", "FRAMY_KEK_ALLOW_LOOSE"} {
 		t.Setenv(k, "")
 	}
 	t.Setenv("TELEGRAM_BOT_TOKEN", "123:abc")
@@ -27,11 +29,20 @@ func TestLoadDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.TelegramAPIBase != DefaultTelegramAPIBase || cfg.HTTPAddr != ":8080" || cfg.MetricsAddr != ":9090" || !cfg.AutoMigrate || cfg.LogLevel != "info" ||
+	if cfg.TelegramAPIBase != DefaultTelegramAPIBase || cfg.HTTPAddr != ":8080" || cfg.MetricsAddr != ":9090" || !cfg.AutoMigrate || cfg.LogLevel != slog.LevelInfo ||
 		cfg.OpenRouterAPIBase != DefaultOpenRouterAPIBase || cfg.CatalogEvery != time.Hour || cfg.JobsStopGrace != 210*time.Second ||
 		cfg.OpenRouterKey != "" || cfg.R2.Enabled() || cfg.R2.Bucket != "framy" || cfg.FFmpeg != "ffmpeg" || cfg.FFprobe != "ffprobe" ||
-		cfg.WorkDir != filepath.Join(os.TempDir(), "framy") || cfg.OperatorChatID != 0 || !cfg.FXSync || !cfg.Primary() {
+		cfg.WorkDir != filepath.Join(os.TempDir(), "framy") || cfg.OperatorChatID != 0 || !cfg.FXSync || !cfg.Primary() || cfg.KEKAllowLoose {
 		t.Fatalf("defaults = %+v", cfg)
+	}
+}
+
+func TestLoadKEKAllowLoose(t *testing.T) {
+	setBase(t)
+	t.Setenv("FRAMY_KEK_ALLOW_LOOSE", "true")
+	cfg, err := Load()
+	if err != nil || !cfg.KEKAllowLoose {
+		t.Fatalf("allow loose = %v, %v", cfg.KEKAllowLoose, err)
 	}
 }
 
@@ -84,6 +95,52 @@ func TestLoadR2(t *testing.T) {
 	}
 }
 
+// The clips' bucket comes with a token of its own, read only with it.
+func TestLoadR2Incoming(t *testing.T) {
+	setBase(t)
+	dir := t.TempDir()
+	write := func(name, v string) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(v+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	t.Setenv("R2_ACCESS_KEY_ID", "key-id")
+	t.Setenv("R2_SECRET_ACCESS_KEY", "the-secret")
+	t.Setenv("R2_ACCOUNT_ID", "abc123")
+	// Files a manifest names before they exist are not read without the bucket.
+	t.Setenv("R2_INCOMING_ACCESS_KEY_ID_FILE", filepath.Join(dir, "none"))
+	t.Setenv("R2_INCOMING_SECRET_ACCESS_KEY_FILE", filepath.Join(dir, "none"))
+	if cfg, err := Load(); err != nil || cfg.R2.Incoming != (Incoming{}) {
+		t.Fatalf("without the bucket: %+v, %v", cfg.R2.Incoming, err)
+	}
+	t.Setenv("R2_INCOMING_BUCKET", "framy-incoming")
+	if _, err := Load(); err == nil || strings.Contains(err.Error(), "the-secret") {
+		t.Fatalf("a bucket whose token files are missing: %v", err)
+	}
+	t.Setenv("R2_INCOMING_ACCESS_KEY_ID_FILE", write("in-id", "in-key-id"))
+	t.Setenv("R2_INCOMING_SECRET_ACCESS_KEY_FILE", write("in-secret", "in-secret"))
+	cfg, err := Load()
+	if want := (Incoming{Bucket: "framy-incoming", AccessKeyID: "in-key-id", SecretAccessKey: "in-secret"}); err != nil || cfg.R2.Incoming != want {
+		t.Fatalf("incoming = %+v, %v", cfg.R2.Incoming, err)
+	}
+	for name, env := range map[string][2]string{
+		"the main bucket": {"R2_INCOMING_BUCKET", "framy"},
+		"half a token":    {"R2_INCOMING_SECRET_ACCESS_KEY_FILE", ""},
+		"both forms":      {"R2_INCOMING_ACCESS_KEY_ID", "in-key-id"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(env[0], env[1])
+			if _, err := Load(); err == nil {
+				t.Fatal("accepted")
+			} else if strings.Contains(err.Error(), "in-secret") {
+				t.Error("the error names the secret")
+			}
+		})
+	}
+}
+
 func TestLoadReadsSecretsFromFiles(t *testing.T) {
 	setBase(t)
 	dir := t.TempDir()
@@ -128,8 +185,16 @@ func TestLoadRejects(t *testing.T) {
 		{"missing file", map[string]string{"DATABASE_URL": "", "DATABASE_URL_FILE": filepath.Join(dir, "nope")}},
 		{"bad api base", map[string]string{"TELEGRAM_API_BASE": "api.telegram.org"}},
 		{"bad auto migrate", map[string]string{"AUTO_MIGRATE": "sometimes"}},
+		{"bad kek switch", map[string]string{"FRAMY_KEK_ALLOW_LOOSE": "perhaps"}},
 		{"metrics on the public listener", map[string]string{"HTTP_ADDR": ":8080", "METRICS_ADDR": ":8080"}},
 		{"bad openrouter base", map[string]string{"OPENROUTER_API_BASE": "openrouter.ai"}},
+		// framy's key and people's go to it.
+		{"openrouter over http", map[string]string{"OPENROUTER_API_BASE": "http://openrouter.ai/api/v1"}},
+		{"openrouter with credentials", map[string]string{"OPENROUTER_API_BASE": "https://user:pass@openrouter.ai/api/v1"}},
+		{"openrouter on another scheme", map[string]string{"OPENROUTER_API_BASE": "ftp://openrouter.ai/api/v1"}},
+		// A typo used to be logged at info, quietly.
+		{"unknown log level", map[string]string{"LOG_LEVEL": "warning"}},
+		{"log level not a word", map[string]string{"LOG_LEVEL": "3"}},
 		{"bad catalog interval", map[string]string{"CATALOG_SYNC_INTERVAL": "hourly"}},
 		{"catalog interval too short", map[string]string{"CATALOG_SYNC_INTERVAL": "5s"}},
 		{"bad stop grace", map[string]string{"JOBS_STOP_GRACE": "soon"}},
@@ -144,6 +209,39 @@ func TestLoadRejects(t *testing.T) {
 				t.Fatal("accepted")
 			}
 		})
+	}
+}
+
+func TestLogLevel(t *testing.T) {
+	for value, want := range map[string]slog.Level{
+		"":      slog.LevelInfo,
+		"debug": slog.LevelDebug,
+		"DEBUG": slog.LevelDebug,
+		"info":  slog.LevelInfo,
+		"warn":  slog.LevelWarn,
+		"Error": slog.LevelError,
+	} {
+		setBase(t)
+		t.Setenv("LOG_LEVEL", value)
+		cfg, err := Load()
+		if err != nil || cfg.LogLevel != want {
+			t.Errorf("LOG_LEVEL=%q: %v, %v; want %v", value, cfg.LogLevel, err, want)
+		}
+	}
+}
+
+// The OpenRouter base gets framy's key, people's keys and OAuth codes: in
+// the clear only to this machine, where a stand-in may answer.
+func TestOpenRouterBaseOverHTTPOnlyToThisMachine(t *testing.T) {
+	for _, base := range []string{"https://openrouter.ai/api/v1", "https://openrouter.ai/api/v1/", "http://localhost:8089/api/v1", "http://127.0.0.1:8089", "http://[::1]:8089/v1"} {
+		setBase(t)
+		t.Setenv("OPENROUTER_API_BASE", base)
+		cfg, err := Load()
+		if err != nil {
+			t.Errorf("%s: %v", base, err)
+		} else if cfg.OpenRouterAPIBase != strings.TrimRight(base, "/") {
+			t.Errorf("%s: base %q", base, cfg.OpenRouterAPIBase)
+		}
 	}
 }
 
@@ -249,8 +347,38 @@ func TestASelfHostedServerNeedsItsFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.BotAPIFilesDir != "/var/lib/telegram-bot-api-files" {
-		t.Fatalf("BotAPIFilesDir = %q", cfg.BotAPIFilesDir)
+	if cfg.BotAPIFilesDir != "/var/lib/telegram-bot-api-files" || cfg.BotAPIBotDir != "" {
+		t.Fatalf("BotAPIFilesDir = %q, BotAPIBotDir = %q", cfg.BotAPIFilesDir, cfg.BotAPIBotDir)
+	}
+}
+
+// The bot's own directory under a name that is not its token: absolute, and
+// outside the directory where the link to it is made.
+func TestTheBotsDirectoryUnderAnotherName(t *testing.T) {
+	setBase(t)
+	t.Setenv("BOT_API_BOT_DIR", "/var/lib/framy/bot-api")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "BOT_API_FILES_DIR") {
+		t.Fatalf("without BOT_API_FILES_DIR: err = %v", err)
+	}
+	t.Setenv("TELEGRAM_API_BASE", "http://telegram-bot-api-next:8081")
+	t.Setenv("BOT_API_FILES_DIR", "/var/lib/telegram-bot-api-files")
+	for value, want := range map[string]string{
+		"bot-api":                             "absolute",
+		"/var/lib/telegram-bot-api-files":     "outside",
+		"/var/lib/telegram-bot-api-files/bot": "outside",
+	} {
+		t.Setenv("BOT_API_BOT_DIR", value)
+		if _, err := Load(); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: err = %v, want %q", value, err, want)
+		}
+	}
+	t.Setenv("BOT_API_BOT_DIR", "/var/lib/framy/bot-api/")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.BotAPIBotDir != "/var/lib/framy/bot-api" {
+		t.Fatalf("BotAPIBotDir = %q", cfg.BotAPIBotDir)
 	}
 }
 
