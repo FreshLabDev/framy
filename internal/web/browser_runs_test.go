@@ -1151,7 +1151,7 @@ func TestBrowserFrameWords(t *testing.T) {
 		lang  string
 		phone bool
 		under bool // the words of a failure with the provider's own words go under the frame
-	}{{320, 568, "de", true, true}, {844, 390, "en", true, true}, {375, 812, "de", true, true}, {390, 844, "ru", true, false}, {1440, 900, "en", false, false}} {
+	}{{320, 568, "de", true, true}, {844, 390, "en", true, true}, {375, 812, "de", true, false}, {390, 844, "ru", true, false}, {1440, 900, "en", false, false}} {
 		runs := &fakeRuns{lang: c.lang}
 		ts := fakeSite(t, runs.mount)
 		ctx := browserAs(t, ts.URL, c.w, c.h, opened{lang: c.lang, phone: c.phone})

@@ -592,10 +592,12 @@ input.search::placeholder {color: var(--muted);}
 @media (max-width: 389.98px) {
   .sqs > .sq2 {width: 42px; padding: 0; justify-content: center;}
   .sqs > .sq2 > .t {display: none;}
-  /* Six buttons and more under a result (a picture's): Download goes square too, so
-     they stay one row over the dock; its word stays for a screen reader. */
-  #stage .jacts:has(> :nth-child(6)) > .primary {flex: none; width: 42px; padding: 0; position: relative;}
-  #stage .jacts:has(> :nth-child(6)) > .primary > .t {position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;}
+}
+@media (max-width: 959px) {
+  /* A result whose squares would not fit beside the word of Download (stage.js, tighten): Download
+     goes square too, so the row stays one line over the dock; its word stays for a screen reader. */
+  .jacts.tight > .primary {flex: none; width: 42px; padding: 0; position: relative;}
+  .jacts.tight > .primary > .t {position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;}
 }
 .jprompt {display: flex; align-items: flex-start; gap: 8px; min-width: 0; font-size: 15px; color: var(--muted);}
 .jprompt > .tx {flex: 1; min-width: 0; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;}

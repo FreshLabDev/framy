@@ -560,6 +560,18 @@ function allDown(items) {
    person types; Google's sources under a grounded result are (under).
    size(under) lays the frame out and gives its height. */
 const UNDER = 70;
+// On a phone a result's row is Download and a group of squares (a picture's has five). When the
+// word of Download pushes the squares to a line of their own, Download goes square too (app.css,
+// .tight): the row stays one line over the dock, so the frame keeps the size it was made at.
+// Whether the word fits depends on the language and the width, so it is measured, not guessed.
+function tighten(st) {
+  const acts = st.querySelector(":scope > .jfoot > .jacts");
+  if (!acts) return;
+  acts.classList.remove("tight");
+  const first = acts.firstElementChild, last = acts.lastElementChild;
+  if (!isPhone() || first === last || !first?.classList.contains("primary") || !last?.classList.contains("sqs")) return;
+  if (last.offsetTop > first.offsetTop + 4) acts.classList.add("tight");
+}
 function roomUnder(st, size, under = UNDER) {
   const h0 = size(under), acts = st.querySelector(":scope > .jfoot > .jacts");
   // A stage out of sight has nothing to measure; it is drawn again when it comes back.
@@ -608,7 +620,7 @@ function renderRun(st, run) {
   const acts = h("div", { class: "jacts acts", "data-k": "j-acts" }, actRow([...v.acts,
     runOver(run) ? h("button", { type: "button", class: "sq", "aria-label": t("stage.next"), title: t("stage.next"), onclick: () => drop() }, ic("plus"), h("span", { class: "t" }, t("stage.next"))) : null]));
   st.replaceChildren(h("div", { class: "preview", "data-k": "pvbox" }, box), h("div", { class: "jfoot", "data-k": "j-foot" }, line, why, acts, grounding(j), prompt));
-  box._fit = () => { roomUnder(st, (u) => { const f = fit(r, u); box.style.width = f.w + "px"; box.style.height = f.h + "px"; return f.h; }, under); caption(box); };
+  box._fit = () => { tighten(st); roomUnder(st, (u) => { const f = fit(r, u); box.style.width = f.w + "px"; box.style.height = f.h + "px"; return f.h; }, under); caption(box); };
   box._fit();
 }
 
