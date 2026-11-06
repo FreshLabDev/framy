@@ -1023,7 +1023,7 @@
     "ca": "Aquí framy no pot respondre ara mateix. Envia el mateix a framy en un xat privat.",
     "zh": "framy 现在无法在这里回复。请在私聊中把同样的内容发给 framy。",
     "ja": "framy は今ここでは返信できません。同じ内容を framy との個別チャットに送ってください。",
-    "ar": "لا يستطيع framy الرد هنا الآن. أرسل الشيء نفسه إلى framy في محادثة خاصة."
+    "ar": "لا يستطيع framy الرد هنا الآن. أرسل الرسالة نفسها إلى framy في دردشة خاصة."
   },
   "guest.video": {
     "en": "Here framy makes and changes images. To change a video, send it to framy in a direct chat.",
@@ -1041,7 +1041,7 @@
     "ca": "Aquí framy treballa amb imatges. Per canviar un vídeo, envia’l a framy en un xat privat.",
     "zh": "在这里 framy 处理图片。要修改视频，请在私聊中发给 framy。",
     "ja": "ここでは framy は画像を扱います。動画を変更するには、framy との個別チャットに送ってください。",
-    "ar": "هنا يعمل framy مع الصور. لتعديل فيديو، أرسله إلى framy في محادثة خاصة."
+    "ar": "هنا يعمل framy مع الصور. لتعديل فيديو، أرسله إلى framy في دردشة خاصة."
   },
   "help.body": {
     "en": "In a direct chat with framy, just write what to make, with photos or a video if you like: framy asks whether it is for an image or a video. A reply to a result changes it.\nIn a group, <code>/img</code> with a description makes an image, and in reply to a photo or an album it changes those photos. <code>/edit</code> in reply to a video changes the video.\nIn a chat without framy, send {bot} with a description, or with a few words in reply to a photo. Typing {bot} in any chat lists your results, to send one again.\nBefore anything runs, framy shows the model, the price and which photos or part of the video it takes, and waits for Generate.\nFive images in any 24 hours and one video in any 7 days are free, on models framy picked. Your own key, connected on the site, opens every model of its provider.",
@@ -1761,7 +1761,7 @@
     "ca": "Fins a 30 s, edita i allarga vídeos",
     "zh": "最长 30 秒，可编辑和延长视频",
     "ja": "最大 30 秒、動画の編集と延長に対応",
-    "ar": "حتى 30 ث، يحرر الفيديو ويمدده"
+    "ar": "حتى 30 ث، يعدّل الفيديو ويمدّده"
   },
   "note.google/gemini-3-pro-image": {
     "en": "Built on Gemini 3 Pro",
@@ -2625,7 +2625,7 @@
     "ca": "No veig qui ho ha enviat: ha arribat en nom del grup o d’un canal. Envia-ho des del teu compte o desactiva l’anonimat als teus permisos d’administrador.",
     "zh": "我看不到是谁发送的：这条消息是以群组或频道的名义发出的。请用你自己的账号发送，或在你的管理员权限中关闭匿名。",
     "ja": "誰が送ったのか分かりません。グループまたはチャンネルの名義で送られています。自分のアカウントから送るか、管理者権限で匿名をオフにしてください。",
-    "ar": "لا أرى من أرسل هذا: وصلت الرسالة باسم المجموعة أو قناة. أرسلها من حسابك الخاص، أو أوقف إخفاء الهوية في صلاحيات المشرف لديك."
+    "ar": "لا أرى من أرسل هذا: وصلت الرسالة باسم المجموعة أو القناة. أرسلها من حسابك الخاص، أو أوقف إخفاء الهوية في صلاحيات المشرف لديك."
   },
   "run.as_image": {
     "en": "Make an image",
@@ -4371,7 +4371,7 @@
     "ca": "El vídeo ja s’està creant i no es pot aturar. Pots marxar: arribarà al teu xat amb framy i a la biblioteca.",
     "zh": "视频已经在生成了，无法停止。你可以离开：它会发到你与 framy 的聊天和作品库。",
     "ja": "動画はすでに作成中のため、止められません。このまま離れても、framy とのチャットとライブラリに届きます。",
-    "ar": "بدأ إنشاء الفيديو بالفعل ولا يمكن إيقافه. يمكنك المغادرة: سيصل إلى محادثتك مع framy وإلى المكتبة."
+    "ar": "بدأ إنشاء الفيديو بالفعل ولا يمكن إيقافه. يمكنك المغادرة: سيصل إلى دردشتك مع framy وإلى المكتبة."
   },
   "web.cancel.running_video_library": {
     "en": "The video is being made already and cannot be stopped. You can leave: it will be in the library.",
@@ -10491,7 +10491,7 @@
     "ca": "Envia els resultats al xat",
     "zh": "将结果发送到聊天",
     "ja": "結果をチャットに送る",
-    "ar": "إرسال النتائج إلى المحادثة"
+    "ar": "إرسال النتائج إلى الدردشة"
   },
   "web.prefs.deliver_off": {
     "en": "What you make on the site stays on the site",
