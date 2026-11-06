@@ -73,9 +73,10 @@ function logo() {
     h("img", { src: MARK, alt: "" }), h("span", {}, "framy"));
 }
 // The header is drawn anew on every change of view; a tab pressed with the keyboard keeps the focus.
+// The account stands at the far end (app.css): the room before it is the first to go on a narrow phone.
 function renderTop() {
   const top = $("#top");
-  keepFocus(() => top.replaceChildren(...[logo(), tabs(), h("span", { class: "sp" }), account()].flat().filter(Boolean)));
+  keepFocus(() => top.replaceChildren(...[logo(), tabs(), account()].flat().filter(Boolean)));
   placeSegs(top);
 }
 
