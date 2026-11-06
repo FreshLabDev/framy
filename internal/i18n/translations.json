@@ -4447,7 +4447,7 @@
   },
   "web.cont.only": {
     "en": "Only {model} on the same key can continue this video.",
-    "ru": "Продолжить этот ролик может только {model} по тому же ключу.",
+    "ru": "Продолжить этот ролик может только {model} на том же ключе.",
     "uk": "Продовжити це відео може лише {model} на тому самому ключі.",
     "es": "Solo {model} con la misma clave puede continuar este vídeo.",
     "fr": "Seul {model} avec la même clé peut poursuivre cette vidéo.",
@@ -11377,7 +11377,7 @@
   },
   "web.ref.free_closed": {
     "en": "Free runs are paused until {time}. On your own key it works now.",
-    "ru": "Бесплатные запуски на паузе до {time}. По своему ключу можно сейчас.",
+    "ru": "Бесплатные запуски на паузе до {time}. На своём ключе можно сейчас.",
     "uk": "Безкоштовні запуски на паузі до {time}. На власному ключі працює вже зараз.",
     "es": "Las ejecuciones gratis están en pausa hasta las {time}. Con tu propia clave funciona ahora.",
     "fr": "Les générations gratuites sont en pause jusqu’à {time}. Avec ta propre clé, c’est possible dès maintenant.",
