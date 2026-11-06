@@ -371,7 +371,7 @@ func TestBrowserLibraryPressWaiting(t *testing.T) {
 	const card = (id) => tiles().find((e) => e.getAttribute("href") === "/r/" + id);
 	const read = (e) => ({ cover: e.querySelector(".cover.none b")?.textContent, line: e.querySelector(".m").textContent });
 	return { going: read(card(70)), failed: read(card(68)), has69: ids().includes(69), has67: ids().includes(67) };`)
-	if fmt.Sprint(got["going"]) != "map[cover:Making it line:FLUX 3]" || fmt.Sprint(got["failed"]) != "map[cover:No money on the key line:FLUX 3]" ||
+	if fmt.Sprint(got["going"]) != "map[cover:Making it line:FLUX 3]" || fmt.Sprint(got["failed"]) != "map[cover:The key is out of credits line:FLUX 3]" ||
 		got["has69"] != false || got["has67"] != false {
 		t.Errorf("waiting presses: %v", got)
 	}

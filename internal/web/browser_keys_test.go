@@ -227,12 +227,13 @@ func TestBrowserArrowsSaveTheLastCurrency(t *testing.T) {
 		if len(f.patches) > 0 {
 			last, _ = f.patches[len(f.patches)-1]["currency"].(string)
 		}
-		if f.mostPatching != 1 || f.currency != "PLN" || last != "PLN" {
-			t.Errorf("three presses from USD: %d saves at once at most, the account on %s, the last save %q; want one at a time and PLN", f.mostPatching, f.currency, last)
+		// Auto, then USD, UAH and EUR.
+		if f.mostPatching != 1 || f.currency != "EUR" || last != "EUR" {
+			t.Errorf("three presses from Auto: %d saves at once at most, the account on %s, the last save %q; want one at a time and EUR", f.mostPatching, f.currency, last)
 		}
 	})
-	if s["on"] != "PLN" || s["focus"] != "PLN" {
-		t.Errorf("after three presses from USD the page shows %v, want PLN chosen and in focus", s)
+	if s["on"] != "EUR" || s["focus"] != "EUR" {
+		t.Errorf("after three presses from Auto the page shows %v, want EUR chosen and in focus", s)
 	}
 	noErrors(t, ctx)
 }

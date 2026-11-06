@@ -351,7 +351,7 @@ func TestBrowserPrefs(t *testing.T) {
 		fmt.Sprint(s["oa"]) != "map[bad:false btns:[Key] sub:Needs credits on the account]" ||
 		fmt.Sprint(s["ge"]) != "map[bad:false btns:[Key] sub:Needs a project with billing]" ||
 		fmt.Sprint(s["groups"]) != "[Model keys Free Default models Telegram Currency Language Account]" ||
-		s["out"] != true || s["who"] != "AAdaA sign-in lasts 30 daysSign out" ||
+		s["out"] != true || s["who"] != "AAdaA sign-in lasts 30 days after your last visitSign outSign out everywhere" ||
 		s["store"] != "Files stored: 1230 MB · images, videos and uploads" || !strings.HasPrefix(s["free"].(string), "Images0 of 5 left in any 24 hours · next one in 3 hours") {
 		t.Errorf("settings: %v", s)
 	}
@@ -666,17 +666,18 @@ func TestBrowserMiniLaunchRunsOutInTheSettings(t *testing.T) {
 }
 
 // The sessions could not be read when the page opened: /api/me answered 503,
-// not 401. The person is asked for again and appears, and no sign-in is
-// offered for good on the strength of a moment's outage.
+// not 401. The page does not know who is here, so it offers no sign-in, says
+// framy is out of reach and asks again, and the person appears.
 func TestBrowserASessionUnreadAtStartIsAskedAgain(t *testing.T) {
 	f := &fakePrefs{meDown: 1}
 	ts := fakeSite(t, f.mount)
 	ctx := browser(t, ts.URL, 1440, 900, false)
 	s := prefs(t, ctx, `
 	const first = { me: !!document.querySelector("#meBtn"), signin: !!document.querySelector(".top .signin") };
-	const back = await until(() => document.querySelector("#meBtn"), 80);
-	return { first, back: !!back, signin: !!document.querySelector(".top .signin"), toast: toastText() };`)
-	if fmt.Sprint(s["first"]) != "map[me:false signin:true]" || s["back"] != true || s["signin"] != false || s["toast"] != "" {
+	const toast = toastText();
+	const back = await until(() => document.querySelector("#meBtn"), 8000);
+	return { first, back: !!back, signin: !!document.querySelector(".top .signin"), toast };`)
+	if fmt.Sprint(s["first"]) != "map[me:false signin:false]" || s["back"] != true || s["signin"] != false || s["toast"] != "No connection to framy. Runs keep going on the server, and the results come when the connection is back." {
 		t.Errorf("after an outage at start: %v", s)
 	}
 	f.with(func() {
@@ -708,7 +709,7 @@ func TestBrowserSignOutEverywhere(t *testing.T) {
 	return { row, q, failed, toast: toastText(), top: document.querySelector("#top").textContent };`)
 	if fmt.Sprint(s["row"]) != "[Sign out Sign out everywhere]" || s["q"] != "Sign out of framy on every device?" ||
 		fmt.Sprint(s["failed"]) != "map[me:true open:true toast:framy is busy right now. Try again in a minute.]" ||
-		s["toast"] != "You signed out." || s["top"] != "framySign in with Telegram" {
+		s["toast"] != "You signed out." || s["top"] != "framySign in with TelegramSign in" {
 		t.Errorf("sign out everywhere: %v", s)
 	}
 	f.with(func() {
@@ -739,7 +740,7 @@ func TestBrowserPrefsSignOut(t *testing.T) {
 	r.toast2 = toastText(); r.top = document.querySelector("#top").textContent;
 	return r;`)
 	if s["q"] != "Sign out of framy?" || s["toast"] != "Could not sign out, you are still signed in. Try again in a minute." || s["open"] != true ||
-		s["out"] != true || s["me"] != true || s["toast2"] != "You signed out." || s["top"] != "framySign in with Telegram" {
+		s["out"] != true || s["me"] != true || s["toast2"] != "You signed out." || s["top"] != "framySign in with TelegramSign in" {
 		t.Errorf("sign out: %v", s)
 	}
 	f.with(func() {
@@ -766,7 +767,7 @@ func TestBrowserPrefsSignOutLate(t *testing.T) {
 	await until(() => document.querySelector(".signin"));
 	await wait(1000);
 	return { top: document.querySelector("#top").textContent, go: document.querySelector("#go").textContent.trim() };`)
-	if s["top"] != "framySign in with Telegram" || !strings.HasPrefix(s["go"].(string), "Sign in to create") {
+	if s["top"] != "framySign in with TelegramSign in" || !strings.HasPrefix(s["go"].(string), "Sign in to create") {
 		t.Errorf("after a late read: %v", s)
 	}
 	noErrors(t, ctx)
@@ -775,8 +776,8 @@ func TestBrowserPrefsSignOutLate(t *testing.T) {
 // TestBrowserFreeUsedUp opens the composer of a person with no key whose
 // free pictures are used up. The button connects OpenRouter instead of
 // standing grey, the price is the run's on that key rather than "Free", and
-// when free runs are back reads to its end under it; on a phone the button
-// takes its own line for that. Free is no choice in Pay with, and the week's
+// when free runs are back reads to its end under it; on a phone it runs
+// under the button, across the dock. Free is no choice in Pay with, and the week's
 // free video still goes free.
 func TestBrowserFreeUsedUp(t *testing.T) {
 	f := &fakePrefs{}
@@ -785,10 +786,10 @@ func TestBrowserFreeUsedUp(t *testing.T) {
 	s := prefs(t, ctx, `
 	const p = document.querySelector("#prompt"), go = document.querySelector("#go"), pc = document.querySelector("#pcap");
 	p.value = "a fox in the snow"; p.dispatchEvent(new Event("input"));
-	await until(() => /Connect/.test(go.textContent) && /\$/.test(document.querySelector("#pnum").dataset.t));
+	await until(() => /Connect/.test(go.textContent) && /\$/.test(document.querySelector("#podo").dataset.t));
 	await wait(400);
-	const out = { go: go.firstChild.nextSibling.textContent, on: !go.disabled, price: document.querySelector("#pnum").dataset.t, cap: pc.textContent,
-	  cut: pc.scrollWidth > pc.clientWidth + 1 || pc.scrollHeight > pc.clientHeight + 1, under: go.getBoundingClientRect().top >= pc.getBoundingClientRect().bottom };
+	const out = { go: go.firstChild.nextSibling.textContent, on: !go.disabled, price: document.querySelector("#podo").dataset.t, cap: pc.textContent,
+	  cut: pc.scrollWidth > pc.clientWidth + 1 || pc.scrollHeight > pc.clientHeight + 1, under: pc.getBoundingClientRect().top >= go.getBoundingClientRect().bottom - 1 };
 	go.click();
 	await until(() => !sheet().hidden);
 	await wait(400);
@@ -799,10 +800,10 @@ func TestBrowserFreeUsedUp(t *testing.T) {
 	document.querySelectorAll("#kind > button")[1].click();
 	await until(() => /Create/.test(go.textContent));
 	await wait(400);
-	out.video = [go.firstChild.nextSibling.textContent, document.querySelector("#pnum").dataset.t];
+	out.video = [go.firstChild.nextSibling.textContent, document.querySelector("#podo").dataset.t];
 	return out;`)
 	if s["go"] != "Connect OpenRouter" || s["on"] != true || !strings.HasPrefix(fmt.Sprint(s["price"]), "≈ $") ||
-		!regexp.MustCompile(`^Next free run: [A-Z][a-z]+ \d{1,2} at \d{1,2}:\d\d [AP]M$`).MatchString(fmt.Sprint(s["cap"])) || s["cut"] != false || s["under"] != true {
+		!regexp.MustCompile(`^Next free run: (?:[A-Z][a-z]+ \d{1,2} at )?\d{1,2}:\d\d [AP]M$`).MatchString(fmt.Sprint(s["cap"])) || s["cut"] != false || s["under"] != true {
 		t.Errorf("free used up on a phone: %v", s)
 	}
 	if s["focus"] != "Connect" || s["inRow"] != true {
@@ -893,7 +894,7 @@ func TestBrowserPrefsBelarusian(t *testing.T) {
 		!strings.Contains(text, "долар ЗША") || !strings.Contains(text, "беларускі рубель") || strings.Contains(text, "Dollar") {
 		t.Errorf("settings in Belarusian: %v", s)
 	}
-	if !regexp.MustCompile(`\d{1,2} ` + month + ` у \d{1,2}:\d\d`).MatchString(fmt.Sprint(s["back"])) {
+	if !regexp.MustCompile(`(?:\d{1,2} ` + month + ` у )?\d{1,2}:\d\d`).MatchString(fmt.Sprint(s["back"])) {
 		t.Errorf("when the next free run comes, in Belarusian: %q", s["back"])
 	}
 	noErrors(t, ctx)

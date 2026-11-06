@@ -146,7 +146,7 @@ func TestBrowserArabicSides(t *testing.T) {
 		const flip = chev ? new DOMMatrix(getComputedStyle(chev).transform).a : 0;
 		head.click();
 		const pk = document.querySelector("#picker");
-		await wait(30);
+		await sleep(30);
 		const from = pk.getAnimations().map((a) => a.effect.getKeyframes()[0].transform).find((x) => x && x !== "none") || "";
 		await wait(900);
 		const r = pk.getBoundingClientRect(), h3 = pk.querySelector("h3").getBoundingClientRect(), done = pk.querySelector("header .x").getBoundingClientRect();
@@ -245,16 +245,15 @@ func TestBrowserPriceLine(t *testing.T) {
 		}
 		noErrors(t, ctx)
 	}
-	runs := &fakeRuns{}
-	ts = fakeSite(t, runs.mount)
+	// Signed in with no key and the free images used up: the line says when the next one comes.
+	f := &fakePrefs{}
+	ts = fakeSite(t, f.mount)
 	ctx := browserAs(t, ts.URL, 320, 568, opened{phone: true})
 	got := js[map[string]any](t, ctx, pageHelpers+`
-	document.querySelector("#dtools .chipbtn.set").click();
-	await wait(600);
-	document.querySelector("#tune [data-seg=pay] > button[data-v=free]").click();
-	await wait(600);
-	document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-	await wait(600);
+	const p = document.querySelector("#prompt");
+	p.value = "a fox in the snow"; p.dispatchEvent(new Event("input"));
+	await until(() => /^Next free run/.test(document.querySelector("#pcap").textContent));
+	await wait(400);
 	const at = Date.parse((await (await fetch("/api/me")).json()).free.images.frees_at);
 	const today = new Date(at).toDateString() === new Date().toDateString();
 	const want = new Intl.DateTimeFormat("en", today ? { hour: "numeric", minute: "2-digit" } : { day: "numeric", month: "long", hour: "numeric", minute: "2-digit" }).format(at);
@@ -374,6 +373,7 @@ func TestBrowserTabNames(t *testing.T) {
 		wide := js[bool](t, ctx, `return document.documentElement.scrollWidth <= innerWidth;`)
 		if !wide {
 			t.Errorf("at %d px the page scrolls sideways", w)
+		}
 		// Each view has a heading of its own and names the browser's tab.
 		got := js[map[string]any](t, ctx, pageHelpers+`
 		const create = [...document.querySelectorAll("#create h1")].map((e) => e.textContent).join(","), first = document.title;
@@ -385,7 +385,6 @@ func TestBrowserTabNames(t *testing.T) {
 		return { create, first, lib, back: document.title };`)
 		if got["create"] != "Create" || got["first"] != "framy" || got["lib"] != "Library · framy" || got["back"] != "framy" {
 			t.Errorf("at %d px the views are named %v", w, got)
-		}
 		}
 		noErrors(t, ctx)
 	}
@@ -534,7 +533,7 @@ func TestBrowserLowWindow(t *testing.T) {
 	if (!inView(document.querySelector("#composer")) || !inView(document.querySelector("#go"))) bad.push("the composer is cut: " + JSON.stringify(spot(document.querySelector("#composer"))));
 	const s = await press("fail:money", (s) => s.failed);
 	await wait(900);
-	if (s.label !== "No money on the key") bad.push("the run: " + s.label);
+	if (s.label !== "The key is out of credits") bad.push("the run: " + s.label);
 	for (const q of ["#stage [data-k=pv]", "#stage .c b", "#stage .jacts"]) if (!inView(document.querySelector(q))) bad.push(q + " out of sight: " + JSON.stringify(spot(document.querySelector(q))));
 	[...document.querySelectorAll("#stage .jacts button")].find((b) => b.textContent.trim() === "Edit the prompt").click();
 	await wait(900);

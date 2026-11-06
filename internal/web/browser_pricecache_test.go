@@ -18,7 +18,7 @@ func priceBundle(t *testing.T) string {
 	t.Helper()
 	res := api.Build(api.BuildOptions{
 		Stdin: &api.StdinOptions{
-			Contents:   `import * as P from "./price.js"; window.__price = P;`,
+			Contents:   `import * as P from "./price.js"; import * as I from "./i18n.js"; window.__price = P; window.__i18n = I;`,
 			ResolveDir: "app/src",
 			Loader:     api.LoaderJS,
 		},

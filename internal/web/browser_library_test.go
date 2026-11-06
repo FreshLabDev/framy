@@ -449,7 +449,7 @@ func TestBrowserLibraryFailedStops(t *testing.T) {
 	  over: document.documentElement.scrollWidth - innerWidth, wide: innerWidth, btn: document.querySelector("#library .lbulk .x")?.disabled };`)
 	// 68, 66 and the ones before 64 went; 64 would not (storage_unavailable), and the run stops there.
 	_, _, deleted := f.state()
-	if got["toast"] != "The files were not deleted. The run is still here, try again." || got["still"] != true || got["first"] != float64(64) || got["btn"] != false ||
+	if got["toast"] != "The files were not deleted, so the run is still here. Try again." || got["still"] != true || got["first"] != float64(64) || got["btn"] != false ||
 		got["over"].(float64) > 0 || got["wide"] != float64(390) || got["search"].(float64) < 100 || !slices.Equal(deleted, []int64{68, 67, 66}) {
 		t.Errorf("a run that would not go: %v, deleted %v", got, deleted)
 	}

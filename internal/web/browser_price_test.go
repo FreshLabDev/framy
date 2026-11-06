@@ -167,7 +167,8 @@ func spoken(t *testing.T, ctx context.Context) []string {
 	for _, n := range nodes {
 		by[n.NodeID] = n
 		for _, p := range n.Properties {
-			if p.Name == "live" && region == nil && str(p.Value) == "polite" {
+			// The stage's status line (role=status) is a live region of its own.
+			if p.Name == "live" && region == nil && str(p.Value) == "polite" && str(n.Role) != "status" {
 				region = n
 			}
 		}

@@ -648,7 +648,7 @@ func TestBrowserRuns(t *testing.T) {
 		"money":           {"The key is out of credits", "", "Top up OpenRouter", false, true},
 		"key":             {"The key does not work", "no longer accepts the key", "Replace the OpenRouter key", false, true},
 		"refused":         {"Not accepted", "did not accept the request", "Edit the prompt", true, true},
-		"region":          {"Region not served", "does not serve the country framy's server is in", "Another model", false, true},
+		"region":          {"Region not served", "does not serve the country framy’s server is in", "Another model", false, true},
 		"rate_limited":    {"No answer", "Try again in a few minutes", "Try again", false, true},
 		"unavailable":     {"No answer", "Try again in a few minutes", "Try again", false, true},
 		"timeout":         {"Took too long", "may have charged up to $0.040", "Try again", false, false},
@@ -918,7 +918,7 @@ func TestBrowserRunsSaid(t *testing.T) {
 	if s["role"] != "status" || s["inStage"] != false || done != "[Getting ready In the queue Making it Ready]" && done != "[In the queue Making it Ready]" {
 		t.Errorf("a run said: %v", s)
 	}
-	if f, _ := s["failed"].([]any); len(f) == 0 || f[len(f)-1] != "The key does not work. OpenRouter no longer accepts the key: it was revoked, or this model is closed to it." {
+	if f, _ := s["failed"].([]any); len(f) == 0 || f[len(f)-1] != "The key does not work: OpenRouter no longer accepts the key: it was revoked, or this model is closed to it." {
 		t.Errorf("a failed run said: %v", s["failed"])
 	}
 	noErrors(t, ctx)
@@ -1490,7 +1490,7 @@ func TestBrowserMiniLaunchRunsOut(t *testing.T) {
 	let st = stage();
 	for (let i = 0; i < 80 && !st.why; i++) { await wait(100); st = stage(); }
 	return { label: st.label, why: st.why, acts: st.acts, me: !!document.querySelector("#meBtn") };`)
-	if s["label"] != "Sign in again" || s["why"] != "The Telegram session is too old. Close framy and open it again." || s["me"] != false {
+	if s["label"] != "Open framy again" || s["why"] != "The Telegram session is too old. Close framy and open it again." || s["me"] != false {
 		t.Errorf("a run after the launch's hour: %v", s)
 	}
 	noErrors(t, ctx)
@@ -1506,8 +1506,10 @@ func TestBrowserHalftoneRests(t *testing.T) {
 	let fills = 0, rafs = 0;
 	C2.fill = function (...a) { fills++; return fill0.apply(this, a); };
 	window.requestAnimationFrame = (cb) => { rafs++; return raf0(cb); };
-	// What one second brings: frames asked for, and dots filled.
-	const second = async () => { const f = fills, r = rafs; await wait(1000); return [rafs - r, fills - f]; };
+	// What one second brings: frames asked for, and dots filled. The pauses
+	// are the clock's (sleep): the dots keep the page busy, so wait, which also
+	// waits for it to settle, would stretch them.
+	const second = async () => { const f = fills, r = rafs; await sleep(1000); return [rafs - r, fills - f]; };
 	`
 	for _, reduce := range []bool{false, true} {
 		runs := &fakeRuns{}
@@ -1525,20 +1527,20 @@ func TestBrowserHalftoneRests(t *testing.T) {
 		}
 		s := js[map[string]any](t, ctx, pageHelpers+runHelpers+count+`
 	await press("running", (s) => s.dots && s.label === "Making it");
-	await wait(400);
+	await sleep(400);
 	const out = { open: await second() };
 	document.querySelector("#meBtn").click();
-	await wait(800);
+	await sleep(800);
 	out.sheet = await second();
 	document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
 	// The dots move again as the sheet goes, not up to half a second later.
 	const f0 = fills;
-	await wait(200);
+	await sleep(200);
 	out.soon = fills - f0;
-	await wait(400);
+	await sleep(400);
 	out.back = await second();
 	document.querySelector(".tab[data-v=library]").click();
-	await wait(800);
+	await sleep(800);
 	out.library = await second();
 	return out;`)
 		get := func(k string, i int) float64 { return s[k].([]any)[i].(float64) }
@@ -2063,20 +2065,21 @@ func TestBrowserPriceBeforeCreate(t *testing.T) {
 	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
 	const until = async (fn, ms = 4000) => { const end = Date.now() + ms; while (Date.now() < end) { if (fn()) return true; await wait(50); } return !!fn(); };
 	const sent = [], fetch0 = window.fetch;
-	let hold = null, release = null, fail = 0, quotes = 0;
+	let hold = null, release = null, failUntil = 0, quotes = 0;
 	window.fetch = async (u, o) => {
 	  const s = String(u);
 	  if (s.endsWith("/api/jobs") && o?.method === "POST") sent.push(JSON.parse(o.body));
 	  if (s.endsWith("/api/quote")) {
 	    quotes++;
-	    if (fail > 0) { fail--; return new Response('{"error":"internal","message":"x"}', { status: 500, headers: { "Content-Type": "application/json" } }); }
+	    // Every question in a moment after the new ratio fails, whatever else the page asks meanwhile.
+	    if (performance.now() < failUntil) return new Response('{"error":"internal","message":"x"}', { status: 500, headers: { "Content-Type": "application/json" } });
 	    if (hold) await hold;
 	  }
 	  return fetch0(u, o);
 	};
 	const holdQuotes = () => { hold = new Promise((r) => { release = () => { hold = null; r(); }; }); };
 	const go = () => document.querySelector("#go");
-	const bar = () => document.querySelector("#pnum").textContent;
+	const bar = () => document.querySelector("#podo").dataset.t;
 	const usdOf = (x) => +String(x).replace(/[^\d.]/g, "");
 	const out = {};
 	await until(() => !document.querySelector("#composer .q.wait") && !go().disabled);
@@ -2113,10 +2116,12 @@ func TestBrowserPriceBeforeCreate(t *testing.T) {
 	out.shown = [shown, sent[1].shown_usd];
 	// A price that did not come is asked again by itself, and Create follows it.
 	await until(() => !document.querySelector("#composer .q.wait") && !go().disabled);
-	fail = 1;
+	const rb = ratio();
+	failUntil = performance.now() + 250;
 	const q0 = quotes;
-	ratio().click();
-	await wait(300);
+	rb.click();
+	// The clock's pause: wait would also wait for the price to be asked again and come.
+	await sleep(300);
 	out.failed = [bar(), go().disabled];
 	const t0 = Date.now();
 	await until(() => !go().disabled, 5000);
@@ -2152,13 +2157,13 @@ func TestBrowserByKey(t *testing.T) {
 	const pay = () => document.querySelector('#how [data-seg="pay"] [aria-checked="true"]')?.dataset.v;
 	const was = pay();
 	const s = await press("refuse:free_closed", (s) => s.failed);
-	[...document.querySelectorAll("#stage .jacts > button")].find((b) => b.textContent.trim() === "On my OpenRouter key").click();
+	[...document.querySelectorAll("#stage .jacts > button")].find((b) => b.textContent.trim() === "On your OpenRouter key").click();
 	await wait(600);
 	const out = { was, first: s.acts[0], sent: sent.map((b) => b.pay).join(","), back: !document.querySelector("#stage .jwhy"),
 	  key: pay(), focus: document.activeElement === go(),
 	  prompt: document.querySelector("#prompt").value };
-	await until(() => !go().disabled && !/…/.test(document.querySelector("#pnum").textContent));
-	const bar = document.querySelector("#pnum").textContent;
+	await until(() => !go().disabled && !/…/.test(document.querySelector("#podo").dataset.t));
+	const bar = document.querySelector("#podo").dataset.t;
 	const p = document.querySelector("#prompt");
 	p.value = "done"; p.dispatchEvent(new Event("input"));
 	go().click();
@@ -2166,7 +2171,7 @@ func TestBrowserByKey(t *testing.T) {
 	out.then = [sent[1]?.pay, Math.abs(+bar.replace(/[^\d.]/g, "") - sent[1]?.shown_usd) < 0.0011];
 	return out;`)
 	want := map[string]string{
-		"was": "free", "first": "On my OpenRouter key", "sent": "free", "back": "true", "key": "openrouter", "focus": "true",
+		"was": "free", "first": "On your OpenRouter key", "sent": "free", "back": "true", "key": "openrouter", "focus": "true",
 		"prompt": "refuse:free_closed", "then": "[key true]",
 	}
 	for k, w := range want {
@@ -2230,7 +2235,8 @@ func TestBrowserSignOutStopsRun(t *testing.T) {
 	p.value = "done"; p.dispatchEvent(new Event("input"));
 	await wait(50);
 	document.querySelector("#go").click();
-	await wait(200);
+	// While the file goes up: wait would wait for it to settle.
+	await sleep(200);
 	document.querySelector("#meBtn").click();
 	await until(() => !sheet().hidden && btn(sheet(), "Sign out"));
 	btn(sheet(), "Sign out").click();
@@ -2279,7 +2285,7 @@ func TestBrowserPhotoLinks(t *testing.T) {
 	out.held = [document.querySelectorAll("#files .thumb").length, await shows(a)];
 	[...document.querySelectorAll("#stage button")].find((b) => b.textContent.trim() === "Back to the last result").click();
 	await wait(600);
-	[...document.querySelectorAll("#stage .jacts > button")].find((b) => b.textContent.trim() === "Edit the prompt").click();
+	[...document.querySelectorAll("#stage .jacts button")].find((b) => b.textContent.trim() === "Edit the prompt").click();
 	await wait(800);
 	out.back = [src() === a, await shows(src())];
 	// Off the composer again, and the next run holds another photo: nothing shows the first one any more.

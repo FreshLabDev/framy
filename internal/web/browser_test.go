@@ -296,7 +296,7 @@ func TestBrowserNotesInPageLanguage(t *testing.T) {
 	ready(t, ctx)
 	s := js[map[string]any](t, ctx, `return { lang: document.documentElement.lang, note: document.querySelector("#how .mnote.info")?.textContent || "",
 		titles: [...document.querySelectorAll('#how [data-seg="var"] [title]')].map((b) => b.title).join(" | ") };`)
-	if s["lang"] != "ru" || s["note"] != "Быстрее и дешевле, качество близко" || !strings.Contains(s["titles"].(string), "2.6: Точнее, для дизайна") {
+	if s["lang"] != "ru" || s["note"] != "Быстрее и дешевле, чем MAI-Image 2.6, качество близко" || !strings.Contains(s["titles"].(string), "2.6: Точнее, чем 2.6 Flash, для дизайна") {
 		t.Errorf("notes of a Russian page: %v", s)
 	}
 	noErrors(t, ctx)
@@ -577,7 +577,7 @@ func TestBrowserDesktop(t *testing.T) {
 	bar := js[map[string]any](t, ctx, `const go = document.querySelector("#go");
 	return { go: go.textContent, on: !go.disabled, cap: document.querySelector("#pcap").textContent, prompt: document.querySelector("#prompt").value,
 	  kept: localStorage.getItem("framy.language") };`)
-	if bar["prompt"] != "" || bar["on"] != true || !strings.HasPrefix(bar["go"].(string), "Sign in to create") || bar["cap"] != "Sign in for 5 free a day" || bar["kept"] != nil {
+	if bar["prompt"] != "" || bar["on"] != true || !strings.HasPrefix(bar["go"].(string), "Sign in to create") || bar["cap"] != "5 free in any 24 hours" || bar["kept"] != nil {
 		t.Errorf("signed out, nothing typed: %v", bar)
 	}
 	res := js[map[string]any](t, ctx, pageHelpers+`return await steady();`)

@@ -92,7 +92,8 @@ func TestBrowserSumMatchesGo(t *testing.T) {
 	rank := map[string]int{"exact": 0, "about": 1, "up_to": 2, "from": 3}
 	rnd := rand.New(rand.NewSource(11))
 	type tc struct {
-		Es   []est `json:"es"`
+		Lang string `json:"lang"` // the page's, which the labels are written in
+		Es   []est  `json:"es"`
 		Want struct {
 			Label string  `json:"label"`
 			Kind  string  `json:"kind"`
@@ -104,7 +105,7 @@ func TestBrowserSumMatchesGo(t *testing.T) {
 		lang := langs[rnd.Intn(len(langs))]
 		codes := []string{fx.USD, fx.UAH, fx.EUR, fx.PLN, fx.BYN}
 		code := codes[rnd.Intn(len(codes))]
-		var c tc
+		c := tc{Lang: lang}
 		var sumAmount, sumTop, sumUSD, sumTopUSD float64
 		worst := "exact"
 		for i, k := 0, 2+rnd.Intn(4); i < k; i++ {
@@ -145,7 +146,7 @@ func TestBrowserSumMatchesGo(t *testing.T) {
 		cases = append(cases, c)
 	}
 	// Runs priced in different currencies add up in dollars.
-	mixed := tc{Es: []est{
+	mixed := tc{Lang: "en", Es: []est{
 		{Kind: "exact", USD: 0.12, Currency: fx.UAH, Amount: ptr(5.004), Label: fx.Format(5.004, fx.UAH, "uk")},
 		{Kind: "about", USD: 0.5, Currency: fx.USD, Amount: ptr(0.5), Label: "$0.50"},
 	}}
@@ -154,7 +155,7 @@ func TestBrowserSumMatchesGo(t *testing.T) {
 
 	body, _ := json.Marshal(cases)
 	got := js[[]map[string]any](t, ctx, fmt.Sprintf(`const P = window.__price;
-	return %s.map((c) => { const s = P.sumOf(c.es); return { label: s.label, kind: s.kind, usd: s.usd }; });`, body))
+	return %s.map((c) => { window.__i18n.setTexts(c.lang, {}); const s = P.sumOf(c.es); return { label: s.label, kind: s.kind, usd: s.usd }; });`, body))
 	bad := 0
 	for i, c := range cases {
 		g := got[i]
