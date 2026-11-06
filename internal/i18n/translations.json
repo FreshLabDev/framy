@@ -7562,7 +7562,7 @@
   "web.go.free_out": {
     "en": "Free runs used up",
     "ru": "Бесплатные закончились",
-    "uk": "Безкоштовні закінчились",
+    "uk": "Безкоштовні закінчилися",
     "es": "Gratis agotadas",
     "fr": "Gratuites épuisées",
     "de": "Gratis aufgebraucht",
@@ -9415,7 +9415,7 @@
   },
   "web.pay.left": {
     "en": "{n} left",
-    "ru": "осталось {n}",
+    "ru": "Осталось: {n}",
     "uk": "Залишилося: {n}",
     "es": "Restantes: {n}",
     "fr": "Reste : {n}",
@@ -9434,7 +9434,7 @@
   "web.pay.ran_out": {
     "en": "Used up",
     "ru": "Закончились",
-    "uk": "Закінчились",
+    "uk": "Закінчилися",
     "es": "Agotadas",
     "fr": "Épuisées",
     "de": "Aufgebraucht",
@@ -10117,7 +10117,7 @@
   },
   "web.prefs.closed_until": {
     "en": "closed until {time}",
-    "ru": "закрыто до {time}",
+    "ru": "на паузе до {time}",
     "uk": "на паузі до {time}",
     "es": "en pausa hasta las {time}",
     "fr": "en pause jusqu’à {time}",
@@ -11414,7 +11414,7 @@
   "web.ref.free_out_l": {
     "en": "Free runs used up",
     "ru": "Бесплатные закончились",
-    "uk": "Безкоштовні закінчились",
+    "uk": "Безкоштовні закінчилися",
     "es": "Gratis agotadas",
     "fr": "Gratuites épuisées",
     "de": "Gratis aufgebraucht",
@@ -11449,7 +11449,7 @@
   },
   "web.ref.free_taken_video": {
     "en": "The free video is used up. The next free one: {at}.",
-    "ru": "Бесплатный ролик уже использован. Следующий бесплатный: {at}.",
+    "ru": "Бесплатное видео уже использовано. Следующее бесплатное: {at}.",
     "uk": "Безкоштовне відео вже використано. Наступне безкоштовне: {at}.",
     "es": "El vídeo gratis ya se ha usado. El próximo gratis: {at}.",
     "fr": "La vidéo gratuite est déjà utilisée. La prochaine gratuite : {at}.",
@@ -11881,8 +11881,8 @@
   },
   "web.ref.too_long": {
     "en": "The clip is {len}, longer than {max}. Pick a part of it: it does not have to go up again.",
-    "ru": "Ролик длится {len}, это больше {max}. Выбери часть, загружать его заново не придётся.",
-    "uk": "Кліп триває {len}, це довше за {max}. Обери його частину: завантажувати заново не доведеться.",
+    "ru": "Ролик длится {len}, это больше {max}. Выбери отрезок, загружать его заново не придётся.",
+    "uk": "Кліп триває {len}, це довше за {max}. Обери фрагмент: завантажувати заново не доведеться.",
     "es": "El clip dura {len}, más de {max}. Elige un tramo: no hace falta volver a subirlo.",
     "fr": "Le clip dure {len}, plus de {max}. Choisis un extrait : pas besoin de le renvoyer.",
     "de": "Der Clip ist {len} lang, also länger als {max}. Wähle einen Ausschnitt: Er muss nicht noch einmal hochgeladen werden.",
@@ -11891,7 +11891,7 @@
     "cs": "Klip trvá {len}, tedy déle než {max}. Vyber z něj úsek: nahrávat ho znovu nemusíš.",
     "tr": "Klip {len} uzunluğunda, yani {max} sınırından uzun. Bir bölümünü seç: yeniden yüklemen gerekmez.",
     "sv": "Klippet är {len} långt, alltså längre än {max}. Välj en del av det: det behöver inte laddas upp igen.",
-    "be": "Кліп доўжыцца {len}, гэта даўжэй за {max}. Абяры яго частку: загружаць нанова не трэба.",
+    "be": "Кліп доўжыцца {len}, гэта даўжэй за {max}. Абяры фрагмент: загружаць нанова не трэба.",
     "ca": "El clip dura {len}, més de {max}. Tria un tram: no cal tornar-lo a pujar.",
     "zh": "片段时长 {len}，超过 {max}。请选取其中一段区间，不用重新上传。",
     "ja": "クリップは {len} で、{max} を超えています。一部の区間を選んでください。アップロードし直す必要はありません。",
