@@ -6745,7 +6745,7 @@
     "sv": "Lägg till bildruta",
     "be": "Дадаць кадр",
     "ca": "Afegeix un quadre",
-    "zh": "添加版本",
+    "zh": "添加结果",
     "ja": "枠を追加",
     "ar": "إضافة نتيجة"
   },
@@ -6763,7 +6763,7 @@
     "sv": "Bildruta",
     "be": "Кадр",
     "ca": "Quadre",
-    "zh": "版本",
+    "zh": "结果",
     "ja": "枠",
     "ar": "نتيجة"
   },
@@ -6799,7 +6799,7 @@
     "sv": "En bildruta till",
     "be": "Яшчэ кадр",
     "ca": "Un quadre més",
-    "zh": "再加一个版本",
+    "zh": "再加一个结果",
     "ja": "枠をもう一つ",
     "ar": "نتيجة أخرى"
   },
@@ -6835,7 +6835,7 @@
     "sv": "Alla bildrutor",
     "be": "Усе кадры",
     "ca": "Tots els quadres",
-    "zh": "全部版本",
+    "zh": "全部结果",
     "ja": "すべての枠",
     "ar": "كل النتائج"
   },
@@ -6889,7 +6889,7 @@
     "sv": "Bildruta {n}: {why}.",
     "be": "Кадр {n}: {why}.",
     "ca": "Quadre {n}: {why}.",
-    "zh": "版本 {n}：{why}。",
+    "zh": "结果 {n}：{why}。",
     "ja": "枠 {n}：{why}。",
     "ar": "النتيجة {n}: {why}."
   },
@@ -6907,7 +6907,7 @@
     "sv": "Bildrutor",
     "be": "Кадры",
     "ca": "Quadres",
-    "zh": "版本",
+    "zh": "结果",
     "ja": "枠",
     "ar": "النتائج"
   },
@@ -6997,7 +6997,7 @@
     "sv": "Bildruta {n}",
     "be": "Кадр {n}",
     "ca": "Quadre {n}",
-    "zh": "版本 {n}",
+    "zh": "结果 {n}",
     "ja": "枠 {n}",
     "ar": "النتيجة {n}"
   },
@@ -7015,7 +7015,7 @@
     "sv": "bara bildruta {n}",
     "be": "толькі кадр {n}",
     "ca": "només el quadre {n}",
-    "zh": "仅版本 {n}",
+    "zh": "仅结果 {n}",
     "ja": "枠 {n} のみ",
     "ar": "النتيجة {n} فقط"
   },
@@ -7051,7 +7051,7 @@
     "sv": "Det du ändrar nu gäller bara den här bildrutan.",
     "be": "Што зменіш зараз, будзе толькі ў гэтага кадра.",
     "ca": "El que canviïs ara només valdrà per a aquest quadre.",
-    "zh": "现在的修改只作用于这个版本。",
+    "zh": "现在的修改只作用于这个结果。",
     "ja": "ここでの変更はこの枠だけに適用されます。",
     "ar": "ما تغيّره الآن يخص هذه النتيجة وحدها."
   },
@@ -7069,7 +7069,7 @@
     "sv": "Bildrutor med egna inställningar: {list}. De gemensamma ändrar dem inte.",
     "be": "Кадры са сваімі наладамі: {list}. Агульныя іх не мяняюць.",
     "ca": "Quadres amb ajustos propis: {list}. Els comuns no els canvien.",
-    "zh": "有单独设置的版本：{list}。共同设置不会改动它们。",
+    "zh": "有单独设置的结果：{list}。共同设置不会改动它们。",
     "ja": "個別設定のある枠：{list}。共通の設定はこれらを変えません。",
     "ar": "نتائج بإعدادات خاصة: {list}. الإعدادات المشتركة لا تغيّرها."
   },
@@ -7087,7 +7087,7 @@
     "sv": "Ta bort bildrutan",
     "be": "Прыбраць кадр",
     "ca": "Treu el quadre",
-    "zh": "移除版本",
+    "zh": "移除结果",
     "ja": "枠を削除",
     "ar": "إزالة النتيجة"
   },
@@ -7105,7 +7105,7 @@
     "sv": "Ta bort bildruta {n}",
     "be": "Прыбраць кадр {n}",
     "ca": "Treu el quadre {n}",
-    "zh": "移除版本 {n}",
+    "zh": "移除结果 {n}",
     "ja": "枠 {n} を削除",
     "ar": "إزالة النتيجة {n}"
   },
@@ -7195,7 +7195,7 @@
     "sv": "Tillbaka till alla bildrutor",
     "be": "Да ўсіх кадраў",
     "ca": "Torna a tots els quadres",
-    "zh": "回到全部版本",
+    "zh": "回到全部结果",
     "ja": "すべての枠に戻る",
     "ar": "العودة إلى كل النتائج"
   },
@@ -7213,7 +7213,7 @@
     "sv": "Du ställer in bildruta {n}",
     "be": "Наладжваеш кадр {n}",
     "ca": "Ajustant el quadre {n}",
-    "zh": "正在设置版本 {n}",
+    "zh": "正在设置结果 {n}",
     "ja": "枠 {n} を設定中",
     "ar": "ضبط النتيجة {n}"
   },
@@ -7231,7 +7231,7 @@
     "sv": "Bildruta {n}: {text}",
     "be": "Кадр {n}: {text}",
     "ca": "Quadre {n}: {text}",
-    "zh": "版本 {n}：{text}",
+    "zh": "结果 {n}：{text}",
     "ja": "枠 {n}：{text}",
     "ar": "النتيجة {n}: {text}"
   },
@@ -14035,7 +14035,7 @@
     "sv": "Referenser kan inte kombineras med start- eller slutbild",
     "be": "З фота пачатку ці канца ўзоры не ідуць",
     "ca": "Amb el primer o l’últim fotograma no s’admeten referències ni clips",
-    "zh": "帧不能与参考或片段一起使用",
+    "zh": "首帧或尾帧不能与参考一起使用",
     "ja": "フレームは参照やクリップと一緒に使えません",
     "ar": "لا تُرسل المراجع مع صورة البداية أو النهاية"
   },
