@@ -11,6 +11,13 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+## v0.1.0-alpha.6 - 2026-11-06
+
+Animated GIFs from GPT Image 2.6 on the site, the Mini App and Telegram,
+Gemini Omni 1.2 Flash in place of 1.1, GPT Image 2.6 Flare as the suggested
+GPT model, and fixes to the library and to video lengths. No migrations and
+no changes on the host.
+
 ### Added
 
 - Gemini Omni 1.2 Flash, out on 5 November, on a Gemini key and through
