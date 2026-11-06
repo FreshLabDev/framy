@@ -259,8 +259,6 @@ function keyRows(p) {
     r = row(k.away ? t("key.away") : [t(S.mini ? "key.or_sub_mini" : "key.or_sub") + " ", paste],
       k.away ? h("button", { type: "button", class: "fixw", onclick: oauthStart }, t("key.open_again"))
         : h("button", { type: "button", class: "primary fixw", disabled: !!k.going, onclick: oauthStart }, ic(S.mini ? "out" : "plus"), h("span", {}, t(k.going ? "key.going" : "key.connect"))));
-    // A long line: on a narrow sheet the button goes under it.
-    r.classList.add("two");
   } else {
     r = row(t("key.paste_sub"), k.edit ? null : h("button", { type: "button", class: "primary", onclick: () => edit(p) }, ic("plus"), h("span", {}, t("key.add"))));
   }
@@ -280,9 +278,11 @@ function keyRows(p) {
   return out;
 }
 
+// A row of the settings: its mark, its title and line, and its buttons, which a narrow sheet puts under
+// the text in every row, the same place each time. A switch stays at the end of its row.
 function sheetRow(k, mark, title, sub, ...btns) {
   const bs = btns.filter(Boolean);
-  return h("div", { class: "srow" + (bs.length > 1 || bs[0]?.tagName === "SELECT" ? " two" : ""), "data-k": "p-" + k },
+  return h("div", { class: "srow" + (bs.some((b) => !b.classList.contains("tog")) ? " btns" : ""), "data-k": "p-" + k },
     mark, h("div", { class: "l" }, h("b", {}, title), h("span", {}, sub)), ...bs);
 }
 
@@ -486,7 +486,8 @@ export function renderPrefs() {
       h("button", { type: "button", onclick: async () => { await signOut(); if (!S.signed) closeSheets(); } }, t("auth.signout")),
       h("button", { type: "button", onclick: async () => { await signOutAll(); if (!S.signed) closeSheets(); } }, t("auth.signout_all"))),
     sheetRow("del", ic("trash"), t("prefs.delete"), accSub,
-      h("button", { type: "button", class: "danger", disabled: ACC === "busy", onclick: deleteAccount }, t(ACC === "busy" ? "prefs.deleting_btn" : ACC === "fail" ? "prefs.delete_again" : "prefs.delete_btn"))));
+      h("button", { type: "button", class: "danger", disabled: ACC === "busy", onclick: deleteAccount }, ic("trash"),
+        h("span", {}, t(ACC === "busy" ? "prefs.deleting_btn" : ACC === "fail" ? "prefs.delete_again" : "prefs.delete_btn")))));
   placeSegs($("#prefs"));
   if (typing) $(`#prefsBody [data-k="${typing}"] input`)?.focus({ preventScroll: true });
 }

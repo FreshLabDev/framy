@@ -7,8 +7,8 @@ import { api, watchJob, isFinal, outsOf } from "./api.js";
 import { S, M, payOf, settings, fastOf, going, clip, contFits, keyOk, runItem, plan, paidItems, newFrame, next, renewFiles, holdFiles, freeLinks } from "./state.js";
 import { C, offerOf, PNAME, framesOf, photoLimit } from "./catalog.js";
 import { priced, knownTotal, priceText, clearPrices } from "./price.js";
-import { act, render, renderBar } from "./composer.js";
-import { renderStage, runChanged } from "./stage.js";
+import { act, render, renderBar, toComposer } from "./composer.js";
+import { renderStage, runChanged, showStage } from "./stage.js";
 import { upload } from "./files.js";
 import { takeClip, openCut } from "./clips.js";
 import { openPicker } from "./picker.js";
@@ -161,7 +161,7 @@ async function start(base, key = newKey()) {
   const run = { ...base, n: ++seq, key, phase: "prep", step: null, job: null, why: null, net: "", stop: new AbortController(), t0: Date.now() };
   S.run = run; S.showJob = true; S.busy = true;
   freeLinks();
-  renderBar(); runChanged();
+  renderBar(); runChanged(); showStage();
   let resend = false;
   try {
     // framy no longer had a file the run named by id (an upload waits an
@@ -389,12 +389,14 @@ export function editPrompt(run = S.run) {
   const p = $("#prompt");
   p.focus({ preventScroll: true });
   p.setSelectionRange(p.value.length, p.value.length);
+  toComposer();
 }
 // The same run on another model: the run back in the composer, the picker open.
 export function otherModel(run = S.run) {
   run = pressOfRun(run);
   leave(run);
   act(() => { restore(run); S.showJob = false; render(); });
+  toComposer();
   openPicker();
 }
 export function again(run = S.run) {
@@ -499,6 +501,7 @@ export async function continueFrom(run = S.run, res = outsOf(run.job)[0]) {
       render();
     });
     $("#prompt").focus({ preventScroll: true });
+    toComposer();
     return;
   }
   await fromLastFrame({ job: j.id, model: j.model, url: res.url, secs: res.seconds || 0, result: res.id });
@@ -524,6 +527,7 @@ export async function fromLastFrame(src = S.cont) {
     render();
   });
   $("#prompt").focus({ preventScroll: true });
+  toComposer();
 }
 
 /* Runs of the library: a job of the person's, from GET /api/jobs, as a run

@@ -579,10 +579,11 @@ func TestBrowserPrefs(t *testing.T) {
 	const failed = note("p-del");
 	btn(sheet(), "Again").click();
 	await until(() => sheet().hidden && document.querySelector(".signin"));
-	return { q1, q2, failed, asked: !document.querySelector("#ask").hidden, toast: toastText(), top: document.querySelector("#top").textContent };`)
+	const top = [...document.querySelectorAll("#top .logo span, #top .signin > span")].filter(vis).map((e) => e.textContent).join(" ");
+	return { q1, q2, failed, asked: !document.querySelector("#ask").hidden, toast: toastText(), top };`)
 	if s["q1"] != "Delete the account?" || s["q2"] != "Runs finish first: Some runs have not started yet and can be canceled. Then the account can be deleted." ||
 		s["failed"] != "Delete the accountNot every file was deleted, so the account is still here. Press again to finish deleting.Again" ||
-		s["asked"] != false || s["toast"] != "The account is deleted, and every session is closed." || s["top"] != "framySign in with Telegram" {
+		s["asked"] != false || s["toast"] != "The account is deleted, and every session is closed." || s["top"] != "framy Sign in with Telegram" {
 		t.Errorf("delete: %v", s)
 	}
 	f.with(func() {
@@ -948,7 +949,7 @@ func TestBrowserPrefsPhone(t *testing.T) {
 	  .map((el) => el.textContent.trim().slice(0, 30) || el.tagName);
 	// A row's buttons that go under its text start where the text does, the one
 	// that did not fit beside the one before as well: Sign out everywhere.
-	const under = [...body.querySelectorAll(".srow.two")].filter(vis).flatMap((row) => {
+	const under = [...body.querySelectorAll(".srow.btns")].filter(vis).flatMap((row) => {
 	  const l = row.querySelector(".l").getBoundingClientRect().left;
 	  return [...row.querySelectorAll(":scope > button, :scope > select")].filter(vis).filter((b) => b.getBoundingClientRect().left < l - 0.5).map((b) => b.textContent.trim().slice(0, 30));
 	});
@@ -984,4 +985,50 @@ func TestBrowserPrefsPhone(t *testing.T) {
 		t.Errorf("mini app back: %v", s)
 	}
 	noErrors(t, ctx)
+}
+
+// TestBrowserPrefsRows checks where the buttons of the settings stand. On a
+// phone they go under the text in every row, at its edge, so the text has
+// the width and the buttons one place; the switch of the DM stays at the end
+// of its line. On a computer they stand at the end of the text's line, but
+// for a key with a problem, whose warning needs the width. Deleting the
+// account is framed and has the bin, unlike any other button.
+func TestBrowserPrefsRows(t *testing.T) {
+	f := &fakePrefs{}
+	ts := fakeSite(t, func(srv *Server) {
+		f.mount(srv)
+		f.connect("openrouter", "or42", "valid")
+		f.connect("openai", "dead", "invalid")
+	})
+	for _, c := range []struct {
+		w     int64
+		phone bool
+	}{{360, true}, {390, true}, {1440, false}} {
+		ctx := browserAs(t, ts.URL, c.w, 844, opened{phone: c.phone})
+		bad := js[[]string](t, ctx, pageHelpers+`
+		document.querySelector("#meBtn").click();
+		for (let i = 0; i < 40 && !document.querySelector("#prefsBody .srow"); i++) await wait(100);
+		await wait(900);
+		const bad = [], phone = `+fmt.Sprint(c.phone)+`;
+		for (const r of document.querySelectorAll("#prefsBody .srow")) {
+		  const l = r.querySelector(".l").getBoundingClientRect(), row = r.getBoundingClientRect(), name = r.querySelector(".l b").textContent;
+		  for (const b of r.querySelectorAll(":scope > button, :scope > select")) {
+		    const br = b.getBoundingClientRect(), under = br.top >= l.bottom - 1;
+		    if (b.matches(".tog")) { if (under || br.right < row.right - 12) bad.push(name + ": the switch is not at the end of its line"); continue; }
+		    if (phone && !under) bad.push(name + ": " + b.textContent + " beside the text");
+		    if (!phone && under !== r.matches(".bad")) bad.push(name + ": " + b.textContent + (under ? " under the text" : " beside a warning"));
+		  }
+		  const first = r.querySelector(":scope > button:not(.tog), :scope > select");
+		  if (first && phone && Math.abs(first.getBoundingClientRect().left - l.left) > 1) bad.push(name + ": the buttons are not at the text's edge");
+		}
+		const del = document.querySelector("#prefsBody .srow > button.danger"), cs = del && getComputedStyle(del);
+		const plain = [...document.querySelectorAll("#prefsBody .srow > button:not(.danger, .primary, .tog)")].map((b) => getComputedStyle(b));
+		if (!del || cs.borderTopWidth !== "2px" || cs.backgroundColor !== "rgba(0, 0, 0, 0)" || !del.querySelector(".ic.trash") ||
+		  plain.some((p) => p.borderTopWidth === cs.borderTopWidth || p.backgroundColor === cs.backgroundColor)) bad.push("the delete button looks like the others");
+		return bad;`)
+		if len(bad) > 0 {
+			t.Errorf("at %d: %v", c.w, bad)
+		}
+		noErrors(t, ctx)
+	}
 }

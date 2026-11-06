@@ -3,13 +3,18 @@
 
 let lines = {};
 export let lang = "en";
+let rtl = false;
 
-export function setTexts(code, texts) { lang = code; lines = texts || {}; document.documentElement.lang = code; document.documentElement.dir = code === "ar" ? "rtl" : "ltr"; }
+export function setTexts(code, texts) { lang = code; lines = texts || {}; rtl = code === "ar"; document.documentElement.lang = code; document.documentElement.dir = rtl ? "rtl" : "ltr"; }
 
+// In Arabic a name, a number or a price put into a line keeps its own order:
+// "من $0.282", not "0.282$ من", and "اختر 2.6 Flash", not "Flash 2.6". Each one
+// is isolated (U+2068 ... U+2069), which shows nothing and reads nothing.
+const put = (v) => (rtl ? "\u2068" + v + "\u2069" : String(v));
 export function t(key, vars) {
   let s = lines[key];
   if (s == null) return key;
-  if (vars) s = s.replace(/\{(\w+)\}/g, (m, k) => (vars[k] != null ? String(vars[k]) : m));
+  if (vars) s = s.replace(/\{(\w+)\}/g, (m, k) => (vars[k] != null ? put(vars[k]) : m));
   return s;
 }
 
@@ -24,8 +29,11 @@ export const byName = (a, b) => made("c" + lang, () => new Intl.Collator(lang)).
 export const warmFormats = () => { fmtNum(1); fmtNum(1.5, { maximumFractionDigits: 1 }); byName("a", "b"); };
 export const fmtSecs = (s) => t("unit.s", { n: fmtNum(+s || 0, { maximumFractionDigits: 1 }) });
 export const fmtTime = (ms) => new Date(ms).toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" });
-// "5 November, 14:30" in the browser's time zone: when a free run frees up.
-export const fmtAt = (ms) => made("a" + lang, () => new Intl.DateTimeFormat(lang, { day: "numeric", month: "long", hour: "numeric", minute: "2-digit" })).format(ms);
+// "14:30" today, "5 November, 14:30" on another day, in the browser's time zone: when a free run frees up.
+export function fmtAt(ms) {
+  const today = new Date(ms).toDateString() === new Date().toDateString();
+  return made((today ? "h" : "a") + lang, () => new Intl.DateTimeFormat(lang, today ? { hour: "numeric", minute: "2-digit" } : { day: "numeric", month: "long", hour: "numeric", minute: "2-digit" })).format(ms);
+}
 // "in 10 seconds": a short wait, in the phrase the language says it with,
 // so the count takes the case it needs ("через 1 секунду").
 export const fmtInSecs = (s) => made("r" + lang, () => new Intl.RelativeTimeFormat(lang, { numeric: "auto" })).format(Math.max(1, Math.round(s)), "second");

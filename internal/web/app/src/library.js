@@ -15,7 +15,7 @@ import { known, priceEl, priceText, onPrices, sumOf, knownTotal, needTotal } fro
 import { thumbMedia } from "./clips.js";
 import { player } from "./player.js";
 import { openSheet, closeSheets, toast, ask } from "./ui.js";
-import { view, B, ticking, renderStage, refit } from "./stage.js";
+import { view, B, actRow, ticking, renderStage, refit } from "./stage.js";
 import { runOfJob, runOfBatch, frameRun, again, removeJob, signIn, shownOf, onLeave, copyPrompt, refreshMe } from "./run.js";
 
 /* Views and addresses. */
@@ -759,14 +759,14 @@ function fill() {
   const j = V.j, run = V.run;
   if (!j) return;
   const m = C.byId[j.model];
-  $("#viewTitle").textContent = t("kind." + j.kind);
+  $("#viewTitle").replaceChildren(ic(j.kind), h("span", { class: "t" }, t("kind." + j.kind)));
   nav();
   const v = view(run, { res: V.i, again: againBtn });
   const cost = j.cost?.label ? j.cost.label : v.zero ? zeroOf(j.estimate?.label) : j.free ? t("bar.free") : j.estimate && !v.fail ? priceText(j.estimate) : "";
   const line = h("p", { class: "jline" }, [m ? vname(m) : nameOf(j.model), cost].filter(Boolean).join(" · "));
   const [text, note] = v.why || [];
   const why = text || note ? h("div", { class: "jwhy" }, h("p", {}, text, text && note ? " " : "", note ? h("span", { class: "note" }, note) : null)) : null;
-  const acts = h("div", { class: "jacts acts" }, v.acts.filter(Boolean), isFinal(j.status) ? B("trash", t("view.delete"), del, "sq") : null);
+  const acts = h("div", { class: "jacts acts" }, actRow([...v.acts, isFinal(j.status) ? B("trash", t("view.delete"), del, "sq") : null], true));
   const prompt = j.prompt ? h("p", { class: "jprompt" }, h("span", { class: "tx" }, j.prompt),
     h("button", { type: "button", class: "cp", "aria-label": t("act.copy"), title: t("act.copy"), onclick: () => copyPrompt(j.prompt) }, ic("copy"))) : null;
   $("#viewBody").replaceChildren(h("div", { class: "vrun", "data-run": j.id },
@@ -824,15 +824,15 @@ function fullGo(d) {
 export function openFull(at = 0, items = null) {
   items ||= fullItems();
   if (!items.length || FULL) return;
-  const box = $("#full"), n = items.length, rtl = dirOf() < 0, kind = items[0].j.kind;
+  const box = $("#full"), n = items.length, kind = items[0].j.kind;
   const cells = items.map(({ j, res: r }) => {
     const vid = r.content_type?.startsWith("video/"), ratio = r.width && r.height ? r.width / r.height : ratioOf(j);
     const m = vid ? player(r, { autoplay: false }) : h("img", { src: r.url, alt: j.prompt || "", decoding: "async" });
     return h("div", { class: "fcell" }, h("div", { class: "fimg", style: { "--r": String(ratio) } }, m));
   });
   const strip = h("div", { class: "fstrip" }, cells), cnt = h("span", { class: "cnt", "aria-live": "polite" });
-  const nav = n > 1 ? [h("button", { type: "button", class: "fnav s", "aria-label": t("view.prev"), title: t("view.prev"), onclick: () => fullGo(-1) }, ic(rtl ? "chev" : "chevl")),
-    h("button", { type: "button", class: "fnav e", "aria-label": t("view.next"), title: t("view.next"), onclick: () => fullGo(1) }, ic(rtl ? "chevl" : "chev"))] : [];
+  const nav = n > 1 ? [h("button", { type: "button", class: "fnav s", "aria-label": t("view.prev"), title: t("view.prev"), onclick: () => fullGo(-1) }, ic("chevl")),
+    h("button", { type: "button", class: "fnav e", "aria-label": t("view.next"), title: t("view.next"), onclick: () => fullGo(1) }, ic("chev"))] : [];
   const dots = n > 1 ? h("div", { class: "dots", "aria-hidden": "true" }, items.map(() => h("i"))) : null;
   const acts = h("div", { class: "jacts acts" });
   // The videos under the whole screen stop while it is open, and those that played go on after.
@@ -849,7 +849,7 @@ export function openFull(at = 0, items = null) {
     if (nav.length) { nav[0].disabled = c === 0; nav[1].disabled = c === n - 1; }
     dots?.querySelectorAll("i").forEach((e, i) => e.classList.toggle("on", i === c));
     const it = items[c];
-    acts.replaceChildren(...view(it.run, { res: outsOf(it.j).indexOf(it.res), again: it.again }).acts.filter(Boolean));
+    acts.replaceChildren(...actRow(view(it.run, { res: outsOf(it.j).indexOf(it.res), again: it.again }).acts, true));
     // With reduced motion the video shown waits for its Play.
     cells.forEach((cell, i) => { const v = cell.querySelector("video"); if (v && i === c && motion()) v.play().catch(() => {}); else v?.pause(); });
   };

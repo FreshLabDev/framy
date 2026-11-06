@@ -6,6 +6,7 @@ package web
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -37,6 +38,7 @@ type fakeLibrary struct {
 	lists   []string         // the query of every GET /api/jobs
 	created []map[string]any // the bodies of POST /api/jobs
 	deleted []int64
+	lang    string // the person's language, English when empty
 }
 
 const libTotal = 70
@@ -122,7 +124,7 @@ func (f *fakeLibrary) find(id int64) (int, map[string]any) {
 func (f *fakeLibrary) mount(srv *Server) {
 	srv.HandleFunc("GET /api/me", func(w http.ResponseWriter, _ *http.Request) {
 		writeTestJSON(w, http.StatusOK, map[string]any{
-			"user_id": 1, "name": "Ada", "language": "en", "currency": "USD",
+			"user_id": 1, "name": "Ada", "language": cmp.Or(f.lang, "en"), "currency": "USD",
 			"connections": []map[string]any{{"id": "c1", "provider": "openrouter", "last4": "abcd", "status": "ok"}},
 			"free": map[string]any{
 				"images": map[string]any{"used": 2, "limit": 5, "left": 3, "window_seconds": 86400},
@@ -600,10 +602,10 @@ func TestBrowserLibraryPhone(t *testing.T) {
 		got := js[map[string]any](t, ctx, libHelpers+`
 		await settled();
 		const r = { overflow: document.documentElement.scrollWidth - innerWidth, vw: innerWidth, cols: getComputedStyle(document.querySelector("#library .libgrid")).gridTemplateColumns.split(" ").length,
-		  tabText: vis(document.querySelector("#top .tab .t")), dock: vis(document.querySelector("#composer")) };
+		  tabText: document.querySelector("#top .tab .t").getBoundingClientRect().width > 1, dock: vis(document.querySelector("#composer")) };
 		tiles()[6].click();
 		await wait(700);
-		const v = document.querySelector("#viewer"), acts = [...v.querySelectorAll(".jacts > *")];
+		const v = document.querySelector("#viewer"), acts = [...v.querySelectorAll(".jacts :is(button, a)")];
 		r.sheet = vis(v);
 		r.actsIn = acts.every((a) => { const b = a.getBoundingClientRect(); return b.left >= 0 && b.right <= innerWidth + 0.5; });
 		r.box = Math.round(v.querySelector(".vbox").getBoundingClientRect().width);
@@ -827,7 +829,7 @@ func TestBrowserViewerJoined(t *testing.T) {
 	await until(() => vis(document.querySelector("#viewer")) && document.querySelector("#viewBody .vbox video"));
 	const v = document.querySelector("#viewer");
 	r.video = v.querySelector(".vbox video")?.getAttribute("src");
-	r.links = [...v.querySelectorAll(".jacts > a")].map((a) => a.getAttribute("href") + " | " + a.textContent.trim());
+	r.links = [...v.querySelectorAll(".jacts a")].map((a) => a.getAttribute("href") + " | " + a.textContent.trim());
 	// The player's bar, in its parts, keeps the arrows: they seek, not go to the next run.
 	const tr = v.querySelector(".vbox .ptrack");
 	r.parts = tr?.querySelectorAll(".pseg").length; r.controls = v.querySelector(".vbox video").hasAttribute("controls"); r.exp = !!v.querySelector(".vexp");

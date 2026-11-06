@@ -509,9 +509,10 @@ func (f *fakeRuns) cancel(w http.ResponseWriter, r *http.Request) {
 const runHelpers = `
 const stage = () => {
   const st = document.querySelector("#stage");
-  return { label: st.querySelector(".jbox .c b")?.textContent || "", sub: st.querySelector(".jbox .c small")?.textContent || "",
-    why: st.querySelector(".jwhy")?.textContent || "", said: st.querySelector(".jbox .c .said")?.textContent || "",
-    acts: [...st.querySelectorAll(".jacts > button, .jacts > a, .jacts > .busy")].map((b) => b.textContent.trim()),
+  // The frame's words stand in it, or under it when it is too small for them (stage.js, caption).
+  return { label: st.querySelector(".jbox .c b, .c.under b")?.textContent || "", sub: st.querySelector(".jbox .c small, .c.under small")?.textContent || "",
+    why: st.querySelector(".jwhy")?.textContent || "", said: st.querySelector(".jbox .c .said, .c.under .said")?.textContent || "",
+    acts: [...st.querySelectorAll(".jacts button, .jacts a, .jacts .busy")].map((b) => b.textContent.trim()),
     failed: !!st.querySelector(".jbox.failed"), done: !!st.querySelector(".jbox.done img"), line: st.querySelector(".jline")?.textContent || "",
     dots: !!st.querySelector(".jbox > canvas.ht"),
     text: st.textContent };
@@ -578,7 +579,7 @@ func TestBrowserRuns(t *testing.T) {
 	// JSON, and offers another model; Another model opens the picker.
 	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
 	const s = await press("faces", (s) => s.failed);
-	const other = [...document.querySelectorAll("#stage .jacts > button")].find((b) => b.textContent.trim() === "Another model");
+	const other = [...document.querySelectorAll("#stage .jacts button")].find((b) => b.textContent.trim() === "Another model");
 	other?.click();
 	await wait(500);
 	s.picker = !document.querySelector("#picker").hidden;
@@ -630,7 +631,7 @@ func TestBrowserRuns(t *testing.T) {
 	const before = s.sub;
 	let after = before;
 	for (let i = 0; i < 30 && after === before; i++) { await wait(100); after = stage().sub; }
-	const cancel = [...document.querySelectorAll("#stage .jacts > button")].find((b) => b.textContent.trim() === "Cancel");
+	const cancel = [...document.querySelectorAll("#stage .jacts button")].find((b) => b.textContent.trim() === "Cancel");
 	cancel?.click();
 	for (let i = 0; i < 40 && stage().label !== "Canceled"; i++) await wait(100);
 	return { ...s, before, after, can: !!cancel, end: stage() };`)
@@ -698,7 +699,7 @@ func TestBrowserRuns(t *testing.T) {
 	document.querySelector("#prompt").value = "";
 	document.querySelector("#prompt").dispatchEvent(new Event("input", { bubbles: true }));
 	s.once = !document.querySelector("#stage .jprompt").hidden;
-	[...document.querySelectorAll("#stage .jacts > button")].find((b) => b.textContent.trim() === "Edit the prompt").click();
+	[...document.querySelectorAll("#stage .jacts button")].find((b) => b.textContent.trim() === "Edit the prompt").click();
 	await wait(600);
 	return { ...s, prompt: document.querySelector("#prompt").value, ghost: !!document.querySelector("#stage .ghost") };`)
 	if acts := fmt.Sprint(s["acts"]); s["done"] != true || !strings.HasPrefix(acts, "[Download Again Edit the prompt") || s["prompt"] != "done" || s["ghost"] != true ||
@@ -833,6 +834,65 @@ func TestBrowserRunFrameSize(t *testing.T) {
 	}
 }
 
+// TestBrowserFrameWords checks the words of a frame on the stage, while it
+// runs and when it failed: in a frame large enough they stand under the
+// figure with no dot drawn behind them and the dots keep at least half of
+// the frame; in a smaller one, as on a short phone or one on its side, they
+// stand under the frame, whole and on the field. The provider's own words,
+// opened with a press, leave a frame they no longer fit in.
+func TestBrowserFrameWords(t *testing.T) {
+	for _, c := range []struct {
+		w, h  int64
+		lang  string
+		phone bool
+		under bool // the words of a failure with the provider's own words go under the frame
+	}{{320, 568, "de", true, true}, {844, 390, "en", true, true}, {375, 812, "de", true, true}, {390, 844, "ru", true, false}, {1440, 900, "en", false, false}} {
+		runs := &fakeRuns{lang: c.lang}
+		ts := fakeSite(t, runs.mount)
+		ctx := browserAs(t, ts.URL, c.w, c.h, opened{lang: c.lang, phone: c.phone})
+		inLang(t, ctx, c.lang)
+		for _, p := range []string{"fail:money", "fail:moderation", "running"} {
+			got := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+			const s = await press(`+jsString(p)+`, () => document.querySelector("#stage .jbox canvas.ht") && document.querySelector("#stage .c"));
+			if (s.timeout) return { bad: ["no frame with words"] };
+			await wait(700);
+			const bad = [];
+			const check = (when) => {
+			  const box = document.querySelector("#stage .jbox"), c = document.querySelector("#stage .c"), b = box.getBoundingClientRect(), r = c.getBoundingClientRect();
+			  const words = [...c.querySelectorAll("b, small")].map((e) => e.getBoundingClientRect()).filter((x) => x.width && x.height);
+			  if (c.parentElement !== box) {
+			    if (r.top < b.bottom) bad.push(when + ": the words under the frame stand over it");
+			    if (r.left < 0 || r.right > innerWidth) bad.push(when + ": the words under the frame leave the screen");
+			    return "under";
+			  }
+			  if (r.top - b.top < b.height / 2) bad.push(when + ": the words take more than half of the frame, " + Math.round(r.top - b.top) + " of " + b.height);
+			  if (r.bottom > b.bottom + 0.5) bad.push(when + ": the words leave the frame");
+			  // No dot is drawn behind the words.
+			  const cv = box.querySelector("canvas.ht"), k = cv.width / b.width, x = cv.getContext("2d");
+			  for (const w of words) {
+			    const d = x.getImageData(Math.floor((w.left - b.left) * k), Math.floor((w.top - b.top) * k), Math.ceil(w.width * k), Math.ceil(w.height * k)).data;
+			    let n = 0;
+			    for (let i = 0; i < d.length; i += 4) if (d[i] > 8 || Math.abs(d[i + 1] - 69) > 8 || Math.abs(d[i + 2] - 79) > 8) n++;
+			    if (n) bad.push(when + ": " + n + " pixels of dots behind the words");
+			  }
+			  return "in";
+			};
+			const at = check("as it came");
+			const said = document.querySelector("#stage .c .said");
+			if (said) { said.click(); await wait(400); check("opened"); said.click(); await wait(400); check("closed"); }
+			return { bad, at };`)
+			bad, _ := got["bad"].([]any)
+			if len(bad) > 0 {
+				t.Errorf("%dx%d %s, %s: %v", c.w, c.h, c.lang, p, bad)
+			}
+			if p == "fail:moderation" && (got["at"] == "under") != c.under {
+				t.Errorf("%dx%d %s: the provider's words stand %v the frame", c.w, c.h, c.lang, got["at"])
+			}
+		}
+		noErrors(t, ctx)
+	}
+}
+
 // fakeTelegram stands in for telegram-web-app.js: what the Mini App asks of
 // Telegram is kept in window.__tg for the checks to read, and its main
 // button is pressed by calling window.__tg.main().
@@ -908,12 +968,12 @@ func TestBrowserMiniShare(t *testing.T) {
 		await wait(80);
 		window.__tg.main();
 		for (let i = 0; i < 140 && !stage().done; i++) await wait(100);
-		return [...document.querySelectorAll("#stage .jacts > button")].find((b) => b.getAttribute("aria-label") === "Share");
+		return [...document.querySelectorAll("#stage .jacts button")].find((b) => b.getAttribute("aria-label") === "Share");
 	};
 	const b1 = await go("done");
 	b1?.click();
 	for (let i = 0; i < 30 && !window.__tg.shared.length; i++) await wait(100);
-	document.querySelector("#stage .jacts > button[aria-label='Make another']")?.click();
+	document.querySelector("#stage .jacts button[aria-label='Make another']")?.click();
 	await wait(300);
 	const b2 = await go("done:big");
 	b2?.click();
@@ -1306,7 +1366,7 @@ func TestBrowserRunSound(t *testing.T) {
 	([...row.querySelectorAll(".pill:not(.old)")].find((b) => b.textContent.trim() === "2.0 Mini") || row.querySelector(".fhit")).click();
 	await wait(900);
 	const s = await press("fail:sound", (s) => s.failed);
-	[...document.querySelectorAll("#stage .jacts > button")].find((b) => b.textContent.trim() === "Try without sound")?.click();
+	[...document.querySelectorAll("#stage .jacts button")].find((b) => b.textContent.trim() === "Try without sound")?.click();
 	for (let i = 0; i < 40 && sent.length < 2; i++) await wait(100);
 	s.sound = sent.map((b) => b.settings.generate_audio);
 	s.offers = sent.map((b) => b.offer);
@@ -1488,7 +1548,7 @@ func TestBrowserJoined(t *testing.T) {
 	for (let i = 0; i < 100 && !cont; i++) { await wait(100); cont = document.querySelector("#stage .jacts button[aria-label=Continue]"); }
 	const st = document.querySelector("#stage");
 	const video = st.querySelector(".jbox video")?.getAttribute("src") || "";
-	const links = [...st.querySelectorAll(".jacts > a")].map((a) => [a.getAttribute("href").replace(location.origin, ""), a.getAttribute("download"), a.textContent.trim(), a.getAttribute("aria-label") || ""].join(" | "));
+	const links = [...st.querySelectorAll(".jacts a")].map((a) => [a.getAttribute("href").replace(location.origin, ""), a.getAttribute("download"), a.textContent.trim(), a.getAttribute("aria-label") || ""].join(" | "));
 	cont?.click();
 	for (let i = 0; i < 30 && !frames.length; i++) await wait(100);
 	return { video: video.replace(location.origin, ""), links, frames };`)

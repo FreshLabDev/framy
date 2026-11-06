@@ -116,7 +116,7 @@ func TestBrowserFrames(t *testing.T) {
 
 	// Edit puts every frame back, the second with its own model.
 	s = js[map[string]any](t, ctx, pageHelpers+framesHelpers+`
-	[...document.querySelectorAll("#stage .jacts > button")].find((b) => b.textContent.trim() === "Edit the prompt").click();
+	[...document.querySelectorAll("#stage .jacts button")].find((b) => b.textContent.trim() === "Edit the prompt").click();
 	// The result tiles leave while the frames come back; the frames are read once those are gone.
 	const all = () => document.querySelectorAll("#stage .cell").length;
 	for (let i = 0; i < 40 && all() !== 3; i++) await wait(100);
@@ -283,7 +283,7 @@ func TestBrowserLibraryPress(t *testing.T) {
 	r.path2 = location.pathname; r.line2 = v.querySelector(".jline").textContent;
 	picks()[2].click(); await wait(400);
 	r.path3 = location.pathname; r.src3 = v.querySelector(".vbox img:not(.ph)")?.getAttribute("src");
-	[...v.querySelectorAll(".jacts > button")].find((b) => b.textContent.trim() === "Edit the prompt").click();
+	[...v.querySelectorAll(".jacts button")].find((b) => b.textContent.trim() === "Edit the prompt").click();
 	// What stood on the stage before leaves while the frames come; they are read once it is gone.
 	await until(() => location.pathname === "/" && document.querySelectorAll("#stage .cell").length === 3, 6000);
 	r.where = location.pathname; r.cells = document.querySelectorAll("#stage .cell").length;

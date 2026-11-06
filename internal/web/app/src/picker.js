@@ -163,7 +163,7 @@ function famRow(f, wide) {
     prices.push(say, was);
     return h("button", { type: "button", class: "pill" + (old ? " old" : ""), "aria-pressed": String(v.id === cur), "aria-label": vname(v.m), "aria-describedby": was ? `${was.id} ${say.id}` : say.id, title: was?.textContent ?? null,
       onclick: () => choose(v, $(`#pkrows [data-k="fam-${f.idx}"]`)), onpointermove: old ? null : hoverFam(f, wide, v.id),
-      onfocus: () => { if (!say.firstChild) say.append(freePlan(v.m) ? t("pay.free") : minEl(bestItems(v.m))); show(); } }, v.label);
+      onfocus: () => { if (!say.firstChild) say.append(freePlan(v.m) ? t("pay.free") : minEl(bestItems(v.m))); show(); } }, h("bdi", {}, v.label));
   };
   const vars = vs.length > 1 || olds.length ? h("div", { class: "fvars" }, vs.length > 1 ? vs.map((v) => pill(v, false)) : null, olds.map((v) => pill(v, true))) : null;
   return h("div", { class: "frow" + (why ? " dim" : ""), "aria-current": String(mine), "data-k": "fam-" + f.idx, onpointermove: hoverFam(f, wide) },
@@ -203,8 +203,8 @@ function choose(v, from) {
 function vlist(f, sel, pickIt) {
   const key = "dl-" + f.idx;
   return h("div", { class: "vlist", role: "radiogroup", "aria-label": t("var.label"), "data-seg": key, "data-dur": DUR.m }, shown(f).map((v) =>
-    opt({ key, v: v.id, on: v.id === sel.id, cls: "vl", pick: () => pickIt(v) }, h("b", {}, v.label),
-      h("span", { class: "p" }, freePlan(v.m) ? t("pay.free") : minEl(bestItems(v.m))), v.note ? h("span", { class: "n" }, v.note) : null)));
+    opt({ key, v: v.id, on: v.id === sel.id, cls: "vl", pick: () => pickIt(v) }, h("b", {}, h("bdi", {}, v.label)),
+      h("span", { class: "p" }, freePlan(v.m) ? t("pay.free") : minEl(bestItems(v.m))), v.note ? h("span", { class: "n" }, h("bdi", {}, v.note)) : null)));
 }
 function detail(f) {
   const want = S.detVar[f.idx], cur = focusId();
@@ -244,9 +244,9 @@ function detail(f) {
       : sel.by ? h("p", { class: "dwarn" }, ic("clock"), h("span", {}, spaced(t("var.outdated", { v: sel.by.label })), h("button", { type: "button", class: "link-t", onclick: () => pickIt(sel.by) }, t("pick.see", { v: sel.by.label })))) : null,
     // The provider's description is English, and stays out of a page in
     // another language; the facts and the variants' notes are in its words.
-    m.description && lang === "en" ? h("p", { class: "ddesc" }, m.description) : null,
+    m.description && lang === "en" ? h("p", { class: "ddesc", dir: "auto" }, m.description) : null,
     h("div", { class: "dl" }, rows.map(([i, k, v]) => h("div", {}, h("span", {}, ic(i), k), h("span", {}, v)))),
-    f.old.length ? h("p", { class: "dold" }, t("pick.old") + " ", f.old.map((v, i) => [i ? ", " : "", h("button", { type: "button", "aria-pressed": String(v.id === sel.id), title: t("pick.newer", { v: v.by.label }), onclick: () => pickIt(v) }, v.label)])) : null,
+    f.old.length ? h("p", { class: "dold" }, t("pick.old") + " ", f.old.map((v, i) => [i ? ", " : "", h("button", { type: "button", "aria-pressed": String(v.id === sel.id), title: t("pick.newer", { v: v.by.label }), onclick: () => pickIt(v) }, h("bdi", {}, v.label))])) : null,
     h("button", { type: "button", class: "choose", disabled: isCur, onclick: (e) => choose(sel, e.currentTarget.closest(".det")) },
       isCur ? t("pick.chosen") : (many ? t("pick.choose_v", { v: sel.label }) : t("pick.choose")) + (why ? ` (${why})` : "")));
 }

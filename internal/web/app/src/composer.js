@@ -1,7 +1,7 @@
 // The composer: what to make, the model, how to pay, the settings, the price
 // and the one button. Every change goes through act(), which lets the blocks
 // glide from where they stood to where they stand now.
-import { $, $$, h, ic, isPhone, MAC } from "./dom.js";
+import { $, $$, h, ic, isPhone, inFlow, MAC } from "./dom.js";
 import { anim, rise, spin, opt, placeSegs, placeSeg, fitSegs, snap, ticker, roll, follow, EASE, SPRING, OUT, motion, DUR } from "./motion.js";
 import { t, fmtNum, fmtIn, fmtSecs, spaced } from "./i18n.js";
 import { C, PNAME, vname, famLogo, lg, provMark, freePlan, pays, offerOf, facts, factEl, deprecation, fieldsOf, SECONDARY, SEARCH, SICON,
@@ -44,9 +44,10 @@ export function act(fn) {
 }
 
 export function mountComposer() {
+  // On a phone the kind and the tools share the row over the prompt, the kind first, as Tab goes.
   return h("section", { class: "composer", id: "composer", "aria-label": t("composer.label") },
-    h("div", { class: "dtools", id: "dtools" }),
     h("div", { class: "seg kind", role: "radiogroup", "aria-label": t("kind.label"), id: "kind", "data-seg": "kind", "data-dur": DUR.l }),
+    h("div", { class: "dtools", id: "dtools" }),
     h("div", { id: "pwrap" },
       h("label", { class: "sr", for: "prompt" }, t("prompt.label")),
       h("textarea", { id: "prompt", rows: 3, maxlength: 4000 }),
@@ -113,6 +114,34 @@ export function wireComposer() {
   // On a phone the composer is a dock: the page keeps room for it under the stage.
   addEventListener("resize", () => { if (howStale && howShown()) render(); });
   new ResizeObserver(() => { document.documentElement.style.setProperty("--dockh", comp.offsetHeight + "px"); if (isPhone()) refit(); }).observe(comp);
+  watchFlow();
+}
+
+/* A window under 960 px wide and at most 560 high puts the composer in the page over the stage (inFlow):
+   a dock there would cover most of the window, the stage and its result. On a touch screen it takes a
+   screen held sideways: a phone held upright never takes it, however low its keyboard leaves the window.
+   With a mouse there is no such keyboard, and a page zoomed in takes it on a screen either way up. The
+   layout does not switch while a field is typed in: the field stays where it is. Once the field lets go,
+   the check waits for the keyboard to close. */
+const LOW = matchMedia("(max-width: 959px) and (max-height: 560px)"), MOUSE = matchMedia("(pointer: fine)");
+const heldSideways = () => (screen.orientation?.type || (matchMedia("(orientation: landscape)").matches ? "landscape" : "portrait")).startsWith("landscape");
+const typing = () => !!document.activeElement?.matches?.('textarea, input:not([type="range"], [type="checkbox"], [type="radio"], [type="file"], [type="button"])');
+function watchFlow() {
+  const check = () => {
+    const on = LOW.matches && (MOUSE.matches || heldSideways());
+    if (on === inFlow() || typing()) return;
+    document.documentElement.classList.toggle("flow", on);
+    refit();
+  };
+  check();
+  LOW.addEventListener("change", check);
+  MOUSE.addEventListener("change", check);
+  screen.orientation?.addEventListener?.("change", check);
+  document.addEventListener("focusout", () => setTimeout(check, 300));
+}
+// A dock is always in sight; in a low window the composer is brought into view for the next words.
+export function toComposer() {
+  if (inFlow()) $("#composer").scrollIntoView({ block: "start", behavior: motion() ? "smooth" : "auto" });
 }
 
 export function render() {
@@ -146,14 +175,15 @@ function setKind(k) {
 
 /* Phone: the model and the settings sit in one row over the prompt; the settings open in a sheet.
    Files are added in the row under the prompt, in both kinds, as on the computer in video.
-   The chip names the common model, and how many others the frames have. */
+   The chip names the common model, and how many others the frames have; the settings, how many frames
+   they are for. */
 function renderTools() {
   const P = plan(), m = common(), f = C.famOf[m.id], more = new Set(P.map((it) => it.m.id).filter((id) => id !== m.id)).size;
   $("#dtools").replaceChildren(
     h("button", { type: "button", class: "chipbtn", "aria-haspopup": "dialog", onclick: () => { if (S.scope[S.kind] != null) { S.scope[S.kind] = null; render(); } openPicker(); } },
       lg(famLogo(f), f.maker, "o"), h("span", { class: "nm" }, h("span", {}, vname(m))), more ? h("small", { class: "more" }, "+" + fmtNum(more)) : null, ic("chevd")),
-    h("button", { type: "button", class: "chipbtn set", onclick: () => openTune(null), "aria-label": t("tune.title") }, ic("sliders"), h("span", {}, t("tune.short")),
-      P.length > 1 ? h("b", { class: "cnt" }, "×" + fmtNum(P.length)) : null));
+    h("button", { type: "button", class: "chipbtn set", onclick: () => openTune(null), "aria-label": P.length > 1 ? `${t("tune.title")}, ${t("fr.label")}: ${fmtNum(P.length)}` : t("tune.title") },
+      ic("sliders"), h("span", {}, t("tune.short")), P.length > 1 ? h("b", { class: "cnt" }, "×" + fmtNum(P.length)) : null));
 }
 // On a phone the settings live in a sheet: they are built when it opens, not
 // on every change behind it. A frame pressed on the stage opens it on that frame.
@@ -203,9 +233,11 @@ function stepScope(dir) {
 }
 export function tuneClosed() { const how = $("#how"); if (how.parentElement !== $("#composer")) $("#composer").insertBefore(how, $("#bar")); placeSegs($("#composer")); }
 
-/* Files: photos and clips stay in the browser until Create; the ones the model will not take stand apart. */
+/* Files: photos and clips stay in the browser until Create; the ones the model will not take stand apart.
+   The tiles stand in a row of their own, which scrolls sideways on a phone; what is said about them
+   stands beside the row while it fits there, and under it when not, never cut. */
 function renderFiles(m, pay) {
-  const box = $("#files"), R = route(m, pay), c = clip();
+  const box = $("#files"), R = route(m, pay), c = clip(), tiles = h("div", { class: "ftiles" });
   box.replaceChildren();
   const thumb = (f, r) => h("div", { class: "thumb" + (r.go ? "" : " off") + (f.kind === "video" ? " clip" : ""), title: f.name + (r.why ? ": " + r.why : ""), "data-k": "f" + f.id },
     thumbMedia(f),
@@ -213,18 +245,19 @@ function renderFiles(m, pay) {
     h("button", { type: "button", class: "rm", "aria-label": t("files.remove"), onclick: () => act(() => { removeFile(f); render(); }) }, ic("close")));
   const cont = contEl(m, pay), slots = slotted(m, pay);
   if (cont) box.append(cont);
-  if (slots) box.append(...slotGroups(R, thumb));
+  if (slots) tiles.append(...slotGroups(R, thumb));
   else {
     const go = [], off = [];
     S.files.forEach((f, i) => (R[i].go ? go : off).push(thumb(f, R[i])));
     const max = R.filter((r) => r.go).length;
-    if (!off.length) box.append(...go);
+    if (!off.length) tiles.append(...go);
     else {
-      if (go.length) box.append(h("div", { class: "fgroup", "data-k": "g-go" }, h("span", { class: "gl" }, t("files.going", { n: max })), h("div", { class: "gt" }, go)));
-      box.append(h("div", { class: "fgroup out", "data-k": "g-off" }, h("span", { class: "gl" }, t("files.off")), h("div", { class: "gt" }, off)));
+      if (go.length) tiles.append(h("div", { class: "fgroup", "data-k": "g-go" }, h("span", { class: "gl" }, t("files.going", { n: max })), h("div", { class: "gt" }, go)));
+      tiles.append(h("div", { class: "fgroup out", "data-k": "g-off" }, h("span", { class: "gl" }, t("files.off")), h("div", { class: "gt" }, off)));
     }
-    box.append(h("button", { type: "button", class: "addfile", "data-k": "f-add", onclick: () => $("#file").click() }, ic("plus"), t("files.add")));
+    tiles.append(h("button", { type: "button", class: "addfile", "data-k": "f-add", onclick: () => $("#file").click() }, ic("plus"), t("files.add")));
   }
+  box.append(tiles);
   const why = [...new Set(R.filter((r) => !r.go).map((r) => r.why))];
   // The first clip's part: the one picked, or a button to pick it.
   const ci = c ? S.files.indexOf(c) : -1, cutting = ci >= 0 && R[ci].go && c.secs > 0;
@@ -416,11 +449,11 @@ function variantBlock(m) {
   const kids = [];
   if (cur.length > 1) kids.push(f.axes ? axesControl(f, v, pickVar, "ax", priceNow)
     : h("div", { class: "seg" + (cur.length > 3 ? " wrapping" : ""), role: "radiogroup", "aria-label": t("var.label"), "data-seg": "var", "data-dur": DUR.l },
-      cur.map((x) => opt({ key: "var", v: x.id, on: x.id === m.id, title: x.note ? `${x.label}: ${x.note}` : x.label, pick: () => pickVar(x) }, x.label, h("small", {}, priceNow(x.m))))));
+      cur.map((x) => opt({ key: "var", v: x.id, on: x.id === m.id, title: x.note ? `${x.label}: ${x.note}` : x.label, pick: () => pickVar(x) }, h("bdi", {}, x.label), h("small", {}, priceNow(x.m))))));
   const dep = deprecation(m);
   if (dep) kids.push(h("p", { class: "mnote" }, ic("clock"), h("span", {}, dep.to ? [spaced(dep.when), h("button", { type: "button", onclick: () => pickVar(C.varOf[dep.to.id] || { id: dep.to.id }) }, t("var.take", { name: dep.toName }))] : dep.text)));
   else if (v.by) kids.push(h("p", { class: "mnote" }, ic("clock"), h("span", {}, spaced(t("var.outdated", { v: v.by.label })), h("button", { type: "button", onclick: () => pickVar(v.by) }, t("var.take", { name: v.by.label })))));
-  else if (v.note) kids.push(h("p", { class: "mnote info" }, ic("info"), h("span", {}, f.axes ? h("b", {}, v.label + ": ") : null, v.note)));
+  else if (v.note) kids.push(h("p", { class: "mnote info" }, ic("info"), h("span", {}, f.axes ? h("b", {}, h("bdi", {}, v.label), ": ") : null, h("bdi", {}, v.note))));
   return kids.length ? h("div", { class: "mvars" }, kids) : null;
 }
 // The model of what is being set up: the frame's own, or the common one.

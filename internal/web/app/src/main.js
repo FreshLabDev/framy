@@ -38,7 +38,9 @@ function account() {
     const av = me.photo_url ? h("img", { class: "av", src: me.photo_url, alt: "", referrerpolicy: "no-referrer", onerror: (e) => e.currentTarget.replaceWith(letter()) }) : letter();
     return h("button", { type: "button", class: "me", id: "meBtn", onclick: () => openPrefs(), "aria-label": t("prefs.title"), "aria-haspopup": "dialog" }, av, h("span", { class: "t" }, t("prefs.title")));
   }
-  return S.mini ? null : h("button", { type: "button", class: "signin", onclick: signIn }, ic("send"), h("span", {}, t("auth.signin")));
+  // A phone shows the short line; the whole one stays the button's name.
+  return S.mini ? null : h("button", { type: "button", class: "signin", onclick: signIn, "aria-label": t("auth.signin") },
+    ic("send"), h("span", { class: "t" }, t("auth.signin")), h("span", { class: "ts" }, t("auth.signin_short")));
 }
 // The mark leads to the composer from anywhere, signed in or not: a person who
 // came by a link to the library or to a run has a way to make something. The
