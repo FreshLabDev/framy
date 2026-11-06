@@ -99,7 +99,8 @@ function num(a) {
   if (d > 2) { s = s.replace(/0+$/, ""); const i = s.indexOf("."); while (s.length - i - 1 < 2) s += "0"; }
   return s;
 }
-export const usd = (u) => "$" + num(u);
+// "$1,234.57": dollars as fx.Format writes them in English, the thousands grouped.
+export const usd = (u) => "$" + num(u).replace(/^\d+/, (i) => i.replace(/\B(?=(\d{3})+$)/g, ","));
 // A label's number, with the marks and spaces a language writes in one ("1 234,50").
 const NUM = /\d(?:[\d.,\u00a0\u202f]*\d)?/;
 // An amount in the page's language as fx.Format writes it: never rounded down, the thousands grouped.
