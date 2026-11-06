@@ -124,7 +124,8 @@ func TestBrowserPriceOrder(t *testing.T) {
 			if want := map[bool]string{true: "rtl", false: "ltr"}[tc.lang == "ar"]; got["dir"] != want {
 				t.Fatalf("dir %v, want %s", got["dir"], want)
 			}
-			if !regexp.MustCompile(tc.want).MatchString(paid["text"].(string)) {
+			// The figures of a right-to-left page stand in isolates, which show and read nothing.
+			if !regexp.MustCompile(tc.want).MatchString(strings.NewReplacer("\u2068", "", "\u2069", "").Replace(paid["text"].(string))) {
 				t.Fatalf("price %q, want %s", paid["text"], tc.want)
 			}
 			for name, f := range map[string]map[string]any{"free": free, "paid": paid} {

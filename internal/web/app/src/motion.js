@@ -257,6 +257,18 @@ function amountOf(s) {
   return [s.slice(0, a), s.slice(a, b), s.slice(b)];
 }
 
+// A value i18n put in a right-to-left line stands in an isolate (U+2068 … U+2069): it reads as one
+// piece, the sign beside its figures as in a left-to-right line. Split into boxes, the marks no
+// longer hold it together, so the odometer gives that piece a <bdi> of its own, which is what the
+// isolate does for plain text.
+const ISO = /^([^\u2068]*)\u2068([^\u2069]*)\u2069(.*)$/s;
+function partsOf(s) {
+  const m = s.match(ISO);
+  if (!m) { const [pre, amt, post] = amountOf(s); return { pre, amt, post, iso: null }; }
+  const [ipre, amt, ipost] = amountOf(m[2]);
+  return { pre: m[1], amt, post: m[3], iso: [ipre, ipost] };
+}
+
 // The price is an odometer: only the characters that change roll, right to left, up when it grows.
 // A figure reads left to right in every language, so the amount is a box of its own that keeps that
 // order inside a right-to-left line, and the words beside it are whole, so Arabic letters join and
@@ -265,14 +277,15 @@ function amountOf(s) {
 export function roll(el, text, dir) {
   const old = el.dataset.t || "";
   el.dataset.t = text;
-  const [pre, amt, post] = amountOf(text);
+  const p = partsOf(text), amt = p.amt;
   const word = (s) => s && h("span", { class: "w" }, s);
   const box = amt && h("span", { class: "amt" }, [...amt].map((c) => h("span", { class: "ch" }, h("span", {}, c))));
-  el.replaceChildren(...[word(pre), box, word(post)].filter(Boolean));
+  const mid = p.iso ? h("bdi", {}, ...[word(p.iso[0]), box, word(p.iso[1])].filter(Boolean)) : box;
+  el.replaceChildren(...[word(p.pre), mid, word(p.post)].filter(Boolean));
   if (!motion() || !old || old === text) return;
   dir = dir || 1;
-  const [opre, oamt, opost] = amountOf(old), shape = (s) => s.replace(/\d/g, "");
-  if (!amt || !oamt || opre !== pre || opost !== post || shape(oamt) !== shape(amt)) {
+  const o = partsOf(old), oamt = o.amt, shape = (s) => s.replace(/\d/g, "");
+  if (!amt || !oamt || o.pre !== p.pre || o.post !== p.post || String(o.iso) !== String(p.iso) || shape(oamt) !== shape(amt)) {
     // "Free" and "≈ $0.04" have nothing in common: the old line leaves whole, the new one comes in whole.
     const g = h("span", { class: "whole" }, old);
     el.append(g);

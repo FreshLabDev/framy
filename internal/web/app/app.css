@@ -226,8 +226,9 @@ input[type="range"]::-moz-range-thumb {width: 20px; height: 20px; background: va
 .pnum {justify-self: start; display: inline-flex; font: 700 32px/1.08 var(--display); font-variant-numeric: tabular-nums;}
 .pnum.hint {cursor: help; border-bottom: 2px dotted var(--muted);}
 .odo {position: relative; display: inline-flex; overflow: hidden;}
-.odo > .w {white-space: pre;}
-.odo > .amt {display: inline-flex; direction: ltr;}
+.odo > bdi {display: inline-flex;}
+.odo > .w, .odo > bdi > .w {white-space: pre;}
+.odo > .amt, .odo > bdi > .amt {display: inline-flex; direction: ltr;}
 .odo .ch {position: relative; display: inline-block; white-space: pre;}
 .odo .ch > span {display: inline-block;}
 .odo .ch > .o {position: absolute; left: 0; top: 0;}
