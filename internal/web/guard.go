@@ -61,6 +61,13 @@ func (g *guard) finalize(status int) {
 	h.Del("X-Frame-Options")
 	if isDocument(h.Get("Content-Type")) {
 		h.Set("Content-Security-Policy", g.srv.csp)
+		h.Set("Reporting-Endpoints", `csp="`+cspReportPath+`"`)
+	}
+	// The answers and files of the site are for its own pages: another site
+	// cannot load them into its own, as an image or a script, and read what
+	// leaks (the Mini App runs at framy's origin, inside Telegram's frame).
+	if p := g.r.URL.Path; underPath(p, "/api") || underPath(p, "/assets") {
+		h.Set("Cross-Origin-Resource-Policy", "same-origin")
 	}
 	cachePolicy(g.r, status, h, g.public)
 }

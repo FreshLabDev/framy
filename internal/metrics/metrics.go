@@ -208,6 +208,7 @@ var (
 
 	HTTPRateLimited        = registerVec("framy_http_rate_limited_total", "Public HTTP requests answered 429, by rate class.", "class")
 	HTTPCrossOriginRefused = registerCounter("framy_http_cross_origin_refused_total", "Public HTTP requests refused as cross-origin.")
+	CSPViolations          = registerVec("framy_csp_violations_total", "Browser reports of what a page's Content-Security-Policy refused, by directive (other for a name framy does not use).", "directive")
 
 	AuthResults      = registerVec("framy_auth_total", "Sign-in outcomes, by result: site_ok, site_denied, site_no_state, site_cookie, site_state, site_exchange, site_token, site_nonce, site_claims, site_provider, site_unavailable, site_error, miniapp_ok, miniapp_again (a launch given its token again), miniapp_stale, miniapp_bad, miniapp_error.", "result")
 	OAuthStarted     = registerCounter("framy_oauth_started_total", "OpenRouter connect flows started: people sent to OpenRouter.")

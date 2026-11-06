@@ -17,7 +17,8 @@ const wantCSP = "default-src 'none'; " +
 	"connect-src 'self' https://abc123.r2.cloudflarestorage.com; " +
 	"font-src 'self'; " +
 	"base-uri 'none'; object-src 'none'; form-action 'self'; " +
-	"frame-ancestors https://web.telegram.org https://webk.telegram.org https://weba.telegram.org"
+	"frame-ancestors https://web.telegram.org https://webk.telegram.org https://weba.telegram.org; " +
+	"report-uri /csp-report; report-to csp"
 
 func TestCSPIsTheDesignsPolicy(t *testing.T) {
 	got, err := buildCSP(testR2, nil)
@@ -144,6 +145,7 @@ func TestStaticHeadersOnEveryResponse(t *testing.T) {
 		"Referrer-Policy":            "no-referrer",
 		"Strict-Transport-Security":  "max-age=31536000",
 		"Cross-Origin-Opener-Policy": "same-origin",
+		"Permissions-Policy":         "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
 	}
 	for name, c := range map[string]struct {
 		site *site

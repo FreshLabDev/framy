@@ -110,9 +110,10 @@ type Server struct {
 
 // csrfBypass lists the paths that accept cross-site POSTs: the providers'
 // webhooks, which carry no browser's Origin and are checked by a signature in
-// the path. Everything else a browser can post to is refused when it comes
-// from another site.
-var csrfBypass = []string{"/hooks/"}
+// the path, and the browsers' reports of the policy, which only count.
+// Everything else a browser can post to is refused when it comes from
+// another site.
+var csrfBypass = []string{"/hooks/", cspReportPath}
 
 // New builds a Server with no routes.
 func New(cfg Config) (*Server, error) {
@@ -149,6 +150,7 @@ func New(cfg Config) (*Server, error) {
 		http.Error(w, "cross-origin request refused", http.StatusForbidden)
 	}))
 	s.chain = cop.Handler(s.mux)
+	s.HandleFunc("POST "+cspReportPath, s.cspReport, Body(cspReportMax))
 	return s, nil
 }
 
