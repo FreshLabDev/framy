@@ -338,7 +338,7 @@
     "be": "твой ключ {provider}",
     "ca": "la teva clau de {provider}",
     "zh": "你的 {provider} 密钥",
-    "ja": "あなたの {provider} キー",
+    "ja": "自分の {provider} キー",
     "ar": "مفتاح {provider} الخاص بك"
   },
   "cmd.edit": {
@@ -410,7 +410,7 @@
     "be": "Адкрыць framy прыватна",
     "ca": "Obre framy en privat",
     "zh": "私密打开 framy",
-    "ja": "framy を自分だけに開く",
+    "ja": "framy を個別チャットで開く",
     "ar": "افتح framy بشكل خاص"
   },
   "dm.ask": {
@@ -1274,7 +1274,7 @@
     "be": "Твае ключы",
     "ca": "Les teves claus",
     "zh": "你的密钥",
-    "ja": "あなたのキー",
+    "ja": "自分のキー",
     "ar": "مفاتيحك"
   },
   "home.keys_none": {
@@ -1526,7 +1526,7 @@
     "be": "Да 9 фота-ўзораў, да 1080p",
     "ca": "Fins a 9 fotos de referència, fins a 1080p",
     "zh": "最多 9 张参考照片，最高 1080p",
-    "ja": "参照写真は最大9枚、最大1080p",
+    "ja": "参照写真は最大 9 枚、最大 1080p",
     "ar": "حتى 9 صور مرجعية، حتى 1080p"
   },
   "note.alibaba/wan-3.0": {
@@ -1544,7 +1544,7 @@
     "be": "Да 30 с, да 1080p",
     "ca": "Fins a 30 s, fins a 1080p",
     "zh": "最长 30 秒，最高 1080p",
-    "ja": "最大30秒、最大1080p",
+    "ja": "最大 30 秒、最大 1080p",
     "ar": "حتى 30 ث، حتى 1080p"
   },
   "note.black-forest-labs/flux-3-image": {
@@ -1562,7 +1562,7 @@
     "be": "Да 10 фота-ўзораў, да 4K",
     "ca": "Fins a 10 fotos de referència, fins a 4K",
     "zh": "最多 10 张参考照片，最高 4K",
-    "ja": "参照写真は最大10枚、最大4K",
+    "ja": "参照写真は最大 10 枚、最大 4K",
     "ar": "حتى 10 صور مرجعية، حتى 4K"
   },
   "note.black-forest-labs/flux-3-image-klein": {
@@ -1580,7 +1580,7 @@
     "be": "Адкрытыя вагі, стабільныя персанажы, таньней, чым FLUX 3",
     "ca": "Pesos oberts, personatges coherents, més barat que FLUX 3",
     "zh": "开放权重，角色一致，比 FLUX 3 更便宜",
-    "ja": "オープンウェイト、キャラクターの一貫性、FLUX 3より安価",
+    "ja": "オープンウェイト、キャラクターの一貫性、FLUX 3 より安価",
     "ar": "أوزان مفتوحة، شخصيات متسقة، أرخص من FLUX 3"
   },
   "note.black-forest-labs/flux.2-flex": {
@@ -1616,7 +1616,7 @@
     "be": "Якасць вышэйшая, чым у 2 Pro",
     "ca": "Més qualitat que 2 Pro",
     "zh": "质量高于 2 Pro",
-    "ja": "2 Proより高品質",
+    "ja": "2 Pro より高品質",
     "ar": "جودة أعلى من 2 Pro"
   },
   "note.black-forest-labs/flux.2-pro": {
@@ -1652,7 +1652,7 @@
     "be": "Хутчэй і таньней, чым 5.0 Pro",
     "ca": "Més ràpid i barat que 5.0 Pro",
     "zh": "比 5.0 Pro 更快更便宜",
-    "ja": "5.0 Proより高速で低価格",
+    "ja": "5.0 Pro より高速で低価格",
     "ar": "أسرع وأرخص من 5.0 Pro"
   },
   "note.bytedance-seed/seedream-5-0-lite": {
@@ -1670,7 +1670,7 @@
     "be": "Складаныя запыты, веды з сеткі",
     "ca": "Prompts complexos, coneixement del web",
     "zh": "复杂提示词，调用网络知识",
-    "ja": "複雑なプロンプト、Webの知識",
+    "ja": "複雑なプロンプト、Web の知識",
     "ar": "طلبات معقدة، معرفة من الويب"
   },
   "note.bytedance-seed/seedream-5-0-pro": {
@@ -1706,7 +1706,7 @@
     "be": "Да 4K",
     "ca": "Fins a 4K",
     "zh": "最高 4K",
-    "ja": "最大4K",
+    "ja": "最大 4K",
     "ar": "حتى 4K"
   },
   "note.bytedance/seedance-2.0-fast": {
@@ -1724,7 +1724,7 @@
     "be": "Хутчэй і таньней, чым Seedance 2.0, да 720p",
     "ca": "Més ràpid i barat que Seedance 2.0, fins a 720p",
     "zh": "比 Seedance 2.0 更快更便宜，最高 720p",
-    "ja": "Seedance 2.0より高速で低価格、最大720p",
+    "ja": "Seedance 2.0 より高速で低価格、最大 720p",
     "ar": "أسرع وأرخص من Seedance 2.0، حتى 720p"
   },
   "note.bytedance/seedance-2.0-mini": {
@@ -1742,7 +1742,7 @@
     "be": "Таньней, чым 2.0 Fast, да 720p",
     "ca": "Més barat que 2.0 Fast, fins a 720p",
     "zh": "比 2.0 Fast 更便宜，最高 720p",
-    "ja": "2.0 Fastより低価格、最大720p",
+    "ja": "2.0 Fast より低価格、最大 720p",
     "ar": "أرخص من 2.0 Fast، حتى 720p"
   },
   "note.bytedance/seedance-2.5": {
@@ -1760,7 +1760,7 @@
     "be": "Да 30 с, правіць і падаўжае відэа",
     "ca": "Fins a 30 s, edita i allarga vídeos",
     "zh": "最长 30 秒，可编辑和延长视频",
-    "ja": "最大30秒、動画の編集と延長に対応",
+    "ja": "最大 30 秒、動画の編集と延長に対応",
     "ar": "حتى 30 ث، يحرر الفيديو ويمدده"
   },
   "note.google/gemini-3-pro-image": {
@@ -1778,7 +1778,7 @@
     "be": "На аснове Gemini 3 Pro",
     "ca": "Basat en Gemini 3 Pro",
     "zh": "基于 Gemini 3 Pro",
-    "ja": "Gemini 3 Proベース",
+    "ja": "Gemini 3 Pro ベース",
     "ar": "مبني على Gemini 3 Pro"
   },
   "note.google/gemini-3.1-flash-lite-image": {
@@ -1796,7 +1796,7 @@
     "be": "Хутчэй, чым Nano Banana 2.1, толькі 1K",
     "ca": "Més ràpid que Nano Banana 2.1, només 1K",
     "zh": "比 Nano Banana 2.1 更快，仅 1K",
-    "ja": "Nano Banana 2.1より高速、1Kのみ",
+    "ja": "Nano Banana 2.1 より高速、1K のみ",
     "ar": "أسرع من Nano Banana 2.1، 1K فقط"
   },
   "note.google/gemini-nano-banana-2.1": {
@@ -1814,7 +1814,7 @@
     "be": "Таньней, чым Nano Banana Pro, да 4K",
     "ca": "Més barat que Nano Banana Pro, fins a 4K",
     "zh": "比 Nano Banana Pro 更便宜，最高 4K",
-    "ja": "Nano Banana Proより低価格、最大4K",
+    "ja": "Nano Banana Pro より低価格、最大 4K",
     "ar": "أرخص من Nano Banana Pro، حتى 4K"
   },
   "note.google/veo-3.1": {
@@ -1832,7 +1832,7 @@
     "be": "Якасць вышэйшая, чым у 3.1 Fast, да 4K",
     "ca": "Més qualitat que 3.1 Fast, fins a 4K",
     "zh": "质量高于 3.1 Fast，最高 4K",
-    "ja": "3.1 Fastより高品質、最大4K",
+    "ja": "3.1 Fast より高品質、最大 4K",
     "ar": "جودة أعلى من 3.1 Fast، حتى 4K"
   },
   "note.google/veo-3.1-fast": {
@@ -1850,7 +1850,7 @@
     "be": "Хутчэй і таньней, чым Veo 3.1",
     "ca": "Més ràpid i barat que Veo 3.1",
     "zh": "比 Veo 3.1 更快更便宜",
-    "ja": "Veo 3.1より高速で低価格",
+    "ja": "Veo 3.1 より高速で低価格",
     "ar": "أسرع وأرخص من Veo 3.1"
   },
   "note.google/veo-3.1-lite": {
@@ -1868,7 +1868,7 @@
     "be": "Таньней, чым 3.1 Fast, да 1080p",
     "ca": "Més barat que 3.1 Fast, fins a 1080p",
     "zh": "比 3.1 Fast 更便宜，最高 1080p",
-    "ja": "3.1 Fastより低価格、最大1080p",
+    "ja": "3.1 Fast より低価格、最大 1080p",
     "ar": "أرخص من 3.1 Fast، حتى 1080p"
   },
   "note.krea/krea-2-large": {
@@ -1886,7 +1886,7 @@
     "be": "Больш чым удвая большая за Medium, больш тэкстурная",
     "ca": "Més del doble que Medium, més texturat",
     "zh": "规模超过 Medium 的两倍，质感更强",
-    "ja": "Mediumの2倍以上の規模、より質感豊か",
+    "ja": "Medium の 2 倍以上の規模、より質感豊か",
     "ar": "أكبر من Medium بأكثر من الضعف، وأكثر ملمسًا"
   },
   "note.krea/krea-2-medium": {
@@ -1904,7 +1904,7 @@
     "be": "Прыкладна ўдвая таньней, чым Large",
     "ca": "Costa aproximadament la meitat que Large",
     "zh": "价格约为 Large 的一半",
-    "ja": "Largeの約半額",
+    "ja": "Large の約半額",
     "ar": "بنحو نصف سعر Large"
   },
   "note.krea/krea-2-medium-turbo": {
@@ -1940,7 +1940,7 @@
     "be": "Якасць вышэйшая, чым у 3.0 Standard",
     "ca": "Més qualitat que 3.0 Standard",
     "zh": "质量高于 3.0 Standard",
-    "ja": "3.0 Standardより高品質",
+    "ja": "3.0 Standard より高品質",
     "ar": "جودة أعلى من 3.0 Standard"
   },
   "note.kwaivgi/kling-v3.0-std": {
@@ -1958,7 +1958,7 @@
     "be": "Таньней, чым 3.0 Pro",
     "ca": "Més barat que 3.0 Pro",
     "zh": "比 3.0 Pro 更便宜",
-    "ja": "3.0 Proより低価格",
+    "ja": "3.0 Pro より低価格",
     "ar": "أرخص من 3.0 Pro"
   },
   "note.microsoft/mai-image-2.6": {
@@ -1976,7 +1976,7 @@
     "be": "Дакладней, чым 2.6 Flash, для дызайну",
     "ca": "Més precís que 2.6 Flash, per a disseny",
     "zh": "比 2.6 Flash 更精确，适合设计",
-    "ja": "2.6 Flashより正確、デザイン向け",
+    "ja": "2.6 Flash より正確、デザイン向け",
     "ar": "أدق من 2.6 Flash، للتصميم"
   },
   "note.microsoft/mai-image-2.6-flash": {
@@ -1994,7 +1994,7 @@
     "be": "Хутчэй і таньней, чым MAI-Image 2.6, якасць блізкая",
     "ca": "Més ràpid i barat que MAI-Image 2.6, qualitat similar",
     "zh": "比 MAI-Image 2.6 更快更便宜，质量相近",
-    "ja": "MAI-Image 2.6より高速で低価格、品質は同程度",
+    "ja": "MAI-Image 2.6 より高速で低価格、品質は同程度",
     "ar": "أسرع وأرخص من MAI-Image 2.6، بجودة مقاربة"
   },
   "note.minimax/hailuo-3": {
@@ -2030,7 +2030,7 @@
     "be": "Хутчэй, чым H3, толькі тэкст і фота",
     "ca": "Més ràpid que H3, només text i fotos",
     "zh": "比 H3 更快，仅限文字和照片",
-    "ja": "H3より高速、テキストと写真のみ",
+    "ja": "H3 より高速、テキストと写真のみ",
     "ar": "أسرع من H3، نص وصور فقط"
   },
   "note.openai/gpt-image-2.5-flare": {
@@ -2048,7 +2048,7 @@
     "be": "Хутчэй, чым 2.5 Sunburst, на кожны дзень",
     "ca": "Més ràpid que 2.5 Sunburst, per al dia a dia",
     "zh": "比 2.5 Sunburst 更快，适合日常使用",
-    "ja": "2.5 Sunburstより高速、日常使い向け",
+    "ja": "2.5 Sunburst より高速、日常使い向け",
     "ar": "أسرع من 2.5 Sunburst، للاستخدام اليومي"
   },
   "note.openai/gpt-image-2.5-sunburst": {
@@ -2066,7 +2066,7 @@
     "be": "Дакладней у дэталях, чым 2.5 Flare",
     "ca": "Més precís en els detalls que 2.5 Flare",
     "zh": "细节比 2.5 Flare 更精确",
-    "ja": "2.5 Flareよりディテールが正確",
+    "ja": "2.5 Flare よりディテールが正確",
     "ar": "أدق في التفاصيل من 2.5 Flare"
   },
   "note.openai/gpt-image-2.6-flare": {
@@ -2120,7 +2120,7 @@
     "be": "Якасць вышэйшая, чым у 2.1 Turbo",
     "ca": "Més qualitat que 2.1 Turbo",
     "zh": "质量高于 2.1 Turbo",
-    "ja": "2.1 Turboより高品質",
+    "ja": "2.1 Turbo より高品質",
     "ar": "جودة أعلى من 2.1 Turbo"
   },
   "note.qwen/qwen-image-2.1-turbo": {
@@ -2138,7 +2138,7 @@
     "be": "Хутчэй і таньней, чым 2.1 Pro",
     "ca": "Més ràpid i barat que 2.1 Pro",
     "zh": "比 2.1 Pro 更快更便宜",
-    "ja": "2.1 Proより高速で低価格",
+    "ja": "2.1 Pro より高速で低価格",
     "ar": "أسرع وأرخص من 2.1 Pro"
   },
   "note.qwen/qwen-image-3": {
@@ -2156,7 +2156,7 @@
     "be": "Тэкст і дэталі ад 10 px",
     "ca": "Text i detalls des de 10 px",
     "zh": "小至 10 px 的文字和细节",
-    "ja": "10pxの小さな文字やディテール",
+    "ja": "10px の小さな文字やディテール",
     "ar": "نص وتفاصيل صغيرة حتى 10 px"
   },
   "note.qwen/qwen-image-3-pro": {
@@ -2210,7 +2210,7 @@
     "be": "Стыль узору, узровень Pro",
     "ca": "Estil de referència, nivell Pro",
     "zh": "参考风格，Pro 级别",
-    "ja": "参照スタイル、Proレベル",
+    "ja": "参照スタイル、Pro レベル",
     "ar": "أسلوب مرجعي، مستوى Pro"
   },
   "note.recraft/recraft-v4-styles-pro-vector": {
@@ -2228,7 +2228,7 @@
     "be": "Стыль узору ў SVG, узровень Pro",
     "ca": "Estil de referència en SVG, nivell Pro",
     "zh": "参考风格，输出 SVG，Pro 级别",
-    "ja": "参照スタイルをSVGで、Proレベル",
+    "ja": "参照スタイルを SVG で、Pro レベル",
     "ar": "أسلوب مرجعي بصيغة SVG، مستوى Pro"
   },
   "note.recraft/recraft-v4-styles-vector": {
@@ -2246,7 +2246,7 @@
     "be": "Стыль узору ў SVG",
     "ca": "Estil de referència en SVG",
     "zh": "参考风格，输出 SVG",
-    "ja": "参照スタイルをSVGで",
+    "ja": "参照スタイルを SVG で",
     "ar": "أسلوب مرجعي بصيغة SVG"
   },
   "note.recraft/recraft-v4.1": {
@@ -2282,7 +2282,7 @@
     "be": "~1,5 секунды, толькі тэкст, ~1K",
     "ca": "~1,5 s, només text, ~1K",
     "zh": "~1.5 秒，仅文本，~1K",
-    "ja": "~1.5秒、テキストのみ、~1K",
+    "ja": "~1.5 秒、テキストのみ、~1K",
     "ar": "~1.5 ثانية، نص فقط، ~1K"
   },
   "note.recraft/recraft-v4.1-pro": {
@@ -2318,7 +2318,7 @@
     "be": "SVG, узровень Pro",
     "ca": "SVG, nivell Pro",
     "zh": "SVG，Pro 级别",
-    "ja": "SVG、Proレベル",
+    "ja": "SVG、Pro レベル",
     "ar": "SVG، مستوى Pro"
   },
   "note.recraft/recraft-v4.1-utility": {
@@ -2390,7 +2390,7 @@
     "be": "Хутчэй і таньней, чым 2.6 Pro, да 2K",
     "ca": "Més ràpid i barat que 2.6 Pro, fins a 2K",
     "zh": "比 2.6 Pro 更快更便宜，最高 2K",
-    "ja": "2.6 Proより高速で低価格、最大2K",
+    "ja": "2.6 Pro より高速で低価格、最大 2K",
     "ar": "أسرع وأرخص من 2.6 Pro، حتى 2K"
   },
   "note.sourceful/riverflow-v2.6-pro": {
@@ -2426,7 +2426,7 @@
     "be": "Да 7 фота-ўзораў, да 720p",
     "ca": "Fins a 7 fotos de referència, fins a 720p",
     "zh": "最多 7 张参考照片，最高 720p",
-    "ja": "参照写真は最大7枚、最大720p",
+    "ja": "参照写真は最大 7 枚、最大 720p",
     "ar": "حتى 7 صور مرجعية، حتى 720p"
   },
   "note.x-ai/grok-imagine-video-1.5": {
@@ -2462,7 +2462,7 @@
     "be": "Хутчэй і таньней, чым Grok Imagine Video 1.5",
     "ca": "Més ràpid i barat que Grok Imagine Video 1.5",
     "zh": "比 Grok Imagine Video 1.5 更快更便宜",
-    "ja": "Grok Imagine Video 1.5より高速で低価格",
+    "ja": "Grok Imagine Video 1.5 より高速で低価格",
     "ar": "أسرع وأرخص من Grok Imagine Video 1.5"
   },
   "panel.free_fixed": {
@@ -2516,7 +2516,7 @@
     "be": "На сваім ключы: яшчэ {n}",
     "ca": "Amb la teva clau: {n} més",
     "zh": "使用你自己的密钥：另有 {n} 个",
-    "ja": "自分のキーで：あと{n}個",
+    "ja": "自分のキーで：あと {n} 個",
     "ar": "بمفتاحك الخاص: {n} أخرى"
   },
   "result.animate": {
@@ -3002,7 +3002,7 @@
     "be": "{price} · твой ключ {provider}",
     "ca": "{price} · la teva clau de {provider}",
     "zh": "{price} · 你的 {provider} 密钥",
-    "ja": "{price} · あなたの {provider} キー",
+    "ja": "{price} · 自分の {provider} キー",
     "ar": "{price} · مفتاح {provider} الخاص بك"
   },
   "run.price_unknown": {
@@ -3038,7 +3038,7 @@
     "be": "framy перазапускаецца і не паспеў гэта прыняць. Адпраў яшчэ раз праз хвіліну.",
     "ca": "framy s’està reiniciant i no ho ha pogut rebre. Torna-ho a enviar d’aquí a un minut.",
     "zh": "framy 正在重启，没能接收这条消息。请一分钟后再发一次。",
-    "ja": "framy は再起動中のため、これを受け付けられませんでした。1分後にもう一度送ってください。",
+    "ja": "framy は再起動中のため、これを受け付けられませんでした。1 分後にもう一度送ってください。",
     "ar": "يُعاد تشغيل framy ولم يتمكن من استلام هذا. أرسله مرة أخرى بعد دقيقة."
   },
   "run.setting_gone": {
@@ -3128,7 +3128,7 @@
     "be": "Мадэль ужо пачала працу, таму запуск працягнецца і яго аплаціць твой ключ {provider}. Вынік трапіць у тваю бібліятэку на сайце, а не ў чат.",
     "ca": "El model ja havia començat, així que la generació continua i la paga la teva clau de {provider}. El resultat va a la teva biblioteca del web, no al xat.",
     "zh": "模型已经开始运行，所以这次生成会继续，费用由你的 {provider} 密钥支付。结果会进入你在网站上的作品库，不会发到聊天里。",
-    "ja": "モデルはすでに動き出していたため、生成は続き、料金はあなたの {provider} キーに請求されます。結果はチャットではなく、サイトのライブラリに入ります。",
+    "ja": "モデルはすでに動き出していたため、生成は続き、料金は自分の {provider} キーに請求されます。結果はチャットではなく、サイトのライブラリに入ります。",
     "ar": "كان النموذج قد بدأ بالفعل، لذا تستمر العملية ويدفع ثمنها مفتاح {provider} الخاص بك. ستذهب النتيجة إلى مكتبتك على الموقع، لا إلى الدردشة."
   },
   "run.stopped_video": {
@@ -3686,7 +3686,7 @@
     "be": "Новая частка",
     "ca": "Tram nou",
     "zh": "新片段",
-    "ja": "新しいパート",
+    "ja": "新しい区間",
     "ar": "الجزء الجديد"
   },
   "web.act.pick_part": {
@@ -4478,7 +4478,7 @@
     "be": "Які край рухаць пакадрава",
     "ca": "Extrem que es mou per fotogrames",
     "zh": "逐帧移动的端点",
-    "ja": "コマ単位で動かす端",
+    "ja": "フレーム単位で動かす端",
     "ar": "الحافة التي تتحرك إطارًا إطارًا"
   },
   "web.cut.end": {
@@ -4802,7 +4802,7 @@
     "be": "Патрэбны твой кліп",
     "ca": "Cal el teu clip",
     "zh": "需要你的片段",
-    "ja": "あなたのクリップが必要です",
+    "ja": "自分のクリップが必要です",
     "ar": "مقطعك مطلوب"
   },
   "web.det.first": {
@@ -4856,7 +4856,7 @@
     "be": "Фота пачатку і канца",
     "ca": "Fotogrames",
     "zh": "首尾帧",
-    "ja": "フレーム",
+    "ja": "最初と最後のフレーム",
     "ar": "صورتا البداية والنهاية"
   },
   "web.det.free": {
@@ -5450,7 +5450,7 @@
     "be": "Змяняе твой кліп",
     "ca": "Canvia el teu clip",
     "zh": "修改你的片段",
-    "ja": "あなたのクリップを変更する",
+    "ja": "自分のクリップを変更する",
     "ar": "يعدّل مقطعك"
   },
   "web.fact.free": {
@@ -5540,7 +5540,7 @@
     "be": "Прымае твой кліп",
     "ca": "Accepta el teu clip",
     "zh": "接受你的片段",
-    "ja": "あなたのクリップを使える",
+    "ja": "自分のクリップを使える",
     "ar": "يقبل مقطعك"
   },
   "web.fact.photo_one": {
@@ -8384,7 +8384,7 @@
     "be": "Праз framy: усяго {all}, за 30 дзён {month}",
     "ca": "Mitjançant framy: {all} en total, {month} en 30 dies",
     "zh": "通过 framy：共 {all}，近 30 天 {month}",
-    "ja": "framy 経由：合計 {all}、直近30日 {month}",
+    "ja": "framy 経由：合計 {all}、直近 30 日 {month}",
     "ar": "عبر framy: الإجمالي {all}، آخر 30 يومًا {month}"
   },
   "web.key.works": {
@@ -9464,7 +9464,7 @@
     "be": "Твой ключ …{last4}",
     "ca": "La teva clau …{last4}",
     "zh": "你的密钥 …{last4}",
-    "ja": "あなたのキー …{last4}",
+    "ja": "自分のキー …{last4}",
     "ar": "مفتاحك …{last4}"
   },
   "web.pick.by_maker": {
@@ -13820,7 +13820,7 @@
     "be": "{i} з {n}",
     "ca": "{i} de {n}",
     "zh": "{i} / {n}",
-    "ja": "{n}件中{i}件目",
+    "ja": "{n} 件中 {i} 件目",
     "ar": "{i} من {n}"
   },
   "web.view.prev": {
