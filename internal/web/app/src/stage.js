@@ -3,7 +3,7 @@
 // or why there is none, with the buttons that fit.
 import { $, $$, h, ic, isPhone, docked, inFlow, keepFocus } from "./dom.js";
 import { anim, rise, snap, EASE, motion, DUR } from "./motion.js";
-import { t, fmtNum, fmtSecs } from "./i18n.js";
+import { t, fmtNum, fmtSecs, fmtList } from "./i18n.js";
 import { C, vname, famLogo, lg, ratioNum, ratioOfSize, PNAME, provMark, show, SICON } from "./catalog.js";
 import { S, M, payOf, settings, sourceRatio, connection, keyToConnect, FR, MAXFR, scopeFr, plan } from "./state.js";
 import { isFinal, outsOf, POLL_MS } from "./api.js";
@@ -511,7 +511,7 @@ function renderPress(st, run) {
   // has others.
   const gj = new Map();
   for (const c of live) { const j = c.sub.job; if (j?.grounding) { if (!gj.has(j.id)) gj.set(j.id, { j, ns: [] }); gj.get(j.id).ns.push(fmtNum(c.i + 1)); } }
-  const gr = [...gj.values()].map(({ j, ns }) => grounding(j, ns.length < live.length ? ns.join(", ") : ""));
+  const gr = [...gj.values()].map(({ j, ns }) => grounding(j, ns.length < live.length ? fmtList(ns) : ""));
   const under = UNDER + groundRoom([...gj.values()].map((x) => x.j));
   const rs = live.map((c) => c.r), box = h("div", { class: "board run", "data-k": "pv" }, live.map((c) => runCell(run, c, mixed, items)));
   const size = live.length > 1 ? (u) => { const L = board(rs, u); lay(box, L); return L.h; }
@@ -523,7 +523,7 @@ function renderPress(st, run) {
   const parts = over ? paidJobs.map((j) => (j.cost?.label ? { ...j.cost, kind: "exact" } : zero(j) ? { kind: "exact", usd: 0, max_usd: 0, amount: 0, max_amount: 0, currency: j.estimate?.currency || "USD", label: zeroOf(j.estimate?.label) } : null)) : [];
   const cost = parts.length && parts.every(Boolean) ? sumOf(parts).label
     : paidJobs.length || run.frames.some((fm) => fm.pay !== "free") ? run.shownLabel : t("bar.free");
-  const line = h("p", { class: "jline", "data-k": "j-line" }, [models.map((id) => (C.byId[id] ? vname(C.byId[id]) : "")).filter(Boolean).join(", "), cost].filter(Boolean).join(" · "),
+  const line = h("p", { class: "jline", "data-k": "j-line" }, [fmtList(models.map((id) => (C.byId[id] ? vname(C.byId[id]) : "")).filter(Boolean), "narrow"), cost].filter(Boolean).join(" · "),
     going && run.net === "poll" ? pollTag() : null);
   const why = failed.length ? h("div", { class: "jwhy", "data-k": "j-why" }, failed.map((c) => h("p", {}, t("fr.failed", { n: c.i + 1, why: c.v.status?.querySelector("b")?.textContent || "" })))) : null;
   const queued = run.phase === "prep" ? !run.sending : js.some((j) => j.status === "queued");

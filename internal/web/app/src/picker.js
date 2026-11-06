@@ -3,7 +3,7 @@
 // shows its card on the right.
 import { $, $$, h, ic, isWide, keepFocus } from "./dom.js";
 import { anim, rise, morph, opt, placeSegs, placeSeg, fly, ticker, EASE, OUT, SPRING, DUR } from "./motion.js";
-import { t, fmtNum, byName, lang, spaced } from "./i18n.js";
+import { t, fmtNum, fmtList, byName, lang, spaced } from "./i18n.js";
 import { C, PNAME, vname, famText, famLogo, lg, provMark, freePlan, facts, refsOf, framesOf, needsImage, needsVideo, resRangeOf, durRangeOf, union, hasAudio, deprecation, fieldsOf, label } from "./catalog.js";
 import { S, M, images, payOf, keyOk, settings, altItem, misfit, famMisfit, freePer, refuses } from "./state.js";
 import { minEl, lowest, need } from "./price.js";
@@ -234,7 +234,7 @@ function detail(f) {
   }
   rows.push(["key", t("det.keys"), m.offers.map((o) => h("span", { class: "prov" }, provMark(o.provider), PNAME[o.provider] || o.provider))]);
   const sets = [...new Set(m.offers.flatMap(fieldsOf))];
-  if (sets.length) rows.push(["sliders", t("det.settings"), sets.map(label).join(", ")]);
+  if (sets.length) rows.push(["sliders", t("det.settings"), fmtList(sets.map(label))]);
   const isCur = cur === m.id, why = fit(m), many = f.vars.length > 1;
   const sub = [f.maker, vs.length > 1 ? t("pick.versions", { n: vs.length }) : ""].filter(Boolean).join(" · ");
   return h("div", { class: "det" },

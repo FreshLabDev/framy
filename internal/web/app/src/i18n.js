@@ -34,6 +34,13 @@ export function t(key, vars) {
 const fmts = new Map();
 const made = (k, make) => { let f = fmts.get(k); if (!f) fmts.set(k, (f = make())); return f; };
 export const fmtNum = (n, o) => made("n" + lang + JSON.stringify(o || {}), () => (fill ? fill.numFormat(o) : new Intl.NumberFormat(lang, o))).format(n);
+// A list inside a sentence, as the language writes one: "Size, Quality and Background",
+// "1、3" in Japanese, "A وB" in Arabic. A browser without ListFormat joins with commas.
+export const fmtList = (items, style = "long") => {
+  const xs = items.map(String);
+  if (!Intl.ListFormat) return xs.join(", ");
+  return made("l" + lang + style, () => new Intl.ListFormat(lang, { type: "conjunction", style })).format(xs);
+};
 export const byName = (a, b) => made("c" + lang, () => new Intl.Collator(lang)).compare(a, b);
 // The first formatter of a language loads its data: done while the page is
 // idle, not on the first switch.

@@ -53,7 +53,7 @@ func TestBrowserFramesGrounded(t *testing.T) {
 	const g = [...document.querySelectorAll("#stage .ground")];
 	return { ...s, blocks: g.length, num: g[0]?.querySelector(".gnum")?.textContent || "", frames: g[0]?.querySelectorAll("iframe.gsug").length || 0,
 	  sources: g[0]?.querySelectorAll(".gsrc a").length || 0, fits: document.querySelector("#stage .jacts").getBoundingClientRect().bottom <= innerHeight };`)
-	if s["timeout"] == true || s["blocks"] != float64(1) || s["num"] != "1, 3" || s["frames"] != float64(1) || s["sources"] != float64(1) || s["fits"] != true {
+	if s["timeout"] == true || s["blocks"] != float64(1) || s["num"] != "1 and 3" || s["frames"] != float64(1) || s["sources"] != float64(1) || s["fits"] != true {
 		t.Errorf("grounded press: %v", s)
 	}
 	noErrors(t, ctx)

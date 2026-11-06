@@ -3,7 +3,7 @@
 // glide from where they stood to where they stand now.
 import { $, $$, h, ic, isPhone, inFlow, MAC, keepFocus } from "./dom.js";
 import { anim, rise, spin, opt, placeSegs, placeSeg, fitSegs, snap, ticker, roll, follow, EASE, SPRING, OUT, motion, DUR } from "./motion.js";
-import { t, fmtNum, fmtIn, fmtSecs, spaced } from "./i18n.js";
+import { t, fmtNum, fmtIn, fmtSecs, fmtList, spaced } from "./i18n.js";
 import { C, PNAME, vname, famLogo, lg, provMark, freePlan, pays, offerOf, facts, factEl, deprecation, fieldsOf, SECONDARY, SEARCH, SICON,
   label, show, ordered, ratioNum, ratioOfSize, sizeK, resScore, needsVideo, OPEN, SEED_MAX } from "./catalog.js";
 import { S, M, images, clip, payOf, usable, keyOk, connection, freeLeft, freeLimit, freesAt, freePer, settings, route, runItem, altItem, next, sourceRatio, quoteNow,
@@ -400,7 +400,7 @@ export function framesNote(P = plan(), phone = isPhone()) {
   }
   const owned = P.filter((it) => hasOwn(it.fr));
   if (!owned.length) return null;
-  return h("p", { class: "fnote", "data-k": "h-fnote" }, t("fr.owned", { list: owned.map((it) => it.i + 1).join(", ") }) + " ",
+  return h("p", { class: "fnote", "data-k": "h-fnote" }, t("fr.owned", { list: fmtList(owned.map((it) => it.i + 1)) }) + " ",
     h("button", { type: "button", class: "link-t", onclick: () => act(() => { owned.forEach((it) => (it.fr.own = { wanted: {} })); render(); }) }, t("fr.make_same")));
 }
 // Another frame: the form slides to it, its frame on the stage answers, the card's name rolls.
@@ -507,7 +507,7 @@ function settingsBlock(m, pay) {
     const open = fieldsOf(o).filter((x) => !(x in fixed));
     if (open.includes("aspect_ratio") || open.includes("size")) parts.push(t("free.model_picks"));
     const keyed = m.offers.find((x) => keyOk(x.provider)) || m.offers[0];
-    box.append(h("p", { class: "fixedline", "data-k": "h-fixed" }, t("free.line", { what: parts.join(", ") || t("free.defaults") }) + " ",
+    box.append(h("p", { class: "fixedline", "data-k": "h-fixed" }, t("free.line", { what: parts.length ? fmtList(parts) : t("free.defaults") }) + " ",
       open.length && pays(m).length > 1 ? h("button", { type: "button", class: "link-t", onclick: () => act(() => { setPayHere(m, keyed.provider); render(); }) }, t("free.tune")) : null));
     return box;
   }
@@ -655,7 +655,7 @@ function fieldBits(name, v, src) {
   if (fr && name in fr.own.wanted) bits.push(ownMark(fr, () => delete fr.own.wanted[name]));
   else if (!fr && FR().length > 1) {
     const by = plan().filter((it) => name in it.fr.own.wanted && it.pay !== "free" && name in it.set).map((it) => it.i + 1);
-    if (by.length) bits.push(right(t("fr.differ", { list: by.join(", ") })));
+    if (by.length) bits.push(right(t("fr.differ", { list: fmtList(by) })));
   }
   if (!src) return bits;
   // The shape follows the first photo, else the clip.
@@ -673,11 +673,11 @@ function sizeFields(m, pay, o, s) {
   const byK = (r) => all.filter((x) => ratioOfSize(x) === r).sort((a, b) => Math.abs(resScore(sizeK(a)) - resScore(ck)) - Math.abs(resScore(sizeK(b)) - resScore(ck)))[0];
   const byR = (k) => all.filter((x) => sizeK(x) === k).sort((a, b) => Math.abs(Math.log(ratioNum(ratioOfSize(a)) / ratioNum(cr))) - Math.abs(Math.log(ratioNum(ratioOfSize(b)) / ratioNum(cr))))[0];
   const shapes = ratioControl("size-r", { values: R }, cr, (r) => set(find(r, ck) || byK(r)), null,
-    (r) => (find(r, ck) ? null : t("set.only_in", { v: r, list: K.filter((k) => find(r, k)).join(", ") })));
+    (r) => (find(r, ck) ? null : t("set.only_in", { v: r, list: fmtList(K.filter((k) => find(r, k))) })));
   const has = (k) => R.filter((r) => find(r, k));
   const kseg = stepSlider("resolution", K, ck, (k) => setWanted("size", find(cr, k) || byR(k)),
-    (k) => h("small", {}, find(cr, k) ? priceEl(altItem(m, pay, { ...s, size: find(cr, k) })) : has(k).join(", ")),
-    (k) => (find(cr, k) ? null : t("set.only_at", { v: k, list: has(k).join(", ") })));
+    (k) => h("small", {}, find(cr, k) ? priceEl(altItem(m, pay, { ...s, size: find(cr, k) })) : fmtList(has(k))),
+    (k) => (find(cr, k) ? null : t("set.only_at", { v: k, list: fmtList(has(k)) })));
   return [fieldSec("size", label("aspect_ratio"), "ratio", fieldBits("size", v, src), shapes), fieldSec("size-k", label("resolution"), "res", [], kseg)];
 }
 function ratioControl(name, p, v, set, src, gapOf = () => null) {
