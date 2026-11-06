@@ -12,7 +12,6 @@ import (
 	"image"
 	"image/color"
 	"image/png"
-	"math"
 	"net/http"
 	"regexp"
 	"slices"
@@ -777,7 +776,8 @@ func TestBrowserLibrarySmooth(t *testing.T) {
 					ready(t, ctx)
 				}
 				js[any](t, ctx, pageHelpers+`await wait(1500); return 1;`)
-				runs = append(runs, js[map[string]float64](t, ctx, libHelpers+`
+				before := pace(t, ctx)
+				run := js[map[string]float64](t, ctx, libHelpers+`
 	let marks = [];
 	const step = async (name, fn, ms = 900) => {
 	  marks.push([name, performance.now()]);
@@ -813,7 +813,8 @@ func TestBrowserLibrarySmooth(t *testing.T) {
 	    const m = marks.filter((x) => x[1] <= at).pop();
 	    if (m && m[0] !== "end") run[m[0]] = Math.max(run[m[0]], ms);
 	  }
-	  return run;`))
+	  return run;`)
+				runs = append(runs, paced(run, before, pace(t, ctx)))
 			}
 			// A task known to be long, to show the observer works here.
 			if !js[bool](t, ctx, pageHelpers+`window.__long = [];
@@ -838,7 +839,7 @@ func TestBrowserLibrarySmooth(t *testing.T) {
 					}
 				}
 				if best > 0 {
-					worst = append(worst, task{name, math.Round(best * scale)})
+					worst = append(worst, task{name, best})
 				}
 			}
 			for _, l := range worst {

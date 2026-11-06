@@ -648,6 +648,24 @@ func slowCPU(t *testing.T, ctx context.Context) float64 {
 	return scale
 }
 
+// pace says what a time measured now is multiplied by to count on the
+// laptop, once slowCPU has set the pace. A machine that got busy with
+// something else since (another test binary, a build) does the same work
+// slower than slowCPU saw, and its times count down by as much.
+func pace(t *testing.T, ctx context.Context) float64 {
+	t.Helper()
+	return min(1, 4*cpuRef/js[float64](t, ctx, cpuWork))
+}
+
+// paced multiplies each time of run by the slower pace of the two around it.
+func paced(run map[string]float64, before, after float64) map[string]float64 {
+	f := min(before, after)
+	for k, v := range run {
+		run[k] = math.Round(v * f)
+	}
+	return run
+}
+
 // cpuWork is the kind of work the steps do: it builds rows of text, has the
 // browser style and lay them out, and reads them back. The best of three, in
 // ms, so a cold start does not count. A CI runner is slower at this than at
@@ -677,11 +695,13 @@ return best;`
 //
 // The CPU is slowed until cpuWork takes four times cpuRef. A machine that is
 // slower than that already, like a CI runner, is not slowed, and its times
-// are brought down to the laptop's by the same ratio. The steps run twice,
-// each time on the page loaded afresh, so the first, cold opening of the
-// picker (its rows built, its marks drawn for the first time) counts as a
-// person meets it; each step counts its better run, so one hiccup of a shared
-// runner does not fail it.
+// are brought down to the laptop's by the same ratio. The pace is measured
+// again around each run, so a machine that got busy with something else in
+// the meantime (another test binary, a build) counts its slower steps at the
+// laptop's speed too. The steps run three times, each time on the page
+// loaded afresh, so the first, cold opening of the picker (its rows built,
+// its marks drawn for the first time) counts as a person meets it; each step
+// counts its best run, so one hiccup of a shared runner does not fail it.
 func TestBrowserSmooth(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -709,16 +729,17 @@ func TestBrowserSmooth(t *testing.T) {
 				Step string  `json:"step"`
 				MS   float64 `json:"ms"`
 			}
-			// For each step, the longest task of each run.
+			// For each step, the longest task of each run, in the laptop's ms.
 			var runs []map[string]float64
-			for n := range 2 {
+			for n := range 3 {
 				if n > 0 {
 					if _, err := chromedp.Run(ctx, chromedp.Reload()); err != nil {
 						t.Fatal(err)
 					}
 					ready(t, ctx)
 				}
-				runs = append(runs, js[map[string]float64](t, ctx, pageHelpers+`
+				before := pace(t, ctx)
+				run := js[map[string]float64](t, ctx, pageHelpers+`
 	// Each step starts in a task of its own, so every task that begins after
 	// its mark and before the next one is that step's.
 	let marks = [];
@@ -747,7 +768,8 @@ func TestBrowserSmooth(t *testing.T) {
 	  const m = marks.filter((x) => x[1] <= at).pop();
 	  if (m && m[0] !== "end") run[m[0]] = Math.max(run[m[0]], ms);
 	}
-	return run;`))
+	return run;`)
+				runs = append(runs, paced(run, before, pace(t, ctx)))
 			}
 			// A task known to be long, to show the observer works here, and
 			// that the page loaded again is as slow as the first.
@@ -769,7 +791,7 @@ func TestBrowserSmooth(t *testing.T) {
 					}
 				}
 				if best > 0 {
-					worst = append(worst, task{name, math.Round(best * scale)})
+					worst = append(worst, task{name, best})
 				}
 			}
 			for _, l := range worst {

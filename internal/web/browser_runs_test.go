@@ -1565,7 +1565,8 @@ func TestBrowserRunSmooth(t *testing.T) {
 		runs := &fakeRuns{}
 		ts := fakeSite(t, runs.mount)
 		ctx := browser(t, ts.URL, size[0], size[1], size[0] < 960)
-		scale := slowCPU(t, ctx)
+		slowCPU(t, ctx)
+		before := pace(t, ctx)
 		s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
 	await wait(2500); // the idle prefetch of the picker's prices
 	// Two runs, as TestBrowserSmooth's steps: a hiccup of a shared runner
@@ -1587,6 +1588,7 @@ func TestBrowserRunSmooth(t *testing.T) {
 		if s["works"] != true {
 			t.Fatal("the browser reports no long tasks, so the check cannot work")
 		}
+		scale := min(before, pace(t, ctx))
 		// The better run counts: its longest task, on the laptop.
 		worst := math.Inf(1)
 		for _, run := range s["long"].([]any) {
