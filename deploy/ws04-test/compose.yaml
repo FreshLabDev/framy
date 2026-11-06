@@ -65,6 +65,11 @@ services:
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
+    # As production's: the image cannot be written to, only the volumes
+    # below and /tmp.
+    read_only: true
+    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=1777,size=64m,noexec,nosuid
     # Four of the host's twelve cores, so a burst of clips leaves the rest
     # to core-postgres and the other stacks; Go's GOMAXPROCS follows the
     # limit, and ffmpeg is told its threads (internal/media). Each ffmpeg

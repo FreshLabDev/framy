@@ -86,6 +86,13 @@ services:
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
+    # The image's own files cannot be written to: everything framy writes is
+    # in the mounts below (work, anim, the Bot API link), so code run through
+    # a flaw in a decoder cannot leave a file in the image until the next
+    # restart. A run of the media tests in the image has the same rule
+    # (.github/scripts/media-tests.sh). Nothing was found in the container's
+    # own layer after days of running but the mount points themselves.
+    read_only: true
     # Four of the host's twelve cores, so a burst of clips leaves the rest
     # to core-postgres and the other stacks; Go's GOMAXPROCS follows the
     # limit, and ffmpeg is told its threads (internal/media). Each ffmpeg
@@ -132,6 +139,9 @@ services:
     # Holds nothing but framy's link to the bot's directory.
     tmpfs:
       - /var/lib/telegram-bot-api-files:uid=101,gid=101,mode=0700,size=64k,noexec,nosuid
+      # The only other place to write. Nothing uses it today; it is there for
+      # a library that wants a temporary file, and it counts against mem_limit.
+      - /tmp:uid=101,gid=101,mode=1777,size=64m,noexec,nosuid
     expose:
       - "8080"
     networks: [core_net, management, telegram_bot_api_net]
