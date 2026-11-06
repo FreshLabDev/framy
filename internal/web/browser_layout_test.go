@@ -1017,7 +1017,8 @@ function rowFaults() {
     if (!l) lines.push((l = { top: br.top, items: [] }));
     l.items.push(b);
     const t = b.querySelector(".t");
-    if (t && t.offsetParent && t.scrollWidth > t.clientWidth + 1) bad.push("cut: " + t.textContent);
+    // Download gone square (stage.js, tighten) keeps its word for a screen reader only.
+    if (t && t.offsetParent && !b.matches(".tight > .primary") && t.scrollWidth > t.clientWidth + 1) bad.push("cut: " + t.textContent);
   }
   const name = (b) => b.getAttribute("aria-label") || b.textContent.trim();
   for (const l of lines) {
@@ -1037,7 +1038,8 @@ function rowFaults() {
 // result, a failed run and a refused one on the stage and in the viewer:
 // every line reaches both ends of the row, the squares stand together, on
 // the line of the buttons with words while they fit and on their own line
-// when not, a square is never alone on a line, and no words are cut.
+// when not (under a result Download goes square instead, its arrow enough),
+// a square is never alone on a line, and no words are cut.
 func TestBrowserActionRows(t *testing.T) {
 	for _, c := range []struct {
 		lang string

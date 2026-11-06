@@ -564,12 +564,14 @@ const UNDER = 70;
 // word of Download pushes the squares to a line of their own, Download goes square too (app.css,
 // .tight): the row stays one line over the dock, so the frame keeps the size it was made at.
 // Whether the word fits depends on the language and the width, so it is measured, not guessed.
+// Only Download, whose arrow says it all: the first button of a failed run ("Top up OpenRouter",
+// "Try again") keeps its words, and its squares take the next line.
 function tighten(st) {
   const acts = st.querySelector(":scope > .jfoot > .jacts");
   if (!acts) return;
   acts.classList.remove("tight");
   const first = acts.firstElementChild, last = acts.lastElementChild;
-  if (!isPhone() || first === last || !first?.classList.contains("primary") || !last?.classList.contains("sqs")) return;
+  if (!isPhone() || first === last || !first?.matches(".primary[data-dl]") || !last?.classList.contains("sqs")) return;
   if (last.offsetTop > first.offsetTop + 4) acts.classList.add("tight");
 }
 function roomUnder(st, size, under = UNDER) {
@@ -642,12 +644,12 @@ export function download(j, res, i = 0, o = {}) {
   const label = o.label || t("stage.download"), cls = o.cls || "primary", aria = cls.startsWith("sq") ? label : null;
   const kids = [ic("down"), h("span", { class: "t" }, label)], tg = S.tg;
   if (res.download && tg?.downloadFile && tg.isVersionAtLeast?.("8.0")) {
-    const b = h("button", { type: "button", class: cls, "aria-label": aria, onclick: () => tg.downloadFile({ url: res.download, file_name: name }) }, ...kids);
+    const b = h("button", { type: "button", class: cls, "data-dl": "", "aria-label": aria, onclick: () => tg.downloadFile({ url: res.download, file_name: name }) }, ...kids);
     b._name = name;
     return b;
   }
-  if (res.download) return h("a", { class: cls, "aria-label": aria, href: res.download, download: name }, ...kids);
-  return h("a", { class: cls, "aria-label": aria, href: res.url, download: name, target: "_blank", rel: "noopener" }, ...kids);
+  if (res.download) return h("a", { class: cls, "data-dl": "", "aria-label": aria, href: res.download, download: name }, ...kids);
+  return h("a", { class: cls, "data-dl": "", "aria-label": aria, href: res.url, download: name, target: "_blank", rel: "noopener" }, ...kids);
 }
 
 // What the stage shows of the run, to tell a new state from the same one again.

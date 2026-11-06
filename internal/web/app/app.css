@@ -1016,7 +1016,7 @@ html.full-on {overflow: hidden;}
   .ptrack {height: 44px;}
 }
 @media (pointer: coarse) and (max-width: 959px) {
-  .sqs > .sq {width: 44px;}
+  .sqs > .sq, .jacts.tight > .primary {width: 44px;}
 }
 @media (pointer: coarse) and (max-width: 389.98px) {
   .sqs > .sq2 {width: 44px;}
