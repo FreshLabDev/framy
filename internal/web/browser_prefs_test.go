@@ -309,8 +309,8 @@ func TestBrowserPrefs(t *testing.T) {
 		s = prefs(t, ctx, `
 	await typeKey("openai", `+jsString(key)+`);
 	await until(() => kerr("openai") && !form("openai").querySelector("[data-wait]").disabled);
-	return { err: kerr("openai"), kept: form("openai").querySelector("input").value };`)
-		if s["err"] != want || s["kept"] != key {
+	return { err: kerr("openai"), kept: form("openai").querySelector("input").value, markup: document.documentElement.outerHTML.includes(`+jsString(key)+`) };`)
+		if s["err"] != want || s["kept"] != key || s["markup"] != false {
 			t.Errorf("%s: %v", key, s)
 		}
 	}

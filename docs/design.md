@@ -90,6 +90,8 @@ Nobody can read the balance behind an OpenAI or Gemini key. For OpenRouter, `/ap
 
 **Keys in chat.** Keys are entered on the site or in the Mini App only. A message in a DM that looks like a key (`sk-` followed by a long random run, which covers `sk-proj-` and `sk-or-v1-`, or `AIza`) is deleted at once, and so is a message edited to hold one; nothing is saved, and the bot answers in the person's language that keys go in the settings and that a key pasted into a chat is to be treated as exposed. If Telegram refuses the delete, the answer says that instead of claiming it. The link to the settings comes with the settings page (#20).
 
+**Keys in the settings.** The field of a key is hidden as a password's, and asks password managers not to offer or keep it. A key the provider refused stays in the field to be fixed, as its value only, never as an attribute, so it does not stand in the page's markup for an extension, a page translator or a report of the page to read; it is not kept anywhere else in the browser.
+
 Who pays in a chat: always the person who sent the command, from their free allowance or their own connections, never another member's.
 
 ## Model catalog

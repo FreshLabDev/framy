@@ -252,8 +252,14 @@ function keyRows(p) {
   r.dataset.p = p;
   out.push(r);
   if (k.edit) {
-    const input = h("input", { type: "password", name: "key-" + p, autocomplete: "off", autocapitalize: "off", spellcheck: "false", placeholder: LOOK[p],
-      "aria-label": t("key.field", { provider: P }), "aria-invalid": String(!!k.err), value: k.draft || "" });
+    // A key is no password of the site: password managers are asked not to
+    // offer or keep it. What was pasted comes back as the field's value, never
+    // as an attribute, so it does not stand in the page's markup for anything
+    // that reads it (an extension, a page translator, a report of the page).
+    const input = h("input", { type: "password", autocomplete: "off", autocapitalize: "off", spellcheck: "false", placeholder: LOOK[p],
+      "data-1p-ignore": "", "data-lpignore": "true", "data-bwignore": "", "data-form-type": "other",
+      "aria-label": t("key.field", { provider: P }), "aria-invalid": String(!!k.err) });
+    input.value = k.draft || "";
     input.addEventListener("input", () => { k.draft = input.value; });
     out.push(h("form", { class: "kform", "data-k": "pk-" + p, onsubmit: (e) => { e.preventDefault(); save(p, input.value); } }, input,
       waitBtn(p, t("key.check"), { class: "primary", type: "submit" }),
