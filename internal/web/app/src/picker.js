@@ -34,7 +34,7 @@ export function mountPicker() {
     h("div", { class: "body" }, h("div", { class: "pk" },
       h("div", { class: "pkl" },
         h("div", { class: "pktools" },
-          h("input", { class: "search", id: "pksearch", type: "search", placeholder: t("pick.search"), "aria-label": t("pick.search_label"), autocomplete: "off",
+          h("input", { class: "search", id: "pksearch", type: "search", placeholder: t("pick.search"), "aria-label": t("pick.search_label"), autocomplete: "off", "data-first": "",
             oninput: (e) => listUpdate(() => { query = e.target.value; renderPicker(); }, { dur: 300, step: 15 }) }),
           h("div", { class: "seg", id: "pksort", role: "radiogroup", "aria-label": t("pick.order"), "data-seg": "sort", "data-dur": 380 })),
         h("div", { id: "pkrows" })),

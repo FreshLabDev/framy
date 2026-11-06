@@ -1,5 +1,5 @@
 // Sheets, the toast and the one question dialog.
-import { $, h, isWide, markOf, findMark } from "./dom.js";
+import { $, $$, h, isWide, markOf, findMark } from "./dom.js";
 import { anim, EASE, OUT } from "./motion.js";
 import { t } from "./i18n.js";
 
@@ -23,8 +23,17 @@ export function useHistory(on) { hist = on; armed = on && !!history.state?.over;
 // layer says what is open over the page: close closes it, null that it closed.
 export function layer(key, close) {
   if (close) { tops.delete(key); tops.set(key, close); } else if (!tops.delete(key)) return;
+  trap();
   settle();
   backHook();
+}
+/* The keyboard stays in what is open on top: the question, else the result
+   on the whole screen, else the sheet. The rest of the page is inert
+   meanwhile, so Tab goes round inside it and a screen reader reads only it.
+   The scrim is left out: a press on it closes the sheet. */
+function trap() {
+  const top = tops.has("ask") ? $("#ask") : tops.has("full") ? $("#full") : open[open.length - 1] || null;
+  for (const el of $$("#app > :not(.scrim)")) el.inert = !!top && el !== top;
 }
 export const overOpen = () => tops.size > 0 || open.length > 0;
 // Closes the top layer, then a sheet that is no layer: false when nothing was open.
@@ -78,12 +87,18 @@ export function openSheet(sel, o = {}) {
   const wide = isWide();
   anim(el, [{ transform: wide ? "translateX(64px)" : "translateY(100%)", opacity: wide ? 0 : 1 }, { transform: "none", opacity: 1 }], { duration: 420, easing: EASE });
   if (!had) anim(scrim, [{ opacity: 0 }, { opacity: 1 }], { duration: 260 });
-  el._focus = document.activeElement; el._mark = markOf(el._focus);
+  const from = document.activeElement;
+  el._focus = from; el._mark = markOf(from);
+  // Where the sheet begins for the keyboard: its field to type in where that
+  // raises no keyboard on the screen (with a mouse, or opened from the
+  // keyboard), else its first button, so a tap does not cover the list.
+  const typing = matchMedia("(hover: hover) and (pointer: fine)").matches || !!from?.matches?.(":focus-visible");
+  const first = (typing && el.querySelector("[data-first]")) || el.querySelector("button");
   // Focus after the first frame: now it would lay the sheet out in the middle
   // of this task.
-  const first = el.querySelector("[autofocus], input, button");
   requestAnimationFrame(() => setTimeout(() => { if (open.includes(el)) first?.focus({ preventScroll: true }); }));
   if (o.own) layer("sheet", null); else layer("sheet", () => closeSheets());
+  trap();
   backHook();
 }
 
@@ -95,6 +110,7 @@ export function closeSheets(quick) {
   const scrim = $("#scrim");
   const els = open.splice(0);
   if (!els.length) return;
+  trap();
   const wide = isWide();
   for (const el of els) {
     const a = quick ? null : anim(el, [{ transform: "none", opacity: 1 }, { transform: wide ? "translateX(64px)" : "translateY(100%)", opacity: wide ? 0 : 1 }], { duration: 260, easing: OUT, fill: "forwards" });
@@ -132,19 +148,30 @@ export function toast(text, o = {}) {
   }, o.ms || 4200);
 }
 
-// One question with two answers, or one when it only tells; resolves true for yes.
+// One question with two answers, or one when it only tells; resolves true for
+// yes. It starts on the answer that changes nothing, so an Enter pressed too
+// soon deletes nothing, and once answered the focus goes back where it was
+// (or to what was drawn in its place), unless the answer moved it on.
 export function ask({ title, text, yes, no = t("cancel"), one = false }) {
   const box = $("#ask");
   return new Promise((done) => {
-    const end = (v) => { if (box.hidden) return; box.hidden = true; box.replaceChildren(); layer("ask", null); done(v); };
+    const from = document.activeElement, mark = markOf(from);
+    const end = (v) => {
+      if (box.hidden) return;
+      box.hidden = true; box.replaceChildren(); layer("ask", null);
+      const f = from?.isConnected ? from : findMark(mark);
+      if (!document.activeElement || document.activeElement === document.body) f?.focus?.({ preventScroll: true });
+      done(v);
+    };
     box.replaceChildren(h("div", { class: "box" },
       h("h2", { id: "askT" }, title), text ? h("p", { id: "askD" }, text) : null,
-      h("div", { class: "acts" + (one ? " one" : "") }, one ? null : h("button", { type: "button", class: "x", onclick: () => end(false) }, no),
+      h("div", { class: "acts" + (one ? " one" : "") }, one ? null : h("button", { type: "button", class: "x no", onclick: () => end(false) }, no),
         h("button", { type: "button", class: "x yes", onclick: () => end(true) }, yes))));
+    if (text) box.setAttribute("aria-describedby", "askD"); else box.removeAttribute("aria-describedby");
     box.hidden = false;
     layer("ask", () => end(false));
     anim(box.firstChild, [{ opacity: 0, transform: "translateY(16px)" }, { opacity: 1, transform: "none" }], { duration: 320 });
-    box.querySelector(".yes").focus();
+    box.querySelector(one ? ".yes" : ".no").focus();
     // Escape answers the question only, not the sheet under it.
     box.onkeydown = (e) => { if (e.key === "Escape") { e.stopPropagation(); end(false); } };
   });
