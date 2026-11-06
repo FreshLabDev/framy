@@ -462,6 +462,8 @@ export async function continueFrom(run = S.run, res = outsOf(run.job)[0]) {
   }
   await fromLastFrame({ job: j.id, model: j.model, url: res.url, secs: res.seconds || 0, result: res.id });
 }
+const takesFrame = (m) => m && m.kind === "video" && framesOf(m) > 0 && m.offers.some((o) => photoLimit(m, o.provider) > 0);
+const takesPhoto = (m) => m && m.kind === "image" && m.offers.some((o) => photoLimit(m, o.provider) > 0);
 // The last frame of a clip framy keeps becomes the first frame of a new video,
 // on the same model when it takes one, else on the first that does.
 export async function fromLastFrame(src = S.cont) {
@@ -469,7 +471,6 @@ export async function fromLastFrame(src = S.cont) {
   let shot;
   try { shot = await api(`/api/files/${src.result}/last-frame`, { method: "POST" }); }
   catch (e) { toast(refusal(e).text, { ms: 6000 }); return; }
-  const takesFrame = (m) => m && m.kind === "video" && framesOf(m) > 0 && m.offers.some((o) => photoLimit(m, o.provider) > 0);
   const id = takesFrame(C.byId[src.model]) ? src.model : (C.recommend.video || []).find((x) => takesFrame(C.byId[x]));
   act(() => {
     S.kind = "video";
@@ -481,6 +482,32 @@ export async function fromLastFrame(src = S.cont) {
     S.showJob = false;
     render();
   });
+  $("#prompt").focus({ preventScroll: true });
+}
+
+/* A picture framy made, back in the composer by its id with nothing to upload:
+   the photo to change (Change the picture), or the first frame of a video
+   (Animate). The model is the one that made it when it takes one, else the
+   kind's own, else the first suggested that does; the prompt is left for
+   what to change or how it moves. */
+export const changePicture = (run, res) => usePicture(run, res, "image");
+export const animate = (run, res) => usePicture(run, res, "video");
+function usePicture(run, res, kind) {
+  const fits = kind === "video" ? takesFrame : takesPhoto;
+  const id = [run.kind === kind ? run.model : "", S.model[kind], ...(C.recommend[kind] || [])].find((x) => fits(C.byId[x]));
+  const was = S.kind;
+  leave(run);
+  act(() => {
+    S.kind = kind;
+    if (id) S.model[kind] = id;
+    S.cont = null; S.cut = null;
+    S.files = [{ id: "r" + res.id, kind: "image", server: true, name: "", upload: res.id, w: res.width, h: res.height, url: res.thumb?.url || res.url,
+      slot: kind === "video" ? "start" : undefined, meta: { content_type: res.content_type, bytes: res.bytes, width: res.width, height: res.height } }];
+    $("#prompt").value = "";
+    S.showJob = false;
+    render();
+  });
+  if (S.kind !== was) window.dispatchEvent(new CustomEvent("framy:kind", { detail: S.kind }));
   $("#prompt").focus({ preventScroll: true });
 }
 

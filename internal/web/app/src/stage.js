@@ -15,7 +15,7 @@ import { halftone } from "./halftone.js";
 import { grounding, groundRoom } from "./ground.js";
 import { player, fmtClock } from "./player.js";
 import { openPrefs } from "./prefs.js";
-import { again, quiet, editPrompt, otherModel, cancel, byKey, keyFor, takePrice, drop, pickPart, copyPrompt, continueFrom, fromLastFrame, canShare, share, jobsOf, frameRun } from "./run.js";
+import { again, quiet, editPrompt, otherModel, cancel, byKey, keyFor, takePrice, drop, pickPart, copyPrompt, continueFrom, fromLastFrame, changePicture, animate, canShare, share, jobsOf, frameRun } from "./run.js";
 
 // The shape of a run: its ratio, or the photo's for "auto", else square.
 export function ratioOf(set, m) {
@@ -353,6 +353,9 @@ function doneActs(run, j, res, o = {}) {
     part?.url ? download(j, part, 0, { label: t("act.part"), cls: "sq" }) : null,
     againBtn(run, o, t("act.again"), "sq2"),
     B("edit", t("act.edit"), () => editPrompt(run), "sq"),
+    // A picture goes on as the photo of the next run or the first frame of a video; a clip goes on from its end.
+    !vid && res.url ? B("image", t("act.change"), () => changePicture(run, res), "sq") : null,
+    !vid && res.url ? B("video", t("act.animate"), () => animate(run, res), "sq") : null,
     vid && res.url ? B("next", t("act.continue"), () => continueFrom(run, res), "sq") : null, sb];
 }
 

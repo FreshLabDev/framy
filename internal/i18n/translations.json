@@ -3185,6 +3185,24 @@
     "ja": "もう一度",
     "ar": "مرة أخرى"
   },
+  "web.act.animate": {
+    "en": "Animate",
+    "ru": "Оживить",
+    "uk": "Оживити",
+    "es": "Animar",
+    "fr": "Animer",
+    "de": "Animieren",
+    "it": "Anima",
+    "pl": "Ożyw",
+    "cs": "Rozpohybovat",
+    "tr": "Canlandır",
+    "sv": "Animera",
+    "be": "Ажывіць",
+    "ca": "Anima",
+    "zh": "让它动起来",
+    "ja": "動かす",
+    "ar": "حرّكها"
+  },
   "web.act.bykey": {
     "en": "On my {provider} key",
     "ru": "По ключу {provider}",
@@ -3220,6 +3238,24 @@
     "zh": "取消",
     "ja": "キャンセル",
     "ar": "إلغاء"
+  },
+  "web.act.change": {
+    "en": "Change the picture",
+    "ru": "Изменить картинку",
+    "uk": "Змінити зображення",
+    "es": "Cambiar la imagen",
+    "fr": "Modifier l’image",
+    "de": "Bild ändern",
+    "it": "Modifica l’immagine",
+    "pl": "Zmień obraz",
+    "cs": "Upravit obrázek",
+    "tr": "Görseli değiştir",
+    "sv": "Ändra bilden",
+    "be": "Змяніць выяву",
+    "ca": "Canvia la imatge",
+    "zh": "修改图片",
+    "ja": "画像を変更",
+    "ar": "عدّل الصورة"
   },
   "web.act.change_part": {
     "en": "Pick another part",

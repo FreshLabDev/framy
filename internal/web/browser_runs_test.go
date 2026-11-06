@@ -1308,6 +1308,50 @@ func TestBrowserRunSound(t *testing.T) {
 	noErrors(t, ctx)
 }
 
+// TestBrowserPictureGoesOn checks what a picture framy made can become: the
+// photo of the next run (Change the picture) or the first frame of a video
+// (Animate). It goes back into the composer by its id, with nothing to
+// upload and an empty prompt to say what to change, and its price is asked
+// with it.
+func TestBrowserPictureGoesOn(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const quotes = [], fetch0 = window.fetch;
+	window.fetch = (u, o) => { if (String(u).endsWith("/api/quote")) quotes.push(JSON.parse(o.body)); return fetch0(u, o); };
+	const asked = (kind) => quotes.flatMap((q) => q.items).some((it) => it.pay && (it.inputs || []).includes(7) && it.offer.includes(kind === "video" ? "video" : ""));
+	const there = async (kind) => {
+	  let th = null;
+	  for (let i = 0; i < 50 && !th; i++) { await wait(100); th = document.querySelector("#files .thumb[data-k=fr7]"); }
+	  await wait(600);
+	  return { kind: document.querySelector("#kind [aria-checked=true]")?.dataset.v, thumb: !!th, files: document.querySelectorAll("#files .thumb").length,
+	    slot: th?.closest("[data-k^=g-]")?.dataset.k || "", prompt: document.querySelector("#prompt").value, focus: document.activeElement === document.querySelector("#prompt"),
+	    frame: !!document.querySelector("#stage [data-k=pv]"), asked: asked(kind), model: document.querySelector("#how .mname")?.textContent || "" };
+	};
+	let s = await press("done", (s) => s.done);
+	const acts = s.acts;
+	document.querySelector("#stage .jacts button[aria-label='Change the picture']").click();
+	const change = await there("image");
+	quotes.length = 0;
+	s = await press("done", (s) => s.done);
+	document.querySelector("#stage .jacts button[aria-label=Animate]").click();
+	const anim = await there("video");
+	return { acts, change, anim };`)
+	if acts := fmt.Sprint(s["acts"]); !strings.HasPrefix(acts, "[Download Again Edit the prompt Change the picture Animate") {
+		t.Errorf("the buttons on a picture: %v", acts)
+	}
+	c, _ := s["change"].(map[string]any)
+	if c["kind"] != "image" || c["thumb"] != true || c["files"] != float64(1) || c["prompt"] != "" || c["focus"] != true || c["frame"] != true || c["asked"] != true {
+		t.Errorf("change the picture: %v", c)
+	}
+	a, _ := s["anim"].(map[string]any)
+	if a["kind"] != "video" || a["thumb"] != true || a["files"] != float64(1) || a["slot"] != "g-start" || a["prompt"] != "" || a["focus"] != true || a["asked"] != true {
+		t.Errorf("animate: %v", a)
+	}
+	noErrors(t, ctx)
+}
+
 // TestBrowserLastFrame checks Continue from a model that cannot go on from a
 // video: the clip's last frame comes to the composer marked with Continue's
 // icon and no words, and its price is asked again with that frame, never
