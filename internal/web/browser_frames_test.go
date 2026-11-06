@@ -369,12 +369,17 @@ func TestBrowserBackMini(t *testing.T) {
 	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+framesHelpers+backHelpers+`
 	const s = await twoResults(), r = { press: !s.timeout, back0: __tg.back };
 	cells()[0].click(); await until(fullShown);
-	r.full = fullShown(); r.back1 = __tg.back;
+	r.full = fullShown(); r.back1 = __tg.back; r.main1 = __tg.params.is_visible;
 	__tg.backClick(); await until(() => !fullShown()); await wait(300);
-	r.closed = !fullShown(); r.back2 = __tg.back; r.create = vis(document.querySelector("#create")); r.left = !!__tg.closed;
+	r.closed = !fullShown(); r.back2 = __tg.back; r.create = vis(document.querySelector("#create")); r.left = !!__tg.closed; r.main2 = __tg.params.is_visible;
+	// The main button stays out from under a sheet too, and comes back with the composer.
+	document.querySelector("#dtools .chipbtn").click(); await until(() => vis(document.querySelector("#picker")));
+	r.main3 = __tg.params.is_visible;
+	__tg.backClick(); await until(() => document.querySelector("#picker").hidden);
+	r.main4 = __tg.params.is_visible;
 	return r;`)
 	if s["press"] != true || s["back0"] != false || s["full"] != true || s["back1"] != true || s["closed"] != true || s["back2"] != false ||
-		s["create"] != true || s["left"] != false {
+		s["create"] != true || s["left"] != false || s["main1"] != false || s["main2"] != true || s["main3"] != false || s["main4"] != true {
 		t.Errorf("back in the Mini App: %v", s)
 	}
 	noErrors(t, ctx)

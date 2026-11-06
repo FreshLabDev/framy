@@ -90,11 +90,14 @@ function telegram(tg) {
     tg.disableVerticalSwipes?.();
   } catch {}
   const mb = tg.MainButton;
-  let run = null;
-  const sync = (nx) => {
+  let run = null, last = null;
+  // The composer's button, shown only with the composer: not in the library, nor under
+  // a sheet, a result on the whole screen or a question, where its run and price are out of sight.
+  const sync = (nx = last) => {
     if (!nx) return;
+    last = nx;
     run = nx.act === "create" ? generate : nx.act === "signin" ? signIn : nx.act === "cut" ? openCut : nx.act === "key" ? () => openPrefs(nx.provider) : nx.act === "close" ? closeMini : null;
-    mb.setParams({ text: nx.label, is_active: !!nx.on, is_visible: S.view === "create", color: "#FFFFFF", text_color: "#00606E" });
+    mb.setParams({ text: nx.label, is_active: !!nx.on, is_visible: S.view === "create" && !overOpen(), color: "#FFFFFF", text_color: "#00606E" });
   };
   addEventListener("framy:button", (e) => sync(e.detail));
   addEventListener("framy:view", () => renderBar());
@@ -108,7 +111,7 @@ function telegram(tg) {
   }
   // Shown while anything is open over the page, the whole screen of a result included, and in the library.
   const back = () => (overOpen() || S.view === "library" ? tg.BackButton.show() : tg.BackButton.hide());
-  onSheets(back);
+  onSheets(() => { back(); sync(); });
   addEventListener("framy:view", back);
   back();
   tg.BackButton.onClick(() => closeTop() || go("create"));
