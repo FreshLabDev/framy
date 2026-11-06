@@ -2547,7 +2547,7 @@
     "it": "Un file di questa generazione è stato eliminato, quindi non si può ripetere.",
     "pl": "Plik z tego generowania został usunięty, więc nie da się go powtórzyć.",
     "cs": "Soubor tohoto spuštění byl smazán, takže ho nejde zopakovat.",
-    "tr": "Bu üretimin bir dosyası silindi, bu yüzden tekrarlanamaz.",
+    "tr": "Bu üretimin bir dosyası silindi, bu yüzden yeniden üretilemez.",
     "sv": "En fil i den här körningen har raderats, så den kan inte göras om.",
     "be": "Файл гэтага запуску выдалены, паўтарыць яго нельга.",
     "ca": "S’ha eliminat un fitxer d’aquesta generació, així que no es pot repetir.",
