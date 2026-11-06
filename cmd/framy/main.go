@@ -875,8 +875,8 @@ func openKeys(ctx context.Context, cfg config.Config, store *db.Store, userAgent
 	if err != nil {
 		return nil, err
 	}
-	if kek.Loose() {
-		log.Warn("the KEK file can be read by others; keep it at mode 0400", "path", cfg.KEKFile)
+	if err := checkKEKMode(kek, cfg, log); err != nil {
+		return nil, err
 	}
 	log = log.With("component", "keys")
 	svc, err := keys.New(keys.Config{
@@ -891,6 +891,23 @@ func openKeys(ctx context.Context, cfg config.Config, store *db.Store, userAgent
 	}
 	checkKEK(ctx, svc, cfg.Primary(), kek.Versions(), log)
 	return svc, nil
+}
+
+// checkKEKMode stops the start when group or others can read the KEK file.
+// A wrong mode is a deploy mistake (a volume made 0644, a file an editor
+// recreated), and with the file readable the dump of the database and its
+// KEK are one theft apart. It holds for the test bot too, whose file is a
+// copy of production's. FRAMY_KEK_ALLOW_LOOSE is the way out on a laptop and
+// is logged when used.
+func checkKEKMode(kek *keys.KEK, cfg config.Config, log *slog.Logger) error {
+	if !kek.Loose() {
+		return nil
+	}
+	if cfg.KEKAllowLoose {
+		log.Warn("the KEK file can be read by others and FRAMY_KEK_ALLOW_LOOSE lets it start; never set that on a server", "path", cfg.KEKFile)
+		return nil
+	}
+	return fmt.Errorf("the KEK file %s can be read by others: chmod 0400 it (FRAMY_KEK_ALLOW_LOOSE=true starts anyway, for a laptop only)", cfg.KEKFile)
 }
 
 // kekChecker is what checkKEK asks of keys.Service.

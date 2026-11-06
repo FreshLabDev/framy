@@ -94,6 +94,11 @@ type Config struct {
 	// as key. It is a path and never a value: an environment variable shows
 	// in docker inspect.
 	KEKFile string
+	// KEKAllowLoose lets framy start with a KEK file that group or others
+	// can read (FRAMY_KEK_ALLOW_LOOSE). For a laptop only: the stacks of the
+	// home server leave it unset, and a file with a wider mode than 0400
+	// there stops the start.
+	KEKAllowLoose bool
 	// SiteURL is the site's public origin, https://framy.ws04.cc (SITE_URL).
 	// The redirect URI of sign-in and the OAuth callback URL given to
 	// OpenRouter are built from it, and so is every other absolute link the
@@ -232,6 +237,9 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("the KEK comes from FRAMY_KEK_FILE only: an environment variable shows in docker inspect")
 	}
 	cfg.KEKFile = valueOrDefault("FRAMY_KEK_FILE", "")
+	if cfg.KEKAllowLoose, err = strconv.ParseBool(valueOrDefault("FRAMY_KEK_ALLOW_LOOSE", "false")); err != nil {
+		return Config{}, fmt.Errorf("FRAMY_KEK_ALLOW_LOOSE must be a boolean: %w", err)
+	}
 	if cfg.SiteURL, cfg.TelegramLogin, err = loadSite(); err != nil {
 		return Config{}, err
 	}

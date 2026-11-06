@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -106,6 +108,50 @@ func TestOnlyProductionRotatesTheKEK(t *testing.T) {
 		if !strings.Contains(logs.String(), c.want) {
 			t.Errorf("%+v: logged %q, want %q", c.state, logs.String(), c.want)
 		}
+	}
+}
+
+// A KEK file that others can read stops the start on every stack, since a
+// dump of the database and the file that opens it are then one theft apart;
+// only the laptop's switch lets it through, and says so.
+func TestLooseKEKFileStopsTheStart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "kek")
+	line := "1:" + strings.Repeat("A", 43) + "=\n"
+	if err := os.WriteFile(path, []byte(line), 0o400); err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&logs, nil))
+	check := func(allow bool) error {
+		t.Helper()
+		kek, err := keys.LoadKEKFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return checkKEKMode(kek, config.Config{KEKFile: path, KEKAllowLoose: allow}, log)
+	}
+
+	if err := check(false); err != nil {
+		t.Errorf("a file at 0400 was refused: %v", err)
+	}
+	for _, mode := range []os.FileMode{0o440, 0o640, 0o644, 0o604} {
+		if err := os.Chmod(path, mode); err != nil {
+			t.Fatal(err)
+		}
+		err := check(false)
+		if err == nil || !strings.Contains(err.Error(), "chmod 0400") || !strings.Contains(err.Error(), path) {
+			t.Errorf("mode %o: error %v, want one that names the file and the fix", mode, err)
+		}
+		if strings.Contains(err.Error(), "AAAA") {
+			t.Errorf("mode %o: the error shows the key", mode)
+		}
+	}
+	logs.Reset()
+	if err := check(true); err != nil {
+		t.Errorf("FRAMY_KEK_ALLOW_LOOSE did not let it start: %v", err)
+	}
+	if !strings.Contains(logs.String(), "level=WARN") {
+		t.Errorf("starting on a loose file said nothing: %q", logs.String())
 	}
 }
 

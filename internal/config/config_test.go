@@ -15,7 +15,7 @@ func setBase(t *testing.T) {
 	for _, k := range []string{"TELEGRAM_BOT_TOKEN", "TELEGRAM_BOT_TOKEN_FILE", "DATABASE_URL", "DATABASE_URL_FILE", "TELEGRAM_API_BASE", "AUTO_MIGRATE", "HTTP_ADDR", "METRICS_ADDR", "LOG_LEVEL", "OPENROUTER_API_BASE", "CATALOG_SYNC_INTERVAL", "FX_SYNC", "JOBS_STOP_GRACE", "OPENROUTER_API_KEY", "OPENROUTER_API_KEY_FILE",
 		"R2_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID_FILE", "R2_SECRET_ACCESS_KEY", "R2_SECRET_ACCESS_KEY_FILE", "R2_ENDPOINT", "R2_ACCOUNT_ID", "R2_BUCKET", "R2_PREFIX",
 		"R2_INCOMING_BUCKET", "R2_INCOMING_ACCESS_KEY_ID", "R2_INCOMING_ACCESS_KEY_ID_FILE", "R2_INCOMING_SECRET_ACCESS_KEY", "R2_INCOMING_SECRET_ACCESS_KEY_FILE",
-		"WORK_DIR", "FFMPEG", "FFPROBE", "OPERATOR_CHAT_ID", "BOT_API_FILES_DIR", "BOT_API_BOT_DIR", "FRAMY_STACK"} {
+		"WORK_DIR", "FFMPEG", "FFPROBE", "OPERATOR_CHAT_ID", "BOT_API_FILES_DIR", "BOT_API_BOT_DIR", "FRAMY_STACK", "FRAMY_KEK_ALLOW_LOOSE"} {
 		t.Setenv(k, "")
 	}
 	t.Setenv("TELEGRAM_BOT_TOKEN", "123:abc")
@@ -32,8 +32,17 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.TelegramAPIBase != DefaultTelegramAPIBase || cfg.HTTPAddr != ":8080" || cfg.MetricsAddr != ":9090" || !cfg.AutoMigrate || cfg.LogLevel != slog.LevelInfo ||
 		cfg.OpenRouterAPIBase != DefaultOpenRouterAPIBase || cfg.CatalogEvery != time.Hour || cfg.JobsStopGrace != 210*time.Second ||
 		cfg.OpenRouterKey != "" || cfg.R2.Enabled() || cfg.R2.Bucket != "framy" || cfg.FFmpeg != "ffmpeg" || cfg.FFprobe != "ffprobe" ||
-		cfg.WorkDir != filepath.Join(os.TempDir(), "framy") || cfg.OperatorChatID != 0 || !cfg.FXSync || !cfg.Primary() {
+		cfg.WorkDir != filepath.Join(os.TempDir(), "framy") || cfg.OperatorChatID != 0 || !cfg.FXSync || !cfg.Primary() || cfg.KEKAllowLoose {
 		t.Fatalf("defaults = %+v", cfg)
+	}
+}
+
+func TestLoadKEKAllowLoose(t *testing.T) {
+	setBase(t)
+	t.Setenv("FRAMY_KEK_ALLOW_LOOSE", "true")
+	cfg, err := Load()
+	if err != nil || !cfg.KEKAllowLoose {
+		t.Fatalf("allow loose = %v, %v", cfg.KEKAllowLoose, err)
 	}
 }
 
@@ -176,6 +185,7 @@ func TestLoadRejects(t *testing.T) {
 		{"missing file", map[string]string{"DATABASE_URL": "", "DATABASE_URL_FILE": filepath.Join(dir, "nope")}},
 		{"bad api base", map[string]string{"TELEGRAM_API_BASE": "api.telegram.org"}},
 		{"bad auto migrate", map[string]string{"AUTO_MIGRATE": "sometimes"}},
+		{"bad kek switch", map[string]string{"FRAMY_KEK_ALLOW_LOOSE": "perhaps"}},
 		{"metrics on the public listener", map[string]string{"HTTP_ADDR": ":8080", "METRICS_ADDR": ":8080"}},
 		{"bad openrouter base", map[string]string{"OPENROUTER_API_BASE": "openrouter.ai"}},
 		// framy's key and people's go to it.
