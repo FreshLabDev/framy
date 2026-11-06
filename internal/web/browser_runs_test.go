@@ -18,7 +18,6 @@ import (
 	"math"
 	"net/http"
 	neturl "net/url"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -1254,13 +1253,7 @@ const telegramBridge = `window.TelegramWebviewProxy = { postEvent() {} };`
 // Telegram's script.
 func miniBrowser(t *testing.T, url string) context.Context {
 	t.Helper()
-	opts := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.WindowSize(390, 844), chromedp.NoSandbox)
-	if p := os.Getenv("CHROME_PATH"); p != "" {
-		opts = append(opts, chromedp.ExecPath(p))
-	}
-	actx, cancelA := chromedp.NewExecAllocator(context.Background(), opts...)
-	ctx, cancelC := chromedp.NewContext(actx)
-	t.Cleanup(func() { cancelC(); cancelA() })
+	ctx := chrome(t, 390, 844)
 	keepOnFailure(t, ctx)
 	if _, err := chromedp.Call(ctx, fetch.Enable, fetch.EnableParams{Patterns: []*fetch.RequestPattern{{URLPattern: "*telegram-web-app.js*"}}}); err != nil {
 		t.Fatal(err)
@@ -1278,7 +1271,7 @@ func miniBrowser(t *testing.T, url string) context.Context {
 	user := `{"id":1,"first_name":"Ada","language_code":"en"}`
 	init := "auth_date=1&user=" + neturl.QueryEscape(user) + "&hash=test"
 	err := chromedp.Do(ctx,
-		chromedp.EmulateViewport(390, 844, chromedp.EmulateMobile, chromedp.EmulateTouch, chromedp.EmulateScale(2)),
+		chromedp.EmulateViewport(390, 844, phoneScreen(390, 844)...),
 		chromedp.Func(func(ctx context.Context, tg *chromedp.Target) error {
 			_, err := cdp.Call(ctx, tg, page.AddScriptToEvaluateOnNewDocument, page.AddScriptToEvaluateOnNewDocumentParams{Source: watch + telegramBridge})
 			return err

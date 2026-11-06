@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"image/png"
-	"os"
 	"strings"
 	"testing"
 
@@ -33,16 +32,10 @@ type opened struct {
 // browser does, in the language and with the media features of o.
 func browserAs(t *testing.T, url string, w, h int64, o opened) context.Context {
 	t.Helper()
-	opts := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.WindowSize(int(w), int(h)), chromedp.NoSandbox)
-	if p := os.Getenv("CHROME_PATH"); p != "" {
-		opts = append(opts, chromedp.ExecPath(p))
-	}
-	actx, cancelA := chromedp.NewExecAllocator(context.Background(), opts...)
-	ctx, cancelC := chromedp.NewContext(actx)
-	t.Cleanup(func() { cancelC(); cancelA() })
+	ctx := chrome(t, w, h)
 	vp := []chromedp.EmulateViewportOption{}
 	if o.phone {
-		vp = append(vp, chromedp.EmulateMobile, chromedp.EmulateTouch, chromedp.EmulateScale(2))
+		vp = phoneScreen(w, h)
 	}
 	pre := watch
 	if o.lang != "" {
@@ -570,7 +563,7 @@ func TestBrowserLowWindow(t *testing.T) {
 	// The keyboard of a field being typed in does not switch the layout: it
 	// changes when the field lets go.
 	got = js[map[string]any](t, ctx, lowHelpers+`document.querySelector("#prompt").focus(); return { flow: flow() };`)
-	if err := chromedp.Do(ctx, chromedp.EmulateViewport(390, 844, chromedp.EmulateMobile, chromedp.EmulateTouch, chromedp.EmulateScale(2), chromedp.EmulatePortrait)); err != nil {
+	if err := chromedp.Do(ctx, chromedp.EmulateViewport(390, 844, phoneScreen(390, 844)...)); err != nil {
 		t.Fatal(err)
 	}
 	got = js[map[string]any](t, ctx, pageHelpers+lowHelpers+`

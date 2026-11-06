@@ -198,10 +198,12 @@ func browser(t *testing.T, url string, w, h int64, phone bool) context.Context {
 	return browserInit(t, url, w, h, phone, "")
 }
 
-// browserInit is browser with a script of the test's own that runs before
-// the page's first line, as watch does: a language to open in, a fetch to
-// change.
-func browserInit(t *testing.T, url string, w, h int64, phone bool, init string) context.Context {
+// chrome starts a fresh headless Chrome with a window of the given size and
+// stops it when the test ends. Its page counts as focused, as the page in a
+// person's window is: the new headless mode of Chrome for Testing, which CI
+// runs, leaves a page unfocused, so focus() fires no focus event and
+// document.hasFocus() is false, where the old headless shell never did.
+func chrome(t *testing.T, w, h int64) context.Context {
 	t.Helper()
 	// No sandbox: the runners of CI do not allow Chrome's, and the page is our own.
 	opts := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.WindowSize(int(w), int(h)), chromedp.NoSandbox)
@@ -211,10 +213,38 @@ func browserInit(t *testing.T, url string, w, h int64, phone bool, init string) 
 	actx, cancelA := chromedp.NewExecAllocator(context.Background(), opts...)
 	ctx, cancelC := chromedp.NewContext(actx)
 	t.Cleanup(func() { cancelC(); cancelA() })
+	if err := chromedp.Do(ctx, chromedp.Func(func(ctx context.Context, tg *chromedp.Target) error {
+		_, err := cdp.Call(ctx, tg, emulation.SetFocusEmulationEnabled, emulation.SetFocusEmulationEnabledParams{Enabled: true})
+		return err
+	})); err != nil {
+		t.Fatal(err)
+	}
+	return ctx
+}
+
+// phoneScreen emulates a touch phone at twice the pixels, held the way its
+// window stands: upright when the window is taller than it is wide. The
+// screen is said outright, since the app reads how the phone is held from it:
+// the new headless mode reports a landscape screen of its own whatever the
+// window, where the old headless shell took the window's.
+func phoneScreen(w, h int64) []chromedp.EmulateViewportOption {
+	held := chromedp.EmulatePortrait
+	if w > h {
+		held = chromedp.EmulateLandscape
+	}
+	return []chromedp.EmulateViewportOption{chromedp.EmulateMobile, chromedp.EmulateTouch, chromedp.EmulateScale(2), held}
+}
+
+// browserInit is browser with a script of the test's own that runs before
+// the page's first line, as watch does: a language to open in, a fetch to
+// change.
+func browserInit(t *testing.T, url string, w, h int64, phone bool, init string) context.Context {
+	t.Helper()
+	ctx := chrome(t, w, h)
 	keepOnFailure(t, ctx)
 	vp := []chromedp.EmulateViewportOption{}
 	if phone {
-		vp = append(vp, chromedp.EmulateMobile, chromedp.EmulateTouch, chromedp.EmulateScale(2))
+		vp = phoneScreen(w, h)
 	}
 	err := chromedp.Do(ctx,
 		chromedp.EmulateViewport(w, h, vp...),
