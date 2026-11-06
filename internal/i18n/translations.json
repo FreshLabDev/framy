@@ -7179,7 +7179,7 @@
     "ca": "de franc esgotades",
     "zh": "免费次数不足",
     "ja": "無料枠なし",
-    "ar": "لا حصة مجانية متبقية"
+    "ar": "لا حصة مجانية"
   },
   "web.fr.to_all": {
     "en": "Back to all frames",
@@ -10527,7 +10527,7 @@
     "ca": "El que fas al web arriba també al teu xat amb framy",
     "zh": "你在网站上创作的内容也会发到你与 framy 的聊天",
     "ja": "サイトで作ったものは、framy とのチャットにも届きます",
-    "ar": "ما تنشئه على الموقع يصل أيضًا إلى محادثتك مع framy"
+    "ar": "ما تنشئه على الموقع يصل أيضًا إلى دردشتك مع framy"
   },
   "web.prefs.free": {
     "en": "Free",
