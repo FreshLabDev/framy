@@ -609,7 +609,7 @@
     "ca": "Els {n} s amb la teva clau",
     "zh": "用你的密钥处理全部 {n} 秒",
     "ja": "自分のキーで {n} 秒すべて",
-    "ar": "كل الـ {n} ث بمفتاحك"
+    "ar": "كل {n} ث بمفتاحك"
   },
   "edit.limit": {
     "en": "The free video is used up: you get {limit} in any 7 days. The next one is free in {wait}. To make more now, connect your own OpenRouter key on the site.",
@@ -6747,7 +6747,7 @@
     "ca": "Afegeix un quadre",
     "zh": "添加画框",
     "ja": "枠を追加",
-    "ar": "إضافة إطار"
+    "ar": "إضافة نتيجة"
   },
   "web.fr.add_short": {
     "en": "Frame",
@@ -6765,7 +6765,7 @@
     "ca": "Quadre",
     "zh": "画框",
     "ja": "枠",
-    "ar": "إطار"
+    "ar": "نتيجة"
   },
   "web.fr.add_sub": {
     "en": "with another model or settings, all in one press",
@@ -6801,7 +6801,7 @@
     "ca": "Un quadre més",
     "zh": "再加一个画框",
     "ja": "枠をもう一つ",
-    "ar": "إطار آخر"
+    "ar": "نتيجة أخرى"
   },
   "web.fr.all": {
     "en": "All",
@@ -6837,7 +6837,7 @@
     "ca": "Tots els quadres",
     "zh": "全部画框",
     "ja": "すべての枠",
-    "ar": "كل الإطارات"
+    "ar": "كل النتائج"
   },
   "web.fr.back_all": {
     "en": "Back to the common value",
@@ -6891,7 +6891,7 @@
     "ca": "Quadre {n}: {why}.",
     "zh": "画框 {n}：{why}。",
     "ja": "枠 {n}：{why}。",
-    "ar": "الإطار {n}: {why}."
+    "ar": "النتيجة {n}: {why}."
   },
   "web.fr.label": {
     "en": "Frames",
@@ -6909,7 +6909,7 @@
     "ca": "Quadres",
     "zh": "画框",
     "ja": "枠",
-    "ar": "الإطارات"
+    "ar": "النتائج"
   },
   "web.fr.make_same": {
     "en": "Make all the same",
@@ -6945,7 +6945,7 @@
     "ca": "No més de {n}",
     "zh": "最多 {n} 个",
     "ja": "最大 {n} 個",
-    "ar": "لا أكثر من {n}"
+    "ar": "بحد أقصى {n}"
   },
   "web.fr.model": {
     "en": "Model",
@@ -6999,7 +6999,7 @@
     "ca": "Quadre {n}",
     "zh": "画框 {n}",
     "ja": "枠 {n}",
-    "ar": "الإطار {n}"
+    "ar": "النتيجة {n}"
   },
   "web.fr.only": {
     "en": "only frame {n}",
@@ -7017,7 +7017,7 @@
     "ca": "només el quadre {n}",
     "zh": "仅画框 {n}",
     "ja": "枠 {n} のみ",
-    "ar": "الإطار {n} فقط"
+    "ar": "النتيجة {n} فقط"
   },
   "web.fr.own": {
     "en": "Own: {what}.",
@@ -7053,7 +7053,7 @@
     "ca": "El que canviïs ara només valdrà per a aquest quadre.",
     "zh": "现在的修改只作用于这个画框。",
     "ja": "ここでの変更はこの枠だけに適用されます。",
-    "ar": "ما تغيّره الآن يخص هذا الإطار وحده."
+    "ar": "ما تغيّره الآن يخص هذه النتيجة وحدها."
   },
   "web.fr.owned": {
     "en": "Frames with their own settings: {list}. The common ones do not change them.",
@@ -7071,7 +7071,7 @@
     "ca": "Quadres amb ajustos propis: {list}. Els comuns no els canvien.",
     "zh": "有单独设置的画框：{list}。共同设置不会改动它们。",
     "ja": "個別設定のある枠：{list}。共通の設定はこれらを変えません。",
-    "ar": "إطارات بإعدادات خاصة: {list}. الإعدادات المشتركة لا تغيّرها."
+    "ar": "نتائج بإعدادات خاصة: {list}. الإعدادات المشتركة لا تغيّرها."
   },
   "web.fr.remove": {
     "en": "Remove the frame",
@@ -7089,7 +7089,7 @@
     "ca": "Treu el quadre",
     "zh": "移除画框",
     "ja": "枠を削除",
-    "ar": "إزالة الإطار"
+    "ar": "إزالة النتيجة"
   },
   "web.fr.remove_n": {
     "en": "Remove frame {n}",
@@ -7107,7 +7107,7 @@
     "ca": "Treu el quadre {n}",
     "zh": "移除画框 {n}",
     "ja": "枠 {n} を削除",
-    "ar": "إزالة الإطار {n}"
+    "ar": "إزالة النتيجة {n}"
   },
   "web.fr.requests": {
     "en": "requests: {n}",
@@ -7197,7 +7197,7 @@
     "ca": "Torna a tots els quadres",
     "zh": "回到全部画框",
     "ja": "すべての枠に戻る",
-    "ar": "العودة إلى كل الإطارات"
+    "ar": "العودة إلى كل النتائج"
   },
   "web.fr.tune": {
     "en": "Setting up frame {n}",
@@ -7215,7 +7215,7 @@
     "ca": "Ajustant el quadre {n}",
     "zh": "正在设置画框 {n}",
     "ja": "枠 {n} を設定中",
-    "ar": "تضبط الإطار {n}"
+    "ar": "ضبط النتيجة {n}"
   },
   "web.fr.why": {
     "en": "Frame {n}: {text}",
@@ -7233,7 +7233,7 @@
     "ca": "Quadre {n}: {text}",
     "zh": "画框 {n}：{text}",
     "ja": "枠 {n}：{text}",
-    "ar": "الإطار {n}: {text}"
+    "ar": "النتيجة {n}: {text}"
   },
   "web.free.clip": {
     "en": "a {len} clip",
@@ -7917,7 +7917,7 @@
     "ca": "Desconnecta",
     "zh": "断开连接",
     "ja": "接続を解除",
-    "ar": "فصل"
+    "ar": "إلغاء الربط"
   },
   "web.key.failed": {
     "en": "Could not check the key with {provider}. Try again.",
