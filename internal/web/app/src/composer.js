@@ -8,14 +8,14 @@ import { C, PNAME, vname, famLogo, lg, provMark, freePlan, pays, offerOf, facts,
   label, show, ordered, ratioNum, ratioOfSize, sizeK, resScore, needsVideo } from "./catalog.js";
 import { S, M, images, clip, payOf, usable, keyOk, connection, freeLeft, freeLimit, freesAt, freePer, settings, route, runItem, altItem, next, sourceRatio, quoteNow,
   maxSecs, needsCut, contFits, slotOf, sources, inputsOf, placeFiles, refuses, refLengths,
-  FR, MAXFR, scopeFr, newFrame, common, wanted, setModelHere, setPayHere, setWantedHere, tidy, ownBits, hasOwn, plan, paidItems, cutLimits, cutNeeded } from "./state.js";
-import { priceEl, priceText, known, need, onPrices, usd, needTotal, knownTotal } from "./price.js";
+  FR, MAXFR, scopeFr, newFrame, common, wanted, setModelHere, setPayHere, setWantedHere, tidy, ownBits, hasOwn, plan, paidItems, cutLimits, cutNeeded, renewFiles, renewRefused } from "./state.js";
+import { priceEl, priceText, known, need, priced, onPrices, usd, needTotal, knownTotal } from "./price.js";
 import { renderStage, stageFrom, refit, runOver, ratioOf, syncStrip } from "./stage.js";
 import { openPicker } from "./picker.js";
 import { openSheet, closeSheets } from "./ui.js";
 import { addFiles, removeFile, fitModel } from "./files.js";
 import { generate, signIn } from "./run.js";
-import { openCut, thumbMedia, frameEl, looksLikeClip } from "./clips.js";
+import { openCut, thumbMedia, frameEl, looksLikeClip, fmtPart } from "./clips.js";
 import { openPrefs } from "./prefs.js";
 
 const FORM = { rel: true, dur: 380, after: 90,
@@ -88,7 +88,11 @@ export function wireComposer() {
     if (fs.length) { e.preventDefault(); addFiles(fs); }
   });
   // A price can make a row of tiles stack, and its marker has to follow.
-  onPrices(() => { renderBar(); for (const g of fitSegs($$("#how [data-seg]"))) placeSeg(g, false, true); });
+  onPrices(() => {
+    // A file framy no longer keeps goes up again, and the composer is priced without its id.
+    if (renewRefused()) { render(); return; }
+    renderBar(); for (const g of fitSegs($$("#how [data-seg]"))) placeSeg(g, false, true);
+  });
   // A clip turned the composer to video: the form slides over as on a switch.
   addEventListener("framy:kind", (e) => anim($("#how"), [{ opacity: 0, transform: `translateX(${e.detail === "video" ? 36 : -36}px)` }, { opacity: 1, transform: "none" }], { duration: 420, easing: EASE }));
   // On a phone the composer is a dock: the page keeps room for it under the stage.
@@ -98,6 +102,7 @@ export function wireComposer() {
 
 export function render() {
   if (!M()) return;
+  renewFiles();
   tidy();
   const m = M(), pay = payOf(m);
   // A part picked for a model that takes more than the next one does is picked again.
@@ -151,6 +156,8 @@ export function openTune(id = null) {
   placeSegs($("#tune"));
 }
 // In the sheet a swipe to the side goes to the next frame, or back, in the order of the switch: All, 1, 2...
+// The frames follow the finger, as the strip over the sheet does: right to
+// left the next one stands to the left, and a swipe to the right brings it.
 // What scrolls or slides sideways itself keeps its swipe.
 export function wireTuneSwipe() {
   const body = $("#tuneBody");
@@ -165,16 +172,18 @@ export function wireTuneSwipe() {
     on = false;
     const p = e.changedTouches[0], dx = p.clientX - x0, dy = p.clientY - y0;
     if (Math.abs(dx) < 56 || Math.abs(dx) < Math.abs(dy) * 1.6 || e.timeStamp - t0 > 700) return;
-    stepScope(dx < 0 ? 1 : -1);
+    stepScope((dx < 0) !== (document.dir === "rtl") ? 1 : -1);
   }, { passive: true });
 }
 function sideways(el, stop) {
   for (let a = el; a && a !== stop; a = a.parentElement) if (a.scrollWidth > a.clientWidth + 1 && /auto|scroll/.test(getComputedStyle(a).overflowX)) return true;
   return false;
 }
+// The side the next frame stands on: right, or left in a language read right to left.
+const ahead = () => (document.dir === "rtl" ? -1 : 1);
 function stepScope(dir) {
   const ids = [null, ...FR().map((f) => f.id)], i = ids.indexOf(S.scope[S.kind]), to = ids[i + dir];
-  if (to === undefined) { anim($("#how"), [{ transform: "none" }, { transform: `translateX(${-dir * 10}px)` }, { transform: "none" }], { duration: 260 }); return; }
+  if (to === undefined) { anim($("#how"), [{ transform: "none" }, { transform: `translateX(${-dir * ahead() * 10}px)` }, { transform: "none" }], { duration: 260 }); return; }
   setScope(to, dir);
 }
 export function tuneClosed() { const how = $("#how"); if (how.parentElement !== $("#composer")) $("#composer").insertBefore(how, $("#bar")); placeSegs($("#composer")); }
@@ -208,7 +217,7 @@ function renderFiles(m, pay) {
   const fc = m.traits?.faces, faces = fc && R.some((r) => r.go) ? t(fc === "adults" ? "files.faces_adults" : "files.faces_no") : "";
   if (cutting) {
     const need = cutNeeded(), mx = cutLimits().max;
-    const what = S.cut ? t("files.cut_taken", { a: fmtNum(S.cut.start, { maximumFractionDigits: 1 }), b: fmtNum(S.cut.start + S.cut.seconds, { maximumFractionDigits: 1 }) })
+    const what = S.cut ? t("files.cut_taken", { a: fmtPart(S.cut.start), b: fmtPart(S.cut.start + S.cut.seconds) })
       : need ? t("files.clip_len", { len: fmtSecs(c.secs), n: fmtNum(mx) }) : "";
     box.append(h("p", { class: "fhint cut", "data-k": "f-cut" }, faces ? h("span", { class: "fw" }, faces) : null, what ? h("span", {}, what + " ") : null,
       h("button", { type: "button", class: "link-t", onclick: openCut }, t(S.cut ? "act.change_part" : "act.pick_part"))));
@@ -342,7 +351,8 @@ export function setScope(id, dir = 0) {
   const old = vname(M());
   act(() => { S.scope[S.kind] = id; render(); });
   if (vname(M()) !== old) ticker(name(), old, dir || 1);
-  if (dir) anim($("#how"), [{ opacity: 0, transform: `translateX(${dir * 28}px)` }, { opacity: 1, transform: "none" }], { duration: 340, easing: EASE });
+  // The next frame's settings come in from its side, with the finger.
+  if (dir) anim($("#how"), [{ opacity: 0, transform: `translateX(${dir * ahead() * 28}px)` }, { opacity: 1, transform: "none" }], { duration: 340, easing: EASE });
   if (id != null) anim($(`#stage [data-k="pv-${id}"]`), [{ transform: "scale(.96)" }, { transform: "none" }], { duration: 380, easing: SPRING });
   syncStrip(id);
 }
@@ -614,7 +624,7 @@ export function renderBar() {
   if (!m) return;
   const nx = next($("#prompt").value), kind = m.kind;
   // One frame is its run's price; several are the server's sum of them.
-  const P = plan(), paid = paidItems(P), one = P.length < 2, qs = one ? paid.map((it) => known(it) || need(it)) : [];
+  const P = plan(), paid = paidItems(P), one = P.length < 2, qs = one ? paid.map((it) => need(it) || priced(it)) : [];
   const tot = one ? null : needTotal(paid), free = !paid.length;
   const ready = one ? qs.every(Boolean) : free || !!tot, e = free || !ready ? null : one ? qs[0].estimate : tot.total;
   const unknown = !free && (!e || e.kind === "unknown");

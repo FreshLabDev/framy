@@ -151,6 +151,9 @@ func (f *fakeLibrary) mount(srv *Server) {
 			if before > 0 && j["id"].(int64) >= before {
 				continue
 			}
+			if st := j["status"]; q.Get("failed") == "1" && st != "failed" && st != "cancelled" && st != "expired" {
+				continue
+			}
 			out = append(out, j)
 		}
 		page := map[string]any{"jobs": out}
@@ -258,15 +261,20 @@ func TestBrowserLibrary(t *testing.T) {
 	  create: vis(document.querySelector("#create")), tab: tab && tab.dataset.v, n: tiles().length,
 	  days: [...document.querySelectorAll("#library .lday > h2")].slice(0, 3).map((e) => e.textContent),
 	  covers: tiles().slice(4).every((e) => !!e.querySelector(".cover img")),
-	  run: run.querySelector(".cover.none b")?.textContent, fail: fail.querySelector(".m")?.textContent,
+	  run: run.querySelector(".cover.none b")?.textContent, runLine: run.querySelector(".m").textContent, queued: tiles()[1].querySelector(".m").textContent,
+	  fail: fail.querySelector(".m")?.textContent, why: fail.querySelector(".cover.none b")?.textContent, stopped: tiles()[3].querySelector(".m").textContent,
 	  video: tiles()[5].querySelector(".badge")?.textContent, price: tiles()[4].querySelector(".m").textContent,
 	  guest: tiles()[9].querySelector(".m").textContent, two: tiles()[10].querySelector(".badge.n")?.textContent,
 	  cv: getComputedStyle(tiles()[0]).contentVisibility,
 	  overflow: document.documentElement.scrollWidth - innerWidth,
 	};`)
 	if got["create"] != false || got["tab"] != "library" || got["n"].(float64) != 30 || got["covers"] != true || got["run"] != "Making it" ||
-		got["fail"] != "Veo 3.1 Fast · The key is out of credits" || got["video"] != "6 s" || !strings.HasSuffix(got["price"].(string), "$0.040") || got["overflow"].(float64) > 0 {
+		got["fail"] != "Veo 3.1 Fast" || got["why"] != "The key is out of credits" || got["video"] != "6 s" || !strings.HasSuffix(got["price"].(string), "$0.040") || got["overflow"].(float64) > 0 {
 		t.Errorf("library: %v", got)
+	}
+	// Where a run stands is on its cover only: the line under it keeps its room for the model.
+	if got["runLine"] != "FLUX 3" || got["queued"] != "FLUX 3" || got["stopped"] != "FLUX 3" {
+		t.Errorf("lines: %v", got)
 	}
 	if got["guest"] != "FLUX 3 · $0.040 · guest mode" || got["two"] != "×2" || got["cv"] != "auto" {
 		t.Errorf("tiles: %v", got)
@@ -335,6 +343,113 @@ func TestBrowserLibrary(t *testing.T) {
 	return { ...there, backPath: location.pathname, backLib: vis(document.querySelector("#library")) };`)
 	if got["path"] != "/" || got["create"] != true || got["lib"] != false || got["backPath"] != "/library" || got["backLib"] != true {
 		t.Errorf("tabs: %v", got)
+	}
+	noErrors(t, ctx)
+}
+
+// failEvery makes the runs from the fifth on, every other one, fail with no
+// result (but for run keep, when it is not 0): with the failed and cancelled
+// two above, the runs that did not work are more than a page.
+func (f *fakeLibrary) failEvery(keep int64) {
+	for i := 4; i < len(f.jobs); i += 2 {
+		j := f.jobs[i]
+		if j["id"] == keep {
+			continue
+		}
+		delete(j, "results")
+		delete(j, "cost")
+		j["status"], j["error"] = "failed", map[string]any{"class": "moderation", "message": fakeMessage}
+	}
+}
+
+// TestBrowserLibraryFailed checks the filter of the runs that did not work
+// and deleting them all: the filter reaches the server and shows only those,
+// Delete all reads the pages not read yet so the question says how many go,
+// a No leaves them, a Yes deletes them one by one, and a list with none left
+// says so and goes back to all.
+func TestBrowserLibraryFailed(t *testing.T) {
+	f := newFakeLibrary()
+	f.failEvery(64)
+	ts := fakeSite(t, f.mount)
+	ctx := browser(t, ts.URL+"/library", 1440, 900, false)
+	got := js[map[string]any](t, ctx, libHelpers+`
+	await settled();
+	const btn = () => document.querySelector("#library .lfail");
+	const before = { pressed: btn().getAttribute("aria-pressed"), bulk: !!document.querySelector("#library .lbulk") };
+	btn().click();
+	await wait(900); await settled();
+	const first = ids();
+	return { ...before, pressed: btn().getAttribute("aria-pressed"), n: first.length, bad: tiles().filter((e) => !e.querySelector(".cover.none")).length,
+	  kind: document.querySelector("#library [data-seg=lib] [aria-checked=true]")?.dataset.v, bulk: document.querySelector("#library .lbulk .x")?.textContent,
+	  stat: tiles().slice(0, 2).map((e) => e.querySelector(".cover.none b")?.textContent).join(",") };`)
+	if got["pressed"] != "true" || got["bulk"] != "Delete all" || got["n"] != float64(30) || got["bad"] != float64(0) || got["kind"] != "all" {
+		t.Errorf("the filter: %v", got)
+	}
+	lists, _, _ := f.state()
+	if !slices.ContainsFunc(lists, func(q string) bool { return strings.Contains(q, "failed=1") }) {
+		t.Errorf("the filter did not reach the server: %v", lists)
+	}
+
+	// A No leaves every run, the pages read for the question staying. A Yes deletes them one by one.
+	got = js[map[string]any](t, ctx, libHelpers+`
+	const askUp = () => until(() => !document.querySelector("#ask").hidden && document.querySelector("#ask"));
+	document.querySelector("#library .lbulk .x").click();
+	let dlg = await askUp();
+	const q = dlg.querySelector("h2").textContent + " " + dlg.querySelector("p").textContent, dis = document.querySelector("#library .lbulk .x").disabled;
+	dlg.querySelector(".x:not(.yes)").click();
+	await wait(300);
+	const kept = tiles().length;
+	document.querySelector("#library .lbulk .x").click();
+	dlg = await askUp();
+	dlg.querySelector(".yes").click();
+	await until(() => /Deleted/.test(document.querySelector(".toast")?.textContent || ""), 15000);
+	await wait(600);
+	return { q, dis, kept, toast: document.querySelector(".toast")?.textContent, left: tiles().length, none: document.querySelector("#library .lempty.slim p")?.textContent,
+	  bulk: !!document.querySelector("#library .lbulk") };`)
+	if got["q"] != "Delete the failed runs? Runs to delete: 34. They and the files they took go from framy for good. What the bot already sent to chats stays there." ||
+		got["dis"] != true || got["kept"] != float64(34) || got["toast"] != "Deleted: 34" || got["left"] != float64(0) || got["none"] != "No failed runs." || got["bulk"] != false {
+		t.Errorf("deleting them all: %v", got)
+	}
+	_, _, deleted := f.state()
+	if len(deleted) != 34 || slices.Contains(deleted, 70) || slices.Contains(deleted, 69) {
+		t.Errorf("deleted %v: the running and the queued runs stay, the 34 that did not work go", deleted)
+	}
+
+	// Show all brings back what is left, and the filter is off.
+	got = js[map[string]any](t, ctx, libHelpers+`
+	document.querySelector("#library .lempty.slim .x").click();
+	await wait(900); await settled();
+	return { n: ids().length, first: ids().slice(0, 2).join(","), pressed: document.querySelector("#library .lfail").getAttribute("aria-pressed") };`)
+	if got["n"] != float64(30) || got["first"] != "70,69" || got["pressed"] != "false" {
+		t.Errorf("show all: %v", got)
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserLibraryFailedStops checks that Delete all stops at the first run
+// that would not go, says so, and keeps that run and the ones after it.
+func TestBrowserLibraryFailedStops(t *testing.T) {
+	f := newFakeLibrary()
+	f.failEvery(0)
+	ts := fakeSite(t, f.mount)
+	ctx := browser(t, ts.URL+"/library", 390, 844, true)
+	got := js[map[string]any](t, ctx, libHelpers+`
+	await settled();
+	document.querySelector("#library .lfail").click();
+	await wait(900); await settled();
+	const row = document.querySelector("#library .lfind").getBoundingClientRect(), field = document.querySelector("#library .lsearch").getBoundingClientRect();
+	document.querySelector("#library .lbulk .x").click();
+	const dlg = await until(() => !document.querySelector("#ask").hidden && document.querySelector("#ask"), 15000);
+	dlg.querySelector(".yes").click();
+	await until(() => document.querySelector(".toast"), 15000);
+	await wait(600);
+	return { toast: document.querySelector(".toast")?.textContent, still: ids().includes(64), first: ids()[0], search: Math.round(field.width), row: Math.round(row.width),
+	  over: document.documentElement.scrollWidth - innerWidth, wide: innerWidth, btn: document.querySelector("#library .lbulk .x")?.disabled };`)
+	// 68, 66 and the ones before 64 went; 64 would not (storage_unavailable), and the run stops there.
+	_, _, deleted := f.state()
+	if got["toast"] != "The files were not deleted. The run is still here, try again." || got["still"] != true || got["first"] != float64(64) || got["btn"] != false ||
+		got["over"].(float64) > 0 || got["wide"] != float64(390) || got["search"].(float64) < 100 || !slices.Equal(deleted, []int64{68, 67, 66}) {
+		t.Errorf("a run that would not go: %v, deleted %v", got, deleted)
 	}
 	noErrors(t, ctx)
 }
@@ -484,7 +599,7 @@ func TestBrowserLibraryPhone(t *testing.T) {
 		ctx := browser(t, ts.URL+"/library", size[0], size[1], true)
 		got := js[map[string]any](t, ctx, libHelpers+`
 		await settled();
-		const r = { overflow: document.documentElement.scrollWidth - innerWidth, cols: getComputedStyle(document.querySelector("#library .libgrid")).gridTemplateColumns.split(" ").length,
+		const r = { overflow: document.documentElement.scrollWidth - innerWidth, vw: innerWidth, cols: getComputedStyle(document.querySelector("#library .libgrid")).gridTemplateColumns.split(" ").length,
 		  tabText: vis(document.querySelector("#top .tab .t")), dock: vis(document.querySelector("#composer")) };
 		tiles()[6].click();
 		await wait(700);
@@ -494,7 +609,7 @@ func TestBrowserLibraryPhone(t *testing.T) {
 		r.box = Math.round(v.querySelector(".vbox").getBoundingClientRect().width);
 		r.wide = v.scrollWidth - v.clientWidth;
 		return r;`)
-		if got["overflow"].(float64) > 0 || got["cols"].(float64) != 2 || got["tabText"] != false || got["dock"] != false ||
+		if got["overflow"].(float64) > 0 || got["vw"] != float64(size[0]) || got["cols"].(float64) != 2 || got["tabText"] != false || got["dock"] != false ||
 			got["sheet"] != true || got["actsIn"] != true || got["box"].(float64) > float64(size[0]) || got["wide"].(float64) > 0 {
 			t.Errorf("%dx%d: %v", size[0], size[1], got)
 		}
@@ -503,34 +618,73 @@ func TestBrowserLibraryPhone(t *testing.T) {
 }
 
 // TestBrowserLibrarySignedOut checks the library of nobody: it asks to sign
-// in, and signing in comes back to it.
+// in, and signing in comes back to it. Whoever came by a link, to the library
+// or to a run, gets to the composer from it, by the card or by framy's mark,
+// on a phone as on a computer.
 func TestBrowserLibrarySignedOut(t *testing.T) {
 	ts := fakeAPI(t)
-	ctx := browser(t, ts.URL+"/library", 1440, 900, false)
-	got := js[map[string]any](t, ctx, libHelpers+`
+	for _, size := range [][2]int64{{390, 844}, {1440, 900}} {
+		ctx := browser(t, ts.URL+"/library", size[0], size[1], size[0] < 600)
+		got := js[map[string]any](t, ctx, libHelpers+`
 	const e = await until(() => document.querySelector("#library .lempty h2"));
-	return { h: e.textContent, tabs: !!document.querySelector("#top .tabs"), btn: document.querySelector("#library .lempty .go")?.textContent };`)
-	if got["h"] != "Your library is in your account" || got["tabs"] != false || got["btn"] != "Sign in with Telegram" {
-		t.Errorf("signed out: %v", got)
-	}
-	if _, err := chromedp.Run(ctx, chromedp.Evaluate[any](`document.querySelector("#library .lempty .go").click()`)); err != nil {
-		t.Fatal(err)
-	}
-	// The page goes away under the check, so it asks again until the new one answers.
-	var url string
-	for range 40 {
-		time.Sleep(250 * time.Millisecond)
-		if url, _ = chromedp.Run(ctx, chromedp.Evaluate[string](`location.pathname + location.search`)); url == "/auth/login?return_to=%2Flibrary" {
-			break
+	const make = document.querySelector("#library .lempty a.x"), logo = document.querySelector("#top a.logo");
+	const out = { h: e.textContent, tabs: !!document.querySelector("#top .tabs"), btn: document.querySelector("#library .lempty .go")?.textContent,
+		make: make?.textContent, makeHref: make?.getAttribute("href"), logo: logo?.getAttribute("href"), wide: document.documentElement.scrollWidth > innerWidth };
+	make.click();
+	await until(() => !document.querySelector("#create").hidden);
+	out.card = [location.pathname, !document.querySelector("#create").hidden, document.querySelector("#library").hidden];
+	history.back();
+	await until(() => !document.querySelector("#library").hidden);
+	document.querySelector("#top a.logo").click();
+	await until(() => !document.querySelector("#create").hidden);
+	out.mark = [location.pathname, !document.querySelector("#create").hidden];
+	history.back();
+	await until(() => document.querySelector("#library .lempty .go"));
+	return out;`)
+		if got["h"] != "Your library is in your account" || got["tabs"] != false || got["btn"] != "Sign in with Telegram" ||
+			got["make"] != "Create" || got["makeHref"] != "/" || got["logo"] != "/" || got["wide"] != false {
+			t.Errorf("%d: signed out: %v", size[0], got)
+		}
+		if fmt.Sprint(got["card"]) != "[/ true true]" || fmt.Sprint(got["mark"]) != "[/ true]" {
+			t.Errorf("%d: to the composer: by the card %v, by the mark %v", size[0], got["card"], got["mark"])
+		}
+		noErrors(t, ctx)
+		if size[0] < 600 {
+			continue
+		}
+		if _, err := chromedp.Run(ctx, chromedp.Evaluate[any](`document.querySelector("#library .lempty .go").click()`)); err != nil {
+			t.Fatal(err)
+		}
+		// The page goes away under the check, so it asks again until the new one answers.
+		var url string
+		for range 40 {
+			time.Sleep(250 * time.Millisecond)
+			if url, _ = chromedp.Run(ctx, chromedp.Evaluate[string](`location.pathname + location.search`)); url == "/auth/login?return_to=%2Flibrary" {
+				break
+			}
+		}
+		if url != "/auth/login?return_to=%2Flibrary" {
+			t.Errorf("sign in went to %q", url)
 		}
 	}
-	if url != "/auth/login?return_to=%2Flibrary" {
-		t.Errorf("sign in went to %q", url)
+	// A link to a run of someone signed out: the same card, and the same way to the composer.
+	ctx := browser(t, ts.URL+"/r/66", 390, 844, true)
+	got := js[map[string]any](t, ctx, libHelpers+`
+	const e = await until(() => document.querySelector("#library .lempty h2"));
+	const out = { h: e?.textContent, viewer: !document.querySelector("#viewer").hidden };
+	document.querySelector("#library .lempty a.x").click();
+	await until(() => !document.querySelector("#create").hidden);
+	out.to = [location.pathname, !document.querySelector("#create").hidden];
+	return out;`)
+	if got["h"] != "Your library is in your account" || got["viewer"] != false || fmt.Sprint(got["to"]) != "[/ true]" {
+		t.Errorf("a run signed out: %v", got)
 	}
+	noErrors(t, ctx)
 }
 
 // TestBrowserLibraryMini checks the library in the Mini App: no main button
-// there, Telegram's back button to the composer, and the address untouched.
+// there, Telegram's back button to the composer, framy's mark too, and the
+// address untouched.
 func TestBrowserLibraryMini(t *testing.T) {
 	f := newFakeLibrary()
 	ts := fakeSite(t, f.mount)
@@ -550,10 +704,18 @@ func TestBrowserLibraryMini(t *testing.T) {
 	r.closed = document.querySelector("#viewer").hidden; r.lib = vis(document.querySelector("#library")); r.back3 = __tg.back;
 	__tg.backClick(); await wait(600);
 	r.create = vis(document.querySelector("#create")); r.main2 = __tg.params?.is_visible; r.back2 = __tg.back;
+	// framy's mark, which the Mini App shows until Telegram's script has dressed the page, goes to the composer
+	// in place, a press with Ctrl as any other: as a link it would leave the launch data behind.
+	document.querySelector("#top .tab[data-v=library]").click();
+	await wait(500);
+	const ev = new MouseEvent("click", { ctrlKey: true, bubbles: true, cancelable: true });
+	document.querySelector("#top a.logo").dispatchEvent(ev);
+	await wait(500);
+	r.mark = [ev.defaultPrevented, vis(document.querySelector("#create")), location.pathname];
 	return r;`)
 	if got["main0"] != true || got["back0"] != false || got["main1"] != false || got["back1"] != true || got["path"] != "/" ||
 		got["viewer"] != true || got["path2"] != "/" || got["full"] != true || got["cnt"] != "Image" || got["fullClosed"] != true || got["viewerKept"] != true ||
-		got["closed"] != true || got["lib"] != true || got["create"] != true || got["main2"] != true || got["back2"] != false {
+		got["closed"] != true || got["lib"] != true || got["create"] != true || got["main2"] != true || got["back2"] != false || fmt.Sprint(got["mark"]) != "[true true /]" {
 		t.Errorf("mini app: %v", got)
 	}
 	noErrors(t, ctx)
@@ -678,6 +840,54 @@ func TestBrowserViewerJoined(t *testing.T) {
 	if got["cover"] != "/test/result.png?joined" || got["badge"] != "11 s" || got["video"] != "/test/clip.mp4?joined" || fmt.Sprint(got["links"]) != fmt.Sprint(want) ||
 		got["parts"] != 2.0 || got["controls"] != false || got["exp"] != false || got["path"] != "/r/62" || got["now"] != "5" {
 		t.Errorf("joined in the library: %v", got)
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserLibraryRelink checks a tile whose picture does not load: the run
+// is read again for new links, again once its new links ran out too, and not
+// twice within ten minutes.
+func TestBrowserLibraryRelink(t *testing.T) {
+	f := newFakeLibrary()
+	ts := fakeSite(t, f.mount)
+	ctx := browser(t, ts.URL+"/library", 1440, 900, false)
+	link := func(h int) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		_, j := f.find(50)
+		res := j["results"].([]any)[0].(map[string]any)
+		res["thumb"] = map[string]any{"url": fmt.Sprintf("/test/result.png?h=%d", h), "width": 480, "height": 480}
+	}
+	reads := func() int { f.mu.Lock(); defer f.mu.Unlock(); return f.reads[50] }
+	// The picture's link ran out: the tile says so as the browser does, by an error.
+	fail := libHelpers + `
+	await settled();
+	const img = () => tiles().find((e) => e.getAttribute("href") === "/r/50")?.querySelector(".cover img");
+	const fail = (h) => { img().dispatchEvent(new Event("error")); return until(() => img()?.getAttribute("src").endsWith("h=" + h) && img().getAttribute("src")); };`
+	link(1)
+	got := js[string](t, ctx, fail+`
+	return await fail(1);`)
+	if got == "" || reads() != 1 {
+		t.Fatalf("the first read for links: %q, %d reads", got, reads())
+	}
+	// An hour on, its new links ran out as well.
+	link(2)
+	got = js[string](t, ctx, fail+`
+	const now0 = Date.now;
+	Date.now = () => now0() + 61 * 60e3;
+	try { return await fail(2); } finally { Date.now = now0; }`)
+	if got == "" || reads() != 2 {
+		t.Fatalf("the second read for links: %q, %d reads", got, reads())
+	}
+	// A picture that fails at once again is not read for a third time.
+	link(3)
+	js[any](t, ctx, fail+`
+	const now0 = Date.now;
+	Date.now = () => now0() + 62 * 60e3;
+	try { img().dispatchEvent(new Event("error")); await wait(600); } finally { Date.now = now0; }
+	return 1;`)
+	if reads() != 2 {
+		t.Errorf("read again within ten minutes: %d reads", reads())
 	}
 	noErrors(t, ctx)
 }

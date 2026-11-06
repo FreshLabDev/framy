@@ -6,7 +6,9 @@ package web
 
 import (
 	"bytes"
+	"cmp"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -26,6 +28,7 @@ import (
 	"time"
 
 	"github.com/chromedp/cdproto/cdp"
+	"github.com/chromedp/cdproto/emulation"
 	"github.com/chromedp/cdproto/fetch"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
@@ -52,6 +55,10 @@ const fakeOwnLine = "moderation: gemini blocked the prompt (SAFETY)"
 // fakeWrapped is any other refusal stored the same way.
 const fakeWrapped = `refused: openrouter 400: HTTP 400: {"error":{"code":"InvalidParameter","message":"The duration is too long. Request id: 0217abd"}}`
 
+// loopWebM is a clip Chrome plays: two seconds of the field's colour, 32×18,
+// VP8 (ffmpeg -f lavfi -i color=c=0x00606E:s=32x18:r=8:d=2 -c:v libvpx).
+const loopWebM = "GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAANoEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHWTbuMU6uEElTDZ1OsggEyTbuMU6uEHFO7a1OsggNS7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsCrXsYMPQkBNgIxMYXZmNjMuMS4xMDFXQYxMYXZmNjMuMS4xMDFEiYhAn0AAAAAAABZUrmvXrgEAAAAAAABO14EBc8WILdqadVgB8fKcgQAitZyDdW5kiIEAhoVWX1ZQOIOBASPjg4QHc1lA4JCwgSC6gRKagQJVsIRVuYEBVe6BAOwBAAAAAAAAAgAAElTDZ/pzc59jwIBnyJlFo4dFTkNPREVSRIeMTGF2ZjYzLjEuMTAxc3PVY8CLY8WILdqadVgB8fJnyKBFo4dFTkNPREVSRIeTTGF2YzYzLjEuMTAxIGxpYnZweGfIoUWjiERVUkFUSU9ORIeTMDA6MDA6MDIuMDAwMDAwMDAwAB9DtnVBm+eBAKO9gQAAgNACAJ0BKiAAEgAARwiFhYiFhIgCAgJ1qgP4AgghCD0A/v4ND//SbPE2eJs+SR/+djfnY352N/5zIKOVgQB9ALEBAAEQEAAYABhYL/QACHAAo5WBAPoAsQEAARAQABgAGFgv9AAIcACjlYEBdwCxAQABEBAAGAAYWC/0AAhwAKOVgQH0ALEBAAEQEAAYABhYL/QACHAAo5WBAnEAsQEAARAQABgAGFgv9AAIcACjlYEC7gCxAQABEBAAGAAYWC/0AAhwAKOVgQNrALEBAAEQEBRgAGFgv9AAIcAAo5WBA+gAsQEAARAQABgAGFgv9AAIcACjlYEEZQCxAQABEBAAGAAYWC/0AAhwAKOVgQTiALEBAAEQEAAYABhYL/QACHAAo5WBBV8AsQEAARAQABgAGFgv9AAIcACjlYEF3ACxAQABEBAAGAAYWC/0AAhwAKOVgQZZALEBAAEQEAAYABhYL/QACHAAo5WBBtYAsQEAARAQABgAGFgv9AAIcACjlYEHUwCxAQABEBAAGAAYWC/0AAhwABxTu2uRu4+zgQC3iveBAfGCAbHwgQM="
+
 // fakeRuns is the API of a signed-in person with a working OpenRouter key and
 // no free pictures left, whose jobs follow the prompt: "fail:<class>" fails
 // with that class, "retry" waits for a retry, "running" runs and never ends,
@@ -64,6 +71,8 @@ type fakeRuns struct {
 	jobs    map[int64]*fakeJob
 	shares  int              // how many results were prepared for sharing
 	batches []map[string]any // the bodies of POST /api/batches, in order
+	lang    string           // the person's language, English when empty
+	offDM   bool             // the site's results stay off the chat (Settings)
 	// out is closed when the person signs out elsewhere: the open streams
 	// end, as the server ends them, and every route answers 401 after.
 	out     chan struct{}
@@ -96,12 +105,13 @@ type fakeJob struct {
 func (f *fakeRuns) mount(srv *Server) {
 	f.jobs = map[int64]*fakeJob{}
 	f.out = make(chan struct{})
+	lang := cmp.Or(f.lang, "en")
 	srv.HandleFunc("GET /api/me", func(w http.ResponseWriter, _ *http.Request) {
 		if f.signedOut(w) {
 			return
 		}
 		writeTestJSON(w, http.StatusOK, map[string]any{
-			"user_id": 1, "name": "Ada", "language": "en", "currency": "USD",
+			"user_id": 1, "name": "Ada", "language": lang, "currency": "USD", "deliver_to_telegram": !f.offDM,
 			"connections": []map[string]any{{"id": "c1", "provider": "openrouter", "last4": "abcd", "status": "ok"}},
 			"free": map[string]any{
 				"images": map[string]any{"used": 5, "limit": 5, "left": 0, "window_seconds": 86400, "frees_at": time.Now().Add(3 * time.Hour).UTC()},
@@ -154,6 +164,11 @@ func (f *fakeRuns) mount(srv *Server) {
 	})
 	srv.HandleFunc("GET /test/clip.mp4", func(w http.ResponseWriter, _ *http.Request) { w.Header().Set("Content-Type", "video/mp4") })
 	srv.HandleFunc("GET /test/joined.mp4", func(w http.ResponseWriter, _ *http.Request) { w.Header().Set("Content-Type", "video/mp4") })
+	srv.HandleFunc("GET /test/loop.webm", func(w http.ResponseWriter, r *http.Request) {
+		b, _ := base64.StdEncoding.DecodeString(loopWebM)
+		w.Header().Set("Content-Type", "video/webm")
+		http.ServeContent(w, r, "loop.webm", time.Time{}, bytes.NewReader(b))
+	})
 	srv.HandleFunc("GET /test/result.png", func(w http.ResponseWriter, _ *http.Request) {
 		img := image.NewRGBA(image.Rect(0, 0, 64, 64))
 		for i := range img.Pix {
@@ -264,6 +279,18 @@ func (f *fakeRuns) create(w http.ResponseWriter, r *http.Request) {
 		steps = append(steps, at("running", map[string]any{"kind": "video"}), at("done", map[string]any{"kind": "video",
 			"cost":    map[string]any{"usd": 0.04, "amount": 0.04, "currency": "USD", "label": "$0.040"},
 			"results": []map[string]any{{"id": 9, "content_type": "video/mp4", "url": url, "download": url + "?download=1", "width": 832, "height": 480, "seconds": 5}}}))
+	case p == "done:nolength":
+		// A video whose length neither framy nor the browser knows: the file gives nothing.
+		url := "http://" + r.Host + "/test/clip.mp4"
+		steps = append(steps, at("running", map[string]any{"kind": "video"}), at("done", map[string]any{"kind": "video",
+			"cost":    map[string]any{"usd": 0.04, "amount": 0.04, "currency": "USD", "label": "$0.040"},
+			"results": []map[string]any{{"id": 9, "content_type": "video/mp4", "url": url, "download": url + "?download=1", "width": 832, "height": 480}}}))
+	case p == "done:loop":
+		// A clip the browser plays.
+		url := "http://" + r.Host + "/test/loop.webm"
+		steps = append(steps, at("running", map[string]any{"kind": "video"}), at("done", map[string]any{"kind": "video",
+			"cost":    map[string]any{"usd": 0.04, "amount": 0.04, "currency": "USD", "label": "$0.040"},
+			"results": []map[string]any{{"id": 11, "content_type": "video/webm", "url": url, "download": url + "?download=1", "width": 32, "height": 18, "seconds": 2}}}))
 	case p == "done:joined":
 		// A run that went on from a clip's last frame, joined to that clip.
 		url, joined := "http://"+r.Host+"/test/clip.mp4", "http://"+r.Host+"/test/joined.mp4"
@@ -372,6 +399,15 @@ func (f *fakeRuns) batch(w http.ResponseWriter, r *http.Request) {
 		case strings.HasPrefix(outcome, "fail:"):
 			steps = append(steps, at("failed", map[string]any{"error": map[string]any{"class": strings.TrimPrefix(outcome, "fail:"), "message": fakeMessage, "from_provider": true}}))
 		case outcome == "running":
+		case outcome == "video":
+			// Clips the browser plays.
+			clip := "http://" + r.Host + "/test/loop.webm"
+			var results []map[string]any
+			for k := range frames {
+				results = append(results, map[string]any{"id": 100 + 10*g + k, "content_type": "video/webm", "url": clip, "download": clip + "?download=1", "width": 32, "height": 18, "seconds": 2})
+			}
+			steps = append(steps, at("running", map[string]any{"kind": "video"}), at("done", map[string]any{"kind": "video", "results": results,
+				"cost": map[string]any{"usd": usd, "amount": usd, "currency": "USD", "label": fmt.Sprintf("$%.3f", usd)}}))
 		default:
 			var results []map[string]any
 			for k := range frames {
@@ -636,12 +672,18 @@ func TestBrowserRuns(t *testing.T) {
 		t.Errorf("refusal free_limit: %v", s)
 	}
 
-	// Polling instead of the stream still brings the result, and says it polls.
+	// Polling instead of the stream still brings the result, and says it
+	// polls. Its pauses leave no listener behind on the job's signal.
 	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+`
-	let tagged = false;
-	const s = await press("poll", (s) => { tagged ||= /checked every 5/.test(s.line); return s.done; });
-	return { ...s, tagged };`)
-	if s["done"] != true || s["tagged"] != true {
+	const P = AbortSignal.prototype, add0 = P.addEventListener, rm0 = P.removeEventListener, live = new WeakMap();
+	let most = 0;
+	P.addEventListener = function (type, fn, o) { if (type === "abort") { const l = live.get(this) || new Set(); l.add(fn); live.set(this, l); most = Math.max(most, l.size); } return add0.call(this, type, fn, o); };
+	P.removeEventListener = function (type, fn, o) { if (type === "abort") live.get(this)?.delete(fn); return rm0.call(this, type, fn, o); };
+	let tagged = false, s;
+	try { s = await press("poll", (s) => { tagged ||= /checked every 5/.test(s.line); return s.done; }); }
+	finally { P.addEventListener = add0; P.removeEventListener = rm0; }
+	return { ...s, tagged, most };`)
+	if s["done"] != true || s["tagged"] != true || s["most"] != float64(1) {
 		t.Errorf("poll: %v", s)
 	}
 
@@ -686,6 +728,35 @@ func TestBrowserASignOutElsewhereEndsTheRunOnThePage(t *testing.T) {
 	}
 }
 
+// TestBrowserVideoWaitSaysLeave checks what a video being made says in place
+// of Cancel: that the person can leave, and where the video will come, by
+// the setting that sends the site's results to the chat. On a small phone
+// the line wraps and nothing scrolls sideways.
+func TestBrowserVideoWaitSaysLeave(t *testing.T) {
+	for _, c := range []struct {
+		off  bool
+		w, h int64
+		want string
+	}{
+		{false, 1440, 900, "The video is being made already and cannot be stopped. You can leave: it will come to your chat with framy and to the library."},
+		{true, 320, 568, "The video is being made already and cannot be stopped. You can leave: it will be in the library."},
+	} {
+		runs := &fakeRuns{offDM: c.off}
+		ts := fakeSite(t, runs.mount)
+		ctx := browser(t, ts.URL, c.w, c.h, c.w < 768)
+		s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(700);
+	await press("running", (s) => s.label === "Making it");
+	const b = document.querySelector("#stage .jacts > .busy"), r = b?.getBoundingClientRect();
+	return { busy: b?.textContent.trim(), inside: !!r && r.left >= 0 && r.right <= innerWidth, overflow: document.documentElement.scrollWidth - innerWidth };`)
+		if s["busy"] != c.want || s["inside"] != true || s["overflow"].(float64) > 0 {
+			t.Errorf("%dx%d, off %v: %v", c.w, c.h, c.off, s)
+		}
+		noErrors(t, ctx)
+	}
+}
+
 // TestBrowserRunsPhone checks a failure on a phone: the reason and its
 // buttons sit over the dock and nothing scrolls sideways.
 func TestBrowserRunsPhone(t *testing.T) {
@@ -703,6 +774,60 @@ func TestBrowserRunsPhone(t *testing.T) {
 	return { ...s, overflow: document.documentElement.scrollWidth - innerWidth, over: Math.round(dock.top - a2.bottom), first: Math.round(dock.top - acts.bottom) };`)
 		if s["failed"] != true || s["overflow"].(float64) > 0 || s["over"].(float64) < 0 {
 			t.Errorf("%dx%d: %v", size[0], size[1], s)
+		}
+		noErrors(t, ctx)
+	}
+}
+
+// TestBrowserRunFrameSize checks that a run's frame keeps one size for its
+// shape while it is made, waits, is done and fails, and gives up room only
+// when the buttons under a failure would go below the screen or behind the
+// dock, and then only the room that is missing.
+func TestBrowserRunFrameSize(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	for _, size := range [][3]int64{{1440, 900, 0}, {390, 844, 1}, {320, 568, 1}} {
+		ctx := browser(t, ts.URL, size[0], size[1], size[2] == 1)
+		s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const out = {};
+	for (const [k, p, until] of [["running", "running", (s) => s.label === "Making it"], ["retry", "retry", (s) => /again/.test(s.label)], ["done", "done", (s) => s.done],
+	  ["faces", "faces", (s) => s.failed], ["money", "fail:money", (s) => s.failed], ["limit", "refuse:free_limit", (s) => s.failed]]) {
+	  const s = await press(p, until);
+	  await wait(700);
+	  scrollTo(0, 0); await wait(50);
+	  const box = document.querySelector("#stage [data-k=pv]"), acts = document.querySelector("#stage .jacts").getBoundingClientRect();
+	  const edge = (innerWidth < 960 ? document.querySelector("#composer").getBoundingClientRect().top : innerHeight) - 24;
+	  // A frame at its smallest gives up nothing more: a short phone scrolls to the buttons.
+	  out[k] = { timeout: !!s.timeout, w: box.offsetWidth, h: box.offsetHeight, room: Math.round(edge - acts.bottom), least: box.offsetHeight <= (innerWidth < 960 ? 96 : 160) };
+	}
+	return out;`)
+		base := s["running"].(map[string]any)
+		for k, v := range s {
+			x := v.(map[string]any)
+			if x["timeout"] == true {
+				t.Errorf("%v %s: timed out", size, k)
+				continue
+			}
+			same := x["w"] == base["w"] && x["h"] == base["h"]
+			switch k {
+			case "running", "retry", "done":
+				if !same {
+					t.Errorf("%v %s: the frame is %v×%v, while it was made %v×%v", size, k, x["w"], x["h"], base["w"], base["h"])
+				}
+			default:
+				// A failure's buttons stand over the edge; the frame shrinks only to put them there.
+				room := x["room"].(float64)
+				if x["h"].(float64) > base["h"].(float64) || (room < -1 && x["least"] != true) || (!same && room > 3) {
+					t.Errorf("%v %s: frame %v×%v (made %v×%v), %v px from the buttons to the edge", size, k, x["w"], x["h"], base["w"], base["h"], room)
+				}
+			}
+		}
+		if size[0] == 1440 {
+			for _, k := range []string{"faces", "money", "limit"} {
+				if x := s[k].(map[string]any); x["h"] != base["h"] {
+					t.Errorf("%s on a computer: the frame shrank to %v from %v with room to spare", k, x["h"], base["h"])
+				}
+			}
 		}
 		noErrors(t, ctx)
 	}
@@ -860,6 +985,65 @@ func TestBrowserMiniLaunchRunsOut(t *testing.T) {
 		t.Errorf("a run after the launch's hour: %v", s)
 	}
 	noErrors(t, ctx)
+}
+
+// TestBrowserHalftoneRests checks that the dots are drawn only while they can
+// be seen: not under a sheet that hides the stage, not with the library over
+// it, and with reduced motion only twice a second, without following every
+// frame of the screen. A sheet closing brings them back at once.
+func TestBrowserHalftoneRests(t *testing.T) {
+	const count = `
+	const C2 = CanvasRenderingContext2D.prototype, fill0 = C2.fill, raf0 = window.requestAnimationFrame;
+	let fills = 0, rafs = 0;
+	C2.fill = function (...a) { fills++; return fill0.apply(this, a); };
+	window.requestAnimationFrame = (cb) => { rafs++; return raf0(cb); };
+	// What one second brings: frames asked for, and dots filled.
+	const second = async () => { const f = fills, r = rafs; await wait(1000); return [rafs - r, fills - f]; };
+	`
+	for _, reduce := range []bool{false, true} {
+		runs := &fakeRuns{}
+		ts := fakeSite(t, runs.mount)
+		ctx := browser(t, ts.URL, 390, 844, true)
+		if reduce {
+			err := chromedp.Do(ctx, chromedp.Func(func(ctx context.Context, tg *chromedp.Target) error {
+				_, err := cdp.Call(ctx, tg, emulation.SetEmulatedMedia, emulation.SetEmulatedMediaParams{Features: []*emulation.MediaFeature{{Name: "prefers-reduced-motion", Value: "reduce"}}})
+				return err
+			}), chromedp.Reload())
+			if err != nil {
+				t.Fatal(err)
+			}
+			ready(t, ctx)
+		}
+		s := js[map[string]any](t, ctx, pageHelpers+runHelpers+count+`
+	await press("running", (s) => s.dots && s.label === "Making it");
+	await wait(400);
+	const out = { open: await second() };
+	document.querySelector("#meBtn").click();
+	await wait(800);
+	out.sheet = await second();
+	document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+	// The dots move again as the sheet goes, not up to half a second later.
+	const f0 = fills;
+	await wait(200);
+	out.soon = fills - f0;
+	await wait(400);
+	out.back = await second();
+	document.querySelector(".tab[data-v=library]").click();
+	await wait(800);
+	out.library = await second();
+	return out;`)
+		get := func(k string, i int) float64 { return s[k].([]any)[i].(float64) }
+		if reduce {
+			// Twice a second, a fill per shade, and no frames followed.
+			if get("open", 0) > 2 || get("open", 1) == 0 || get("open", 1) > 3*9 || get("sheet", 1) > 0 || s["soon"].(float64) == 0 || get("back", 1) == 0 || get("library", 1) > 0 {
+				t.Errorf("reduced motion: %v", s)
+			}
+		} else if get("open", 0) < 20 || get("open", 1) == 0 || get("sheet", 0) > 2 || get("sheet", 1) > 0 || s["soon"].(float64) == 0 || get("back", 1) == 0 ||
+			get("library", 0) > 2 || get("library", 1) > 0 {
+			t.Errorf("motion: %v", s)
+		}
+		noErrors(t, ctx)
+	}
 }
 
 // TestBrowserRunSmooth checks the halftone on the stage keeps the main thread
@@ -1137,6 +1321,112 @@ func TestBrowserRunSound(t *testing.T) {
 	noErrors(t, ctx)
 }
 
+// TestBrowserUploadsGoAgain checks an upload framy no longer keeps: a file
+// it swept an hour after a refused press goes up again on its own, when the
+// prices find it gone, when the press finds it gone, and when the composer
+// held it too long; a clip's last frame is taken from the clip again. A file
+// a job took stays with the job and is not sent twice.
+func TestBrowserUploadsGoAgain(t *testing.T) {
+	runs := &fakeRuns{}
+	var mu sync.Mutex
+	next := 500
+	ts := fakeSite(t, func(srv *Server) {
+		runs.mount(srv)
+		srv.HandleFunc("POST /api/uploads", func(w http.ResponseWriter, _ *http.Request) {
+			mu.Lock()
+			id := next
+			next++
+			mu.Unlock()
+			writeTestJSON(w, http.StatusCreated, map[string]any{"id": id, "content_type": "image/png", "bytes": 100, "width": 64, "height": 36})
+		})
+	})
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	// framy's sweep, played by the page: a file it no longer has is refused
+	// by the run (unknown_input) and by its price.
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const until = async (fn, ms = 4000) => { const end = Date.now() + ms; while (Date.now() < end) { if (fn()) return true; await wait(50); } return !!fn(); };
+	const gone = new Set(), sent = [], frames = [], fetch0 = window.fetch;
+	const json = (status, b) => new Response(JSON.stringify(b), { status, headers: { "Content-Type": "application/json" } });
+	window.fetch = async (u, o) => {
+	  const s = String(u);
+	  if (/\/last-frame$/.test(s)) frames.push(s);
+	  if (s.endsWith("/api/jobs") && o?.method === "POST") {
+	    const b = JSON.parse(o.body);
+	    sent.push((b.inputs || []).join("+") || "-");
+	    if ((b.inputs || []).some((i) => gone.has(i))) return json(422, { error: "unknown_input", message: "an input is not one of your files" });
+	  }
+	  if (s.endsWith("/api/quote")) {
+	    const items = JSON.parse(o.body).items, r = await fetch0(u, o), a = await r.json();
+	    items.forEach((it, i) => { if ((it.inputs || []).some((x) => gone.has(x)) && a.items?.[i]) a.items[i].refusal = { error: "unknown_input", status: 422 }; });
+	    return json(200, a);
+	  }
+	  return fetch0(u, o);
+	};
+	const go = () => document.querySelector("#go");
+	const settled = () => until(() => !document.querySelector("#composer .q.wait") && !go().disabled);
+	const out = {};
+	await settled();
+	const cv = document.createElement("canvas"); cv.width = 64; cv.height = 36;
+	const png = await new Promise((r) => cv.toBlob(r, "image/png"));
+	const dt = new DataTransfer(); dt.items.add(new File([png], "p.png", { type: "image/png" }));
+	const inp = document.querySelector("#file"); inp.files = dt.files; inp.dispatchEvent(new Event("change", { bubbles: true }));
+	await wait(800);
+	// A refused press keeps the photo framy took: 500.
+	await press("refuse:free_limit", (s) => s.failed);
+	await settled();
+	// An hour later framy swept it, and the next price says so: the composer prices the photo as the browser read it, and Create stays.
+	gone.add(500);
+	const tried = new Set([document.querySelector("#how .ratios .rt[aria-checked=true]")?.dataset.v]);
+	[...document.querySelectorAll("#how .ratios .rt")].find((b) => !tried.has(b.dataset.v) && !b.classList.contains("more")).click();
+	await wait(1200);
+	out.priced = [go().textContent.includes("do not fit"), go().disabled];
+	await press("done", (s) => s.done);
+	// The press finds it gone (its job was deleted): the photo goes up again, and the run once more.
+	gone.add(501);
+	await settled();
+	await press("done", (s) => s.done);
+	// An hour on, the job that took 502 still holds it: it goes as it is.
+	const now0 = Date.now;
+	Date.now = () => now0() + 51 * 60e3;
+	try { await settled(); await press("done", (s) => s.done); } finally { Date.now = now0; }
+	// A new photo of a refused press, held for longer than framy keeps it: it goes up again before the press.
+	document.querySelector("#files .thumb .rm")?.click();
+	await wait(300);
+	const dt2 = new DataTransfer(); dt2.items.add(new File([png], "q.png", { type: "image/png" }));
+	inp.files = dt2.files; inp.dispatchEvent(new Event("change", { bubbles: true }));
+	await wait(800);
+	await settled();
+	out.photos = document.querySelectorAll("#files .thumb").length;
+	await press("refuse:free_limit", (s) => s.failed);
+	await settled();
+	Date.now = () => now0() + 51 * 60e3;
+	try { await press("done", (s) => s.done); } finally { Date.now = now0; }
+	out.sent = sent.join(" ");
+	// A clip's last frame, held too long, is taken from the clip again.
+	document.querySelector("#files .thumb .rm")?.click();
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(700);
+	await press("done:video", (s) => !!document.querySelector("#stage .jacts button[aria-label=Continue]"));
+	document.querySelector("#stage .jacts button[aria-label=Continue]").click();
+	await until(() => document.querySelector("#files .thumb[data-k=flf72]"));
+	const was = frames.length, n = sent.length;
+	Date.now = () => now0() + 51 * 60e3;
+	try { await press("done", () => sent.length > n); } finally { Date.now = now0; }
+	out.frame = [frames.length - was, sent[n]];
+	return out;`)
+	want := map[string]string{
+		// refused, the price found 500 gone, a new upload; 501 refused, sent again as 502; 502 held by its job;
+		// a new photo refused as 503, held too long, 504.
+		"priced": "[false false]", "sent": "500 501 501 502 502 503 504", "photos": "1", "frame": "[1 72]",
+	}
+	for k, w := range want {
+		if got := fmt.Sprint(s[k]); got != w {
+			t.Errorf("%s = %s, want %s", k, got, w)
+		}
+	}
+	noErrors(t, ctx)
+}
+
 // TestBrowserLastFrame checks Continue from a model that cannot go on from a
 // video: the clip's last frame comes to the composer marked with Continue's
 // icon and no words, and its price is asked again with that frame, never
@@ -1205,6 +1495,535 @@ func TestBrowserJoined(t *testing.T) {
 	want := []any{"/test/joined.mp4?download=1 | framy-1-joined.mp4 | Download | ", "/test/clip.mp4?download=1 | framy-1-1.mp4 | New part | New part"}
 	if s["video"] != "/test/joined.mp4" || fmt.Sprint(s["links"]) != fmt.Sprint(want) || fmt.Sprint(s["frames"]) != "[10]" {
 		t.Errorf("joined: %v", s)
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserPriceBeforeCreate checks that a run on a key starts at the price
+// the bar shows, never before the bar shows one: the price beside a choice
+// stands for the run at once, Create waits while a price is on its way, and a
+// price that did not come is asked again by itself.
+func TestBrowserPriceBeforeCreate(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const until = async (fn, ms = 4000) => { const end = Date.now() + ms; while (Date.now() < end) { if (fn()) return true; await wait(50); } return !!fn(); };
+	const sent = [], fetch0 = window.fetch;
+	let hold = null, release = null, fail = 0, quotes = 0;
+	window.fetch = async (u, o) => {
+	  const s = String(u);
+	  if (s.endsWith("/api/jobs") && o?.method === "POST") sent.push(JSON.parse(o.body));
+	  if (s.endsWith("/api/quote")) {
+	    quotes++;
+	    if (fail > 0) { fail--; return new Response('{"error":"internal","message":"x"}', { status: 500, headers: { "Content-Type": "application/json" } }); }
+	    if (hold) await hold;
+	  }
+	  return fetch0(u, o);
+	};
+	const holdQuotes = () => { hold = new Promise((r) => { release = () => { hold = null; r(); }; }); };
+	const go = () => document.querySelector("#go");
+	const bar = () => document.querySelector("#pnum").textContent;
+	const usdOf = (x) => +String(x).replace(/[^\d.]/g, "");
+	const out = {};
+	await until(() => !document.querySelector("#composer .q.wait") && !go().disabled);
+	// On the free allowance, the key's tile shows its price: picked, it is the bar's at once.
+	const keyTile = document.querySelector('#how [data-seg="pay"] [data-v="openrouter"]');
+	const tilePrice = keyTile.querySelector(".usd")?.textContent || "";
+	const p = document.querySelector("#prompt");
+	p.value = "done"; p.dispatchEvent(new Event("input"));
+	holdQuotes();
+	keyTile.click();
+	await wait(200);
+	out.twin = [bar() === tilePrice, go().disabled];
+	await press("done", (s) => s.done);
+	out.twinSent = [sent.length, usdOf(tilePrice) === sent[0]?.shown_usd];
+	release();
+	await until(() => !document.querySelector("#composer .q.wait"));
+	// A ratio no price was asked for: Create waits for it, and Ctrl+Enter too.
+	const tried = new Set([document.querySelector("#how .ratios .rt[aria-checked=true]")?.dataset.v]);
+	const ratio = () => { const b = [...document.querySelectorAll("#how .ratios .rt")].find((b) => !tried.has(b.dataset.v) && !b.classList.contains("more") && !b.disabled); tried.add(b.dataset.v); return b; };
+	holdQuotes();
+	ratio().click();
+	await wait(300);
+	p.value = "done"; p.dispatchEvent(new Event("input"));
+	p.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }));
+	go().click();
+	await wait(300);
+	out.waiting = [bar(), go().disabled, sent.length];
+	release();
+	await until(() => !go().disabled);
+	const shown = bar();
+	go().click();
+	await until(() => sent.length === 2);
+	out.after = Math.abs(usdOf(shown) - sent[1].shown_usd) < 0.0011;
+	out.shown = [shown, sent[1].shown_usd];
+	// A price that did not come is asked again by itself, and Create follows it.
+	await until(() => !document.querySelector("#composer .q.wait") && !go().disabled);
+	fail = 1;
+	const q0 = quotes;
+	ratio().click();
+	await wait(300);
+	out.failed = [bar(), go().disabled];
+	const t0 = Date.now();
+	await until(() => !go().disabled, 5000);
+	out.retried = [!go().disabled, quotes - q0 >= 2, Date.now() - t0 < 4000];
+	return out;`)
+	want := map[string]string{
+		"twin": "[true false]", "twinSent": "[1 true]", "waiting": "[… true 1]", "after": "true",
+		"failed": "[… true]", "retried": "[true true true]",
+	}
+	for k, w := range want {
+		if got := fmt.Sprint(s[k]); got != w {
+			t.Errorf("%s = %s, want %s", k, got, w)
+		}
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserByKey checks the way out of a free run the allowance refused:
+// the run comes back to the composer on the person's key with its price on
+// the bar and waits for Create, which sends that price.
+func TestBrowserByKey(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const until = async (fn, ms = 4000) => { const end = Date.now() + ms; while (Date.now() < end) { if (fn()) return true; await wait(50); } return !!fn(); };
+	const sent = [], fetch0 = window.fetch;
+	window.fetch = (u, o) => { if (String(u).endsWith("/api/jobs") && o?.method === "POST") sent.push(JSON.parse(o.body)); return fetch0(u, o); };
+	const go = () => document.querySelector("#go");
+	// A video goes free while the week's one is left, as it is here.
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(700);
+	const pay = () => document.querySelector('#how [data-seg="pay"] [aria-checked="true"]')?.dataset.v;
+	const was = pay();
+	const s = await press("refuse:free_closed", (s) => s.failed);
+	[...document.querySelectorAll("#stage .jacts > button")].find((b) => b.textContent.trim() === "On my OpenRouter key").click();
+	await wait(600);
+	const out = { was, first: s.acts[0], sent: sent.map((b) => b.pay).join(","), back: !document.querySelector("#stage .jwhy"),
+	  key: pay(), focus: document.activeElement === go(),
+	  prompt: document.querySelector("#prompt").value };
+	await until(() => !go().disabled && !/…/.test(document.querySelector("#pnum").textContent));
+	const bar = document.querySelector("#pnum").textContent;
+	const p = document.querySelector("#prompt");
+	p.value = "done"; p.dispatchEvent(new Event("input"));
+	go().click();
+	await until(() => sent.length === 2);
+	out.then = [sent[1]?.pay, Math.abs(+bar.replace(/[^\d.]/g, "") - sent[1]?.shown_usd) < 0.0011];
+	return out;`)
+	want := map[string]string{
+		"was": "free", "first": "On my OpenRouter key", "sent": "free", "back": "true", "key": "openrouter", "focus": "true",
+		"prompt": "refuse:free_closed", "then": "[key true]",
+	}
+	for k, w := range want {
+		if got := fmt.Sprint(s[k]); got != w {
+			t.Errorf("%s = %s, want %s", k, got, w)
+		}
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserTakePriceOnce checks that "Create for" the new price starts one
+// run however fast it is pressed twice.
+func TestBrowserTakePriceOnce(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const sent = [], fetch0 = window.fetch;
+	window.fetch = (u, o) => { if (String(u).endsWith("/api/jobs") && o?.method === "POST") sent.push(JSON.parse(o.body)); return fetch0(u, o); };
+	await press("refuse:price_changed", (s) => s.failed);
+	const b = [...document.querySelectorAll("#stage .jacts > button")].find((b) => b.textContent.trim() === "Create for ≈ $0.500");
+	b.click(); b.click();
+	await wait(800);
+	return { sent: sent.length, shown: sent.at(-1)?.shown_usd };`)
+	if s["sent"] != float64(2) || s["shown"] != 0.5 {
+		t.Errorf("take the price: %v", s)
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserSignOutStopsRun checks a sign-out while a press still sends its
+// files: the upload stops there, and no job is made after it.
+func TestBrowserSignOutStopsRun(t *testing.T) {
+	runs := &fakeRuns{}
+	var stopped atomic.Bool
+	ts := fakeSite(t, func(srv *Server) {
+		runs.mount(srv)
+		srv.HandleFunc("POST /api/uploads", func(w http.ResponseWriter, r *http.Request) {
+			// Read whole, the request hears the browser drop it.
+			_, _ = io.Copy(io.Discard, r.Body)
+			select {
+			case <-r.Context().Done():
+				stopped.Store(true)
+				return
+			case <-time.After(1500 * time.Millisecond):
+			}
+			writeTestJSON(w, http.StatusCreated, map[string]any{"id": 500, "content_type": "image/png", "bytes": 100, "width": 64, "height": 36})
+		})
+		srv.HandleFunc("POST /auth/logout", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	})
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+prefsHelpers+`
+	const sent = [], fetch0 = window.fetch;
+	window.fetch = (u, o) => { if (String(u).endsWith("/api/jobs") && o?.method === "POST") sent.push(o.body); return fetch0(u, o); };
+	const cv = document.createElement("canvas"); cv.width = 64; cv.height = 36;
+	const png = await new Promise((r) => cv.toBlob(r, "image/png"));
+	const dt = new DataTransfer(); dt.items.add(new File([png], "p.png", { type: "image/png" }));
+	const inp = document.querySelector("#file"); inp.files = dt.files; inp.dispatchEvent(new Event("change", { bubbles: true }));
+	await wait(800);
+	const p = document.querySelector("#prompt");
+	p.value = "done"; p.dispatchEvent(new Event("input"));
+	await wait(50);
+	document.querySelector("#go").click();
+	await wait(200);
+	document.querySelector("#meBtn").click();
+	await until(() => !sheet().hidden && btn(sheet(), "Sign out"));
+	btn(sheet(), "Sign out").click();
+	await yes();
+	await until(() => document.querySelector(".signin"));
+	await wait(2000);
+	return { sent: sent.length, go: document.querySelector("#go").textContent.trim() };`)
+	if s["sent"] != float64(0) || !strings.HasPrefix(s["go"].(string), "Sign in to create") || !stopped.Load() {
+		t.Errorf("signed out while sending: %v, upload stopped %v", s, stopped.Load())
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserPhotoLinks checks the links the person's photos show by: one
+// the run on the stage still holds keeps its picture for Edit the prompt,
+// and one nothing holds any more lets go of its file.
+func TestBrowserPhotoLinks(t *testing.T) {
+	runs := &fakeRuns{}
+	var mu sync.Mutex
+	next := 500
+	ts := fakeSite(t, func(srv *Server) {
+		runs.mount(srv)
+		srv.HandleFunc("POST /api/uploads", func(w http.ResponseWriter, _ *http.Request) {
+			mu.Lock()
+			id := next
+			next++
+			mu.Unlock()
+			writeTestJSON(w, http.StatusCreated, map[string]any{"id": id, "content_type": "image/png", "bytes": 100, "width": 64, "height": 36})
+		})
+	})
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const cv = document.createElement("canvas"); cv.width = 64; cv.height = 36;
+	const png = await new Promise((r) => cv.toBlob(r, "image/png"));
+	const inp = document.querySelector("#file");
+	const add = async (name) => { const dt = new DataTransfer(); dt.items.add(new File([png], name, { type: "image/png" })); inp.files = dt.files; inp.dispatchEvent(new Event("change", { bubbles: true })); await wait(800); };
+	const src = () => document.querySelector("#files .thumb img")?.getAttribute("src");
+	const shows = async (u) => { const im = new Image(); im.src = u; try { await im.decode(); return true; } catch { return false; } };
+	const out = {};
+	await add("a.png");
+	const a = src();
+	await press("done", (s) => s.done);
+	// Off the composer, the photo is still the run's.
+	document.querySelector("#files .thumb .rm").click();
+	await wait(400);
+	out.held = [document.querySelectorAll("#files .thumb").length, await shows(a)];
+	[...document.querySelectorAll("#stage button")].find((b) => b.textContent.trim() === "Back to the last result").click();
+	await wait(600);
+	[...document.querySelectorAll("#stage .jacts > button")].find((b) => b.textContent.trim() === "Edit the prompt").click();
+	await wait(800);
+	out.back = [src() === a, await shows(src())];
+	// Off the composer again, and the next run holds another photo: nothing shows the first one any more.
+	document.querySelector("#files .thumb .rm").click();
+	await wait(400);
+	await add("b.png");
+	const b = src();
+	await press("done", (s) => s.done);
+	out.gone = [await shows(a), await shows(b)];
+	// Continue puts the clip's last frame in place of what the composer held:
+	// a photo added after the run, which no run took, lets go of its file.
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(700);
+	await press("done:video", () => !!document.querySelector("#stage .jacts button[aria-label=Continue]"));
+	const srcs = () => [...document.querySelectorAll("#files .thumb img")].map((i) => i.getAttribute("src"));
+	const was = srcs();
+	await add("c.png");
+	const c = srcs().find((u) => !was.includes(u));
+	[...document.querySelectorAll("#stage button")].find((b) => b.textContent.trim() === "Back to the last result").click();
+	await wait(600);
+	document.querySelector("#stage .jacts button[aria-label=Continue]").click();
+	for (let i = 0; i < 40 && !document.querySelector("#files .thumb[data-k=flf72]"); i++) await wait(100);
+	out.dropped = [!!c, await shows(c)];
+	return out;`)
+	if fmt.Sprint(s["held"]) != "[0 true]" || fmt.Sprint(s["back"]) != "[true true]" || fmt.Sprint(s["gone"]) != "[false true]" ||
+		fmt.Sprint(s["dropped"]) != "[true false]" {
+		t.Errorf("photo links: %v", s)
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserDraftAcrossSignIn checks that signing in keeps what the person
+// put together: the kind, the model they picked, a setting, the photo and the
+// words come back after Telegram's page, while a model they never picked
+// gives way to their own default. A file the browser could not keep is said,
+// and a page the browser brings back from its cache drops what it kept.
+func TestBrowserDraftAcrossSignIn(t *testing.T) {
+	var signed atomic.Bool
+	ts := fakeSite(t, func(srv *Server) {
+		srv.HandleFunc("GET /api/me", func(w http.ResponseWriter, _ *http.Request) {
+			if !signed.Load() {
+				writeTestJSON(w, http.StatusUnauthorized, map[string]any{"error": "sign_in", "message": "sign in first"})
+				return
+			}
+			writeTestJSON(w, http.StatusOK, map[string]any{
+				"user_id": 1, "name": "Ada", "language": "en", "currency": "USD",
+				"default_models": map[string]any{"image": "google/gemini-nano-banana-2.1"},
+				"connections":    []map[string]any{{"id": "c1", "provider": "openrouter", "last4": "abcd", "status": "ok"}},
+				"free": map[string]any{
+					"images": map[string]any{"used": 0, "limit": 5, "left": 5, "window_seconds": 86400},
+					"videos": map[string]any{"used": 0, "limit": 1, "left": 1, "window_seconds": 604800},
+				},
+			})
+		})
+		// Telegram's page, signed in at once.
+		srv.HandleFunc("GET /auth/login", func(w http.ResponseWriter, r *http.Request) {
+			signed.Store(true)
+			http.Redirect(w, r, r.URL.Query().Get("return_to"), http.StatusFound)
+		})
+	})
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	look := `
+	const head = () => document.querySelector("#how .mhead")?.textContent || "";
+	const ratio = () => document.querySelector("#how .ratios .rt[aria-checked=true]")?.dataset.v || "";
+	const look = () => ({ kind: document.querySelector("#kind > button[aria-checked=true], #kind > button[aria-pressed=true], #kind > button.on")?.textContent.trim() || "",
+	  head: head(), ratio: ratio(), prompt: document.querySelector("#prompt").value,
+	  thumbs: [...document.querySelectorAll("#files .thumb img")].filter((i) => i.complete && i.naturalWidth > 0).length });
+	`
+	before := js[map[string]any](t, ctx, pageHelpers+look+`
+	const p = document.querySelector("#prompt");
+	p.value = "a red kite"; p.dispatchEvent(new Event("input"));
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(700);
+	document.querySelector("#how .mhead").click();
+	await wait(700);
+	const q = document.querySelector("#pksearch");
+	q.value = "Seedance"; q.dispatchEvent(new Event("input", { bubbles: true }));
+	await wait(800);
+	const row = document.querySelector("#pkrows .frow");
+	([...row.querySelectorAll(".pill:not(.old)")].find((b) => b.textContent.trim() === "2.0 Mini") || row.querySelector(".fhit")).click();
+	await wait(900);
+	[...document.querySelectorAll("#how .ratios .rt")].find((b) => b.getAttribute("aria-checked") !== "true" && !b.classList.contains("more") && !b.disabled).click();
+	await wait(500);
+	const cv = document.createElement("canvas"); cv.width = 64; cv.height = 36;
+	cv.getContext("2d").fillRect(0, 0, 64, 36);
+	const png = await new Promise((r) => cv.toBlob(r, "image/png"));
+	const dt = new DataTransfer(); dt.items.add(new File([png], "kite.png", { type: "image/png" }));
+	const inp = document.querySelector("#file"); inp.files = dt.files; inp.dispatchEvent(new Event("change", { bubbles: true }));
+	await wait(900);
+	return look();`)
+	js[bool](t, ctx, `document.querySelector("#top .signin").click(); return true;`)
+	time.Sleep(1500 * time.Millisecond)
+	ready(t, ctx)
+	after := js[map[string]any](t, ctx, pageHelpers+look+`
+	await wait(600);
+	const out = { ...look(), signed: !!document.querySelector("#meBtn"), toast: document.querySelector(".toast")?.textContent || "" };
+	document.querySelectorAll("#kind > button")[0].click();
+	await wait(700);
+	out.image = head();
+	return out;`)
+	if before["thumbs"] != 1.0 || !strings.Contains(fmt.Sprint(before["head"]), "Seedance") || before["ratio"] == "" || before["prompt"] != "a red kite" {
+		t.Fatalf("before signing in: %v", before)
+	}
+	for _, k := range []string{"kind", "head", "ratio", "prompt", "thumbs"} {
+		if fmt.Sprint(after[k]) != fmt.Sprint(before[k]) {
+			t.Errorf("%s after signing in = %v, before %v", k, after[k], before[k])
+		}
+	}
+	if after["signed"] != true || after["toast"] != "" || !strings.Contains(fmt.Sprint(after["image"]), "Nano Banana") {
+		t.Errorf("after signing in: %v", after)
+	}
+	// A file the load could not keep (its write did not end in time): the composer says so.
+	js[bool](t, ctx, `
+	const d = { v: 1, at: Date.now(), kind: "image", model: {}, pay: {}, wanted: {}, frames: {}, files: [{ kind: "image", name: "lost.png", w: 4, h: 4, blob: "none",
+	  meta: { content_type: "image/png", bytes: 10, width: 4, height: 4 }, upload: 0 }], lost: 0 };
+	sessionStorage.setItem("framy.compose", JSON.stringify(d));
+	location.reload();
+	return true;`)
+	time.Sleep(800 * time.Millisecond)
+	ready(t, ctx)
+	lost := js[map[string]any](t, ctx, `
+	await new Promise((r) => setTimeout(r, 400));
+	return { toast: document.querySelector(".toast")?.textContent || "", thumbs: document.querySelectorAll("#files .thumb").length };`)
+	if lost["toast"] != "Add the files again: the browser did not keep them." || lost["thumbs"] != 0.0 {
+		t.Errorf("a file not kept: %v", lost)
+	}
+	// Back from Telegram's page by the back button, out of the page cache: the
+	// load did not happen, and what was kept for it goes, file and all.
+	cached := js[map[string]any](t, ctx, `
+	const idb = (fn) => new Promise((ok, no) => { const r = indexedDB.open("framy-draft", 1); r.onupgradeneeded = () => r.result.createObjectStore("files");
+	  r.onsuccess = () => { const db = r.result, tx = db.transaction("files", "readwrite"), q = fn(tx.objectStore("files")); tx.oncomplete = () => { db.close(); ok(q?.result); }; tx.onerror = () => no(tx.error); }; r.onerror = () => no(r.error); });
+	await idb((st) => st.put({ at: Date.now(), file: new Blob(["x"]) }, "kept"));
+	sessionStorage.setItem("framy.compose", JSON.stringify({ v: 1, at: Date.now(), kind: "video", files: [{ kind: "image", blob: "kept" }], lost: 0 }));
+	dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+	await new Promise((r) => setTimeout(r, 300));
+	return { draft: sessionStorage.getItem("framy.compose"), file: !!(await idb((st) => st.get("kept"))) };`)
+	if cached["draft"] != nil || cached["file"] != false {
+		t.Errorf("back from the page cache: %v", cached)
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserResultStays checks a result on the stage is drawn once: the end
+// of the run reads the account again, and a new state of the account (the
+// settings opened, the page back from another tab) leaves the picture, the
+// video and the frames of a press as they were, a video with its sound on.
+func TestBrowserResultStays(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	let mes = 0;
+	addEventListener("framy:me", () => mes++);
+	const out = {};
+	await press("done", (s) => s.done);
+	document.querySelector("#stage .jbox img").__mark = 1;
+	for (let i = 0; i < 30 && !mes; i++) await wait(100);
+	out.ended = [mes > 0, document.querySelector("#stage .jbox img")?.__mark === 1];
+	window.dispatchEvent(new Event("framy:me"));
+	out.me = document.querySelector("#stage .jbox img")?.__mark === 1;
+
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(700);
+	mes = 0;
+	await press("done:video", () => document.querySelector("#stage .player video"));
+	document.querySelector("#stage .player video").__mark = 1;
+	document.querySelector("#stage .player [aria-label='Sound on']").click();
+	for (let i = 0; i < 30 && !mes; i++) await wait(100);
+	window.dispatchEvent(new Event("framy:me"));
+	const v = document.querySelector("#stage .player video");
+	out.video = [mes > 0, v?.__mark === 1, v?.muted];
+
+	document.querySelectorAll("#kind > button")[0].click();
+	await wait(700);
+	document.querySelector("#stage .addf").click(); await wait(500);
+	mes = 0;
+	await press("frames:done,done", () => document.querySelectorAll("#stage .jbox.cell.done img").length === 2);
+	document.querySelectorAll("#stage .jbox.cell.done img").forEach((e) => { e.__mark = 1; });
+	for (let i = 0; i < 30 && !mes; i++) await wait(100);
+	window.dispatchEvent(new Event("framy:me"));
+	out.press = [mes > 0, [...document.querySelectorAll("#stage .jbox.cell.done img")].map((e) => e.__mark === 1).join(",")];
+	return out;`)
+	if fmt.Sprint(s["ended"]) != "[true true]" || s["me"] != true || fmt.Sprint(s["video"]) != "[true true false]" || fmt.Sprint(s["press"]) != "[true true,true]" {
+		t.Errorf("the result drawn again: %v", s)
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserVideoMotion checks the videos of a run with and without reduced
+// motion. They start by themselves, without sound, only for a person who has
+// not asked for less motion; the stage's player then waits on its first
+// frame for Play, and so does the whole screen. Each frame of a press has a
+// button that stops and starts its clip, and a clip stopped there stays
+// stopped while the page goes to the library and back and while the whole
+// screen is open over it; the others stop while they are out of sight.
+func TestBrowserVideoMotion(t *testing.T) {
+	for _, reduce := range []bool{false, true} {
+		runs := &fakeRuns{}
+		ts := fakeSite(t, runs.mount)
+		ctx := browser(t, ts.URL, 1440, 900, false)
+		if reduce {
+			err := chromedp.Do(ctx, chromedp.Func(func(ctx context.Context, tg *chromedp.Target) error {
+				_, err := cdp.Call(ctx, tg, emulation.SetEmulatedMedia, emulation.SetEmulatedMediaParams{Features: []*emulation.MediaFeature{{Name: "prefers-reduced-motion", Value: "reduce"}}})
+				return err
+			}), chromedp.Reload())
+			if err != nil {
+				t.Fatal(err)
+			}
+			ready(t, ctx)
+		}
+		s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const out = { reduce: matchMedia("(prefers-reduced-motion: reduce)").matches };
+	const until = async (fn, ms = 4000) => { const end = Date.now() + ms; while (Date.now() < end) { if (fn()) return true; await wait(50); } return !!fn(); };
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(700);
+	// On the key: the free video of the week is one, and a press here has two.
+	[...document.querySelectorAll("#how [data-seg=pay] > button")].find((b) => /OpenRouter/.test(b.textContent))?.click();
+	await until(() => !document.querySelector("#composer .q.wait") && !document.querySelector("#go").disabled);
+	await press("done:loop", () => document.querySelector("#stage .player video"));
+	const one = document.querySelector("#stage .player video");
+	// The dots give way to the clip: at once with reduced motion, else once it shows.
+	await until(() => !document.querySelector("#stage .jbox > canvas.ht"), 5000);
+	await wait(300);
+	out.one = [one.autoplay, one.muted, one.paused, !!document.querySelector("#stage .jbox > canvas.ht"), document.querySelector("#stage .player .pp")?.getAttribute("aria-label")];
+
+	document.querySelector("#stage .jacts button[aria-label='Make another']").click();
+	await wait(500);
+	document.querySelector("#stage .addf").click(); await wait(500);
+	await press("frames:video", () => document.querySelectorAll("#stage .jbox.cell.done video").length === 2);
+	const vs = () => [...document.querySelectorAll("#stage .jbox.cell.done video")], bs = () => [...document.querySelectorAll("#stage .jbox.cell .tpp")];
+	if (!out.reduce) await until(() => vs().every((v) => !v.paused));
+	else await wait(900);
+	out.cells = vs().map((v) => [v.autoplay, v.muted, v.paused].join(",")).join(" ");
+	out.btns = bs().map((b) => b.getAttribute("aria-label") + (b.classList.contains("still") ? "*" : "")).join(",");
+	// Play stands beside the button that opens the clip, not inside it.
+	out.inside = bs().filter((b) => b.parentElement.closest("button, a[href], [role=button]")).length;
+	bs()[0].click();
+	await until(() => vs()[0].paused !== out.reduce);
+	out.pressed = [vs()[0].paused, bs()[0].getAttribute("aria-label"), document.querySelector("#full").hidden];
+	if (out.reduce) { bs()[0].click(); await until(() => vs()[0].paused); }
+
+	document.querySelector("#top .tabs a[data-v=library]").click();
+	await until(() => vs().every((v) => v.paused));
+	out.away = vs().map((v) => v.paused).join(",");
+	document.querySelector("#top .tabs a[data-v=create]").click();
+	await wait(600);
+	out.back = vs().map((v) => v.paused).join(",");
+
+	document.querySelectorAll("#stage .jbox.cell.done > .fhit")[1].click();
+	await until(() => !document.querySelector("#full").hidden && document.querySelectorAll("#full video").length === 2);
+	await wait(600);
+	out.full = [vs().map((v) => v.paused).join(","), document.querySelectorAll("#full video")[1].paused];
+	document.querySelector("#full .fbar .x").click();
+	await until(() => document.querySelector("#full").hidden);
+	await wait(400);
+	out.closed = vs().map((v) => v.paused).join(",");
+	return out;`)
+		want := map[string]string{
+			"one": "[true true false false Pause]", "cells": "true,true,false true,true,false", "btns": "Pause,Pause", "inside": "0", "pressed": "[true Play true]",
+			"away": "true,true", "back": "true,false", "full": "[true,true false]", "closed": "true,false",
+		}
+		if reduce {
+			want = map[string]string{
+				"one": "[false true true false Play]", "cells": "false,true,true false,true,true", "btns": "Play*,Play*", "inside": "0", "pressed": "[false Pause true]",
+				"away": "true,true", "back": "true,true", "full": "[true,true true]", "closed": "true,true",
+			}
+		}
+		if s["reduce"] != reduce {
+			t.Fatalf("reduced motion is %v, not %v", s["reduce"], reduce)
+		}
+		for k, w := range want {
+			if got := fmt.Sprint(s[k]); got != w {
+				t.Errorf("reduce %v: %s = %s, want %s", reduce, k, got, w)
+			}
+		}
+		noErrors(t, ctx)
+	}
+}
+
+// TestBrowserPlayerNoLength checks the keys of the player's bar before the
+// clip's length is known: they do nothing, and nothing breaks.
+func TestBrowserPlayerNoLength(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	document.querySelectorAll("#kind > button")[1].click();
+	await wait(700);
+	await press("done:nolength", () => document.querySelector("#stage .player .ptrack"));
+	const tr = document.querySelector("#stage .player .ptrack");
+	tr.focus();
+	const keys = ["PageUp", "PageDown", "Home", "End", "ArrowRight", "ArrowLeft"];
+	const kept = keys.map((key) => tr.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })));
+	await wait(100);
+	return { kept, time: document.querySelector("#stage .player .ptime").textContent };`)
+	if fmt.Sprint(s["kept"]) != "[true true true true true true]" || s["time"] != "0:00 / 0:00" {
+		t.Errorf("keys with no length: %v", s)
 	}
 	noErrors(t, ctx)
 }

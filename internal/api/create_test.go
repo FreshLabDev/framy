@@ -40,13 +40,24 @@ func jobRig(t *testing.T, opts ...func(*rigOptions)) *rig {
 	return r
 }
 
+// body is a run as the site sends it. One on a key carries the price the
+// person saw, here more than any run of the tests costs (seenUSD), unless the
+// test gives its own.
 func body(offer, pay string, extra ...string) string {
 	s := fmt.Sprintf(`{"offer":%q,"pay":%q,"prompt":"a fox in the snow"`, offer, pay)
+	shown := false
 	for _, e := range extra {
 		s += "," + e
+		shown = shown || strings.Contains(e, `"shown_usd"`)
+	}
+	if pay == "key" && !shown {
+		s += `,"shown_usd":` + seenUSD
 	}
 	return s + "}"
 }
+
+// seenUSD is a price shown before a run of the tests: none costs more.
+const seenUSD = "100"
 
 func TestACreateRequestIsChecked(t *testing.T) {
 	r := jobRig(t)
@@ -492,13 +503,31 @@ func TestAHigherPriceThanShownStopsTheRun(t *testing.T) {
 			t.Errorf("shown %s: %d %v", shown, code, m)
 		}
 	}
-	// No figure sent: no check, as before the composer.
-	if resp := r.post(alice, "/api/jobs", nextKey(), body(testOffer, "key")); resp.StatusCode != http.StatusAccepted {
-		t.Errorf("%d", resp.StatusCode)
+	// No figure sent: the person saw no price, so the run waits with it.
+	code, m = func() (int, map[string]any) {
+		resp := r.post(alice, "/api/jobs", nextKey(), `{"offer":"`+testOffer+`","pay":"key","prompt":"a fox in the snow"}`)
+		return resp.StatusCode, jsonOf(t, resp)
+	}()
+	if code != http.StatusConflict || m["error"] != codePriceChanged || r.queue.calls() != before+3 {
+		t.Errorf("no figure: %d %v", code, m)
+	} else if e := m["estimate"].(map[string]any); e["usd"] != 0.04 || e["label"] != "$0.04" {
+		t.Errorf("no figure: the price = %v", e)
 	}
-	// A free run costs the person nothing: what was shown is not checked.
+	// A run framy cannot price either has no figure to show, and goes without one.
+	unpriced := image("openrouter:test/unpriced", catalog.OpenRouter)
+	unpriced.Offers[0].Routes = nil
+	r.store.offers["openrouter:test/unpriced"] = unpriced
+	if resp := r.post(alice, "/api/jobs", nextKey(), `{"offer":"openrouter:test/unpriced","pay":"key","prompt":"a fox in the snow"}`); resp.StatusCode != http.StatusAccepted {
+		t.Errorf("unpriced: %d %v", resp.StatusCode, jsonOf(t, resp))
+	} else if k := r.queue.last().Estimate.Kind; k != price.Unknown {
+		t.Errorf("unpriced: priced as %s", k)
+	}
+	// A free run costs the person nothing: what was shown is not checked, and none is needed.
 	if resp := r.post(alice, "/api/jobs", nextKey(), body("openrouter:microsoft/mai-image-2.6-flash", "free", `"shown_usd":0`)); resp.StatusCode != http.StatusAccepted {
 		t.Errorf("free: %d", resp.StatusCode)
+	}
+	if resp := r.post(alice, "/api/jobs", nextKey(), body("openrouter:microsoft/mai-image-2.6-flash", "free")); resp.StatusCode != http.StatusAccepted {
+		t.Errorf("free without a price: %d", resp.StatusCode)
 	}
 	if resp := r.post(alice, "/api/jobs", nextKey(), body(testOffer, "key", `"shown_usd":-1`)); resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("a negative price: %d", resp.StatusCode)

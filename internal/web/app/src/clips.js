@@ -52,17 +52,34 @@ export async function readClip(file) {
   if (f.fps) f.meta.fps = f.fps;
   return f;
 }
+// The clip comes into the composer once that is read, or after 8 s with what
+// is known by then. A browser still reading it may get its length later, up
+// to half a minute on: the composer then shows the length and asks its
+// price again. After that, or once it is read, the browser stops reading it.
 function readPlayable(file) {
   const url = URL.createObjectURL(file);
   const f = { kind: "video", file, name: file.name, url, poster: "", w: 0, h: 0, secs: 0, bytes: file.size, upload: 0, token: "", cuts: {} };
   const done = () => {
-    f.meta = { content_type: typeOf(file), bytes: file.size, width: f.w, height: f.h, seconds: f.secs };
+    // A late read keeps the frame rate readClip found.
+    f.meta = { content_type: typeOf(file), bytes: file.size, width: f.w, height: f.h, seconds: f.secs, ...(f.fps ? { fps: f.fps } : {}) };
     return f;
   };
   return new Promise((ok) => {
     const v = document.createElement("video");
-    let end = setTimeout(() => ok(done()), 8000);
-    const stop = () => { clearTimeout(end); end = 0; v.removeAttribute("src"); v.load(); ok(done()); };
+    let given = false, late = 0, stopped = false;
+    const end = setTimeout(() => { given = true; ok(done()); late = setTimeout(stop, 30000); }, 8000);
+    const stop = () => {
+      if (stopped) return;
+      stopped = true;
+      clearTimeout(end); clearTimeout(late);
+      v.onloadedmetadata = v.onseeked = v.onerror = null;
+      v.removeAttribute("src"); v.load();
+      if (!given) { given = true; ok(done()); return; }
+      // Read after the clip came in: what the composer shows of it, and its price, follow.
+      const was = f.meta;
+      done();
+      if (S.files.includes(f) && (was.seconds !== f.secs || was.width !== f.w || f.poster)) render();
+    };
     v.muted = true; v.playsInline = true; v.preload = "auto";
     v.onloadedmetadata = () => {
       f.secs = isFinite(v.duration) ? Math.round(v.duration * 1000) / 1000 : 0;
@@ -152,9 +169,11 @@ export function frameEl(url, at) {
 /* Going up. */
 
 const MB = (n) => fmtNum(n / 1048576, { maximumFractionDigits: n < 10 * 1048576 ? 1 : 0 });
+// As api.js wait, but an abort rejects; the listener goes once the pause is over.
 const pause = (ms, sig) => new Promise((ok, no) => {
-  const tm = setTimeout(ok, ms);
-  sig?.addEventListener("abort", () => { clearTimeout(tm); no(new DOMException("stopped", "AbortError")); }, { once: true });
+  const stop = () => { clearTimeout(tm); no(new DOMException("stopped", "AbortError")); };
+  const tm = setTimeout(() => { sig?.removeEventListener("abort", stop); ok(); }, ms);
+  sig?.addEventListener("abort", stop, { once: true });
 });
 
 // One PUT of the clip to the bucket, with how far it has got.
@@ -203,7 +222,7 @@ export async function takeClip(f, cut, { signal, step, again = false }) {
   const key = cut ? cut.start.toFixed(3) + "+" + cut.seconds.toFixed(3) : "";
   if (cut && f.cuts[key]) return f.cuts[key];
   const part = cut ? { start: cut.start, seconds: cut.seconds } : {};
-  const cutText = () => t("step.cutting", { a: fmtNum(cut.start, { maximumFractionDigits: 1 }), b: fmtNum(cut.start + cut.seconds, { maximumFractionDigits: 1 }) });
+  const cutText = () => t("step.cutting", { a: fmtPart(cut.start), b: fmtPart(cut.start + cut.seconds) });
   const snd = f.kind === "audio", text = cut ? cutText : () => t(snd ? "step.sound_prep" : "step.clip_prep"), fig = cut ? "cut" : "strip";
   let body;
   if (f.upload) body = { file: f.upload, ...part };
@@ -234,6 +253,7 @@ export async function takeClip(f, cut, { signal, step, again = false }) {
   }
   if (body.upload) f.token = "";
   if (cut) f.cuts[key] = file.id; else f.upload = file.id;
+  f.upAt ||= Date.now();
   if (!f.secs && file.seconds) { f.secs = file.seconds; f.meta.seconds = file.seconds; }
   // How long the clip framy keeps came out, to tell a part a frame too long.
   if (file.seconds) (f.secsOf ||= {})[file.id] = file.seconds;
@@ -243,7 +263,12 @@ export async function takeClip(f, cut, { signal, step, again = false }) {
 /* The editor: the clip's timeline with a window of the length the model takes. */
 
 const ED = {};
-const fmtT = (s, d = 1) => t("unit.s", { n: fmtNum(s, { minimumFractionDigits: d, maximumFractionDigits: d }) });
+/* The editor moves a part's edges by the clip's frames, so its times say
+   hundredths, the edges, the part and its length alike: a step of one frame
+   changes them, and the part read under the timeline is the one on the
+   buttons. The composer then says the part with the same figures. */
+const fmtT = (s, d = 2) => t("unit.s", { n: fmtNum(s, { minimumFractionDigits: d, maximumFractionDigits: d }) });
+export const fmtPart = (s) => fmtNum(s, { maximumFractionDigits: 2 });
 
 export function mountCutter() {
   const el = h("section", { class: "sheet cutter", id: "cutter", hidden: true, role: "dialog", "aria-modal": "true", "aria-labelledby": "cutT" },
@@ -272,7 +297,10 @@ export function openCut() {
   ED.tc = h("span", { class: "tc" });
   ED.play = h("button", { type: "button", class: "ib", "aria-label": t("cut.play"), title: t("cut.play"), onclick: togglePlay }, ic("play"));
   ED.edges = h("div", { class: "seg edges", role: "radiogroup", "aria-label": t("cut.edge"), "data-seg": "edge", "data-dur": 300 });
-  const tl = h("div", { class: "timeline" });
+  // Time runs left to right in every language, as on the player's bar: the
+  // frames, the window, the playhead and a press on the timeline all count
+  // from its left, and the buttons above go the same way.
+  const tl = h("div", { class: "timeline", dir: "ltr" });
   ED.tl = tl;
   const n = matchMedia("(min-width: 600px)").matches ? 12 : 8, r = (c.w || 16) / (c.h || 9);
   const cvs = Array.from({ length: n }, () => h("canvas", { width: 120, height: Math.max(1, Math.round(120 / r)) }));
@@ -286,7 +314,7 @@ export function openCut() {
   ED.take = h("button", { type: "button", class: "take", onclick: take }, ic("film"), t("cut.take"));
   $("#cutBody").replaceChildren(
     h("div", { class: "viewer", style: { aspectRatio: `${c.w || 16} / ${c.h || 9}` } }, view, ED.tc),
-    h("div", { class: "transport" },
+    h("div", { class: "transport", dir: "ltr" },
       h("button", { type: "button", class: "ib", "aria-label": t("cut.prev"), title: t("cut.prev"), onclick: () => step(-1) }, ic("prev")), ED.play,
       h("button", { type: "button", class: "ib", "aria-label": t("cut.next"), title: t("cut.next"), onclick: () => step(1) }, ic("next")), ED.edges), tl, ED.read,
     h("p", { class: "note" }, t("cut.keys")), ED.take);
@@ -308,16 +336,16 @@ function layout() {
   Object.assign(ED.l.style, { left: "0", width: a + "%" });
   Object.assign(ED.r.style, { left: b + "%", right: "0" });
   ED.edges.replaceChildren(...[["start", t("cut.start"), start], ["end", t("cut.end"), end]].map(([k, label, f]) =>
-    opt({ key: "edge", v: k, on: ED.edge === k, pick: () => setEdge(k) }, label, h("small", {}, fmtT(f / fps, 2)))));
+    opt({ key: "edge", v: k, on: ED.edge === k, pick: () => setEdge(k) }, label, h("small", {}, fmtT(f / fps)))));
   placeSeg(ED.edges, false, true);
-  ED.read.replaceChildren(t("cut.part") + " ", h("b", {}, fmtT(start / fps, 1) + " – " + fmtT(end / fps, 1)), " · " + fmtT((end - start) / fps, 1));
+  ED.read.replaceChildren(t("cut.part") + " ", h("b", {}, fmtT(start / fps) + " – " + fmtT(end / fps)), " · " + fmtT((end - start) / fps));
 }
 function setEdge(e) { stopPlay(); ED.edge = e; layout(); show(e === "start" ? ED.start : ED.end - 1); }
 function show(f) {
   const { fps, total } = ED;
   ED.cur = Math.max(0, Math.min(total - 1, f));
   if (!ED.playing) { try { ED.view.currentTime = (ED.cur + 0.5) / fps; } catch {} }
-  ED.tc.textContent = fmtT(ED.cur / fps, 2);
+  ED.tc.textContent = fmtT(ED.cur / fps);
   ED.ph.style.transform = `translateX(${((ED.cur + 0.5) / total) * ED.tl.clientWidth}px)`;
 }
 function step(d) {

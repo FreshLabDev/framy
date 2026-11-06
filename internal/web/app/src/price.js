@@ -8,6 +8,8 @@ import { api } from "./api.js";
 
 const cache = new Map(); // key -> {estimate, refusal, settings}
 const waiting = new Map(); // key -> item
+const later = new Set(); // keys asked again once their wait is over
+const failed = new Map(); // key -> {n, at}: how often its price did not come, and when to ask again
 const listeners = new Set();
 let timer = 0, inflight = 0;
 
@@ -15,16 +17,33 @@ let timer = 0, inflight = 0;
 // files must not stand for one with them (files framy keeps go as inputs).
 export const keyOf = (it) => JSON.stringify([it.offer, it.pay || "", it.settings || {}, it.files || [], it.inputs || [], it.continues || 0, it.prompt ? it.prompt.length : 0]);
 export const known = (it) => cache.get(keyOf(it));
+// What a run on a key costs: its own answer, else that of the same run with no
+// payer named, which the prices beside a choice ask for. The server prices the
+// two alike (only the free allowance changes a price), so the price of the
+// tile just picked shows on the bar at once; what may refuse the run on the
+// key comes with its own answer.
+export const priced = (it) => known(it) || (it.pay === "key" ? known({ ...it, pay: "" }) : undefined);
 export const onPrices = (fn) => listeners.add(fn);
-export const clearPrices = () => { cache.clear(); totals.clear(); };
+export const clearPrices = () => { cache.clear(); totals.clear(); failed.clear(); failedT.clear(); };
 
 // need() returns what is known now and asks for the rest, in one request a moment later.
+// A price that did not come is asked again once its wait is over, not at once.
 export function need(it) {
   const k = keyOf(it), got = cache.get(k);
   if (got) return got;
-  if (!waiting.has(k)) { waiting.set(k, it); if (!timer) timer = setTimeout(flush, 40); }
+  if (waiting.has(k) || later.has(k)) return null;
+  const due = (failed.get(k)?.at || 0) - Date.now();
+  if (due > 0) {
+    later.add(k);
+    setTimeout(() => { later.delete(k); need(it); }, due);
+    return null;
+  }
+  waiting.set(k, it);
+  if (!timer) timer = setTimeout(flush, 40);
   return null;
 }
+// The wait before a price that did not come is asked again: 1 s, then twice as long each time, at most 30 s.
+const backoff = (n) => Math.min(30000, 1000 * 2 ** (n - 1));
 
 async function flush() {
   timer = 0;
@@ -33,17 +52,26 @@ async function flush() {
   if (waiting.size) timer = setTimeout(flush, 0);
   if (!batch.length) return;
   inflight++;
+  let ok = false;
   try {
     const r = await api("/api/quote", { method: "POST", body: { items: batch.map(([, it]) => it) } });
-    (r.items || []).forEach((x, i) => { const k = batch[i]?.[0]; if (k) cache.set(k, x); });
+    (r.items || []).forEach((x, i) => { const k = batch[i]?.[0]; if (k) { cache.set(k, x); failed.delete(k); } });
+    ok = true;
   } catch {
-    // A price that did not come stays a question mark; the next change asks again.
+    // A price that did not come waits a little and is asked again while the
+    // page still shows it: the bar keeps its "…" and Create waits for it.
+    const now = Date.now();
+    for (const [k] of batch) { const n = (failed.get(k)?.n || 0) + 1; failed.set(k, { n, at: now + backoff(n) }); }
   } finally {
     inflight--;
   }
   // One pass over the page, not one search per run: a batch can hold 200.
   const fresh = new Set(batch.map(([k]) => k));
-  for (const el of document.querySelectorAll("[data-q]")) if (fresh.has(el.dataset.q)) paint(el, cache.get(el.dataset.q));
+  for (const el of document.querySelectorAll("[data-q]")) {
+    if (!fresh.has(el.dataset.q)) continue;
+    paint(el, cache.get(el.dataset.q));
+    if (!ok && el._it) need(el._it);
+  }
   for (const fn of listeners) fn();
 }
 
@@ -96,7 +124,7 @@ export function priceEl(it, o = {}) {
   const k = keyOf(it), el = h("span", { class: "usd q" + (o.cls ? " " + o.cls : ""), "data-q": k });
   need(it);
   paint(el, cache.get(k), o);
-  el._o = o;
+  el._o = o; el._it = it;
   return el;
 }
 function paint(el, got, o = el._o || {}) {
@@ -113,17 +141,25 @@ export const busy = () => inflight > 0 || waiting.size > 0;
    not free ("batch": true) and says which of them go as one job. */
 const totals = new Map(); // key -> {total, jobs}
 const askedT = new Set();
+const failedT = new Map(); // key -> {n, at}, as failed
 const totalKey = (items) => items.map(keyOf).join("\n");
 export const knownTotal = (items) => totals.get(totalKey(items));
 export function needTotal(items) {
   const k = totalKey(items), got = totals.get(k);
   if (got || askedT.has(k) || !items.length) return got || null;
+  // One that did not come is asked again when the page looks for it after its wait.
+  if ((failedT.get(k)?.at || 0) > Date.now()) return null;
   askedT.add(k);
   api("/api/quote", { method: "POST", body: { items, batch: true } }).then((r) => {
     totals.set(k, { total: r.total || null, jobs: r.jobs || [] });
+    failedT.delete(k);
     (r.items || []).forEach((x, i) => { if (items[i]) cache.set(keyOf(items[i]), x); });
     for (const fn of listeners) fn();
-  }, () => {}).finally(() => askedT.delete(k));
+  }, () => {
+    const n = (failedT.get(k)?.n || 0) + 1, ms = backoff(n);
+    failedT.set(k, { n, at: Date.now() + ms });
+    setTimeout(() => { for (const fn of listeners) fn(); }, ms);
+  }).finally(() => askedT.delete(k));
   return null;
 }
 

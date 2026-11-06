@@ -27,8 +27,7 @@ function ratioLabel(set) {
   if (set.aspect_ratio && set.aspect_ratio !== "auto") return set.aspect_ratio;
   return sourceRatio() ? t("val.photo") : t("val.auto");
 }
-// The room a frame has on the stage, with room under it for what a run says
-// (more for the reason it failed).
+// The room a frame has on the stage, with room under it for what a run says.
 function space(under = 0) {
   const st = $("#stage"), phone = isPhone();
   const W = Math.max(160, phone ? innerWidth - 32 : st.clientWidth);
@@ -96,7 +95,23 @@ export function stageFrom() { return snap($("#stage"), CELLS); }
 // A run has ended: refused, stopped before the job, or every job of it final.
 export const runOver = (run) => !!run && (run.phase === "refused" || run.phase === "cancelled" || (run.phase === "job" && jobsOf(run).every((j) => isFinal(j.status))));
 
+/* A result on the stage stays the same element while the stage is drawn
+   again, as it is for a new state of the account (the free counts after a
+   run, the settings opened, the page back from another tab): a video goes on
+   where it was, paused, sought or with its sound, and a picture is not loaded
+   and shown again. Only what the stage draws now is kept. */
+let kept = new Map(), keeping = new Map();
+const keepMedia = (key, make) => { const el = kept.get(key) || make(); keeping.set(key, el); return el; };
+
 export function renderStage() {
+  keeping = new Map();
+  try { drawStage(); } finally {
+    // A video the stage no longer draws is no longer watched for the screen.
+    for (const [k, el] of kept) if (!keeping.has(k) && el.tagName === "VIDEO") onScreen?.unobserve(el);
+    kept = keeping;
+  }
+}
+function drawStage() {
   const st = $("#stage");
   if (!st) return;
   const run = S.run;
@@ -150,10 +165,15 @@ function ghostCell(it, dims) {
   if (it.short) chips.push(h("span", { class: "chip warn" }, ic("ticket"), h("span", {}, t("fr.short"))));
   // A press sets up that frame: on a phone in the sheet, on a computer in the form beside it.
   const pick = () => (isPhone() ? openTune(fr.id) : setScope(on ? null : fr.id));
-  return h("div", { class: "ghost cell" + (on ? " on" : ""), role: "button", tabindex: 0, "aria-pressed": String(on), "aria-label": t("fr.n", { n: i + 1 }), "data-k": "pv-" + fr.id,
-    onclick: pick, onkeydown: (e) => { if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) { e.preventDefault(); pick(); } } },
+  /* The frame holds two buttons side by side, one that picks it and one that
+     removes it, and is no button itself: a button inside a button is lost to a
+     screen reader. The first fills the frame under what it says, and a press
+     anywhere on the frame but the cross picks it. */
+  const said = chips.length ? "pvo-" + fr.id : null;
+  return h("div", { class: "ghost cell" + (on ? " on" : ""), "data-k": "pv-" + fr.id, onclick: pick },
+    h("button", { type: "button", class: "fhit", "aria-pressed": String(on), "aria-label": t("fr.n", { n: i + 1 }), "aria-describedby": said }),
     h("i"), h("i"), h("i"), h("i"),
-    h("div", { class: "c" }, h("b", {}, ratioLabel(set)), h("small", {}, t("fr.n", { n: i + 1 })), chips.length ? h("span", { class: "fown" }, chips) : null),
+    h("div", { class: "c" }, h("b", {}, ratioLabel(set)), h("small", {}, t("fr.n", { n: i + 1 })), said ? h("span", { class: "fown", id: said }, chips) : null),
     h("button", { type: "button", class: "frm", "aria-label": t("fr.remove_n", { n: i + 1 }), title: t("fr.remove"), onclick: (e) => { e.stopPropagation(); removeFrame(fr); } }, ic("close")));
 }
 function boardOf(P, under) {
@@ -176,12 +196,15 @@ function stripOf(P) {
   return strip;
 }
 // The card the strip stands at: the last one once it can roll no further.
+// Right to left, the cards go leftwards from the first and the strip rolls
+// to negative scrollLeft: a card's distance from the first and the roll have
+// the same sign either way.
 function stripAt(s) {
-  const cs = [...s.querySelectorAll(":scope > .cell")], x = Math.abs(s.scrollLeft);
+  const cs = [...s.querySelectorAll(":scope > .cell")], x = s.scrollLeft;
   // On a short phone the cards are small and several stand whole: the one the strip was sent to stays the one.
   const r = s.getBoundingClientRect(), b = cs[s._at]?.getBoundingClientRect();
   if (b && b.left >= r.left - 1 && b.right <= r.right + 1) return s._at;
-  if (x > 0 && x >= s.scrollWidth - s.clientWidth - 2) return cs.length - 1;
+  if (x !== 0 && Math.abs(x) >= s.scrollWidth - s.clientWidth - 2) return cs.length - 1;
   let k = 0, d = Infinity;
   cs.forEach((c, i) => { const e = Math.abs(c.offsetLeft - cs[0].offsetLeft - x); if (e < d) { d = e; k = i; } });
   return k;
@@ -189,7 +212,7 @@ function stripAt(s) {
 function toCard(s, at, smooth = false) {
   const cs = [...s.querySelectorAll(":scope > .cell")], c = cs[at];
   if (!c) return;
-  s.scrollTo({ left: (c.offsetLeft - cs[0].offsetLeft) * (document.dir === "rtl" ? -1 : 1), behavior: smooth && motion() ? "smooth" : "auto" });
+  s.scrollTo({ left: c.offsetLeft - cs[0].offsetLeft, behavior: smooth && motion() ? "smooth" : "auto" });
 }
 function fitStrip(strip, rs) {
   const { W, H } = space(48), cw = Math.round(W * 0.86), cards = [...strip.querySelectorAll(":scope > .cell")];
@@ -244,11 +267,26 @@ function tookEl(run) {
   return live(() => { const s = fmtClock((Date.now() - since) / 1000); return u > 0 ? t("stage.usually", { t: s, u: fmtClock(u) }) : s; }, "took");
 }
 
+// What a run being made says in place of Cancel. A video takes minutes, so it
+// also says the person can leave and where the video will come: the DM for a
+// run made there, or one made on the site while its results go to the chat
+// (Settings); the library for the rest of the site's and the Mini App's. A
+// run of a group or of guest mode comes where it was asked for.
+function busyEl(run, j) {
+  let k = run.kind === "video" ? "cancel.running_video" : "cancel.running";
+  if (run.kind === "video") {
+    const s = j?.surface;
+    if (s === "dm" || (s === "site" && S.me?.deliver_to_telegram !== false)) k = "cancel.running_video_chat";
+    else if (s === "site" || s === "mini_app") k = "cancel.running_video_library";
+  }
+  return h("span", { class: "busy" }, ic("info"), t(k));
+}
+
 // What the stage says about run: the frame's status, the reason under it and
 // the buttons. The library's viewer shows a run with it too: o.res is which
 // result, o.again makes the button that runs it again.
 export function view(run, o = {}) {
-  const j = run.job, kind = run.kind;
+  const j = run.job;
   // ht is the figure of the halftone in the frame (halftone.js).
   const spin = (label, sub, ht) => ({ status: h("div", { class: "c run" }, h("b", {}, label), sub), ht });
   const stop = h("button", { type: "button", onclick: () => cancel(run) }, ic("stop"), t("act.cancel"));
@@ -271,7 +309,7 @@ export function view(run, o = {}) {
     return { ...spin(t("stage.queued"), tookEl(run), { fig: "queue" }), acts: [stop] };
   }
   if (st === "running") {
-    return { ...spin(t("stage.running"), tookEl(run), { fig: "loop" }), acts: [h("span", { class: "busy" }, ic("info"), t(kind === "video" ? "cancel.running_video" : "cancel.running"))] };
+    return { ...spin(t("stage.running"), tookEl(run), { fig: "loop" }), acts: [busyEl(run, j)] };
   }
   const res = outsOf(j)[o.res || 0];
   if (st === "done" && res) return { done: true, res, acts: doneActs(run, j, res, o) };
@@ -358,13 +396,43 @@ function cellsOf(run) {
     return { i, fm, sub, v, r: runRatio(sub, v.done ? v.res : null) };
   });
 }
+/* A video of a press plays in its frame without sound, over and over, while
+   the frame is on the screen; its button stops it and starts it again. With
+   reduced motion it waits for the button. One the person stopped stays
+   stopped, wherever the page goes. */
+const onScreen = typeof IntersectionObserver === "function" ? new IntersectionObserver((es) => {
+  for (const e of es) { const v = e.target; if (!e.isIntersecting) v.pause(); else if (!v._held) v.play().catch(() => {}); }
+}) : null;
+function cellVideo(res) {
+  const v = h("video", { src: res.url, poster: res.thumb?.url || null, loop: true, playsinline: true, autoplay: motion(), preload: "metadata" });
+  v.muted = true;
+  v._held = !motion();
+  onScreen?.observe(v);
+  return v;
+}
+function playBtn(v) {
+  const sync = () => {
+    const on = !v.paused, label = t(on ? "player.pause" : "player.play");
+    b.replaceChildren(ic(on ? "pause" : "play")); b.setAttribute("aria-label", label); b.title = label;
+    b.classList.toggle("still", !on);
+  };
+  const b = h("button", { type: "button", class: "tpp", onclick: (e) => {
+    e.stopPropagation();
+    v._held = !v.paused;
+    if (v._held) v.pause(); else v.play().catch(() => {});
+    sync();
+  } });
+  v.addEventListener("play", sync); v.addEventListener("pause", sync);
+  sync();
+  return b;
+}
 function runCell(run, c, mixed, items) {
   const { v, sub, i } = c, j = sub.job, going = sub.phase === "job" && !isFinal(j.status), id = `p${run.n}-${i}`;
-  let media = null;
+  let media = null, pp = null;
   if (v.done) {
-    const res = v.res, vid = res.content_type?.startsWith("video/");
-    media = vid ? h("video", { src: res.url, poster: res.thumb?.url || null, loop: true, playsinline: true, autoplay: true, preload: "auto" }) : h("img", { src: res.url, alt: run.prompt || "", decoding: "async" });
-    if (vid) media.muted = true;
+    const res = v.res, vid = res.content_type?.startsWith("video/"), key = `p${run.n}-${i}-${res.id}`;
+    media = keepMedia(key, () => (vid ? cellVideo(res) : h("img", { src: res.url, alt: run.prompt || "", decoding: "async" })));
+    if (vid) pp = keepMedia(key + "-pp", () => playBtn(media));
   }
   if (going && run.net === "lost" && v.status) {
     const lost = h("small", { class: "lost" }, t("net.lost_line")), sub2 = v.status.querySelector("small");
@@ -374,11 +442,11 @@ function runCell(run, c, mixed, items) {
   const dl = v.done && v.res.url ? download(j, v.res, sub.k) : null;
   if (dl) { dl.className = "sq tdl"; dl.setAttribute("aria-label", t("stage.download")); dl.title = t("stage.download"); dl.addEventListener("click", (e) => e.stopPropagation()); }
   const f = C.famOf[sub.model], m = C.byId[sub.model];
-  const cell = h("div", { class: "jbox cell" + (v.done ? " done" : ""), "data-k": "pc-" + i, role: v.done ? "button" : null, tabindex: v.done ? 0 : null,
-    "aria-label": v.done ? t("view.result", { n: fmtNum(i + 1) }) : null, onclick: v.done ? open : null,
-    onkeydown: v.done ? (e) => { if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) { e.preventDefault(); open(); } } : null },
+  // As a frame before the press: the button that opens the result lies over it, beside Download and Play, not around them.
+  const cell = h("div", { class: "jbox cell" + (v.done ? " done" : ""), "data-k": "pc-" + i, onclick: v.done ? open : null },
     v.done ? media : [h("i"), h("i"), h("i"), h("i")], v.done ? null : v.status || null,
-    h("span", { class: "num" }, String(i + 1)), mixed && f && m ? h("span", { class: "chip tm" }, lg(famLogo(f), f.maker, "s"), h("span", {}, vname(m))) : null, dl);
+    v.done ? h("button", { type: "button", class: "fhit", "aria-label": t("view.result", { n: fmtNum(i + 1) }) }) : null,
+    h("span", { class: "num" }, String(i + 1)), mixed && f && m ? h("span", { class: "chip tm" }, lg(famLogo(f), f.maker, "s"), h("span", {}, vname(m))) : null, dl, pp);
   if (v.ht) halftone(cell, v.ht.fig, { ...v.ht, n: run.n, id, lost: going && run.net === "lost" });
   else if (v.done) halftone(cell, "reveal", { n: run.n, id });
   return cell;
@@ -392,10 +460,10 @@ function renderPress(st, run) {
   const models = [...new Set(run.frames.map((fm) => fm.model))], mixed = models.length > 1, items = doneItems(cells);
   // Nothing came: the first frame's reason stands for the press, and Again runs all of it.
   if (!live.length) return renderRun(st, failed[0].sub);
-  const under = failed.length ? 110 : 70, rs = live.map((c) => c.r), L = live.length > 1 ? board(rs, under) : null;
-  const box = h("div", { class: "board run", "data-k": "pv" }, live.map((c) => runCell(run, c, mixed, items)));
-  if (L) { box._fit = () => lay(box, board(rs, under)); lay(box, L); }
-  else { const b = fit(rs[0], under); box._fit = () => { const x = fit(rs[0], under); lay(box, { w: x.w, h: x.h, pos: [{ x: 0, y: 0, w: x.w, h: x.h }] }); }; lay(box, { w: b.w, h: b.h, pos: [{ x: 0, y: 0, w: b.w, h: b.h }] }); }
+  const rs = live.map((c) => c.r), box = h("div", { class: "board run", "data-k": "pv" }, live.map((c) => runCell(run, c, mixed, items)));
+  const size = live.length > 1 ? (u) => { const L = board(rs, u); lay(box, L); return L.h; }
+    : (u) => { const x = fit(rs[0], u); lay(box, { w: x.w, h: x.h, pos: [{ x: 0, y: 0, w: x.w, h: x.h }] }); return x.h; };
+  size(UNDER);
   const js = jobsOf(run), going = run.phase === "prep" || js.some((j) => !isFinal(j.status)), over = runOver(run);
   // Once it is over, what each paid job cost: its bill, or nothing when it failed before any charge.
   const paidJobs = js.filter((j) => !j.free), zero = (j) => cells.some((c) => c.sub.job === j && c.v.zero);
@@ -407,16 +475,19 @@ function renderPress(st, run) {
   const why = failed.length ? h("div", { class: "jwhy", "data-k": "j-why" }, failed.map((c) => h("p", {}, t("fr.failed", { n: c.i + 1, why: c.v.status?.querySelector("b")?.textContent || "" })))) : null;
   const queued = run.phase === "prep" ? !run.sending : js.some((j) => j.status === "queued");
   const acts = going
-    ? [queued ? B("stop", t("act.cancel"), () => cancel(run)) : h("span", { class: "busy" }, ic("info"), t(run.kind === "video" ? "cancel.running_video" : "cancel.running"))]
+    ? [queued ? B("stop", t("act.cancel"), () => cancel(run)) : busyEl(run, run.job)]
     : [items.length ? allDown(items) : null, B("again", t("act.again"), () => again(run), "sq2"), B("edit", t("act.edit"), () => editPrompt(run), "sq"),
       h("button", { type: "button", class: "sq", "aria-label": t("stage.next"), title: t("stage.next"), onclick: () => drop() }, ic("plus"), h("span", { class: "t" }, t("stage.next")))];
   const prompt = run.prompt ? h("p", { class: "jprompt", "data-k": "j-prompt", hidden: samePrompt(run) }, h("span", { class: "tx" }, run.prompt),
     h("button", { type: "button", class: "cp", "aria-label": t("act.copy"), title: t("act.copy"), onclick: () => copyPrompt(run.prompt) }, ic("copy"))) : null;
   st.replaceChildren(h("div", { class: "preview", "data-k": "pvbox" }, box), h("div", { class: "jfoot", "data-k": "j-foot" }, line, why, h("div", { class: "jacts acts", "data-k": "j-acts" }, acts.filter(Boolean)), prompt));
+  box._fit = () => roomUnder(st, size);
+  box._fit();
 }
 // Every result of the press saved, one after another: a browser asks once to allow them, Telegram asks for each.
+// They are the cells right above it, so its label gives no count.
 function allDown(items) {
-  return B("down", t("act.download_all", { n: fmtNum(items.length) }), () => {
+  return B("down", t("act.download_all"), () => {
     const links = items.map((it) => download(it.j, it.res, outsOf(it.j).indexOf(it.res))), tg = S.tg;
     if (links[0]?.tagName === "BUTTON" && tg?.downloadFile) {
       const one = (k) => { if (k < items.length) tg.downloadFile({ url: items[k].res.download, file_name: links[k]._name }, () => one(k + 1)); };
@@ -426,14 +497,37 @@ function allDown(items) {
   }, "primary");
 }
 
+/* A run's frame keeps one size for its shape in every state: while it is made,
+   once it is done and once it failed, the same room is left under it, and
+   nothing on the stage moves but what changed. A failure's reason with the
+   buttons that help can need more: then, and only then, the frame gives up
+   the room that is missing, so they are seen without scrolling, and never
+   behind the dock on a phone. The prompt under them is not counted: it shows
+   while the composer holds another, and the frame does not shrink as the
+   person types. size(under) lays the frame out and gives its height. */
+const UNDER = 70;
+function roomUnder(st, size) {
+  const h0 = size(UNDER), acts = st.querySelector(":scope > .jfoot > .jacts");
+  // A stage out of sight has nothing to measure; it is drawn again when it comes back.
+  if (!acts?.getClientRects().length) return;
+  // Where the stage stands with the page at its top (on a computer it sticks once scrolled).
+  const phone = isPhone(), top0 = (phone ? st : st.parentElement).getBoundingClientRect().top + scrollY;
+  const edge = innerHeight - (phone ? $("#composer").offsetHeight : 0) - 24;
+  const over = Math.ceil(acts.getBoundingClientRect().bottom - st.getBoundingClientRect().top + top0 - edge);
+  if (over > 0) size(UNDER + space(UNDER).H - h0 + over);
+}
+
 function renderRun(st, run) {
-  const v = view(run), r = runRatio(run), b = fit(r, v.fail ? 150 : 70), j = run.job, m = C.byId[run.model];
+  const v = view(run), r = runRatio(run), b = fit(r, UNDER), j = run.job, m = C.byId[run.model];
   let media = null;
   if (v.done) {
     const res = v.res;
-    media = res.content_type?.startsWith("video/") ? player(res) : h("img", { src: res.url, alt: run.prompt || "", decoding: "async" });
-    const pic = media.tagName === "IMG" ? media : media.querySelector("video");
-    pic.addEventListener(media === pic ? "load" : "loadeddata", () => anim(pic, [{ opacity: 0 }, { opacity: 1 }], { duration: 420 }), { once: true });
+    media = keepMedia(`r${run.n}-${res.id}`, () => {
+      const el = res.content_type?.startsWith("video/") ? player(res) : h("img", { src: res.url, alt: run.prompt || "", decoding: "async" });
+      const pic = el.tagName === "IMG" ? el : el.querySelector("video");
+      pic.addEventListener(el === pic ? "load" : "loadeddata", () => anim(pic, [{ opacity: 0 }, { opacity: 1 }], { duration: 420 }), { once: true });
+      return el;
+    });
   }
   // While the page cannot reach framy, the frame says so; it hears again by itself.
   const going = run.phase === "job" && !isFinal(j.status);
@@ -443,7 +537,6 @@ function renderRun(st, run) {
   }
   const box = h("div", { class: "jbox" + (v.done ? " done" : "") + (v.fail ? " failed" : ""), "data-k": "pv", style: { width: b.w + "px", height: b.h + "px" } },
     v.done ? media : [h("i"), h("i"), h("i"), h("i")], v.status || null);
-  box._r = r; box._under = v.fail ? 150 : 70;
   // The dots: a figure for the state, or the result showing through them as it arrives.
   if (v.ht) halftone(box, v.ht.fig, { ...v.ht, n: run.n, lost: going && run.net === "lost" });
   else if (v.done) halftone(box, "reveal", { n: run.n });
@@ -460,6 +553,8 @@ function renderRun(st, run) {
   const acts = h("div", { class: "jacts acts", "data-k": "j-acts" }, v.acts.filter(Boolean),
     runOver(run) ? h("button", { type: "button", class: "sq", "aria-label": t("stage.next"), title: t("stage.next"), onclick: () => drop() }, ic("plus"), h("span", { class: "t" }, t("stage.next"))) : null);
   st.replaceChildren(h("div", { class: "preview", "data-k": "pvbox" }, box), h("div", { class: "jfoot", "data-k": "j-foot" }, line, why, acts, prompt));
+  box._fit = () => roomUnder(st, (u) => { const f = fit(r, u); box.style.width = f.w + "px"; box.style.height = f.h + "px"; return f.h; });
+  box._fit();
 }
 
 // The composer holds the run's prompt still: the stage does not say it twice.

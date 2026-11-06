@@ -12,12 +12,19 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chromedp/chromedp"
 )
 
 // framesHelpers read the frames on the stage and in the form.
 const framesHelpers = `
 // A tile that is leaving stays in the page until its animation ends, hidden from the reader: it is no frame.
 const cells = () => [...document.querySelectorAll("#stage .cell:not([aria-hidden=true])")];
+// The button of a frame or of a result: the one that picks it, or opens it.
+const hit = (c) => c.querySelector(":scope > .fhit");
+// A control inside another control is lost to a screen reader; the stage has none.
+const nested = () => [...document.querySelectorAll("#stage button, #stage a[href], #stage [role=button], #stage [tabindex]:not([tabindex='-1'])")]
+  .filter((el) => el.querySelector("button, a[href], input, select, textarea, [role=button], [tabindex]:not([tabindex='-1'])")).length;
 async function pickModel(name) {
   document.querySelector("#how .mhead").click();
   await wait(600);
@@ -41,16 +48,25 @@ func TestBrowserFrames(t *testing.T) {
 	document.querySelector("#stage .addf").click(); await wait(500);
 	const n = cells().length;
 	cells()[1].click(); await wait(500);
-	const pressed = cells().map((c) => c.getAttribute("aria-pressed")).join(",");
+	const pressed = cells().map((c) => hit(c)?.getAttribute("aria-pressed")).join(","), labels = cells().map((c) => hit(c)?.getAttribute("aria-label")).join(",");
+	const inside = nested();
 	const tip = document.querySelector("#stage .scopetip")?.textContent || "";
 	await pickModel("Nano Banana 2.1");
 	const own = document.querySelector("#how .ownmark")?.textContent || "";
 	const chips = cells().map((c) => !!c.querySelector(".chip.own")).join(",");
 	document.querySelector("#stage .scopetip button").click(); await wait(500);
+	// The frame with a model of its own says which to a reader too.
+	const said = document.getElementById(hit(cells()[1]).getAttribute("aria-describedby") || "-")?.textContent || "";
+	// Its own button picks the frame, and a second press goes back to all of them.
+	hit(cells()[1]).click(); await wait(400);
+	const toggled = [hit(cells()[1]).getAttribute("aria-pressed")];
+	hit(cells()[1]).click(); await wait(400);
+	toggled.push(hit(cells()[1]).getAttribute("aria-pressed"));
 	for (let i = 0; i < 30 && /…/.test(document.querySelector("#bar").textContent); i++) await wait(100);
-	return { n, pressed, tip, own, chips, note: document.querySelector("#stage .fnote")?.textContent || "", bar: document.querySelector("#bar").textContent,
+	return { n, pressed, labels, inside, said, toggled: toggled.join(","), tip, own, chips, note: document.querySelector("#stage .fnote")?.textContent || "", bar: document.querySelector("#bar").textContent,
 	  scoped: !!document.querySelector("#stage .scopetip") };`)
-	if s["n"] != float64(3) || s["pressed"] != "false,true,false" || !strings.HasPrefix(s["tip"].(string), "Setting up frame 2") ||
+	if s["n"] != float64(3) || s["pressed"] != "false,true,false" || s["labels"] != "Frame 1,Frame 2,Frame 3" || s["inside"] != float64(0) ||
+		!strings.Contains(s["said"].(string), "Nano Banana 2.1") || s["toggled"] != "true,false" || !strings.HasPrefix(s["tip"].(string), "Setting up frame 2") ||
 		s["own"] != "only frame 2" || s["chips"] != "false,true,false" || !strings.HasPrefix(s["note"].(string), "Frames with their own settings: 2.") ||
 		s["scoped"] != false || !strings.Contains(s["bar"].(string), "$") {
 		t.Errorf("setting up: %v", s)
@@ -61,9 +77,18 @@ func TestBrowserFrames(t *testing.T) {
 	// The failed frame's tile stays in the page while it leaves; the press is read once it is gone.
 	const s = await press("frames:done,fail:moderation", () => document.querySelectorAll("#stage .jbox.cell.done img").length === 2 && !!document.querySelector("#stage .jwhy") &&
 	  document.querySelectorAll("#stage .jbox.cell").length === 2);
-	return { ...s, nums: [...document.querySelectorAll("#stage .jbox.cell .num")].map((e) => e.textContent).join(","),
-	  models: [...document.querySelectorAll("#stage .jbox.cell .tm")].length, tiles: document.querySelectorAll("#stage .jbox.cell").length };`)
+	const out = { ...s, nums: [...document.querySelectorAll("#stage .jbox.cell .num")].map((e) => e.textContent).join(","),
+	  models: [...document.querySelectorAll("#stage .jbox.cell .tm")].length, tiles: document.querySelectorAll("#stage .jbox.cell").length,
+	  opens: cells().map((c) => hit(c)?.getAttribute("aria-label")).join(","), saves: document.querySelectorAll("#stage .jbox.cell > a.tdl").length, inside: nested() };
+	// A result's button opens it on the whole screen; Download beside it only saves it.
+	hit(cells()[1]).click();
+	for (let i = 0; i < 20 && document.querySelector("#full").hidden; i++) await wait(100);
+	out.full = !document.querySelector("#full").hidden && document.querySelector("#full .cnt").textContent;
+	document.querySelector("#full .fbar .x").click();
+	for (let i = 0; i < 20 && !document.querySelector("#full").hidden; i++) await wait(100);
+	return out;`)
 	if s["timeout"] == true || s["nums"] != "1,3" || s["models"] != float64(2) || s["tiles"] != float64(2) ||
+		s["opens"] != "Result 1,Result 3" || s["saves"] != float64(2) || s["inside"] != float64(0) || s["full"] != "2 of 2" ||
 		s["why"] != "Frame 2: Refused by the rules." || s["line"] != "MAI-Image 2.6 Flash, Nano Banana 2.1 · $0.08" ||
 		!strings.HasPrefix(fmt.Sprint(s["acts"]), "[Download all Again Edit the prompt") {
 		t.Errorf("press: %v", s)
@@ -123,7 +148,7 @@ func TestBrowserFramesPhone(t *testing.T) {
 	const plus = document.querySelector("#stage .shead .addf").getBoundingClientRect(), strip = document.querySelector("#stage .strip").getBoundingClientRect();
 	const added = { n: cells().length, at: at(), dot: dot(), plus: Math.round(plus.height), over: plus.bottom <= strip.top,
 	  dock: Math.round(document.querySelector("#composer").getBoundingClientRect().top - strip.bottom) };
-	cells()[2].click(); await wait(800);
+	hit(cells()[2]).click(); await wait(800);
 	const title = document.querySelector("#tuneTitle").textContent;
 	async function swipe(dx, k) {
 	  const tg = document.querySelector("#tuneBody .mcard .facts");
@@ -146,6 +171,55 @@ func TestBrowserFramesPhone(t *testing.T) {
 		}
 		noErrors(t, ctx)
 	}
+}
+
+// TestBrowserFramesPhoneRTL checks the strip right to left, where the cards
+// go leftwards and the strip rolls to a negative scrollLeft: a new frame
+// rolls into view with its dot lit, and a swipe in the sheet follows the
+// finger, to the right for the next frame, whose settings come in from the
+// left.
+func TestBrowserFramesPhoneRTL(t *testing.T) {
+	ts := fakeAPI(t)
+	ctx := browser(t, ts.URL, 390, 844, true)
+	js[any](t, ctx, `localStorage.setItem("framy.lang", "ar");`)
+	if err := chromedp.Do(ctx, chromedp.Reload()); err != nil {
+		t.Fatal(err)
+	}
+	ready(t, ctx)
+	s := js[map[string]any](t, ctx, pageHelpers+framesHelpers+`
+	const dot = () => [...document.querySelectorAll("#stage .dots i")].findIndex((i) => i.classList.contains("on"));
+	const whole = (k) => { const s = document.querySelector("#stage .strip"), c = s.querySelectorAll(":scope > .cell")[k], r = s.getBoundingClientRect(), b = c.getBoundingClientRect();
+	  return b.left >= r.left - 1 && b.right <= r.right + 1; };
+	const at = () => { const k = dot(); return k >= 0 && whole(k) ? k : -1; };
+	const settle = async (k) => { for (let i = 0; i < 25 && at() !== k; i++) await wait(100); await wait(200); };
+	document.querySelector("#stage .addf").click(); await wait(900);
+	document.querySelector("#stage .addf").click(); await settle(2);
+	const strip = document.querySelector("#stage .strip");
+	const added = { dir: document.dir, at: at(), dot: dot(), roll: Math.sign(strip.scrollLeft) };
+	hit(cells()[2]).click(); await wait(800);
+	// Where the settings of the frame swiped to come in from: they move with the finger.
+	const animate0 = Element.prototype.animate;
+	let from = null;
+	Element.prototype.animate = function (kf, o) { if (this.id === "how" && !from) from = kf[0].transform; return animate0.call(this, kf, o); };
+	async function swipe(dx, k) {
+	  const tg = document.querySelector("#tuneBody .mcard .facts");
+	  const touch = (x) => new Touch({ identifier: 1, target: tg, clientX: x, clientY: 300 });
+	  from = null;
+	  tg.dispatchEvent(new TouchEvent("touchstart", { touches: [touch(180)], changedTouches: [touch(180)], bubbles: true }));
+	  await wait(100);
+	  tg.dispatchEvent(new TouchEvent("touchend", { touches: [], changedTouches: [touch(180 + dx)], bubbles: true }));
+	  await wait(300); await settle(k);
+	  return [at(), from];
+	}
+	const back = await swipe(-120, 1), next = await swipe(120, 2);
+	Element.prototype.animate = animate0;
+	return { added, back, next, overflow: document.documentElement.scrollWidth - innerWidth };`)
+	added, _ := s["added"].(map[string]any)
+	if added["dir"] != "rtl" || added["at"] != float64(2) || added["dot"] != float64(2) || added["roll"] != float64(-1) ||
+		fmt.Sprint(s["back"]) != "[1 translateX(28px)]" || fmt.Sprint(s["next"]) != "[2 translateX(-28px)]" || s["overflow"].(float64) > 0 {
+		t.Errorf("right to left: %v", s)
+	}
+	noErrors(t, ctx)
 }
 
 // TestBrowserLibraryPress checks a press of three frames in the library: one
@@ -252,6 +326,29 @@ func TestBrowserLibraryPress(t *testing.T) {
 	if strings.Join(offers, " ") != "openrouter:black-forest-labs/flux-3-image openrouter:google/gemini-nano-banana-2.1 openrouter:black-forest-labs/flux-3-image" ||
 		sent[0]["shown_usd"] == nil || sent[0]["prompt"] != "a glass city 66" {
 		t.Errorf("again sent %v", sent[0])
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserLibraryPressWaiting checks a press with no picture yet: its cover
+// says where it stands, and the line under it names the models only. Jobs 70
+// and 69 make one press still going, 68 and 67 one that gave nothing.
+func TestBrowserLibraryPressWaiting(t *testing.T) {
+	f := newFakeLibrary()
+	j70, j69, j68, j67 := f.jobs[0], f.jobs[1], f.jobs[2], f.jobs[3]
+	j70["batch"], j70["frames"], j69["batch"], j69["frames"] = "b0", []int{0}, "b0", []int{1}
+	j68["kind"], j68["offer"], j68["model"], j68["settings"] = "image", j67["offer"], j67["model"], j67["settings"]
+	j68["batch"], j68["frames"], j67["batch"], j67["frames"] = "b9", []int{0}, "b9", []int{1}
+	ts := fakeSite(t, f.mount)
+	ctx := browser(t, ts.URL+"/library", 1440, 900, false)
+	got := js[map[string]any](t, ctx, libHelpers+`
+	await settled();
+	const card = (id) => tiles().find((e) => e.getAttribute("href") === "/r/" + id);
+	const read = (e) => ({ cover: e.querySelector(".cover.none b")?.textContent, line: e.querySelector(".m").textContent });
+	return { going: read(card(70)), failed: read(card(68)), has69: ids().includes(69), has67: ids().includes(67) };`)
+	if fmt.Sprint(got["going"]) != "map[cover:Making it line:FLUX 3]" || fmt.Sprint(got["failed"]) != "map[cover:No money on the key line:FLUX 3]" ||
+		got["has69"] != false || got["has67"] != false {
+		t.Errorf("waiting presses: %v", got)
 	}
 	noErrors(t, ctx)
 }

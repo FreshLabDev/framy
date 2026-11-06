@@ -33,7 +33,7 @@ type batchRequest struct {
 	// Surface is "site" (the default) or "mini_app".
 	Surface string `json:"surface"`
 	// ShownUSD is the price of the whole press the person saw, as in POST
-	// /api/jobs: the sum of the frames that are not free.
+	// /api/jobs: the sum of the frames that are not free, needed when one is.
 	ShownUSD *float64     `json:"shown_usd"`
 	Frames   []batchFrame `json:"frames"`
 }
@@ -148,8 +148,8 @@ func (a *API) createBatch(w http.ResponseWriter, r *http.Request) {
 		}
 		ns = append(ns, n)
 	}
-	if total := price.Sum(paid...); len(paid) > 0 && req.ShownUSD != nil && dearer(total, *req.ShownUSD, quote, lang) {
-		priceChanged(total, quote, lang).write(w)
+	if total := price.Sum(paid...); len(paid) > 0 && unseen(total, req.ShownUSD, quote, lang) {
+		priceChanged(total, req.ShownUSD, quote, lang).write(w)
 		return
 	}
 	ids, created, err := a.cfg.Queue.EnqueueBatch(ctx, ns)

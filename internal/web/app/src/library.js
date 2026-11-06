@@ -1,7 +1,7 @@
 // The library and the viewer. The library is every run of the person's,
-// newest first by day, filtered by kind and searched by prompt
-// (GET /api/jobs); the viewer is one run on a sheet, at /r/<job id>, with
-// what can be done with it. The page's views and their addresses live here
+// newest first by day, filtered by kind or to the runs that did not work,
+// and searched by prompt (GET /api/jobs); the viewer is one run on a sheet,
+// at /r/<job id>, with what can be done with it. The page's views and their addresses live here
 // too: / is the composer, /library the library. The Mini App keeps its
 // address and walks back with Telegram's back button instead.
 import { $, $$, h, ic, isWide, isPhone } from "./dom.js";
@@ -78,7 +78,7 @@ onLeave(() => { closeFull(true); if (viewerOpen()) { V.quiet = true; closeSheets
 
 const PAGE = 30;
 // busy is "page" while the first page loads, "more" while the next one does.
-const L = { kind: "all", q: "", jobs: [], next: 0, busy: "", loaded: false, err: "", more: "", gen: 0, at: 0, any: false, dirty: false };
+const L = { kind: "all", q: "", failed: false, clearing: false, jobs: [], next: 0, busy: "", loaded: false, err: "", more: "", gen: 0, at: 0, any: false, dirty: false };
 const TILES = new Map();
 let Q = null;
 
@@ -86,7 +86,9 @@ export function mountLibrary() {
   return h("main", { class: "library", id: "library", hidden: true, "aria-label": t("tab.library") });
 }
 
-const matches = (j) => (L.kind === "all" || j.kind === L.kind) && (!L.q || (j.prompt || "").toLocaleLowerCase().includes(L.q.toLocaleLowerCase()));
+// A run that ended with no result: it failed, was cancelled or ran out of time.
+const bad = (j) => j.status === "failed" || j.status === "cancelled" || j.status === "expired";
+const matches = (j) => (L.kind === "all" || j.kind === L.kind) && (!L.failed || bad(j)) && (!L.q || (j.prompt || "").toLocaleLowerCase().includes(L.q.toLocaleLowerCase()));
 const shown = () => L.jobs.filter(matches);
 const libOn = () => S.view === "library";
 
@@ -94,6 +96,7 @@ function params(more) {
   const p = new URLSearchParams({ limit: String(PAGE) });
   if (L.kind !== "all") p.set("kind", L.kind);
   if (L.q) p.set("q", L.q);
+  if (L.failed) p.set("failed", "1");
   if (more) p.set("before", String(L.next));
   return p;
 }
@@ -157,7 +160,7 @@ function showLibrary() {
 export function libMe() {
   if (!S.signed) {
     L.gen++;
-    Object.assign(L, { jobs: [], next: 0, busy: "", loaded: false, err: "", more: "", at: 0, any: false });
+    Object.assign(L, { jobs: [], next: 0, busy: "", loaded: false, err: "", more: "", at: 0, any: false, failed: false });
     TILES.clear();
     if (viewerOpen()) { V.quiet = true; closeSheets(true); setPath("/library", "replace"); }
   }
@@ -176,8 +179,11 @@ function renderLibrary() {
   else if (L.err && !list.length) body = [slim(t("lib.failed"), "again", t("act.retry"), () => { swap(() => { L.err = ""; L.loaded = false; }); load(); })];
   else if (!list.length) body = [empty()];
   else body = [...days(entries(list)).map(dayEl), foot(list)];
-  const tools = S.signed && L.loaded && (L.any || L.kind !== "all" || !!L.q);
-  root.replaceChildren(h("div", { class: "libhead", "data-k": "lhead" }, h("h1", {}, t("tab.library")), tools ? kinds() : null, tools ? searchBox() : null), ...body);
+  const tools = S.signed && L.loaded && (L.any || L.kind !== "all" || !!L.q || L.failed);
+  // The runs that did not work can all go at once, from the list of just those.
+  const bulk = tools && L.failed && list.length ? h("div", { class: "lbulk", "data-k": "lbulk" }, clearBtn()) : null;
+  root.replaceChildren(h("div", { class: "libhead", "data-k": "lhead" }, h("h1", {}, t("tab.library")), tools ? kinds() : null,
+    tools ? h("div", { class: "lfind" }, searchBox(), failedBtn()) : null), bulk, ...body);
   placeSegs(root);
   watchFoot();
   if (focused) Q.input.focus({ preventScroll: true });
@@ -193,6 +199,55 @@ function setKind(k) {
   // What is read already shows at once; the server's page follows.
   swap(() => { L.kind = k; L.next = 0; L.busy = "page"; });
   load();
+}
+// Only the runs that did not work: to see what went wrong, to take them again, or to clear them.
+function failedBtn() {
+  return h("button", { type: "button", class: "lfail", "aria-pressed": String(L.failed), onclick: () => setFailed(!L.failed) }, ic("warn"), h("span", {}, t("lib.only_failed")));
+}
+function setFailed(on) {
+  if (L.failed === on || L.clearing) return;
+  swap(() => { L.failed = on; L.next = 0; L.busy = "page"; });
+  load();
+}
+// Delete all: every run of the list, after the pages not read yet are, so the
+// question says how many go. Each is deleted as one run is, one after another,
+// and the list follows once it is over.
+let BK = null;
+function clearBtn() {
+  if (!BK) BK = h("button", { type: "button", class: "x", onclick: clearFailed }, ic("trash"), h("span", {}));
+  BK.disabled = L.clearing;
+  BK.lastChild.textContent = t("lib.delete_all");
+  return BK;
+}
+const deleteError = (e) => (e.code === "job_active" ? t("view.del_active") : e.code === "network" ? t("err.network") : e.code === "storage_unavailable" ? t("view.del_storage") : t("view.del_failed"));
+async function clearFailed() {
+  if (L.clearing || !L.failed) return;
+  L.clearing = true; clearBtn();
+  const ids = new Set();
+  let error = null;
+  try {
+    // A page the observer is reading is waited for; one that failed ends the wait.
+    for (let tries = 0; L.next && tries < 400; tries++) {
+      if (L.busy) await new Promise((r) => setTimeout(r, 100));
+      else { await load(true); if (L.more) break; }
+    }
+    const list = shown().filter(bad);
+    if (L.more || L.next) { toast(t("lib.more_failed")); return; }
+    if (!list.length || !(await ask({ title: t("lib.delete_q"), text: t("lib.delete_text", { n: fmtNum(list.length) }), yes: t("view.delete") }))) return;
+    for (const j of list) {
+      try { await removeJob(j.id); ids.add(j.id); TILES.delete(j.id); }
+      catch (e) { error = e; break; }
+    }
+  } finally {
+    L.clearing = false;
+    if (ids.size) {
+      const open = ids.has(V.id) && viewerOpen();
+      swap(() => { L.jobs = L.jobs.filter((x) => !ids.has(x.id)); });
+      if (open) { closeFull(true); closeSheets(); }
+    } else clearBtn();
+  }
+  if (error) { if (error.status === 401) refreshMe(); else toast(deleteError(error)); }
+  else if (ids.size) toast(t("lib.deleted_n", { n: fmtNum(ids.size) }));
 }
 // The search field is one element kept across renders, so typing never loses it.
 function searchBox() {
@@ -258,7 +313,7 @@ const dayEl = (g) => h("section", { class: "lday" }, h("h2", { "data-k": "ld-" +
 const nameOf = (id) => String(id || "").split("/").pop();
 const coverOf = (j) => { const r = outsOf(j)[0]; return r ? r.thumb?.url || (j.kind === "video" ? "" : r.url || "") : ""; };
 const sigOf = (j) => [j.status, outsOf(j).length, coverOf(j), outsOf(j)[0]?.url ? 1 : 0, j.cost?.label || "", j.error?.class || "", j.retry_at || "", j.prompt].join("|");
-// What the line under a tile says after the model: the price, or where the run stands.
+// Where a run stands, or its price once it is done.
 function said(j) {
   switch (j.status) {
     case "done": return j.cost?.label || (j.free ? t("bar.free") : j.estimate && j.estimate.kind !== "unknown" ? priceText(j.estimate) : "");
@@ -268,17 +323,22 @@ function said(j) {
     default: return failure(j).label;
   }
 }
+// What the line under a tile says after the model. A run still going, or one
+// that gave nothing, says where it stands on its cover, so the line does not
+// say it again and the model keeps its room; it says only what the provider
+// billed for such a run, if anything.
+const lineOf = (cv, j) => (cv.classList.contains("none") ? (j.cost?.usd > 0 ? j.cost.label : "") : said(j));
 // A tile keeps its element while the run is the same, so its picture never
 // loads twice; one that left the list (morph takes its key) is made anew.
 function tile(j) {
   const sig = sigOf(j), old = TILES.get(j.id);
   if (old && old._sig === sig && old.dataset.k && !old.inert) return old;
-  const m = C.byId[j.model], f = m && C.famOf[m.id];
+  const m = C.byId[j.model], f = m && C.famOf[m.id], cv = cover(j);
   const a = h("a", { class: "li", href: "/r/" + j.id, "data-k": "li-" + j.id,
     onclick: (e) => { if (!S.mini && (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) return; e.preventDefault(); openView(L.jobs.find((x) => x.id === j.id) || j, true); } },
-  cover(j), h("p", { class: "p" }, j.prompt || t("kind." + j.kind)),
+  cv, h("p", { class: "p" }, j.prompt || t("kind." + j.kind)),
   h("span", { class: "m" }, f ? lg(famLogo(f), f.maker, "s") : null,
-    h("span", {}, [m ? vname(m) : nameOf(j.model), said(j), j.surface === "guest" ? t("lib.guest") : ""].filter(Boolean).join(" · "))));
+    h("span", {}, [m ? vname(m) : nameOf(j.model), lineOf(cv, j), j.surface === "guest" ? t("lib.guest") : ""].filter(Boolean).join(" · "))));
   a._sig = sig;
   TILES.set(j.id, a);
   return a;
@@ -308,12 +368,15 @@ function pressTile(js) {
   const first = js[0], key = "b:" + first.batch, sig = js.map(sigOf).join("#"), old = TILES.get(key);
   if (old && old._sig === sig && old.dataset.k && !old.inert) return old;
   const ids = [...new Set(js.map((j) => j.model))], m = C.byId[ids[0]], f = m && C.famOf[m.id];
-  const name = (m ? vname(m) : nameOf(ids[0])) + (ids.length > 1 ? " +" + fmtNum(ids.length - 1) : "");
+  const name = (m ? vname(m) : nameOf(ids[0])) + (ids.length > 1 ? " +" + fmtNum(ids.length - 1) : ""), cv = pressCover(js);
+  // With no picture yet, the cover says where the press stands, and the line only what was billed.
+  const billed = js.map((j) => j.cost).filter((c) => c?.usd > 0), line = !cv.classList.contains("none") ? pressSaid(js)
+    : billed.length ? sumOf(billed.map((c) => ({ ...c, kind: "exact" }))).label : "";
   const a = h("a", { class: "li", href: "/r/" + first.id, "data-k": "li-" + first.id,
     onclick: (e) => { if (!S.mini && (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) return; e.preventDefault(); openView(L.jobs.find((x) => x.id === first.id) || first, true); } },
-  pressCover(js), h("p", { class: "p" }, first.prompt || t("kind." + first.kind)),
+  cv, h("p", { class: "p" }, first.prompt || t("kind." + first.kind)),
   h("span", { class: "m" }, f ? lg(famLogo(f), f.maker, "s") : null,
-    h("span", {}, [name, pressSaid(js), first.surface === "guest" ? t("lib.guest") : ""].filter(Boolean).join(" · "))));
+    h("span", {}, [name, line, first.surface === "guest" ? t("lib.guest") : ""].filter(Boolean).join(" · "))));
   a._sig = sig;
   TILES.set(key, a);
   return a;
@@ -342,22 +405,31 @@ function pressSaid(js) {
   const costs = js.map((j) => j.cost).filter((c) => c?.label);
   return costs.length ? sumOf(costs.map((c) => ({ ...c, kind: "exact" }))).label : js.every((j) => j.free) ? t("bar.free") : "";
 }
-const relinked = new Set();
+// A run is read again for new links when its picture does not load, as one
+// read over an hour ago does not. Its new links live 10 minutes at the least,
+// so it is read at most once in that time: a picture broken for good is not
+// asked for again and again, and one whose links ran out once more, in a tab
+// open for hours, is read again.
+const relinked = new Map();
 async function relink(id) {
-  if (relinked.has(id)) return;
-  relinked.add(id);
+  if (Date.now() - (relinked.get(id) || 0) < 10 * 60e3) return;
+  relinked.set(id, Date.now());
   try { took(await api(`/api/jobs/${id}`), true); } catch (e) { if (e.status === 404) gone(id); }
 }
 
 const frame = () => h("div", { class: "lframe", "aria-hidden": "true" }, h("i"), h("i"), h("i"), h("i"));
 const slim = (text, icon, label, fn) => h("div", { class: "lempty slim", "data-k": "lempty" },
   h("div", { class: "t" }, h("p", {}, text), h("button", { type: "button", class: "x", onclick: fn }, ic(icon), label)));
+// Signed out: the library asks for the sign-in, and the composer stays a press
+// away for whoever came by a link and would rather try it first.
 function signedOut() {
   return h("div", { class: "lempty", "data-k": "lempty" }, frame(), h("div", { class: "t" }, h("h2", {}, t("lib.signin_title")), h("p", {}, t("lib.signin_text")),
-    h("button", { type: "button", class: "go", onclick: signIn }, ic("send"), t("auth.signin"))));
+    h("div", { class: "two" }, h("button", { type: "button", class: "go", onclick: signIn }, ic("send"), t("auth.signin")),
+      h("a", { class: "x", href: "/", onclick: (e) => { if (S.mini || !(e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) { e.preventDefault(); go("create"); } } }, ic("spark"), t("tab.create")))));
 }
 function empty() {
   if (L.q) return slim(t("lib.none_q", { q: L.q }), "close", t("lib.reset"), () => { if (Q) Q.input.value = ""; find(""); });
+  if (L.failed) return slim(t("lib.none_failed"), "grid", t("lib.show_all"), () => setFailed(false));
   if (L.kind !== "all") return slim(t(L.kind === "video" ? "lib.none_videos" : "lib.none_images"), "grid", t("lib.show_all"), () => setKind("all"));
   return h("div", { class: "lempty", "data-k": "lempty" }, frame(), h("div", { class: "t" }, h("h2", {}, t("lib.empty_title")), h("p", {}, t("lib.empty_text")),
     h("button", { type: "button", class: "go", onclick: () => { go("create"); if (!isPhone()) $("#prompt").focus(); } }, ic("spark"), t("go.create"))));
@@ -665,7 +737,7 @@ async function del() {
   try { await removeJob(j.id); }
   catch (e) {
     // storage_unavailable: the files did not go, so the run stays and a second press is safe.
-    toast(e.code === "job_active" ? t("view.del_active") : e.code === "network" ? t("err.network") : e.code === "storage_unavailable" ? t("view.del_storage") : t("view.del_failed"));
+    toast(deleteError(e));
     if (e.code === "job_active") api(`/api/jobs/${j.id}`).then((x) => took(x, true), () => {});
     return;
   }
@@ -754,7 +826,10 @@ export function openFull(at = 0, items = null) {
     h("button", { type: "button", class: "fnav e", "aria-label": t("view.next"), title: t("view.next"), onclick: () => fullGo(1) }, ic(rtl ? "chevl" : "chev"))] : [];
   const dots = n > 1 ? h("div", { class: "dots", "aria-hidden": "true" }, items.map(() => h("i"))) : null;
   const acts = h("div", { class: "jacts acts" });
-  FULL = { items, strip, at: -1, back: document.activeElement };
+  // The videos under the whole screen stop while it is open, and those that played go on after.
+  const under = [...document.querySelectorAll("#app video")].filter((v) => !v.paused && !box.contains(v));
+  under.forEach((v) => v.pause());
+  FULL = { items, strip, at: -1, back: document.activeElement, under };
   // What the strip shows now: the count, the dots, the arrows, the actions of that result, and only its video plays.
   const upd = () => {
     if (!FULL) return;
@@ -766,7 +841,8 @@ export function openFull(at = 0, items = null) {
     dots?.querySelectorAll("i").forEach((e, i) => e.classList.toggle("on", i === c));
     const it = items[c];
     acts.replaceChildren(...view(it.run, { res: outsOf(it.j).indexOf(it.res), again: it.again }).acts.filter(Boolean));
-    cells.forEach((cell, i) => { const v = cell.querySelector("video"); if (v && i === c) v.play().catch(() => {}); else v?.pause(); });
+    // With reduced motion the video shown waits for its Play.
+    cells.forEach((cell, i) => { const v = cell.querySelector("video"); if (v && i === c && motion()) v.play().catch(() => {}); else v?.pause(); });
   };
   let raf = 0;
   strip.addEventListener("scroll", () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; upd(); }); }, { passive: true });
@@ -786,9 +862,10 @@ export function openFull(at = 0, items = null) {
 export function closeFull(quick = false) {
   const box = $("#full");
   if (!FULL || !box) return;
-  const back = FULL.back;
+  const { back, under } = FULL;
   FULL = null;
   box.querySelectorAll("video").forEach((v) => v.pause());
+  under.forEach((v) => { if (v.isConnected && !v._held) v.play().catch(() => {}); });
   const done = () => { if (FULL) return; box.hidden = true; box.replaceChildren(); document.documentElement.classList.remove("full-on"); if (!quick) back?.focus?.({ preventScroll: true }); };
   const a = quick ? null : anim(box, [{ opacity: 1 }, { opacity: 0 }], { duration: 160, fill: "forwards" });
   if (a) a.finished.then(done, done); else done();

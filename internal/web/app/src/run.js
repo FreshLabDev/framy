@@ -4,9 +4,9 @@
 import { $ } from "./dom.js";
 import { t } from "./i18n.js";
 import { api, watchJob, isFinal, outsOf } from "./api.js";
-import { S, M, payOf, settings, fastOf, going, clip, contFits, keyOk, runItem, plan, paidItems, newFrame } from "./state.js";
+import { S, M, payOf, settings, fastOf, going, clip, contFits, keyOk, runItem, plan, paidItems, newFrame, next, renewFiles, holdFiles, freeLinks } from "./state.js";
 import { C, offerOf, PNAME, framesOf, photoLimit } from "./catalog.js";
-import { known, knownTotal, priceText, clearPrices } from "./price.js";
+import { priced, knownTotal, priceText, clearPrices } from "./price.js";
 import { act, render, renderBar } from "./composer.js";
 import { renderStage, runChanged } from "./stage.js";
 import { upload } from "./files.js";
@@ -14,11 +14,19 @@ import { takeClip, openCut } from "./clips.js";
 import { openPicker } from "./picker.js";
 import { refusal, failure, providerOf, launchGone } from "./errors.js";
 import { toast, ask } from "./ui.js";
+import { keepDraft, dropDraft } from "./draft.js";
 
-export function signIn() {
+// The composer goes along: what the person put together is there after the load (draft.js).
+// Back from the browser's page cache, the page is as it was and the load did not happen.
+let leaving = false;
+addEventListener("pageshow", (e) => { leaving = false; if (e.persisted) dropDraft(); });
+export async function signIn() {
+  if (leaving) return;
+  leaving = true;
+  try { sessionStorage.setItem("framy.draft", $("#prompt").value); } catch {}
+  await keepDraft();
   // The Mini App signs in with its launch data, which a load trades again.
   if (S.mini) { location.reload(); return; }
-  try { sessionStorage.setItem("framy.draft", $("#prompt").value); } catch {}
   // Back where the person was: the composer, the library or one run of it.
   const back = /^\/(library|r\/\d+)$/.test(location.pathname) ? location.pathname : "/";
   location.assign("/auth/login?return_to=" + encodeURIComponent(back));
@@ -27,7 +35,11 @@ export function signIn() {
 export async function signOut() {
   const yes = await ask({ title: t("auth.signout_q"), yes: t("auth.signout") });
   if (!yes) return;
-  try { await api("/auth/logout", { method: "POST" }); } catch {}
+  // Only the server's yes ends the session. On a refusal, or with no
+  // connection, the cookie still opens the account: the person is told so,
+  // and does not walk away from a shared computer thinking they are out.
+  try { await api("/auth/logout", { method: "POST" }); }
+  catch (e) { toast(t(e.code === "network" ? "err.network" : "auth.not_signed_out")); return; }
   forget();
   toast(t("auth.signed_out"));
 }
@@ -46,9 +58,16 @@ export async function signOutAll() {
   toast(t("auth.signed_out"));
 }
 // Nobody is signed in any more: signed out, the account deleted, or the session gone.
+// A press still sending its files stops there: they would go up for nobody
+// (a clip to the bucket needs no session), and Create is free again.
 export function forget() {
   stopWatch?.();
-  S.signed = false; S.me = null; S.run = null;
+  if (S.run?.phase === "prep" && !S.run.sending) S.run.stop.abort();
+  // A read of the account already on its way is older than this: its answer
+  // does not show the person signed in again (refreshMe).
+  S.meV++;
+  S.signed = false; S.me = null; S.run = null; S.busy = false;
+  freeLinks();
   clearPrices();
   window.dispatchEvent(new Event("framy:me"));
 }
@@ -90,7 +109,7 @@ const newKey = () => "site-" + crypto.randomUUID();
 export const shownOf = (e) => (e && e.kind !== "unknown" ? (e.kind === "up_to" ? e.max_usd : e.usd) : null);
 
 function fromComposer() {
-  const m0 = M(), pay = payOf(m0), { m, set } = fastOf(m0, pay, settings(m0, pay)), e = known(runItem(m, pay, set))?.estimate;
+  const m0 = M(), pay = payOf(m0), { m, set } = fastOf(m0, pay, settings(m0, pay)), e = priced(runItem(m, pay, set))?.estimate;
   const files = going(m, pay), c = clip();
   return { kind: m.kind, model: m.id, pay, offer: offerOf(m, pay).id, prompt: $("#prompt").value.trim(), settings: set, files,
     clip: files.includes(c) ? c : null, cut: files.includes(c) && S.cut ? { ...S.cut } : null, cont: contFits(m, pay) ? S.cont : null,
@@ -121,6 +140,10 @@ const pressOfRun = (run) => run?.press || run;
 
 export function generate() {
   if (!M() || S.busy) return;
+  // A run on a key starts at the price the bar shows: never before it shows
+  // one, whatever pressed (the button, Ctrl+Enter, Telegram's main button).
+  const nx = next($("#prompt").value);
+  if (nx.act !== "create" || !nx.on) return;
   start(plan().length > 1 ? pressOf() : fromComposer());
 }
 
@@ -137,22 +160,18 @@ async function start(base, key = newKey()) {
   stopWatch?.(); stopWatch = null;
   const run = { ...base, n: ++seq, key, phase: "prep", step: null, job: null, why: null, net: "", stop: new AbortController(), t0: Date.now() };
   S.run = run; S.showJob = true; S.busy = true;
+  freeLinks();
   renderBar(); runChanged();
   let resend = false;
   try {
-    const inputs = await prepare(run);
-    if (run.stop.signal.aborted) throw new DOMException("stopped", "AbortError");
-    // Once the request is out it is not called back: the job may exist already.
-    run.sending = true; setStep(run, { fig: "start", text: () => t("step.starting") });
-    if (run.multi) { await sendPress(run, inputs); return; }
-    const body = { offer: run.offer, prompt: run.prompt, settings: run.settings, inputs, pay: run.pay === "free" ? "free" : "key", surface: S.mini ? "mini_app" : "site" };
-    if (run.shown != null) body.shown_usd = run.shown;
-    if (run.cont) body.continues = run.cont.job;
-    const job = await api("/api/jobs", { method: "POST", body, headers: { "Idempotency-Key": run.key } });
-    run.phase = "job"; run.job = job; run.step = null;
-    told(job);
-    follow(run);
-    if (run.pay === "free") refreshMe();
+    // framy no longer had a file the run named by id (an upload waits an
+    // hour for a job): the files go up again, and the run is sent once more.
+    try { await send(run); }
+    catch (err) {
+      if (err.code !== "unknown_input" || run.stop.signal.aborted || !renewFiles(run.files, true)) throw err;
+      run.sending = false;
+      await send(run);
+    }
   } catch (err) {
     run.step = null;
     if (err.name === "AbortError") run.phase = "cancelled";
@@ -178,6 +197,24 @@ async function start(base, key = newKey()) {
   }
 }
 
+// The files of a run go up, and the run goes to framy.
+async function send(run) {
+  const inputs = await prepare(run);
+  if (run.stop.signal.aborted) throw new DOMException("stopped", "AbortError");
+  // Once the request is out it is not called back: the job may exist already.
+  run.sending = true; setStep(run, { fig: "start", text: () => t("step.starting") });
+  if (run.multi) { await sendPress(run, inputs); return; }
+  const body = { offer: run.offer, prompt: run.prompt, settings: run.settings, inputs, pay: run.pay === "free" ? "free" : "key", surface: S.mini ? "mini_app" : "site" };
+  if (run.shown != null) body.shown_usd = run.shown;
+  if (run.cont) body.continues = run.cont.job;
+  const job = await api("/api/jobs", { method: "POST", body, headers: { "Idempotency-Key": run.key } });
+  run.phase = "job"; run.job = job; run.step = null;
+  holdFiles(run.files, inputs);
+  told(job);
+  follow(run);
+  if (run.pay === "free") refreshMe();
+}
+
 // The press goes as one request: each frame names its files when they are not
 // the first frame's, and framy says which job makes which frame. All or none.
 async function sendPress(run, ids) {
@@ -194,6 +231,7 @@ async function sendPress(run, ids) {
   if (run.shown != null) body.shown_usd = run.shown;
   const r = await api("/api/batches", { method: "POST", body, headers: { "Idempotency-Key": run.key } });
   run.phase = "job"; run.batch = r.batch; run.jobs = r.jobs || []; run.job = run.jobs[0] || null; run.step = null;
+  holdFiles(run.files, ids);
   run.jobs.forEach(told);
   followAll(run);
   if (run.frames.some((fm) => fm.pay === "free")) refreshMe();
@@ -210,12 +248,19 @@ function followAll(run) {
   stopWatch = () => stops.forEach((f) => f?.());
 }
 
-// The files of a run go up: photos to framy, a clip or a sound to the bucket and then to framy.
+// The files of a run go up: photos to framy, a clip or a sound to the bucket
+// and then to framy. One held too long goes up again (renewFiles), and a
+// clip's last frame framy no longer keeps is taken from the clip again.
 async function prepare(run) {
+  renewFiles(run.files);
   const sig = run.stop.signal, pics = run.files.filter((f) => f.kind === "image" && !f.upload);
   if (pics.length) {
     setStep(run, { fig: "up", text: () => t("step.photos", { n: pics.length }) });
-    await upload(pics, sig);
+    for (const f of pics.filter((x) => !x.file && x.frameOf?.result)) {
+      try { f.upload = (await api(`/api/files/${f.frameOf.result}/last-frame`, { method: "POST", signal: sig })).id; f.upAt = Date.now(); }
+      catch (e) { e.file = f; throw e; }
+    }
+    await upload(pics.filter((f) => f.file), sig);
   }
   const ids = [];
   for (const f of run.files) {
@@ -320,6 +365,7 @@ function restore(run, pay = run.pay) {
   const keep = new Set(run.files);
   // A video's files are in their slots already, and the photos beside them would not be.
   S.files = run.hist || run.kind === "video" ? [...run.files] : [...run.files, ...S.files.filter((f) => !keep.has(f) && f.kind === "image")];
+  freeLinks();
   delete S.wanted.frame_images;
   S.cut = run.cut ? { ...run.cut } : null;
   S.cont = run.cont;
@@ -369,27 +415,30 @@ export function quiet(run = S.run) {
   if (run.multi) { act(() => { restore({ ...run, frames: run.frames.map((fm) => ("generate_audio" in fm.settings ? { ...fm, settings: { ...fm.settings, generate_audio: false } } : fm)) }); S.showJob = false; render(); }); return; }
   const set = { ...run.settings, generate_audio: false };
   act(() => { restore(run); S.wanted.generate_audio = false; render(); });
-  const e = run.pay === "free" ? null : known(runItem(m, run.pay, set))?.estimate;
+  const e = run.pay === "free" ? null : priced(runItem(m, run.pay, set))?.estimate;
   start(copyOf(run, { settings: set, ...(e ? { shown: shownOf(e), shownLabel: priceText(e), priceLabel: e.label || "" } : {}) }));
 }
 // The price went up: the person agreed to the new one.
 export function takePrice(run = S.run) {
   run = pressOfRun(run);
   const e = run.why?.estimate;
+  // A second press while the first starts would be a second paid run.
+  if (S.busy || !e) return;
   start(copyOf(run, { shown: shownOf(e), shownLabel: priceText(e), priceLabel: e?.label || "" }));
 }
-// A free run that could not go free: the same run on the person's own key.
+// A free run that could not go free: the same run back in the composer on the
+// person's own key, a press with its free frames on their keys. It is not
+// started: the run on a key costs money and may take other settings than the
+// free one, so its price shows on the bar first, and Create starts it.
 export const keyFor = (run) => { const m = C.byId[run.model]; return m?.offers.map((o) => o.provider).find(keyOk) || ""; };
 export function byKey(run = S.run) {
   run = pressOfRun(run);
-  const p = keyFor(run), m = C.byId[run.model];
-  if (!p || !m) return;
+  const p = keyFor(run);
+  if (!p || !C.byId[run.model]) return;
   leave(run);
-  // A press comes back with its free frames on the person's keys, and goes on the next press.
-  if (run.multi) { act(() => { restore({ ...run, frames: run.frames.map((fm) => (fm.pay === "free" ? { ...fm, pay: keyFor(fm) || fm.pay } : fm)) }); S.showJob = false; render(); }); return; }
-  act(() => { restore(run, p); render(); });
-  const r = fastOf(m, p, settings(m, p)), e = known(runItem(r.m, p, r.set))?.estimate;
-  start(copyOf(run, { model: r.m.id, pay: p, offer: offerOf(r.m, p).id, settings: r.set, shown: shownOf(e), shownLabel: e ? priceText(e) : "", priceLabel: e?.label || "" }));
+  if (run.multi) act(() => { restore({ ...run, frames: run.frames.map((fm) => (fm.pay === "free" ? { ...fm, pay: keyFor(fm) || fm.pay } : fm)) }); S.showJob = false; render(); });
+  else act(() => { restore(run, p); S.showJob = false; render(); });
+  $("#go").focus({ preventScroll: true });
 }
 export function drop() { S.showJob = false; renderStage(); renderBar(); }
 // The clip was longer than framy takes whole: its part is picked in the editor.
@@ -443,7 +492,7 @@ export async function continueFrom(run = S.run, res = outsOf(run.job)[0]) {
     const p = providerOf(j), own = j.results?.[0] || res;
     act(() => {
       S.kind = "video"; S.model.video = j.model; S.pay[j.model] = p;
-      S.files = []; S.cut = null;
+      S.files = []; S.cut = null; freeLinks();
       S.cont = { job: j.id, model: j.model, pay: p, secs: own.seconds || 0, url: own.url, w: own.width, h: own.height, result: res.id };
       $("#prompt").value = "";
       S.showJob = false;
@@ -467,9 +516,10 @@ export async function fromLastFrame(src = S.cont) {
     S.kind = "video";
     if (id) S.model.video = id;
     S.cont = null; S.cut = null;
-    S.files = [{ id: "lf" + shot.id, kind: "image", slot: "start", server: true, name: "", upload: shot.id, w: shot.width, h: shot.height,
-      frameOf: { url: src.url, at: Math.max(0, (src.secs || 0) - 0.05) },
+    S.files = [{ id: "lf" + shot.id, kind: "image", slot: "start", server: true, name: "", upload: shot.id, upAt: Date.now(), w: shot.width, h: shot.height,
+      frameOf: { url: src.url, at: Math.max(0, (src.secs || 0) - 0.05), result: src.result },
       meta: { content_type: shot.content_type, bytes: shot.bytes, width: shot.width, height: shot.height } }];
+    freeLinks();
     S.showJob = false;
     render();
   });
@@ -523,6 +573,6 @@ const leave = (run) => leaveHist(run);
 export async function removeJob(id) {
   try { await api(`/api/jobs/${id}`, { method: "DELETE" }); }
   catch (e) { if (e.status !== 404) throw e; }
-  if (jobsOf(S.run).some((j) => j.id === id)) { stopWatch?.(); stopWatch = null; S.run = null; S.showJob = false; runChanged(); renderBar(); }
+  if (jobsOf(S.run).some((j) => j.id === id)) { stopWatch?.(); stopWatch = null; S.run = null; S.showJob = false; freeLinks(); runChanged(); renderBar(); }
 }
 export { isFinal };

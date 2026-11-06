@@ -40,6 +40,8 @@ type fakePrefs struct {
 	storeFail int               // deletions the storage fails first
 	making    int               // disconnects refused first: a video on the key is still being made
 	deleted   bool
+	outFail   int  // sign-outs the session store fails first
+	out       bool // signed out: the cookie is gone
 	// slowMe: GET /api/me answers this late with the account as it was, and
 	// a PATCH sent with it is kept only after the GET has read it.
 	slowMe time.Duration
@@ -85,7 +87,7 @@ func (f *fakePrefs) mount(srv *Server) {
 	f.conns = map[string]map[string]any{}
 	f.currency, f.language, f.defaults, f.deliver = "USD", "en", map[string]string{}, true
 	signIn := func(w http.ResponseWriter) bool {
-		if f.deleted || f.allOut || f.launchOld {
+		if f.deleted || f.out || f.allOut || f.launchOld {
 			writeTestJSON(w, http.StatusUnauthorized, map[string]any{"error": "sign_in"})
 			return false
 		}
@@ -259,6 +261,18 @@ func (f *fakePrefs) mount(srv *Server) {
 			return
 		}
 		f.allOut = true
+		w.WriteHeader(http.StatusNoContent)
+	})
+	// As internal/auth: the session store failing keeps the session and its cookie.
+	srv.HandleFunc("POST /auth/logout", func(w http.ResponseWriter, _ *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if f.outFail > 0 {
+			f.outFail--
+			writeTestJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "unavailable"})
+			return
+		}
+		f.out = true
 		w.WriteHeader(http.StatusNoContent)
 	})
 	srv.HandleFunc("POST /auth/miniapp", func(w http.ResponseWriter, _ *http.Request) {
@@ -675,6 +689,59 @@ func TestBrowserSignOutEverywhere(t *testing.T) {
 			t.Errorf("logout/all asked %d times, everyone out %v", f.outAll, f.allOut)
 		}
 	})
+	noErrors(t, ctx)
+}
+
+// TestBrowserPrefsSignOut checks that the page says signed out only when the
+// server ended the session: a refusal keeps the person signed in and says so,
+// and the next press signs them out.
+func TestBrowserPrefsSignOut(t *testing.T) {
+	f := &fakePrefs{outFail: 1}
+	ts := fakeSite(t, f.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := prefs(t, ctx, `
+	document.querySelector("#meBtn").click();
+	await until(() => !sheet().hidden && rowOf("gemini"));
+	btn(sheet(), "Sign out").click();
+	const q = await yes();
+	await until(() => toastText());
+	const r = { q, toast: toastText(), open: !sheet().hidden, out: !!btn(sheet(), "Sign out"), me: vis(document.querySelector("#meBtn")) };
+	btn(sheet(), "Sign out").click();
+	await yes();
+	await until(() => sheet().hidden && document.querySelector(".signin"));
+	r.toast2 = toastText(); r.top = document.querySelector("#top").textContent;
+	return r;`)
+	if s["q"] != "Sign out of framy?" || s["toast"] != "Could not sign out, you are still signed in. Try again in a minute." || s["open"] != true ||
+		s["out"] != true || s["me"] != true || s["toast2"] != "You signed out." || s["top"] != "framySign in with Telegram" {
+		t.Errorf("sign out: %v", s)
+	}
+	f.with(func() {
+		if !f.out || f.outFail != 0 {
+			t.Errorf("signed out %v, failures left %d", f.out, f.outFail)
+		}
+	})
+	noErrors(t, ctx)
+}
+
+// TestBrowserPrefsSignOutLate checks that a read of the account sent before
+// the sign-out, and answered after it, does not show the person signed in again.
+func TestBrowserPrefsSignOutLate(t *testing.T) {
+	f := &fakePrefs{}
+	ts := fakeSite(t, f.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	// Opening the settings reads the account again, and it answers late.
+	f.with(func() { f.slowMe = 600 * time.Millisecond })
+	s := prefs(t, ctx, `
+	document.querySelector("#meBtn").click();
+	await until(() => !sheet().hidden && btn(sheet(), "Sign out"));
+	btn(sheet(), "Sign out").click();
+	await yes();
+	await until(() => document.querySelector(".signin"));
+	await wait(1000);
+	return { top: document.querySelector("#top").textContent, go: document.querySelector("#go").textContent.trim() };`)
+	if s["top"] != "framySign in with Telegram" || !strings.HasPrefix(s["go"].(string), "Sign in to create") {
+		t.Errorf("after a late read: %v", s)
+	}
 	noErrors(t, ctx)
 }
 

@@ -12,6 +12,7 @@ import { openSheet, closeSheets, toast, ask } from "./ui.js";
 import { anim, morph, opt, placeSegs } from "./motion.js";
 import { signOut, signOutAll, forget, refreshMe } from "./run.js";
 import { launchGone } from "./errors.js";
+import { keepDraft } from "./draft.js";
 import { LANGS, CURRENCIES } from "assets:lists";
 
 const PROVIDERS = ["openrouter", "openai", "gemini"];
@@ -198,7 +199,7 @@ function edit(p) {
 /* OpenRouter by OAuth. The site leaves for openrouter.ai and comes back to
    /?connect=openrouter&result=…; the Mini App opens it in the browser and
    reads /api/me again when the person is back. */
-function oauthStart() {
+async function oauthStart() {
   const k = ks("openrouter");
   if (S.mini) {
     const url = location.origin + OAUTH_START;
@@ -208,6 +209,7 @@ function oauthStart() {
   }
   update(() => { Object.assign(k, { going: true, said: null }); });
   try { sessionStorage.setItem("framy.draft", $("#prompt").value); } catch {}
+  await keepDraft();
   location.assign(OAUTH_START);
 }
 // The site, back with the result in its address.
@@ -374,6 +376,7 @@ async function setLanguage(code) {
     sessionStorage.setItem("framy.prefs", "1");
     sessionStorage.setItem("framy.draft", $("#prompt").value);
   } catch {}
+  await keepDraft();
   location.reload();
 }
 

@@ -69,7 +69,9 @@ type createRequest struct {
 	// figure of the quote's label, usd, or max_usd for "up to". A run on
 	// their own key whose price would now show higher is refused with 409
 	// price_changed and the new estimate, and waits for another press. A
-	// lower price runs as it is. Absent: no check.
+	// lower price runs as it is. A run on a key needs it: without it the
+	// person saw no price, and the answer is price_changed with the price,
+	// unless framy cannot price the run either. A free run needs none.
 	ShownUSD *float64 `json:"shown_usd"`
 	// Continues is the id of a finished job of the person's whose video this
 	// run continues, on the model that made it, where the catalog says the
@@ -125,8 +127,8 @@ func (a *API) create(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, err)
 		return
 	}
-	if !p.n.Free && req.ShownUSD != nil && dearer(*p.n.Estimate, *req.ShownUSD, quote, lang) {
-		priceChanged(*p.n.Estimate, quote, lang).write(w)
+	if !p.n.Free && unseen(*p.n.Estimate, req.ShownUSD, quote, lang) {
+		priceChanged(*p.n.Estimate, req.ShownUSD, quote, lang).write(w)
 		return
 	}
 	n := p.n
@@ -143,15 +145,19 @@ func (a *API) create(w http.ResponseWriter, r *http.Request) {
 	a.accepted(w, r, user, id, created)
 }
 
-// priceChanged is the answer to a run whose price would now show higher
-// than the one the person saw: the new estimate, to show and ask again.
-func priceChanged(e price.Estimate, quote fx.Quote, lang string) *apiError {
+// priceChanged is the answer to a run whose price the person did not see:
+// it would now show higher than the one they saw, or none came with the run.
+// It carries the estimate, to show and ask again.
+func priceChanged(e price.Estimate, shownUSD *float64, quote fx.Quote, lang string) *apiError {
 	shown := estimateJSONOf(e.USD, &e, quote.Code, quote.PerUSD, lang)
 	if quote.Code != fx.USD {
 		shown.RateDate = quote.Date.Format(time.DateOnly)
 	}
-	return newError(http.StatusConflict, codePriceChanged, "the price is higher than the one shown; show the new one and ask again").
-		with("estimate", shown)
+	msg := "the price is higher than the one shown; show the new one and ask again"
+	if shownUSD == nil {
+		msg = "a run on a key needs shown_usd, the price shown; show this one and ask again"
+	}
+	return newError(http.StatusConflict, codePriceChanged, msg).with("estimate", shown)
 }
 
 // prepared is a run checked and priced, ready to queue: the job without its
@@ -352,6 +358,16 @@ func assetSizes(inputs []InputAsset) [][2]int {
 		out[i] = [2]int{in.Width, in.Height}
 	}
 	return out
+}
+
+// unseen reports whether a run on the person's key would start at a price
+// they did not see: none came with it while framy has one to show, or the
+// one that came is lower than the price would show now.
+func unseen(e price.Estimate, shownUSD *float64, q fx.Quote, lang string) bool {
+	if shownUSD == nil {
+		return e.Kind != price.Unknown
+	}
+	return dearer(e, *shownUSD, q, lang)
 }
 
 // dearer reports whether the estimate would show a higher price than the one

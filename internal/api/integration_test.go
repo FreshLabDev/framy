@@ -990,7 +990,7 @@ func TestAPhotoBroughtOverHTTPIsAJobInputOfItsOwnerAlone(t *testing.T) {
 	}
 
 	// The photo goes in with a job, and the job keeps the order.
-	in2 := fmt.Sprintf(`{"offer":%q,"prompt":"p","pay":"key","inputs":[%d]}`, paidOffer, asset)
+	in2 := fmt.Sprintf(`{"offer":%q,"prompt":"p","pay":"key","inputs":[%d],"shown_usd":%s}`, paidOffer, asset, seenUSD)
 	status, job, _ := in.post(alice, "photo", in2)
 	if status != http.StatusAccepted {
 		t.Fatalf("%d %v", status, job)
@@ -1133,7 +1133,7 @@ func TestAPressIsItsJobsInTheDatabase(t *testing.T) {
 	w := newWorld(t)
 	in := w.instance()
 	key := "press-1"
-	body := `{"prompt":"a fox","frames":[{"offer":"` + freeOffer + `","pay":"key"},{"offer":"` + freeOffer + `","pay":"key"},{"offer":"` + paidOffer + `","pay":"key"}]}`
+	body := `{"prompt":"a fox","shown_usd":` + seenUSD + `,"frames":[{"offer":"` + freeOffer + `","pay":"key"},{"offer":"` + freeOffer + `","pay":"key"},{"offer":"` + paidOffer + `","pay":"key"}]}`
 	post := func() (int, map[string]any, http.Header) {
 		resp := in.do(alice, http.MethodPost, "/api/batches", strings.NewReader(body), "Content-Type", "application/json", "Idempotency-Key", key)
 		return resp.StatusCode, jsonOf(t, resp), resp.Header

@@ -2,7 +2,7 @@
 // the quote gets what the browser read of them, the upload happens on the
 // press. A clip means video: the composer turns to it and to a model that
 // takes one.
-import { S, M, clips, needsCut, inSlot, placeFiles, settleSlots, refuses, misfit } from "./state.js";
+import { S, M, clips, needsCut, inSlot, placeFiles, settleSlots, refuses, misfit, holdLinks, freeLinks } from "./state.js";
 import { C, takesVideo, refVideo } from "./catalog.js";
 import { act, render, setModel } from "./composer.js";
 import { toast } from "./ui.js";
@@ -80,6 +80,7 @@ export async function addFiles(list, slot = "") {
       for (const f of S.files) if (f.kind === "image" && f.slot !== "ref") f.slot = "ref";
     }
     S.files.push(...got);
+    holdLinks(got);
     placeFiles(); settleSlots(); fitModel();
     render();
   });
@@ -103,10 +104,11 @@ function toClip() {
 }
 
 // settle false keeps the slots as they are, for a frame about to be replaced.
+// The run on the stage may still hold the file: its link stays for it (freeLinks).
 export function removeFile(f, settle = true) {
   if (f === clips()[0]) S.cut = null;
   S.files = S.files.filter((x) => x !== f);
-  if (f.file && f.url?.startsWith("blob:")) URL.revokeObjectURL(f.url);
+  freeLinks();
   if (settle) settleSlots();
 }
 
@@ -143,7 +145,7 @@ export async function upload(files, signal) {
     try {
       const b = await body(f);
       const r = await api("/api/uploads", { method: "POST", body: b, headers: { "Content-Type": b.type || f.file.type }, signal });
-      f.upload = r.id;
+      f.upload = r.id; f.upAt = Date.now();
     } catch (e) { e.file = f; throw e; }
   }
 }

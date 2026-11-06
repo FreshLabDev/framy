@@ -84,6 +84,8 @@ func TestTheHistoryIsReadFromTheDatabase(t *testing.T) {
 	cotton := aJob(t, pool, alice, "done", "image", "100% cotton shirt", false)
 	den := aJob(t, pool, alice, "done", "image", "fox_den at night", false)
 	aJob(t, pool, alice, "draft", "image", "draft fox", false)
+	stopped := aJob(t, pool, alice, "cancelled", "image", "gave up one", false)
+	timedOut := aJob(t, pool, alice, "expired", "video", "gave up two", false)
 	gone := aJob(t, pool, alice, "done", "image", "a deleted fox", false)
 	exec(t, pool, `UPDATE job SET deleted_at = now() WHERE id = $1`, gone)
 	aJob(t, pool, bob, "done", "image", "bob's fox", false)
@@ -93,14 +95,17 @@ func TestTheHistoryIsReadFromTheDatabase(t *testing.T) {
 		f    Filter
 		want []int64
 	}{
-		{"everything", Filter{Limit: 10}, []int64{den, cotton, run, fox}},
-		{"a kind", Filter{Kind: catalog.Video, Limit: 10}, []int64{run}},
+		{"everything", Filter{Limit: 10}, []int64{timedOut, stopped, den, cotton, run, fox}},
+		{"a kind", Filter{Kind: catalog.Video, Limit: 10}, []int64{timedOut, run}},
 		{"any case", Filter{Query: "FOX", Limit: 10}, []int64{den, run, fox}},
 		{"a percent sign is a percent sign", Filter{Query: "%", Limit: 10}, []int64{cotton}},
 		{"so is an underscore", Filter{Query: "_", Limit: 10}, []int64{den}},
 		{"a backslash", Filter{Query: `\`, Limit: 10}, nil},
 		{"a page", Filter{Before: run, Limit: 10}, []int64{fox}},
-		{"a short page", Filter{Limit: 2}, []int64{den, cotton}},
+		{"a short page", Filter{Limit: 2}, []int64{timedOut, stopped}},
+		{"only what did not work", Filter{Failed: true, Limit: 10}, []int64{timedOut, stopped, run}},
+		{"cancelled and expired did not work either", Filter{Failed: true, Query: "gave up", Limit: 10}, []int64{timedOut, stopped}},
+		{"a page of what did not work", Filter{Failed: true, Before: timedOut, Limit: 10}, []int64{stopped, run}},
 	} {
 		got, err := d.List(ctx, alice, tc.f)
 		if err != nil {
