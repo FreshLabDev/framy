@@ -476,6 +476,10 @@ function renderRun(st, run) {
   const acts = h("div", { class: "jacts acts", "data-k": "j-acts" }, v.acts.filter(Boolean),
     runOver(run) ? h("button", { type: "button", class: "sq", "aria-label": t("stage.next"), title: t("stage.next"), onclick: () => drop() }, ic("plus"), h("span", { class: "t" }, t("stage.next"))) : null);
   st.replaceChildren(h("div", { class: "preview", "data-k": "pvbox" }, box), h("div", { class: "jfoot", "data-k": "j-foot" }, line, why, acts, grounding(j), prompt));
+  // The room under the frame counts one row of buttons: where they wrap (a
+  // picture's on the narrowest phones), the frame gives up the rows they take.
+  const more = acts.offsetHeight - (acts.firstElementChild?.offsetHeight || 0);
+  if (more > 4) { box._under = under + more; refit(); }
 }
 
 // The composer holds the run's prompt still: the stage does not say it twice.

@@ -278,6 +278,7 @@ Nobody reports progress in percent. The wait shows elapsed time and the model's 
 - Send to Telegram: the bot sends it to the DM, or `shareMessage` in the Mini App.
 - Copy the prompt.
 - Delete.
+- On a phone under 390 px the buttons on the stage are icons, with their names for a screen reader, and Download is one too when there are six or more, as under a picture, so they stay one row over the dock; where they still wrap, the frame gives up the rows they take.
 
 ### Attachments stay in the browser until Generate
 
