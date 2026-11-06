@@ -252,7 +252,7 @@ function renderFiles(m, pay) {
   const thumb = (f, r) => h("div", { class: "thumb" + (r.go ? "" : " off") + (f.kind === "video" ? " clip" : ""), title: f.name + (r.why ? ": " + r.why : ""), "data-k": "f" + f.id },
     thumbMedia(f),
     f.kind !== "image" ? h("span", { class: "tag" }, ic(f.kind === "audio" ? "audio" : "film"), r.go && r.tag ? r.tag : f.secs ? fmtSecs(f.secs) : "") : f.frameOf ? h("span", { class: "tag" }, ic("next")) : null,
-    h("button", { type: "button", class: "rm", "aria-label": t("files.remove"), onclick: () => act(() => { removeFile(f); render(); }) }, ic("close")));
+    h("button", { type: "button", class: "rm", "aria-label": f.name ? t("files.remove_named", { name: f.name }) : t("files.remove"), onclick: () => act(() => { removeFile(f); render(); }) }, ic("close")));
   const cont = contEl(m, pay), slots = slotted(m, pay);
   if (cont) box.append(cont);
   if (slots) tiles.append(...slotGroups(R, thumb));

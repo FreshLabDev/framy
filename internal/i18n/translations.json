@@ -6623,6 +6623,24 @@
     "ja": "削除",
     "ar": "إزالة"
   },
+  "web.files.remove_named": {
+    "en": "Remove {name}",
+    "ru": "Убрать {name}",
+    "uk": "Прибрати {name}",
+    "es": "Quitar {name}",
+    "fr": "Retirer {name}",
+    "de": "{name} entfernen",
+    "it": "Rimuovi {name}",
+    "pl": "Usuń {name}",
+    "cs": "Odebrat {name}",
+    "tr": "{name} dosyasını kaldır",
+    "sv": "Ta bort {name}",
+    "be": "Прыбраць {name}",
+    "ca": "Treu {name}",
+    "zh": "移除 {name}",
+    "ja": "{name} を削除",
+    "ar": "إزالة {name}"
+  },
   "web.files.sound_big": {
     "en": "A sound can be up to {n} MB.",
     "ru": "Звук может весить до {n} МБ.",
