@@ -600,13 +600,14 @@ func TestBrowserClipReadLate(t *testing.T) {
 	const secsQuoted = () => { for (let i = __quotes.length - 1; i >= 0; i--) for (const it of __quotes[i].items) { const c = (it.files || []).find((f) => f.content_type?.startsWith("video/")); if (c && it.pay) return c.seconds; } return null; };
 	document.querySelectorAll("#kind > button")[1].click();
 	await wait(700);
-	// The wait for the clip is short here, and the browser gets to the clip a second late.
+	// The wait for the clip is short here, and the browser gets to the clip three seconds late:
+	// long after the composer took it, well inside the half minute it may still be read.
 	const st0 = window.setTimeout, mk = document.createElement.bind(document), src = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "src");
 	window.setTimeout = (fn, ms, ...a) => st0(fn, ms === 8000 ? 150 : ms, ...a);
 	let slow = true;
 	document.createElement = (tag, o) => {
 	  const el = mk(tag, o);
-	  if (tag === "video" && slow) { slow = false; Object.defineProperty(el, "src", { configurable: true, get() { return src.get.call(el); }, set(x) { st0(() => src.set.call(el, x), 1200); } }); }
+	  if (tag === "video" && slow) { slow = false; Object.defineProperty(el, "src", { configurable: true, get() { return src.get.call(el); }, set(x) { st0(() => src.set.call(el, x), 3000); } }); }
 	  return el;
 	};
 	const b = Uint8Array.from(atob(`+jsString(loopWebM)+`), (c) => c.charCodeAt(0));
