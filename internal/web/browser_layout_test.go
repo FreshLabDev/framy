@@ -33,6 +33,7 @@ type opened struct {
 func browserAs(t *testing.T, url string, w, h int64, o opened) context.Context {
 	t.Helper()
 	ctx := chrome(t, w, h)
+	keepOnFailure(t, ctx)
 	vp := []chromedp.EmulateViewportOption{}
 	if o.phone {
 		vp = phoneScreen(w, h)
