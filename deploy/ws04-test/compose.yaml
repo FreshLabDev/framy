@@ -10,7 +10,14 @@
 # schema first: they have to be additive (AGENTS.md, Migrations).
 #
 # It shares the R2 bucket and the object keys with production (no R2_PREFIX):
-# both read every person's files. It talks to the cloud Bot API.
+# both read every person's files.
+#
+# It talks to the same local telegram-bot-api as production (--local mode),
+# so the paths production relies on are walked here first: files handed over
+# by path, the files framy has read deleted, and files past the cloud's 20 MB.
+# The mount, the link and the user are production's; see its header
+# (deploy/ws04/compose.yaml) for why. BOT_API_TOKEN in .env is the test bot's
+# own token, for the volume's path only.
 #
 # With production's KEK, R2 token and database role, whatever it runs acts on
 # production's data (docs/design.md, Stacks). So the image is pulled, never
@@ -23,13 +30,14 @@
 # ws04 deploy framy-test pulls it. Its sessions are its own: a cookie or a
 # token of the test bot signs nobody in on production.
 #
-# .env holds FRAMY_IMAGE, R2_ACCOUNT_ID and TRUSTED_PROXIES, and
-# R2_INCOMING_BUCKET when production's .env names one (the same bucket, with
-# copies of production's r2-incoming-access-key-id and
+# .env holds FRAMY_IMAGE, R2_ACCOUNT_ID, TRUSTED_PROXIES and BOT_API_TOKEN,
+# and R2_INCOMING_BUCKET when production's .env names one (the same bucket,
+# with copies of production's r2-incoming-access-key-id and
 # r2-incoming-secret-access-key), for this file alone: the container gets
 # only what environment: names, as production's does. The files in secrets/
-# belong to uid 10001, the image's user, mode 0400: database-url
-# (production's, the same role and password), bot-token, kek (a copy of
+# belong to uid 101 (the Bot API server's, which is why this stack does not
+# run as the image's own user), mode 0400: database-url (production's, the
+# same role and password), bot-token, kek (a copy of
 # production's: the keys people connect are stored once for both; only
 # production rewraps them, so a new line goes into production's file first
 # and is copied here once production has restarted, docs/design.md, Keys at
@@ -62,14 +70,13 @@ services:
     # and 10 s to return once cut short, beside the servers' 20 s, so 4m
     # leaves 20 s before Docker's SIGKILL.
     stop_grace_period: 4m
+    user: "101:101"
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
-    # As production's: the image cannot be written to, only the volumes
+    # As production's: the image cannot be written to, only the mounts
     # below and /tmp.
     read_only: true
-    tmpfs:
-      - /tmp:uid=10001,gid=10001,mode=1777,size=64m,noexec,nosuid
     # Four of the host's twelve cores, so a burst of clips leaves the rest
     # to core-postgres and the other stacks; Go's GOMAXPROCS follows the
     # limit, and ffmpeg is told its threads (internal/media). Each ffmpeg
@@ -87,6 +94,9 @@ services:
       HTTP_ADDR: :8080
       METRICS_ADDR: 127.0.0.1:9090
       TELEGRAM_BOT_TOKEN_FILE: /run/secrets/bot-token
+      TELEGRAM_API_BASE: ${TELEGRAM_API_BASE:-http://telegram-bot-api-next:8081}
+      BOT_API_FILES_DIR: /var/lib/telegram-bot-api-files
+      BOT_API_BOT_DIR: /var/lib/framy/bot-api
       FRAMY_KEK_FILE: /run/secrets/kek
       R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:?R2_ACCOUNT_ID must be set}
       R2_BUCKET: framy
@@ -109,9 +119,14 @@ services:
       ANIM_CACHE_DIR: /var/lib/framy/anim
     volumes:
       - ./secrets:/run/secrets:ro
-      - work:/var/lib/framy/work
-      - anim:/var/lib/framy/anim
-    networks: [core_net, management]
+      - ./work:/var/lib/framy/work
+      - ./anim:/var/lib/framy/anim
+      - bot-api:/var/lib/framy/bot-api
+    # Holds nothing but framy's link to the bot's directory, and /tmp.
+    tmpfs:
+      - /var/lib/telegram-bot-api-files:uid=101,gid=101,mode=0700,size=64k,noexec,nosuid
+      - /tmp:uid=101,gid=101,mode=1777,size=64m,noexec,nosuid
+    networks: [core_net, management, telegram_bot_api_net]
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz >/dev/null 2>&1 || exit 1"]
       interval: 15s
@@ -125,8 +140,14 @@ services:
         max-file: "3"
 
 volumes:
-  work:
-  anim:
+  # The test bot's own media directory of the server, by its real path. It
+  # must exist and belong to 101 before the first start (docs/releases.md).
+  bot-api:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/stacks/telegram-bot-api-next/files/${BOT_API_TOKEN:?BOT_API_TOKEN must be set for the Bot API volume}
 
 networks:
   core_net:
@@ -134,3 +155,6 @@ networks:
     name: core_net
   management:
     external: true
+  telegram_bot_api_net:
+    external: true
+    name: telegram_bot_api_net

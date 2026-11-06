@@ -238,7 +238,7 @@ stays in `.env` while a rollback to it may be wanted.
 | Storage | R2 buckets `framy` (inputs and results), and the clips' own bucket when `R2_INCOMING_BUCKET` names one (docs/design.md, Storage); `work/` and `anim/` beside the manifest; the bot's own media directory of `telegram-bot-api`, as the volume `framy_bot-api` |
 | Backups | The host's daily `ws04-backup`: `pg_dumpall` of `core-postgres`, which holds the `framy` schema, and a copy of `/opt/stacks`, both in restic on Google Drive. The KEK must stay out of it: the copy of `/opt/stacks` has to leave out `secrets/kek` of `framy` and `framy-test` and any copy of it beside them, and the KEK's own copy is kept apart (docs/design.md, Backups). On 6 November it does not leave them out yet. A restore of the schema has not been tried yet (#28) |
 | Database | core migration `019_framy.sql` applied; `secrets/database-url` holds framy_core's URL, with the password `FRAMY_CORE_PASSWORD` of core's `.env`. It is a file, not a variable, so `docker inspect` does not show it |
-| Test bot | `framy-test` (`deploy/ws04-test/compose.yaml`) on the same schema with `FRAMY_STACK=test`, the same KEK and the same R2 bucket; it applies the migrations of `dev` before production does, so they are additive (docs/design.md, Stacks) |
+| Test bot | `framy-test` (`deploy/ws04-test/compose.yaml`) on the same schema with `FRAMY_STACK=test`, the same KEK, the same R2 bucket and the same local `telegram-bot-api` (its own token and directory, as production's; below); it applies the migrations of `dev` before production does, so they are additive (docs/design.md, Stacks) |
 | Ports | `8080` for the tunnel, never published to the host; `9090` for `/metrics` on `127.0.0.1` inside the container, never on a network |
 | Proxies | `TRUSTED_PROXIES` in `.env`: the address of `cloudflared-ws04-management` on `management`, fixed in the tunnel's own stack (`ipv4_address`; Docker 29.0.4 and newer give one on a network whose subnet was never set, as `management`'s was not), the same in both stacks' `.env`. Not the network's range: every site of the host is on it, and any of them could name a visitor's address. Without it the rate limits see cloudflared's address instead of the visitor, and the log says so once |
 | Outbound | HTTPS to `openrouter.ai` for the hourly catalog sync, which needs no key |
@@ -261,6 +261,32 @@ curl -s "https://api.telegram.org/bot$(cat secrets/bot-token)/logOut"
 # the media directory, which the volume needs before the first start
 install -d -o 101 -g 101 "/opt/stacks/telegram-bot-api-next/files/$(cat secrets/bot-token)"
 ```
+
+The test bot goes through the same server, so the path production relies on is
+walked first on the test bot. Its manifest is production's in everything but
+the token: it runs as uid 101 too (the files in its `secrets/` and the
+directories `work/` and `anim/` beside the manifest belong to 101, where named
+volumes belonged to the image's uid 10001), and `BOT_API_TOKEN` in its `.env`
+is the test bot's token. An image from before `BOT_API_BOT_DIR` (v0.1.0-alpha.4
+and older) does not run with it. The move, once, from the stack's directory
+`/opt/stacks/framy-test`, with the stack down:
+
+```sh
+# the cloud server lets the token go; it takes it back only after 10 minutes
+curl -s "https://api.telegram.org/bot$(cat secrets/bot-token)/logOut"
+chown -R 101:101 secrets
+install -d -o 101 -g 101 work anim "/opt/stacks/telegram-bot-api-next/files/$(cat secrets/bot-token)"
+# BOT_API_TOKEN=<the same token> in .env, then
+ws04 deploy framy-test --yes
+```
+
+The volumes `framy-test_work` and `framy-test_anim` hold nothing but working
+files and can go afterwards. To move the test bot back to the cloud server,
+log it out of the local one first (the same `logOut`, sent to the local
+server instead of `api.telegram.org`), wait ten minutes, give `secrets/` back
+to uid 10001 (`chown -R 10001:10001 secrets`, since the old manifest runs as the
+image's user and cannot read files of 101 at mode 0400), and use the manifest
+of the release from before this.
 
 Files live in R2, not on the host, and the bucket `framy` is itself their copy
 off the home server. The database is in core-postgres, which the home server's
