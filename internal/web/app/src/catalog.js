@@ -2,11 +2,13 @@
 // families, the free plans by offer, what each model takes, and the settings
 // a person can change. Prices are not here: they come from POST /api/quote.
 import { h, ic } from "./dom.js";
-import { t, fmtNum } from "./i18n.js";
+import { t, fmtNum, fmtDay } from "./i18n.js";
 import LOGOS from "assets:logos";
 
 export const C = { models: [], byId: {}, FAM: [], famOf: {}, varOf: {}, plans: {}, free: {}, recommend: {} };
 
+// The providers as people see them, the same names the bot and the chat use
+// (catalog.ProviderName): Google's is AI Studio, where its key is made.
 export const PNAME = { openrouter: "OpenRouter", openai: "OpenAI", gemini: "AI Studio" };
 
 export function loadCatalog(cat) {
@@ -214,12 +216,16 @@ export function facts(list, max = 4) {
 }
 export const factEl = ([icon, text, cls]) => h("span", { class: "fact" + (cls ? " " + cls : "") }, ic(icon), text);
 
-// A model the maker closes: the day if named, and what replaces it.
+// A model the maker closes: the day if named, and what replaces it. when and
+// text are whole sentences, their full stop the language's own ("。" in
+// Chinese and Japanese): when says that it closes, text also what replaces it.
 export function deprecation(m) {
   if (!m.deprecated) return null;
   const to = m.successor && C.byId[m.successor];
   const toName = to ? (C.famOf[to.id] === C.famOf[m.id] ? C.varOf[to.id].label : vname(to)) : "";
-  const when = m.shuts_down ? t("dep.shuts", { date: new Date(m.shuts_down + "T00:00:00Z").toLocaleDateString(document.documentElement.lang, { day: "numeric", month: "long" }) })
-    : t("dep.closing", { maker: m.maker });
-  return { to, toName, when, text: toName ? t("dep.with_successor", { when, name: toName }) : when };
+  const v = { date: m.shuts_down ? fmtDay(m.shuts_down) : "", maker: m.maker, name: toName }, day = v.date ? "shuts" : "closing";
+  // A date that ends in a full stop of its own ("1 февраля 2027 г.") ends the
+  // sentence with it, not with two.
+  const say = (k) => { const s = t(k, v); return v.date.endsWith(".") ? s.replace(`${v.date}.`, v.date) : s; };
+  return { to, toName, when: say("dep." + day), text: say("dep." + day + (toName ? "_to" : "")) };
 }

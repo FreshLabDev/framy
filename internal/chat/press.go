@@ -354,7 +354,7 @@ func stoppedText(run db.ChatRun) string {
 	case !run.Free:
 		// The offer's key is <provider>:<model>, as catalog.OfferID writes it.
 		provider, _, _ := strings.Cut(run.OfferID, ":")
-		return t(run.Lang, "run.stopped_key", "provider", providerName(provider))
+		return t(run.Lang, "run.stopped_key", "provider", catalog.ProviderName(provider))
 	case catalog.Kind(run.Kind) == catalog.Video:
 		return t(run.Lang, "run.stopped_video")
 	default:

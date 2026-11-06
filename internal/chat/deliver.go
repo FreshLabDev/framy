@@ -709,7 +709,7 @@ func photoFits(a storage.Asset) bool {
 // failureText is the line of a failed run's card: the text of key, with
 // the provider of the run's key where it names one.
 func failureText(run db.ChatRun, key string) string {
-	return t(run.Lang, key, "provider", providerName(runProvider(run)))
+	return t(run.Lang, key, "provider", catalog.ProviderName(runProvider(run)))
 }
 
 // reason is the i18n key of the line a failed run's card says. A failure

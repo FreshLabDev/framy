@@ -123,7 +123,7 @@ func TestMakeAVideoAndBackOpenOnTheDefaults(t *testing.T) {
 	if job.n.Free || job.n.Offer.ID != omni.ID || !reflect.DeepEqual(job.n.Settings["frame_images"], []string{"first_frame"}) {
 		t.Fatalf("job = %+v", job.n)
 	}
-	if p := h.renderer.previews[len(h.renderer.previews)-1]; p.Free || p.Label != i18n.T("en", "card.key", "provider", "Google Gemini") {
+	if p := h.renderer.previews[len(h.renderer.previews)-1]; p.Free || p.Label != i18n.T("en", "card.key", "provider", "AI Studio") {
 		t.Fatalf("card = %+v", p)
 	}
 	if err := h.press(1, 7, actImage); err != nil {

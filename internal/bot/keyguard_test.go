@@ -106,7 +106,7 @@ func TestACommandCarryingAKeyShowsNoPanel(t *testing.T) {
 func TestTheAnswerOpensTheSettingsAtTheKey(t *testing.T) {
 	for _, tc := range []struct{ key, url, label string }{
 		{openRouterKey, testSite + "/?settings=openrouter", "Connect OpenRouter"},
-		{geminiKey, testSite + "/?settings=gemini", "Connect Gemini"},
+		{geminiKey, testSite + "/?settings=gemini", "Connect AI Studio"},
 		{"sk-ant-api03-" + strings.Repeat("Ab1_", 10), testSite + "/?settings=", "Open framy"},
 	} {
 		b, _, client := newBotWith(WithSiteURL(testSite))

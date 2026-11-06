@@ -2,8 +2,8 @@
 // or by price, with a search. On a wide screen the family under the pointer
 // shows its card on the right.
 import { $, $$, h, ic, isWide } from "./dom.js";
-import { anim, rise, morph, opt, placeSegs, placeSeg, fly, ticker, EASE, OUT, SPRING } from "./motion.js";
-import { t, fmtNum, byName } from "./i18n.js";
+import { anim, rise, morph, opt, placeSegs, placeSeg, fly, ticker, EASE, OUT, SPRING, DUR } from "./motion.js";
+import { t, fmtNum, byName, lang, spaced } from "./i18n.js";
 import { C, PNAME, vname, famText, famLogo, lg, provMark, freePlan, facts, refsOf, framesOf, needsImage, needsVideo, resRangeOf, durRangeOf, union, hasAudio, deprecation, fieldsOf, label } from "./catalog.js";
 import { S, M, images, payOf, keyOk, settings, altItem, misfit, famMisfit, freePer, refuses } from "./state.js";
 import { minEl, lowest, need } from "./price.js";
@@ -23,9 +23,9 @@ const famFit = (f) => (FOR ? "" : famMisfit(f));
 const ok = (v) => FOR || !refuses(v.m);
 const shown = (f) => f.cur.filter(ok);
 const oldShown = (f) => f.old.filter(ok);
-const ROWS = (o = {}) => ({ dur: o.dur || 440, ease: EASE,
-  enter: (el, i) => anim(el, [{ opacity: 0, transform: "translateY(10px)" }, { opacity: 1, transform: "none" }], { duration: 360, delay: 80 + Math.min(i, 12) * (o.step ?? 30), fill: "backwards" }),
-  leave: (g) => anim(g, [{ opacity: 1, transform: "none" }, { opacity: 0, transform: "scale(.97)" }], { duration: 180, easing: OUT, fill: "forwards" }) });
+const ROWS = (o = {}) => ({ dur: o.dur || DUR.l, ease: EASE,
+  enter: (el, i) => anim(el, [{ opacity: 0, transform: "translateY(10px)" }, { opacity: 1, transform: "none" }], { duration: DUR.m, delay: 80 + Math.min(i, 12) * (o.step ?? 30), fill: "backwards" }),
+  leave: (g) => anim(g, [{ opacity: 1, transform: "none" }, { opacity: 0, transform: "scale(.97)" }], { duration: DUR.xs, easing: OUT, fill: "forwards" }) });
 const listUpdate = (fn, o) => morph($("#pkrows"), fn, ROWS(o));
 
 export function mountPicker() {
@@ -35,8 +35,8 @@ export function mountPicker() {
       h("div", { class: "pkl" },
         h("div", { class: "pktools" },
           h("input", { class: "search", id: "pksearch", type: "search", placeholder: t("pick.search"), "aria-label": t("pick.search_label"), autocomplete: "off",
-            oninput: (e) => listUpdate(() => { query = e.target.value; renderPicker(); }, { dur: 300, step: 15 }) }),
-          h("div", { class: "seg", id: "pksort", role: "radiogroup", "aria-label": t("pick.order"), "data-seg": "sort", "data-dur": 380 })),
+            oninput: (e) => listUpdate(() => { query = e.target.value; renderPicker(); }, { dur: DUR.m, step: 15 }) }),
+          h("div", { class: "seg", id: "pksort", role: "radiogroup", "aria-label": t("pick.order"), "data-seg": "sort", "data-dur": DUR.m })),
         h("div", { id: "pkrows" })),
       h("div", { class: "pkd", id: "pkd" }))));
 }
@@ -68,24 +68,31 @@ export function openPicker(o) {
   // Built while hidden, so the sheet is laid out once, with its new rows.
   renderSort(false);
   renderPicker({ fresh: true });
-  openSheet("#picker", { back: o?.back });
+  // With a mouse and a keyboard the search has the focus, to type in at
+  // once; on a touch screen it would bring up the keyboard over the list.
+  openSheet("#picker", { back: o?.back, focus: matchMedia("(pointer: fine)").matches ? "#pksearch" : null });
   $("#picker .body").scrollTop = 0;
   placeSegs($("#picker"));
 }
 function renderSort(place = true) {
   $("#pksort").replaceChildren(...[["maker", "grid", t("pick.by_maker")], ["price", "sort", t("pick.cheaper")]].map(([k, i, l]) =>
-    opt({ key: "sort", v: k, on: S.sort === k, pick: () => listUpdate(() => { S.sort = k; renderSort(); renderPicker(); }, { dur: 560 }) }, ic(i), l)));
+    opt({ key: "sort", v: k, on: S.sort === k, pick: () => listUpdate(() => { S.sort = k; renderSort(); renderPicker(); }, { dur: DUR.l }) }, ic(i), l)));
   if (place) placeSeg($("#pksort"));
 }
 
+// The card on the right is of the family under the mouse, or of the one the
+// keyboard is on: its row, a variant's pill or a suggestion.
 let hoverT = 0;
+const shows = (f, vid) => S.info == null && !(S.hover === f.idx && (!vid || S.detVar[f.idx] === vid));
+const showFam = (f, vid) => { S.hover = f.idx; if (vid) S.detVar[f.idx] = vid; renderDetail(); };
 const hoverFam = (f, wide, vid) => (e) => {
-  if (!wide || e.pointerType !== "mouse" || S.info != null || (S.hover === f.idx && (!vid || S.detVar[f.idx] === vid))) return;
+  if (!wide || e.pointerType !== "mouse" || !shows(f, vid)) return;
   clearTimeout(hoverT);
-  hoverT = setTimeout(() => { S.hover = f.idx; if (vid) S.detVar[f.idx] = vid; renderDetail(); }, 90);
+  hoverT = setTimeout(() => showFam(f, vid), 90);
 };
+const focusFam = (f, vid) => () => { if (isWide() && shows(f, vid)) { clearTimeout(hoverT); showFam(f, vid); } };
 let found = [];
-function clearSearch() { listUpdate(() => { query = ""; $("#pksearch").value = ""; renderPicker(); }, { dur: 300, step: 15 }); $("#pksearch").focus(); }
+function clearSearch() { listUpdate(() => { query = ""; $("#pksearch").value = ""; renderPicker(); }, { dur: DUR.m, step: 15 }); $("#pksearch").focus(); }
 const focusId = () => (FOR ? FOR.cur : M()?.id);
 const lowUsd = (f) => (shown(f).some((v) => freePlan(v.m)) ? 0 : Math.min(...shown(f).map((v) => { const e = lowest(bestItems(v.m)); return !e || e.kind === "unknown" ? Infinity : e.usd; })));
 
@@ -117,37 +124,53 @@ function renderPicker(o = {}) {
   if (!fams.length) rows.push(h("div", { class: "pkempty", "data-k": "none" }, h("p", {}, t("pick.nothing", { q: query.trim() })),
     h("button", { type: "button", class: "x", onclick: clearSearch }, ic("close"), t("pick.reset"))));
   box.replaceChildren(...rows);
-  if (o.fresh) rise(rows.flatMap((r) => (r.classList.contains("recs") ? [...r.children] : [r])).slice(0, 16), wide ? { x: 24, y: 0, step: 26, delay: 90, dur: 420 } : { y: 14, step: 26, delay: 90 });
+  if (o.fresh) rise(rows.flatMap((r) => (r.classList.contains("recs") ? [...r.children] : [r])).slice(0, 16), wide ? { x: 24, y: 0, step: 26, delay: 90, dur: DUR.l } : { y: 14, step: 26, delay: 90 });
   renderDetail();
   placeSegs($("#picker"));
 }
 
 const perWord = (f) => t(f.kind === "image" ? "pick.per_image" : "pick.per_video");
-function famPrice(f) {
+function famPrice(f, id) {
   const free = shown(f).some((v) => freePlan(v.m)), items = shown(f).flatMap((v) => bestItems(v.m));
-  if (free) return h("span", { class: "fprice" }, h("b", {}, t("pay.free")), h("small", {}, minEl(items, { text: (e) => (e.kind === "unknown" ? "" : t("pick.or", { p: priceTextShort(e) })) })));
-  return h("span", { class: "fprice" }, h("b", {}, minEl(items)), h("small", {}, minEl(items, { wait: "", text: (e) => (e.kind === "unknown" ? t("pick.no_price") : (e.discount ? "−" + Math.round(e.discount * 100) + "% · " : "") + perWord(f)) })));
+  if (free) return h("span", { class: "fprice", id }, h("b", {}, t("pay.free")), h("small", {}, minEl(items, { text: (e) => (e.kind === "unknown" ? "" : t("pick.or", { p: priceTextShort(e) })) })));
+  return h("span", { class: "fprice", id }, h("b", {}, minEl(items)), h("small", {}, minEl(items, { wait: "", text: (e) => (e.kind === "unknown" ? t("pick.no_price") : (e.discount ? "−" + Math.round(e.discount * 100) + "% · " : "") + perWord(f)) })));
 }
 const priceTextShort = (e) => (e.kind === "from" ? t("price.from", { p: e.label }) : e.kind === "about" ? t("price.about", { p: e.label }) : e.kind === "up_to" ? t("price.up_to", { p: e.label }) : e.label);
+// What a model can do, fact by fact: a line that has to wrap breaks between
+// two facts, never inside one, which left a lone "5" of "Fotos: bis zu 5".
+const factLine = (xs) => xs.flatMap((x, i) => [i ? " · " : "", h("span", { class: "fact" }, x)]);
 function recCard(m, wide) {
   const f = C.famOf[m.id], why = fit(m), plan = freePlan(m);
-  const reason = why || [plan ? freePer(m.kind) : "", ...facts(m, 4).filter((x) => x[0] !== "ticket").map((x) => x[1])].filter(Boolean).slice(0, 2).join(" · ");
-  return h("button", { type: "button", class: "rcard" + (why ? " dim" : ""), "aria-current": String(focusId() === m.id), onclick: (e) => choose(C.varOf[m.id], e.currentTarget), onpointermove: hoverFam(f, wide, m.id) },
+  const reason = why || factLine([plan ? freePer(m.kind) : "", ...facts(m, 4).filter((x) => x[0] !== "ticket").map((x) => x[1])].filter(Boolean).slice(0, 2));
+  return h("button", { type: "button", class: "rcard" + (why ? " dim" : ""), "aria-current": String(focusId() === m.id), onclick: (e) => choose(C.varOf[m.id], e.currentTarget), onpointermove: hoverFam(f, wide, m.id), onfocus: focusFam(f, m.id) },
     lg(famLogo(f), f.maker), h("span", { class: "nm" }, vname(m)), h("span", { class: "why" }, reason), h("span", { class: "pr" }, plan ? t("pay.free") : minEl(bestItems(m))));
 }
 // A family is one row: the whole row picks it, the variants are pills inside it.
+// A screen reader hears the row's button with what the row shows, its facts
+// and its price, and a pill as the variant's whole name with its price.
 function famRow(f, wide) {
-  const cur = focusId(), mine = C.famOf[cur] === f, why = famFit(f), vs = shown(f);
+  const cur = focusId(), mine = C.famOf[cur] === f, why = famFit(f), vs = shown(f), id = "pk" + f.idx;
   const want = C.varOf[mine ? cur : S.lastVar[f.idx]] || f.def, pick = vs.includes(want) || (f.old.includes(want) && ok(want)) ? want : vs[0];
-  const sub = why ? [ic("warn"), why] : facts(vs.map((v) => v.m), 3).filter((x) => x[0] !== "ticket").map((x) => x[1]).join(" · ");
+  const sub = why ? [ic("warn"), why] : factLine(facts(vs.map((v) => v.m), 3).filter((x) => x[0] !== "ticket").map((x) => x[1]));
   const olds = S.sort === "price" || query.trim() ? oldShown(f) : [];
-  const vars = vs.length > 1 || olds.length ? h("div", { class: "fvars" },
-    vs.length > 1 ? vs.map((v) => h("button", { type: "button", class: "pill", "aria-pressed": String(v.id === cur), onclick: () => choose(v, $(`#pkrows [data-k="fam-${f.idx}"]`)), onpointermove: hoverFam(f, wide, v.id) }, v.label)) : null,
-    olds.map((v) => h("button", { type: "button", class: "pill old", "aria-pressed": String(v.id === cur), title: t("pick.newer", { v: v.by.label }), onclick: () => choose(v, $(`#pkrows [data-k="fam-${f.idx}"]`)) }, v.label))) : null;
+  // A pill's price is written when the pill gets the focus, where it is
+  // heard: the picker opens without a price to keep for every variant. An
+  // outdated variant says so before it, as its title says to the mouse.
+  const prices = [];
+  const pill = (v, old) => {
+    const say = h("span", { id: `${id}-v${prices.length}` }), show = focusFam(f, v.id);
+    const was = old ? h("span", { id: say.id + "-old" }, t("pick.newer", { v: v.by.label })) : null;
+    prices.push(say, was);
+    return h("button", { type: "button", class: "pill" + (old ? " old" : ""), "aria-pressed": String(v.id === cur), "aria-label": vname(v.m), "aria-describedby": was ? `${was.id} ${say.id}` : say.id, title: was?.textContent ?? null,
+      onclick: () => choose(v, $(`#pkrows [data-k="fam-${f.idx}"]`)), onpointermove: old ? null : hoverFam(f, wide, v.id),
+      onfocus: () => { if (!say.firstChild) say.append(freePlan(v.m) ? t("pay.free") : minEl(bestItems(v.m))); show(); } }, v.label);
+  };
+  const vars = vs.length > 1 || olds.length ? h("div", { class: "fvars" }, vs.length > 1 ? vs.map((v) => pill(v, false)) : null, olds.map((v) => pill(v, true))) : null;
   return h("div", { class: "frow" + (why ? " dim" : ""), "aria-current": String(mine), "data-k": "fam-" + f.idx, onpointermove: hoverFam(f, wide) },
-    h("button", { type: "button", class: "fhit", "aria-label": t("pick.choose_name", { name: f.title }), onclick: (e) => choose(pick, e.currentTarget.parentNode) }),
-    lg(famLogo(f), f.maker), h("span", { class: "fbody" }, h("span", { class: "nm" }, f.title), sub && sub.length ? h("span", { class: "fsub" + (why ? " why" : "") }, sub) : null),
-    famPrice(f), vars);
+    h("button", { type: "button", class: "fhit", "aria-label": t("pick.choose_name", { name: f.title }), "aria-describedby": sub && sub.length ? `${id}-sub ${id}-pr` : `${id}-pr`,
+      onclick: (e) => choose(pick, e.currentTarget.parentNode), onfocus: focusFam(f) }),
+    lg(famLogo(f), f.maker), h("span", { class: "fbody" }, h("span", { class: "nm" }, f.title), sub && sub.length ? h("span", { class: "fsub" + (why ? " why" : ""), id: id + "-sub" }, sub) : null),
+    famPrice(f, id + "-pr"), vars, prices.length ? h("span", { hidden: true }, prices) : null);
 }
 
 let detFam = null;
@@ -159,7 +182,7 @@ function renderDetail() {
   const ok = f && f.kind === K(), prev = detFam;
   detFam = ok ? f.idx : null;
   box.replaceChildren(ok ? detail(f) : "");
-  if (ok && prev !== null && prev !== f.idx) anim(box.firstChild, [{ opacity: 0.4 }, { opacity: 1 }], { duration: 160 });
+  if (ok && prev !== null && prev !== f.idx) anim(box.firstChild, [{ opacity: 0.4 }, { opacity: 1 }], { duration: DUR.xs });
   placeSegs(box);
 }
 
@@ -179,7 +202,7 @@ function choose(v, from) {
 
 function vlist(f, sel, pickIt) {
   const key = "dl-" + f.idx;
-  return h("div", { class: "vlist", role: "radiogroup", "aria-label": t("var.label"), "data-seg": key, "data-dur": 380 }, shown(f).map((v) =>
+  return h("div", { class: "vlist", role: "radiogroup", "aria-label": t("var.label"), "data-seg": key, "data-dur": DUR.m }, shown(f).map((v) =>
     opt({ key, v: v.id, on: v.id === sel.id, cls: "vl", pick: () => pickIt(v) }, h("b", {}, v.label),
       h("span", { class: "p" }, freePlan(v.m) ? t("pay.free") : minEl(bestItems(v.m))), v.note ? h("span", { class: "n" }, v.note) : null)));
 }
@@ -187,7 +210,7 @@ function detail(f) {
   const want = S.detVar[f.idx], cur = focusId();
   const vs = shown(f), sel0 = (want && C.famOf[want] === f && C.varOf[want]) || (C.famOf[cur] === f && C.varOf[cur]) || f.def;
   const sel = ok(sel0) || !vs.length ? sel0 : vs[0], m = sel.m;
-  const pickIt = (v) => { S.detVar[f.idx] = v.id; if (S.info == null) S.hover = f.idx; renderDetail(); rise($("#pkd .dl")?.children || [], { y: 4, step: 18, dur: 260 }); };
+  const pickIt = (v) => { S.detVar[f.idx] = v.id; if (S.info == null) S.hover = f.idx; renderDetail(); rise($("#pkd .dl")?.children || [], { y: 4, step: 18, dur: DUR.s }); };
   const rows = [], plan = freePlan(m), dep = deprecation(m);
   if (vs.length < 2) rows.push(["coin", t("det.price_now"), plan && payOf(m) === "free" ? t("pay.free") : minEl(bestItems(m))]);
   if (plan) rows.push(["ticket", t("det.free"), freePer(m.kind)]);
@@ -218,8 +241,10 @@ function detail(f) {
     h("div", { class: "dhead" }, lg(famLogo(f), f.maker, "l"), h("div", {}, h("h4", {}, f.title), h("div", { class: "mk" }, sub))),
     vs.length > 1 ? vlist(f, sel, pickIt) : null,
     dep ? h("p", { class: "dwarn" }, ic("clock"), h("span", {}, dep.text))
-      : sel.by ? h("p", { class: "dwarn" }, ic("clock"), h("span", {}, t("var.outdated", { v: sel.by.label }) + " ", h("button", { type: "button", class: "link-t", onclick: () => pickIt(sel.by) }, t("pick.see", { v: sel.by.label })))) : null,
-    m.description ? h("p", { class: "ddesc" }, m.description) : null,
+      : sel.by ? h("p", { class: "dwarn" }, ic("clock"), h("span", {}, spaced(t("var.outdated", { v: sel.by.label })), h("button", { type: "button", class: "link-t", onclick: () => pickIt(sel.by) }, t("pick.see", { v: sel.by.label })))) : null,
+    // The provider's description is English, and stays out of a page in
+    // another language; the facts and the variants' notes are in its words.
+    m.description && lang === "en" ? h("p", { class: "ddesc" }, m.description) : null,
     h("div", { class: "dl" }, rows.map(([i, k, v]) => h("div", {}, h("span", {}, ic(i), k), h("span", {}, v)))),
     f.old.length ? h("p", { class: "dold" }, t("pick.old") + " ", f.old.map((v, i) => [i ? ", " : "", h("button", { type: "button", "aria-pressed": String(v.id === sel.id), title: t("pick.newer", { v: v.by.label }), onclick: () => pickIt(v) }, v.label)])) : null,
     h("button", { type: "button", class: "choose", disabled: isCur, onclick: (e) => choose(sel, e.currentTarget.closest(".det")) },

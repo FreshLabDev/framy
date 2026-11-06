@@ -77,7 +77,7 @@ func (f *Flow) again(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun, 
 			return err
 		}
 		if !has {
-			return alert("run.need_key", "provider", providerName(d.offer.Provider))
+			return alert("run.need_key", "provider", catalog.ProviderName(d.offer.Provider))
 		}
 	}
 	// The preview answers the message pressed as a command would be answered.
@@ -224,7 +224,7 @@ func failureKeyboard(run db.ChatRun) *tg.InlineKeyboardMarkup {
 	switch jobs.Class(run.ErrorClass) {
 	case jobs.Money:
 		if url, ok := billing[runProvider(run)]; ok && !run.Free {
-			row = append(row, tg.InlineKeyboardButton{Text: t(run.Lang, "web.act.topup", "provider", providerName(runProvider(run))), URL: url})
+			row = append(row, tg.InlineKeyboardButton{Text: t(run.Lang, "web.act.topup", "provider", catalog.ProviderName(runProvider(run))), URL: url})
 		}
 		row = append(row, retry)
 	case jobs.Key:

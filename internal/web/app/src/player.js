@@ -4,7 +4,7 @@
 // seconds), and the part playing stands taller than the others.
 import { h, ic } from "./dom.js";
 import { t, fmtNum } from "./i18n.js";
-import { anim, motion } from "./motion.js";
+import { anim, motion, DUR } from "./motion.js";
 
 export const fmtClock = (s) => {
   const n = Math.max(0, Math.floor(+s || 0));
@@ -94,7 +94,7 @@ export function player(res, o = {}) {
     if (idle === on) return;
     idle = on;
     el.classList.toggle("idle", on);
-    anim(bar, [{ opacity: on ? 1 : 0 }, { opacity: on ? 0 : 1 }], { duration: on ? 320 : 160 });
+    anim(bar, [{ opacity: on ? 1 : 0 }, { opacity: on ? 0 : 1 }], { duration: on ? DUR.m : DUR.xs });
   }
   function wake() {
     setIdle(false);

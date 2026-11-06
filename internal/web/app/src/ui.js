@@ -1,6 +1,6 @@
 // Sheets, the toast and the one question dialog.
-import { $, h, isWide } from "./dom.js";
-import { anim, EASE, OUT } from "./motion.js";
+import { $, h, isWide, focusKey, refocus } from "./dom.js";
+import { anim, EASE, OUT, DUR } from "./motion.js";
 import { t } from "./i18n.js";
 
 let backHook = () => {};
@@ -20,7 +20,8 @@ export function underSheet(el) {
 }
 
 // o.back: a sheet opened from another one goes back to it when it closes;
-// back is what opens that one again.
+// back is what opens that one again. o.focus: what has the focus when it
+// opens, else its first field or button.
 export function openSheet(sel, o = {}) {
   const el = $(sel), scrim = $("#scrim");
   if (!el.hidden) return;
@@ -31,12 +32,14 @@ export function openSheet(sel, o = {}) {
   el._back = o.back || null;
   open.push(el);
   const wide = isWide();
-  anim(el, [{ transform: wide ? "translateX(64px)" : "translateY(100%)", opacity: wide ? 0 : 1 }, { transform: "none", opacity: 1 }], { duration: 420, easing: EASE });
-  if (!had) anim(scrim, [{ opacity: 0 }, { opacity: 1 }], { duration: 260 });
-  el._focus = document.activeElement;
+  anim(el, [{ transform: wide ? "translateX(64px)" : "translateY(100%)", opacity: wide ? 0 : 1 }, { transform: "none", opacity: 1 }], { duration: DUR.l, easing: EASE });
+  if (!had) anim(scrim, [{ opacity: 0 }, { opacity: 1 }], { duration: DUR.s });
+  // What had the focus gets it back when the sheet closes, or its new self
+  // when a choice in the sheet drew it again.
+  el._focus = document.activeElement; el._focusKey = focusKey(el._focus);
   // Focus after the first frame: now it would lay the sheet out in the middle
   // of this task.
-  const first = el.querySelector("[autofocus], input, button");
+  const first = (o.focus && el.querySelector(o.focus)) || el.querySelector("input, button");
   requestAnimationFrame(() => setTimeout(() => { if (open.includes(el)) first?.focus({ preventScroll: true }); }));
   backHook(true);
 }
@@ -53,12 +56,12 @@ export function closeSheets(quick) {
   dispatchEvent(new Event("framy:sheets"));
   const wide = isWide();
   for (const el of els) {
-    const a = quick ? null : anim(el, [{ transform: "none", opacity: 1 }, { transform: wide ? "translateX(64px)" : "translateY(100%)", opacity: wide ? 0 : 1 }], { duration: 260, easing: OUT, fill: "forwards" });
+    const a = quick ? null : anim(el, [{ transform: "none", opacity: 1 }, { transform: wide ? "translateX(64px)" : "translateY(100%)", opacity: wide ? 0 : 1 }], { duration: DUR.s, easing: OUT, fill: "forwards" });
     const done = () => { el.hidden = true; a?.cancel(); el.dispatchEvent(new Event("closed")); };
     if (a) a.finished.then(done, done); else done();
-    el._focus?.focus?.({ preventScroll: true });
+    if (el._focus?.isConnected) el._focus.focus({ preventScroll: true }); else refocus(el._focusKey);
   }
-  const b = quick ? null : anim(scrim, [{ opacity: 1 }, { opacity: 0 }], { duration: 220, fill: "forwards" });
+  const b = quick ? null : anim(scrim, [{ opacity: 1 }, { opacity: 0 }], { duration: DUR.s, fill: "forwards" });
   const sd = () => { scrim.hidden = true; b?.cancel(); };
   if (b) b.finished.then(sd, sd); else sd();
   backHook(false);
@@ -72,9 +75,9 @@ export function toast(text, o = {}) {
   clearTimeout(toastT);
   const el = h("div", { class: "toast", role: "status" }, text, o.action ? h("button", { type: "button", class: "link-t", onclick: () => { el.remove(); o.action.run(); } }, o.action.label) : null);
   document.body.append(el);
-  anim(el, [{ opacity: 0, transform: "translate(-50%, 12px)" }, { opacity: 1, transform: "translate(-50%, 0)" }], { duration: 300 });
+  anim(el, [{ opacity: 0, transform: "translate(-50%, 12px)" }, { opacity: 1, transform: "translate(-50%, 0)" }], { duration: DUR.m });
   toastT = setTimeout(() => {
-    const a = anim(el, [{ opacity: 1 }, { opacity: 0 }], { duration: 200, fill: "forwards" });
+    const a = anim(el, [{ opacity: 1 }, { opacity: 0 }], { duration: DUR.s, fill: "forwards" });
     if (a) a.finished.then(() => el.remove(), () => el.remove()); else el.remove();
   }, o.ms || 4200);
 }
@@ -89,9 +92,63 @@ export function ask({ title, text, yes, no = t("cancel"), one = false }) {
       h("div", { class: "acts" + (one ? " one" : "") }, one ? null : h("button", { type: "button", class: "x", onclick: () => end(false) }, no),
         h("button", { type: "button", class: "x yes", onclick: () => end(true) }, yes))));
     box.hidden = false;
-    anim(box.firstChild, [{ opacity: 0, transform: "translateY(16px)" }, { opacity: 1, transform: "none" }], { duration: 320 });
+    anim(box.firstChild, [{ opacity: 0, transform: "translateY(16px)" }, { opacity: 1, transform: "none" }], { duration: DUR.m });
     box.querySelector(".yes").focus();
     // Escape answers the question only, not the sheet under it.
     box.onkeydown = (e) => { if (e.key === "Escape") { e.stopPropagation(); end(false); } };
   });
 }
+
+/* A figure's hint, such as the dollars behind a price in another currency: one small box over the
+   figure, on hover with a mouse, on a tap, and on focus from the keyboard, since a title shows to a
+   mouse only. A screen reader has it as the figure's description. hint(el, "") takes it away. */
+let tipBox = null, tipOf = null, tipWait = 0;
+function tipHide() {
+  clearTimeout(tipWait);
+  if (!tipOf) return;
+  tipBox.hidden = true;
+  tipOf = null;
+}
+function tipShow(el) {
+  clearTimeout(tipWait);
+  if (!el._hint || !el.isConnected) return tipHide();
+  if (!tipBox) document.body.append((tipBox = h("div", { class: "tip", "aria-hidden": "true", hidden: true })));
+  const was = tipOf;
+  tipBox.textContent = el._hint;
+  tipBox.hidden = false;
+  tipOf = el;
+  // Over the figure, from its start; under it when there is no room above.
+  const r = el.getBoundingClientRect(), w = tipBox.offsetWidth, th = tipBox.offsetHeight;
+  const start = getComputedStyle(el).direction === "rtl" ? r.right - w : r.left;
+  tipBox.style.left = Math.max(8, Math.min(start, innerWidth - w - 8)) + "px";
+  tipBox.style.top = (r.top - th - 8 >= 8 ? r.top - th - 8 : r.bottom + 8) + "px";
+  if (was !== el) anim(tipBox, [{ opacity: 0, transform: "translateY(4px)" }, { opacity: 1, transform: "none" }], { duration: DUR.xs });
+}
+export function hint(el, text) {
+  if (!el._desc) {
+    el._desc = h("span", { id: el.id + "-hint", hidden: true });
+    el.append(el._desc);
+    let by = "";
+    el.addEventListener("pointerenter", (e) => { if (e.pointerType === "mouse") tipWait = setTimeout(() => tipShow(el), 300); });
+    el.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse" && !el.matches(":focus-visible")) tipHide(); });
+    el.addEventListener("pointerdown", (e) => { by = e.pointerType; });
+    // A tap shows it and the next one hides it; a mouse has it already from hovering.
+    el.addEventListener("click", () => { if (by === "mouse") tipShow(el); else if (tipOf === el) tipHide(); else tipShow(el); by = ""; });
+    el.addEventListener("focus", () => { if (el.matches(":focus-visible")) tipShow(el); });
+    el.addEventListener("blur", tipHide);
+    el.addEventListener("keydown", (e) => {
+      if (!el._hint) return;
+      if (e.key === "Escape" && tipOf === el) tipHide();
+      else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (tipOf === el) tipHide(); else tipShow(el); }
+    });
+  }
+  el._hint = text || "";
+  if (el._desc.textContent !== el._hint) el._desc.textContent = el._hint;
+  el.classList.toggle("hint", !!text);
+  if (text) { el.tabIndex = 0; el.setAttribute("role", "button"); el.setAttribute("aria-describedby", el._desc.id); }
+  else { el.removeAttribute("tabindex"); el.removeAttribute("role"); el.removeAttribute("aria-describedby"); }
+  if (tipOf === el) tipShow(el);
+}
+document.addEventListener("pointerdown", (e) => { if (tipOf && !tipOf.contains(e.target)) tipHide(); }, true);
+addEventListener("scroll", () => tipHide(), { passive: true, capture: true });
+addEventListener("resize", () => tipHide());

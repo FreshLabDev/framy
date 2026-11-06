@@ -31,7 +31,8 @@ func TestAnswersFitTelegram(tt *testing.T) {
 				h.flow.limitText(lang, &free.LimitError{Kind: catalog.Video, Limit: free.VideosPerWindow, FreesAt: h.now.Add(w)}))
 		}
 		answers = append(answers, closedText(lang, catalog.Image), closedText(lang, catalog.Video))
-		for _, name := range providerNames {
+		for _, p := range []string{catalog.OpenRouter, catalog.OpenAI, catalog.Gemini} {
+			name := catalog.ProviderName(p)
 			answers = append(answers, t(lang, "run.need_key", "provider", name), t(lang, "run.stopped_key", "provider", name))
 		}
 		for _, key := range []string{"run.not_yours", "run.expired", "run.stopped_image", "run.stopped_video", "result.gone", "dm.expired",

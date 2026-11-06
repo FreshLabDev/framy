@@ -4,6 +4,7 @@ package chat
 import (
 	"github.com/FreshLabDev/tg"
 
+	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/db"
 	"github.com/FreshLabDev/framy/internal/jobs"
 	"github.com/FreshLabDev/framy/internal/keys"
@@ -52,7 +53,7 @@ func (f *Flow) refusalKeyboard(lang string, direct bool, r refusal) *tg.InlineKe
 	if r.connect == "" {
 		return nil
 	}
-	b, ok := f.keyButton(lang, direct, r.connect, t(lang, "web.go.connect", "provider", providerName(r.connect)))
+	b, ok := f.keyButton(lang, direct, r.connect, t(lang, "web.go.connect", "provider", catalog.ProviderName(r.connect)))
 	if !ok {
 		return nil
 	}
@@ -76,11 +77,11 @@ func (f *Flow) keyFix(run db.ChatRun) []tg.InlineKeyboardButton {
 			return nil
 		}
 		if url := billing[provider]; url != "" {
-			return []tg.InlineKeyboardButton{{Text: t(run.Lang, "web.act.topup", "provider", providerName(provider)), URL: url, Style: tg.StylePrimary}}
+			return []tg.InlineKeyboardButton{{Text: t(run.Lang, "web.act.topup", "provider", catalog.ProviderName(provider)), URL: url, Style: tg.StylePrimary}}
 		}
 	case jobs.Key:
 		direct := !guest(run) && run.ChatID > 0
-		if b, ok := f.keyButton(run.Lang, direct, provider, t(run.Lang, "web.go.rekey", "provider", providerName(provider))); ok {
+		if b, ok := f.keyButton(run.Lang, direct, provider, t(run.Lang, "web.go.rekey", "provider", catalog.ProviderName(provider))); ok {
 			return []tg.InlineKeyboardButton{b}
 		}
 	}

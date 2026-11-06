@@ -7,6 +7,7 @@ import (
 
 	"github.com/FreshLabDev/tg"
 
+	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/i18n"
 	"github.com/FreshLabDev/framy/internal/keys"
 	"github.com/FreshLabDev/framy/internal/metrics"
@@ -47,7 +48,7 @@ func (b *Bot) keyInChat(ctx context.Context, m *tg.Message) (handled bool, err e
 	if b.appURL != "" {
 		label := i18n.T(lang, "btn.open")
 		if provider != "" {
-			label = i18n.T(lang, "web.go.connect", "provider", connectionName(provider))
+			label = i18n.T(lang, "web.go.connect", "provider", catalog.ProviderName(provider))
 		}
 		kb = markup(row{{Text: label, WebApp: &tg.WebAppInfo{URL: keys.SettingsURL(b.appURL, provider)}, Style: tg.StylePrimary}})
 	}

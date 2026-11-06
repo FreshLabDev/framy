@@ -162,8 +162,10 @@ screen, a command or a table, check how the siblings do it.
   by their hashes (`web.App.CSP`); the boot script asks for the catalog and
   the person while the skeleton paints. The site's lines are the `web.*` keys
   of `internal/i18n/translations.json`. Motion is transform and opacity only,
-  with the Web Animations API, and `go test -tags=browser ./internal/web/`
-  checks the layout at 390 and 1440 px and that no task holds the main thread
+  with the Web Animations API, in four durations (`DUR`) and four curves (`EASE`,
+  `OUT`, `SPRING`, `SNAP`) written once in `motion.js` and mirrored as `--dur-*`
+  tokens in `app.css` (a test refuses any other number), and
+  `go test -tags=browser ./internal/web/` checks the layout at 390 and 1440 px and that no task holds the main thread
   over 50 ms on a CPU four times slower than an M-series laptop: the test
   measures the machine on DOM work like the steps', slows it to that speed,
   and brings a machine already slower than that down to the laptop's times
@@ -336,6 +338,11 @@ bucket of the same account to check the token is refused there, and
 `R2_INCOMING_BUCKET` with `R2_INCOMING_ACCESS_KEY_ID_FILE` and
 `R2_INCOMING_SECRET_ACCESS_KEY_FILE` to check the clips' bucket and its own
 token. It prints no credential and no presigned URL; keep it that way.
+
+The few amounts the site writes itself (the dollars of a price hint, the sum of
+several runs in `price.js`) are checked against `fx.Format` string for string
+by `browser_money_test.go`, which bundles `price.js` on its own; change the
+rule in `internal/fx` and in `price.js` together, or that test fails.
 
 Verify the site and the Mini App in a browser at phone width (375×812 and
 320×568) and on a wide screen, with and without the Telegram emulation hash

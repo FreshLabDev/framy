@@ -228,7 +228,7 @@ func TestPastTheFreeVideoAVideoGoesOnAnotherProvidersKey(t *testing.T) {
 		t.Fatalf("job = %+v", job.n)
 	}
 	p := h.renderer.previews[len(h.renderer.previews)-1]
-	if p.Free || p.Label != i18n.T("en", "card.key", "provider", "Google Gemini") {
+	if p.Free || p.Label != i18n.T("en", "card.key", "provider", "AI Studio") {
 		t.Fatalf("card = %+v", p)
 	}
 	if a := h.tg.answers; len(a) != 1 || a[0] != "" {

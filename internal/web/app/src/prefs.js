@@ -9,7 +9,7 @@ import { C, PNAME, provMark, vname } from "./catalog.js";
 import { openPicker } from "./picker.js";
 import { clearPrices } from "./price.js";
 import { openSheet, closeSheets, toast, ask } from "./ui.js";
-import { anim, morph, opt, placeSegs } from "./motion.js";
+import { anim, morph, opt, placeSegs, DUR } from "./motion.js";
 import { signOut, signOutAll, forget, refreshMe } from "./run.js";
 import { launchGone } from "./errors.js";
 import { keepDraft } from "./draft.js";
@@ -56,7 +56,7 @@ export function openPrefs(p) {
   openSheet("#prefs");
   // Keys may have changed in another tab or in the bot: the sheet redraws when the answer is in.
   if (fresh) refreshMe();
-  if (fresh) $$("#prefsBody > *").slice(0, 8).forEach((el, i) => anim(el, [{ opacity: 0, transform: "translateY(8px)" }, { opacity: 1, transform: "none" }], { duration: 300, delay: 90 + i * 30, fill: "backwards" }));
+  if (fresh) $$("#prefsBody > *").slice(0, 8).forEach((el, i) => anim(el, [{ opacity: 0, transform: "translateY(8px)" }, { opacity: 1, transform: "none" }], { duration: DUR.m, delay: 90 + i * 30, fill: "backwards" }));
   if (!p) return;
   setTimeout(() => {
     const r = $(`#prefsBody [data-p="${p}"]`);
@@ -67,8 +67,8 @@ export function openPrefs(p) {
   }, 120);
 }
 
-const MORPH = { dur: 340, enter: (el, i) => anim(el, [{ opacity: 0, transform: "translateY(6px)" }, { opacity: 1, transform: "none" }], { duration: 260, delay: 80 + i * 30, fill: "backwards" }),
-  leave: (g) => anim(g, [{ opacity: 1 }, { opacity: 0 }], { duration: 160, fill: "forwards" }) };
+const MORPH = { dur: DUR.m, enter: (el, i) => anim(el, [{ opacity: 0, transform: "translateY(6px)" }, { opacity: 1, transform: "none" }], { duration: DUR.s, delay: 80 + i * 30, fill: "backwards" }),
+  leave: (g) => anim(g, [{ opacity: 1 }, { opacity: 0 }], { duration: DUR.xs, fill: "forwards" }) };
 // A change of the sheet: rows glide to their new places, new ones rise.
 function update(fn) {
   const body = $("#prefsBody");
@@ -97,8 +97,15 @@ function size(bytes) {
   if (mb >= 1024) return t("unit.gb", { n: fmtNum(mb / 1024, { maximumFractionDigits: 1 }) });
   return t("unit.mb", { n: fmtNum(mb, { maximumFractionDigits: mb < 10 ? 1 : 0 }) });
 }
+// The names of the currencies in the page's language. The namer is slow to make, so there is one for
+// the language, not one for each currency each time the settings are drawn.
+let namer, namerLang = "";
 function curName(c) {
-  try { return new Intl.DisplayNames([lang], { type: "currency" }).of(c) || c; } catch { return c; }
+  if (namerLang !== lang) {
+    namerLang = lang;
+    try { namer = new Intl.DisplayNames([lang], { type: "currency" }); } catch { namer = null; }
+  }
+  try { return namer?.of(c) || c; } catch { return c; }
 }
 
 /* Keys. */
@@ -342,16 +349,30 @@ async function setDeliver(on) {
 }
 
 /* Currency and language: PATCH /api/me. */
+// The arrows choose a currency at every press, so the saves go one at a
+// time: a choice made while one is saving waits for it, and only the newest
+// is sent. Sent together, they could be answered, or kept, out of order, and
+// the page and the account end on different currencies.
+let curNext = null, curSaving = false;
 async function setCurrency(c) {
   if (!S.me || S.me.currency === c) return;
   const was = S.me.currency;
-  S.me.currency = c;
+  S.me.currency = curNext = c;
   renderPrefs();
-  try { S.me = await patchMe({ currency: c }); }
-  catch (e) {
-    if (gone(e)) return lost(e);
-    S.me.currency = was;
-    toast(e.code === "network" ? t("err.network") : t("prefs.not_saved"));
+  if (curSaving) return;
+  curSaving = true;
+  let me = null, err = null;
+  while (curNext) {
+    const want = curNext;
+    curNext = null;
+    try { me = await patchMe({ currency: want }); err = null; } catch (e) { err = e; }
+  }
+  curSaving = false;
+  if (err && gone(err)) return lost(err);
+  if (me) S.me = me;
+  if (err) {
+    S.me.currency = me ? me.currency : was;
+    toast(err.code === "network" ? t("err.network") : t("prefs.not_saved"));
   }
   clearPrices();
   meChanged();
@@ -454,7 +475,7 @@ export function renderPrefs() {
     h("div", { class: "group", "data-k": "g-tg" }, t("prefs.telegram")),
     deliverRow(),
     h("div", { class: "group", "data-k": "g-cur" }, t("prefs.currency")),
-    h("div", { class: "seg wrapping cur", role: "radiogroup", "aria-label": t("prefs.currency"), "data-seg": "cur", "data-dur": 360, "data-k": "s-cur" },
+    h("div", { class: "seg wrapping cur", role: "radiogroup", "aria-label": t("prefs.currency"), "data-seg": "cur", "data-dur": DUR.m, "data-k": "s-cur" },
       CURRENCIES.map((c) => opt({ key: "cur", v: c, on: S.me.currency === c, pick: () => setCurrency(c) }, c, h("small", {}, curName(c))))),
     h("p", { class: "note", "data-k": "n-cur" }, t("prefs.currency_note")),
     h("div", { class: "group", "data-k": "g-lang" }, t("prefs.language")),

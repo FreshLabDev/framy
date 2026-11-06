@@ -7,7 +7,7 @@ import { $, h, ic } from "./dom.js";
 import { t, fmtNum } from "./i18n.js";
 import { api, ApiError } from "./api.js";
 import { S, M, clip, cutLimits } from "./state.js";
-import { opt, placeSeg } from "./motion.js";
+import { opt, placeSeg, DUR } from "./motion.js";
 import { openSheet, closeSheets } from "./ui.js";
 import { act, render } from "./composer.js";
 
@@ -296,7 +296,9 @@ export function openCut() {
   ED.view = view;
   ED.tc = h("span", { class: "tc" });
   ED.play = h("button", { type: "button", class: "ib", "aria-label": t("cut.play"), title: t("cut.play"), onclick: togglePlay }, ic("play"));
-  ED.edges = h("div", { class: "seg edges", role: "radiogroup", "aria-label": t("cut.edge"), "data-seg": "edge", "data-dur": 300 });
+  // ← and → move the chosen edge wherever the focus is (cut.keys), on the edges too: they do not
+  // choose between them, and each edge is a stop for Tab.
+  ED.edges = h("div", { class: "seg edges", role: "radiogroup", "aria-label": t("cut.edge"), "data-seg": "edge", "data-dur": DUR.m, "data-arrows": "own" });
   // Time runs left to right in every language, as on the player's bar: the
   // frames, the window, the playhead and a press on the timeline all count
   // from its left, and the buttons above go the same way.

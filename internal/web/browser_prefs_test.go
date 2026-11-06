@@ -57,6 +57,10 @@ type fakePrefs struct {
 	// launchOld: the Mini App's launch data is past its hour. Its token is
 	// refused, and POST /auth/miniapp answers init_data_expired.
 	launchOld bool
+	// patchLate: PATCH /api/me answers this late; patching counts the ones
+	// being answered at once, mostPatching the most there were.
+	patchLate              time.Duration
+	patching, mostPatching int
 }
 
 func (f *fakePrefs) me() map[string]any {
@@ -116,7 +120,12 @@ func (f *fakePrefs) mount(srv *Server) {
 		_ = json.NewDecoder(r.Body).Decode(&b)
 		f.mu.Lock()
 		late := f.slowMe
+		f.patching++
+		f.mostPatching = max(f.mostPatching, f.patching)
+		patchLate := f.patchLate
 		f.mu.Unlock()
+		defer f.with(func() { f.patching-- })
+		time.Sleep(patchLate)
 		if late > 0 {
 			time.Sleep(50 * time.Millisecond)
 		}

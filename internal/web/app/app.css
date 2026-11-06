@@ -6,6 +6,9 @@
 
 :root {--field: #00606E; --deep: #00454F; --line: #0B7280; --ink: #FFFFFF; --soft: #D9E7E9; --muted: #A9C9CE;
   --gap: 2px; --row: 46px;
+  /* The rhythm of motion: the same values as DUR and SPRING in src/motion.js (a test keeps them together). */
+  --dur-xs: 150ms; --dur-s: 240ms; --dur-m: 340ms; --dur-l: 440ms;
+  --spring: cubic-bezier(.34,1.42,.55,1);
   --display: "Sofia Sans Extra Condensed", "Arial Narrow", sans-serif;
   --text: "Sofia Sans", system-ui, sans-serif;
   color-scheme: dark;}
@@ -66,7 +69,7 @@ main.create {display: grid; grid-template-columns: minmax(0, 1fr); gap: 40px; pa
   main.create {grid-template-columns: 460px minmax(0, 1fr); gap: 56px; align-items: start; padding-bottom: 56px;}
 }
 .composer {display: grid; gap: 14px; position: relative;}
-.composer::after {content: attr(data-drop); position: absolute; inset: -8px; display: grid; place-items: center; background: rgba(0, 69, 79, .94); outline: 2px dashed var(--ink); font-size: 18px; font-weight: 600; opacity: 0; pointer-events: none; transition: opacity .18s;}
+.composer::after {content: attr(data-drop); position: absolute; inset: -8px; display: grid; place-items: center; background: rgba(0, 69, 79, .94); outline: 2px dashed var(--ink); font-size: 18px; font-weight: 600; opacity: 0; pointer-events: none; transition: opacity var(--dur-xs);}
 .composer.drag::after {opacity: 1;}
 .seg.kind > button {flex-direction: row; gap: 8px; min-height: 42px; font-size: 15px;}
 textarea#prompt {display: block; width: 100%; min-height: 88px; padding: 14px 16px; background: var(--deep); resize: none; overflow: hidden; font-size: 20px; line-height: 1.3;}
@@ -145,7 +148,7 @@ textarea#prompt::placeholder {color: var(--muted);}
 .rng {display: grid;}
 .tog {justify-self: start; display: inline-flex; align-items: center; gap: 12px; height: 44px; font-size: 14px; font-weight: 600; color: var(--muted);}
 .tog .knob {position: relative; width: 36px; height: 20px; background: var(--deep); flex: none;}
-.tog .knob::after {content: ""; position: absolute; top: 4px; left: 4px; width: 12px; height: 12px; background: var(--muted); transition: transform .18s, background .18s;}
+.tog .knob::after {content: ""; position: absolute; top: 4px; left: 4px; width: 12px; height: 12px; background: var(--muted); transition: transform var(--dur-xs), background var(--dur-xs);}
 .tog[aria-checked="true"] {color: var(--ink);}
 .tog[aria-checked="true"] .knob {background: var(--ink);}
 .tog[aria-checked="true"] .knob::after {transform: translateX(16px); background: var(--field);}
@@ -175,7 +178,10 @@ textarea#prompt::placeholder {color: var(--muted);}
 .seg:not(.stack) small .free .fw {display: none;}
 .sets .ratios {display: grid; grid-template-columns: repeat(auto-fit, minmax(44px, 1fr));}
 .sets .ratios.one {grid-template-columns: repeat(var(--n), minmax(0, 1fr));}
+.sets .ratios.one.lead {grid-template-columns: fit-content(40%) repeat(var(--m), minmax(0, 1fr));}
 .sets .rt {width: auto; height: 44px; gap: 4px;}
+.sets .ratios.lead > .rt:first-child {padding: 0 6px;}
+.rt .rl {max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
 @media (min-width: 960px) {
   .how {padding-top: 4px;}
   .composer {gap: 12px;}
@@ -199,13 +205,15 @@ input[type="range"]::-moz-range-thumb {width: 20px; height: 20px; background: va
 .morebtn .chev.flip {transform: rotate(180deg);}
 .bar {display: flex; gap: 12px; align-items: center; padding-top: 6px;}
 .price {flex: 1; min-width: 0; display: grid; gap: 2px;}
-.pnum {justify-self: start; display: inline-flex; overflow: hidden; font: 700 32px/1.08 var(--display); font-variant-numeric: tabular-nums;}
-.pnum.usd {cursor: help; border-bottom: 2px dotted var(--muted);}
-.pnum .ch {position: relative; display: inline-block; white-space: pre;}
-.pnum .ch > span {display: inline-block;}
-.pnum .ch > .o {position: absolute; left: 0; top: 0;}
-.pnum {position: relative;}
-.pnum > .whole {position: absolute; left: 0; top: 0; white-space: pre; pointer-events: none;}
+.pnum {justify-self: start; display: inline-flex; font: 700 32px/1.08 var(--display); font-variant-numeric: tabular-nums;}
+.pnum.hint {cursor: help; border-bottom: 2px dotted var(--muted);}
+.odo {position: relative; display: inline-flex; overflow: hidden;}
+.odo > .w {white-space: pre;}
+.odo > .amt {display: inline-flex; direction: ltr;}
+.odo .ch {position: relative; display: inline-block; white-space: pre;}
+.odo .ch > span {display: inline-block;}
+.odo .ch > .o {position: absolute; left: 0; top: 0;}
+.odo > .whole {position: absolute; inset-inline-start: 0; top: 0; white-space: pre; pointer-events: none;}
 #pcap s.was {color: var(--muted);}
 #pcap b.off {color: var(--ink); font-weight: 700;}
 #pcap {font-size: 14px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 1.4em;}
@@ -279,11 +287,11 @@ input.search::placeholder {color: var(--muted);}
 .ghead > .ic {width: 15px; height: 15px;}
 .ghead .cnt {margin-left: auto; font-weight: 400; color: var(--muted);}
 .recs {display: grid; gap: var(--gap);}
-.rcard {display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "lg nm pr" "lg why pr"; column-gap: 14px; row-gap: 3px; align-items: center; padding: 12px 14px; background: var(--deep); text-align: left;}
+.rcard {display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "lg nm pr" "lg why pr"; column-gap: 14px; row-gap: 3px; align-items: center; padding: 12px 14px; background: var(--deep); text-align: start;}
 .rcard .lg {grid-area: lg;}
 .rcard .nm {grid-area: nm; font: 700 24px/1 var(--display);}
 .rcard .why {grid-area: why; font-size: 14px; color: var(--soft);}
-.rcard .pr {grid-area: pr; font: 700 20px/1 var(--display); text-align: right;}
+.rcard .pr {grid-area: pr; font: 700 20px/1 var(--display); text-align: end;}
 @media (min-width: 640px) {
   .recs {grid-template-columns: repeat(3, minmax(0, 1fr));}
   .rcard {grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "lg pr" "nm nm" "why why"; align-items: start; row-gap: 6px; padding: 16px;}
@@ -300,10 +308,11 @@ input.search::placeholder {color: var(--muted);}
 .frow > .lg {width: 40px; height: 40px;}
 .fbody {display: grid; gap: 2px; min-width: 0;}
 .fbody .nm {font-size: 16px; font-weight: 700; line-height: 1.2;}
-.fsub {font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+.fsub {font-size: 13px; color: var(--muted);}
+.fsub .fact, .rcard .why .fact {display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: top;}
 .fsub.why {display: inline-flex; align-items: center; gap: 6px; color: var(--ink); white-space: normal;}
 .fsub .ic {width: 14px; height: 14px;}
-.fprice {display: grid; gap: 2px; justify-items: end; text-align: right;}
+.fprice {display: grid; gap: 2px; justify-items: end; text-align: end;}
 .fprice b {font: 700 18px/1 var(--display); white-space: nowrap;}
 .fprice small {font-size: 12px; color: var(--muted); white-space: nowrap;}
 .fvars {grid-column: 2 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 4px;}
@@ -317,7 +326,20 @@ input.search::placeholder {color: var(--muted);}
 @media (max-width: 520px) {
   .frow {padding: 10px 12px;}
   .fvars {grid-column: 1 / -1;}
+  /* The line under the price ("or from $0.095 with a key") takes two lines
+     rather than the room of the facts beside it. */
+  .fprice small {max-width: 9em; white-space: normal; text-wrap: balance;}
 }
+/* On a phone the suggestions are rows as the families are, in the same
+   type: the name a label, the price a figure. */
+@media (max-width: 639px) {
+  .rcard {column-gap: 12px; row-gap: 2px; padding: 10px 14px;}
+  .rcard .lg {width: 40px; height: 40px;}
+  .rcard .nm {font: 700 16px/1.2 var(--text);}
+  .rcard .why {font-size: 13px; color: var(--muted);}
+  .rcard .pr {font-size: 18px;}
+}
+@media (max-width: 520px) { .rcard {padding: 10px 12px;} }
 .pkd {display: none;}
 @media (min-width: 900px) {
   .pkd {display: block; position: sticky; top: 0;}
@@ -361,11 +383,11 @@ input.search::placeholder {color: var(--muted);}
   .mhead {padding-block: 10px;}
 }
 @media (prefers-reduced-motion: no-preference) {
-  .seg > button, .rt, .pill, .vl, .frow, .rcard, .acts button, .link, .ib, .addfile, .me, .morebtn, .mhead, .x, .chipbtn {transition: background-color .16s, color .16s;}
-  .go {transition: transform .14s, background-color .16s;}
+  .seg > button, .rt, .pill, .vl, .frow, .rcard, .acts button, .link, .ib, .addfile, .me, .morebtn, .mhead, .x, .chipbtn {transition: background-color var(--dur-xs), color var(--dur-xs);}
+  .go {transition: transform var(--dur-xs), background-color var(--dur-xs);}
   .go:active:not(:disabled) {transform: scale(.97);}
   .acts button:active, .pill:active, .rcard:active, .mhead:active, .choose:active, .chipbtn:active {transform: translateY(1px);}
-  .morebtn .chev {transition: transform .32s cubic-bezier(.34,1.5,.55,1);}
+  .morebtn .chev {transition: transform var(--dur-m) var(--spring);}
 }
 @media (hover: hover) {
   .seg > button:not(:disabled):hover, .rt:hover, .mhead:hover, .frow:hover, .rcard:not([aria-current="true"]):hover, .acts button:not(.primary):hover, .link:not(:disabled):hover, .ib:hover, .addfile:hover, .pattach:hover, .me:hover, .x:hover, .chipbtn:hover {background-color: var(--line);}
@@ -481,7 +503,7 @@ input.search::placeholder {color: var(--muted);}
 .jprompt > .cp .ic {width: 14px; height: 14px;}
 .stage > .link.back {justify-self: start;}
 @media (prefers-reduced-motion: no-preference) {
-  .jacts > button, .jacts > a, .jprompt > .cp {transition: background-color .16s, color .16s;}
+  .jacts > button, .jacts > a, .jprompt > .cp {transition: background-color var(--dur-xs), color var(--dur-xs);}
 }
 @media (hover: hover) {
   .jacts > button:not(.primary):hover, .jacts > a:not(.primary):hover, .jprompt > .cp:hover {background-color: var(--line); color: var(--ink);}
@@ -527,7 +549,7 @@ input.search::placeholder {color: var(--muted);}
   .cutter .note {display: none;}
 }
 @media (prefers-reduced-motion: no-preference) {
-  .ib {transition: background-color .16s, color .16s;}
+  .ib {transition: background-color var(--dur-xs), color var(--dur-xs);}
   .cutter .take:active {transform: scale(.98);}
 }
 
@@ -706,7 +728,7 @@ main.library {display: grid; gap: 18px; padding: 6px 0 calc(48px + env(safe-area
   .li:hover .p {text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px;}
 }
 @media (prefers-reduced-motion: no-preference) {
-  .tab, .libmore .x, .lempty .x, .lbulk .x, .lfail {transition: background-color .16s, color .16s;}
+  .tab, .libmore .x, .lempty .x, .lbulk .x, .lfail {transition: background-color var(--dur-xs), color var(--dur-xs);}
 }
 
 /* The viewer: one run on a sheet. On a wide screen the result stands beside what it says. */
@@ -821,7 +843,7 @@ html.full-on {overflow: hidden;}
 .chip .ic {width: 12px; height: 12px;}
 .chip.warn, .chip.own {background: var(--ink); color: var(--field);}
 .chip:not(.own):not(.warn) {background: rgba(0, 96, 110, .72); color: var(--soft); font-weight: 500;}
-.ghost .frm {position: absolute; left: 50%; top: 8px; transform: translateX(-50%); width: 32px; height: 32px; display: grid; place-items: center; background: var(--field); opacity: 0; transition: opacity .15s;}
+.ghost .frm {position: absolute; left: 50%; top: 8px; transform: translateX(-50%); width: 32px; height: 32px; display: grid; place-items: center; background: var(--field); opacity: 0; transition: opacity var(--dur-xs);}
 .ghost .frm .ic {width: 12px; height: 12px;}
 .ghost:hover .frm, .ghost:focus-within .frm {opacity: 1;}
 @media (hover: none) { .ghost .frm {display: none;} .strip .ghost .frm {display: grid;} }
@@ -837,11 +859,11 @@ html.full-on {overflow: hidden;}
 .jbox.cell .tm {position: absolute; left: 6px; bottom: 6px; z-index: 1; max-width: calc(100% - 60px);}
 .jbox.cell:not(.done) .tm {display: none;}
 .jbox.cell.done {cursor: zoom-in;}
-.jbox.cell > .tdl {position: absolute; right: 6px; top: 6px; z-index: 1; width: 36px; height: 36px; display: grid; place-items: center; background: var(--deep); color: var(--ink); opacity: 0; transition: opacity .15s;}
+.jbox.cell > .tdl {position: absolute; right: 6px; top: 6px; z-index: 1; width: 36px; height: 36px; display: grid; place-items: center; background: var(--deep); color: var(--ink); opacity: 0; transition: opacity var(--dur-xs);}
 .jbox.cell > .tdl > .t {display: none;}
 .jbox.cell:hover > .tdl, .jbox.cell:focus-within > .tdl {opacity: 1;}
 @media (hover: none) { .jbox.cell > .tdl {opacity: 1;} }
-.jbox.cell > .tpp {position: absolute; right: 6px; bottom: 6px; z-index: 1; width: 36px; height: 36px; display: grid; place-items: center; background: var(--deep); color: var(--ink); opacity: 0; transition: opacity .15s;}
+.jbox.cell > .tpp {position: absolute; right: 6px; bottom: 6px; z-index: 1; width: 36px; height: 36px; display: grid; place-items: center; background: var(--deep); color: var(--ink); opacity: 0; transition: opacity var(--dur-xs);}
 .jbox.cell:hover > .tpp, .jbox.cell:focus-within > .tpp, .jbox.cell > .tpp.still {opacity: 1;}
 @media (hover: none) { .jbox.cell > .tpp {opacity: 1;} }
 .jbox.cell.narrow .tm > span {display: none;}

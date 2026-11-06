@@ -13,10 +13,17 @@ const failed = new Map(); // key -> {n, at}: how often its price did not come, a
 const listeners = new Set();
 let timer = 0, inflight = 0;
 
+// The page keeps the latest answers, not every one: a session that walks the picker and the settings
+// for hours would otherwise grow without end. A Map keeps the order of its keys, so reading an
+// answer moves it to the back, and what is on screen (painted again with every batch) stays.
+export const CACHE_MAX = 1000;
+const remember = (map, k, v) => { map.delete(k); map.set(k, v); if (map.size > CACHE_MAX) map.delete(map.keys().next().value); };
+const recall = (map, k) => { const v = map.get(k); if (v !== undefined) { map.delete(k); map.set(k, v); } return v; };
+
 // Everything the server prices by is in the key: a price for a run without its
 // files must not stand for one with them (files framy keeps go as inputs).
 export const keyOf = (it) => JSON.stringify([it.offer, it.pay || "", it.settings || {}, it.files || [], it.inputs || [], it.continues || 0, it.prompt ? it.prompt.length : 0]);
-export const known = (it) => cache.get(keyOf(it));
+export const known = (it) => recall(cache, keyOf(it));
 // What a run on a key costs: its own answer, else that of the same run with no
 // payer named, which the prices beside a choice ask for. The server prices the
 // two alike (only the free allowance changes a price), so the price of the
@@ -29,7 +36,7 @@ export const clearPrices = () => { cache.clear(); totals.clear(); failed.clear()
 // need() returns what is known now and asks for the rest, in one request a moment later.
 // A price that did not come is asked again once its wait is over, not at once.
 export function need(it) {
-  const k = keyOf(it), got = cache.get(k);
+  const k = keyOf(it), got = recall(cache, k);
   if (got) return got;
   if (waiting.has(k) || later.has(k)) return null;
   const due = (failed.get(k)?.at || 0) - Date.now();
@@ -55,7 +62,7 @@ async function flush() {
   let ok = false;
   try {
     const r = await api("/api/quote", { method: "POST", body: { items: batch.map(([, it]) => it) } });
-    (r.items || []).forEach((x, i) => { const k = batch[i]?.[0]; if (k) { cache.set(k, x); failed.delete(k); } });
+    (r.items || []).forEach((x, i) => { const k = batch[i]?.[0]; if (k) { remember(cache, k, x); failed.delete(k); } });
     ok = true;
   } catch {
     // A price that did not come waits a little and is asked again while the
@@ -69,7 +76,7 @@ async function flush() {
   const fresh = new Set(batch.map(([k]) => k));
   for (const el of document.querySelectorAll("[data-q]")) {
     if (!fresh.has(el.dataset.q)) continue;
-    paint(el, cache.get(el.dataset.q));
+    paint(el, recall(cache, el.dataset.q));
     if (!ok && el._it) need(el._it);
   }
   for (const fn of listeners) fn();
@@ -81,9 +88,10 @@ export function priceText(e) {
   const p = e.label || usd(e.usd);
   return e.kind === "about" ? t("price.about", { p }) : e.kind === "up_to" ? t("price.up_to", { p }) : e.kind === "from" ? t("price.from", { p }) : p;
 }
-// Dollars, never rounded down (as fx.Format): the hint when the person's currency is another.
+// Dollars, never rounded down (as fx.Format, which browser_money_test.go holds this to): the hint
+// when the person's currency is another. Nothing, a negative, NaN and infinity are all "0".
 function num(a) {
-  if (!(a > 0)) return "0";
+  if (!(a > 0) || !Number.isFinite(a)) return "0";
   let d = 2;
   if (a < 1) d = Math.min(4, Math.max(2, 1 - Math.floor(Math.log10(a))));
   const p = 10 ** d;
@@ -123,7 +131,7 @@ const hint = (e) => (e && e.currency && e.currency !== "USD" && e.kind !== "unkn
 export function priceEl(it, o = {}) {
   const k = keyOf(it), el = h("span", { class: "usd q" + (o.cls ? " " + o.cls : ""), "data-q": k });
   need(it);
-  paint(el, cache.get(k), o);
+  paint(el, recall(cache, k), o);
   el._o = o; el._it = it;
   return el;
 }
@@ -143,17 +151,17 @@ const totals = new Map(); // key -> {total, jobs}
 const askedT = new Set();
 const failedT = new Map(); // key -> {n, at}, as failed
 const totalKey = (items) => items.map(keyOf).join("\n");
-export const knownTotal = (items) => totals.get(totalKey(items));
+export const knownTotal = (items) => recall(totals, totalKey(items));
 export function needTotal(items) {
-  const k = totalKey(items), got = totals.get(k);
+  const k = totalKey(items), got = recall(totals, k);
   if (got || askedT.has(k) || !items.length) return got || null;
   // One that did not come is asked again when the page looks for it after its wait.
   if ((failedT.get(k)?.at || 0) > Date.now()) return null;
   askedT.add(k);
   api("/api/quote", { method: "POST", body: { items, batch: true } }).then((r) => {
-    totals.set(k, { total: r.total || null, jobs: r.jobs || [] });
+    remember(totals, k, { total: r.total || null, jobs: r.jobs || [] });
     failedT.delete(k);
-    (r.items || []).forEach((x, i) => { if (items[i]) cache.set(keyOf(items[i]), x); });
+    (r.items || []).forEach((x, i) => { if (items[i]) remember(cache, keyOf(items[i]), x); });
     for (const fn of listeners) fn();
   }, () => {
     const n = (failedT.get(k)?.n || 0) + 1, ms = backoff(n);
@@ -164,14 +172,19 @@ export function needTotal(items) {
 }
 
 // The lowest of several runs (a family's variants, a model's offers), as "from" when they differ.
+// "From" is the least any of them costs. That of an "up to" is its usd, while its label is the
+// most it can cost, so the label is written again from its least.
 const mins = new Set();
 export function lowest(items) {
-  const got = items.map((it) => cache.get(keyOf(it)));
+  const got = items.map((it) => recall(cache, keyOf(it)));
   if (got.some((g) => !g)) return null;
   const es = got.map((g) => g.estimate).filter((e) => e && e.kind !== "unknown");
   if (!es.length) return { kind: "unknown" };
   const lo = es.reduce((a, b) => (a.usd <= b.usd ? a : b));
-  return es.some((e) => Math.abs(e.usd - lo.usd) > 1e-9) ? { ...lo, kind: "from" } : lo;
+  if (!es.some((e) => Math.abs(e.usd - lo.usd) > 1e-9)) return lo;
+  if (lo.kind !== "up_to") return { ...lo, kind: "from" };
+  const mine = lo.amount != null && lo.label && /\d/.test(lo.label);
+  return { ...lo, kind: "from", max_usd: lo.usd, max_amount: lo.amount, label: mine ? lo.label.replace(NUM, () => local(lo.amount)) : usd(lo.usd), currency: mine ? lo.currency : "USD" };
 }
 export function minEl(items, o = {}) {
   const el = h("span", { class: "usd q" + (o.cls ? " " + o.cls : "") });

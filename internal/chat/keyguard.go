@@ -6,6 +6,7 @@ import (
 
 	"github.com/FreshLabDev/tg"
 
+	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/keys"
 	"github.com/FreshLabDev/framy/internal/metrics"
 )
@@ -40,7 +41,7 @@ func (f *Flow) keyInCommand(ctx context.Context, m *tg.Message, prompt string) (
 	}
 	label := t(lang, "btn.open")
 	if provider != "" {
-		label = t(lang, "web.go.connect", "provider", providerName(provider))
+		label = t(lang, "web.go.connect", "provider", catalog.ProviderName(provider))
 	}
 	direct := !guestMsg && m.Chat.Type == "private"
 	var kb *tg.InlineKeyboardMarkup

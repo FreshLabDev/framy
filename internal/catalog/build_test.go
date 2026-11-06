@@ -327,7 +327,32 @@ func TestPlainDropsLinks(t *testing.T) {
 	if got != "distilled from Grok Imagine Video 1.5. It" {
 		t.Fatal(got)
 	}
-	if got := plain("member of the [MAI-Image-2.6](/mic..."); got != "member of the MAI-Image-2.6..." {
-		t.Fatal(got)
+}
+
+// TestPlainWholeSentences checks a description OpenRouter cut short keeps
+// its whole sentences only, and none about price or the API, as OpenRouter
+// writes them.
+func TestPlainWholeSentences(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		// Cut in the middle of a sentence: that sentence goes.
+		{"FLUX.3 Image is Black Forest Labs' flagship model. It handles text-to-image and multi-reference editing, and renders at fixed resolution tiers...",
+			"FLUX.3 Image is Black Forest Labs' flagship model."},
+		// Cut inside a link's URL.
+		{"It is the smaller member of the family. A member of the [MAI-Image-2.6](/mic...", "It is the smaller member of the family."},
+		// Cut inside a link's text.
+		{"FLUX.2 [max] is the top-tier image model. Pricing is as follows, [per...", "FLUX.2 [max] is the top-tier image model."},
+		// Cut right after a full stop: the sentence is whole.
+		{"It keeps characters consistent across multi-reference inputs....", "It keeps characters consistent across multi-reference inputs."},
+		// One sentence, cut: nothing to show.
+		{"MiniMax H3 Fast, the lighter version of MiniMax H3, is designed for faster video with...", ""},
+		// Uncut: as it is, numbers and abbreviations whole.
+		{"Veo 3.1 Fast makes 1080p video, e.g. from a photo. It has sound!", "Veo 3.1 Fast makes 1080p video, e.g. from a photo. It has sound!"},
+		// The provider's price and parameters go.
+		{"Recraft V3 makes ~1K images. Pricing is based on the output size. It costs $0.04 per image. Supports the `image_config` parameters. Good for logos.",
+			"Recraft V3 makes ~1K images. Good for logos."},
+	} {
+		if got := plain(tc.in); got != tc.want {
+			t.Errorf("plain(%q)\n got %q\nwant %q", tc.in, got, tc.want)
+		}
 	}
 }

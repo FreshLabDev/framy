@@ -176,7 +176,7 @@ func (f *Flow) modelKeyboard(ctx context.Context, run db.ChatRun, s state, v vie
 			if !c.runnable() {
 				// A variant on a key the person has not connected says
 				// which, as the rich preview's list does.
-				label = t(lang, "run.need_key", "provider", providerName(c.offer.Provider))
+				label = t(lang, "run.need_key", "provider", catalog.ProviderName(c.offer.Provider))
 			}
 			if label != "" {
 				text += " · " + label

@@ -30,6 +30,22 @@ const (
 	Gemini     = "gemini"
 )
 
+// ProviderName is how people see a provider: on the site, in the bot and in
+// the chat, the same in every language. Google's is AI Studio, where its key
+// is made and its billing is turned on; the code and the logs call it Gemini.
+// The site keeps the same names in internal/web/app/src/catalog.js (PNAME).
+func ProviderName(provider string) string {
+	switch provider {
+	case OpenRouter:
+		return "OpenRouter"
+	case OpenAI:
+		return "OpenAI"
+	case Gemini:
+		return "AI Studio"
+	}
+	return provider
+}
+
 // makers names the company behind a direct provider's models, for a model
 // OpenRouter does not carry and the overlay does not name.
 var makers = map[string]string{OpenAI: "OpenAI", Gemini: "Google"}

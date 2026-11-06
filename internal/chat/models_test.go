@@ -101,7 +101,7 @@ func TestTheListGroupsFamiliesAndFoldsWhatNeedsAKey(t *testing.T) {
 	if got, want := list(actFamily+nano), [][]string{
 		{"Pro · $0.13", "j:1:" + pick("google/nano-banana-pro")},
 		{"2.1 · $0.04", "j:1:" + pick("google/nano-banana-2.1")},
-		{"2 Lite · " + i18n.T("en", "run.need_key", "provider", "Google Gemini"), "j:1:" + pick("google/nano-banana-2-lite")},
+		{"2 Lite · " + i18n.T("en", "run.need_key", "provider", "AI Studio"), "j:1:" + pick("google/nano-banana-2-lite")},
 		{back, "j:1:" + actModel},
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("family = %v", got)

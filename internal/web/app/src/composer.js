@@ -2,8 +2,8 @@
 // and the one button. Every change goes through act(), which lets the blocks
 // glide from where they stood to where they stand now.
 import { $, $$, h, ic, isPhone, MAC } from "./dom.js";
-import { anim, rise, spin, opt, placeSegs, placeSeg, fitSegs, snap, ticker, roll, follow, EASE, SPRING, OUT, motion } from "./motion.js";
-import { t, fmtNum, fmtIn, fmtSecs } from "./i18n.js";
+import { anim, rise, spin, opt, placeSegs, placeSeg, fitSegs, snap, ticker, roll, follow, EASE, SPRING, OUT, motion, DUR } from "./motion.js";
+import { t, fmtNum, fmtIn, fmtSecs, spaced } from "./i18n.js";
 import { C, PNAME, vname, famLogo, lg, provMark, freePlan, pays, offerOf, facts, factEl, deprecation, fieldsOf, SECONDARY, SEARCH, SICON,
   label, show, ordered, ratioNum, ratioOfSize, sizeK, resScore, needsVideo } from "./catalog.js";
 import { S, M, images, clip, payOf, usable, keyOk, connection, freeLeft, freeLimit, freesAt, freePer, settings, route, runItem, altItem, next, sourceRatio, quoteNow,
@@ -12,20 +12,22 @@ import { S, M, images, clip, payOf, usable, keyOk, connection, freeLeft, freeLim
 import { priceEl, priceText, known, need, priced, onPrices, usd, needTotal, knownTotal } from "./price.js";
 import { renderStage, stageFrom, refit, runOver, ratioOf, syncStrip } from "./stage.js";
 import { openPicker } from "./picker.js";
-import { openSheet, closeSheets } from "./ui.js";
-import { addFiles, removeFile, fitModel } from "./files.js";
+import { openSheet, closeSheets, hint, sheetOpen } from "./ui.js";
+import { addFiles, removeFile, fitModel, looksLikePhoto } from "./files.js";
 import { generate, signIn } from "./run.js";
 import { openCut, thumbMedia, frameEl, looksLikeClip, fmtPart } from "./clips.js";
 import { openPrefs } from "./prefs.js";
 
-const FORM = { rel: true, dur: 380, after: 90,
-  enter: (el, i, wait) => anim(el, [{ opacity: 0, transform: "translateY(6px)" }, { opacity: 1, transform: "none" }], { duration: 280, delay: 110 + wait + i * 30, fill: "backwards" }),
-  leave: (g) => anim(g, [{ opacity: 1 }, { opacity: 0 }], { duration: 110, easing: OUT, fill: "forwards" }) };
-const FILES = { dur: 360,
-  enter: (el) => anim(el, [{ transform: "scale(.4) rotate(-6deg)", opacity: 0 }, { transform: "none", opacity: 1 }], { duration: 480, easing: SPRING }),
-  leave: (g) => anim(g, [{ transform: "none", opacity: 1 }, { transform: "scale(.4)", opacity: 0 }], { duration: 220, easing: OUT, fill: "forwards" }) };
+const FORM = { rel: true, dur: DUR.m, after: 90,
+  enter: (el, i, wait) => anim(el, [{ opacity: 0, transform: "translateY(6px)" }, { opacity: 1, transform: "none" }], { duration: DUR.s, delay: 110 + wait + i * 30, fill: "backwards" }),
+  leave: (g) => anim(g, [{ opacity: 1 }, { opacity: 0 }], { duration: DUR.xs, easing: OUT, fill: "forwards" }) };
+const FILES = { dur: DUR.m,
+  enter: (el) => anim(el, [{ transform: "scale(.4) rotate(-6deg)", opacity: 0 }, { transform: "none", opacity: 1 }], { duration: DUR.l, easing: SPRING }),
+  leave: (g) => anim(g, [{ transform: "none", opacity: 1 }, { transform: "scale(.4)", opacity: 0 }], { duration: DUR.s, easing: OUT, fill: "forwards" }) };
 
-const PICS = "image/png,image/jpeg,image/webp,image/gif,image/avif,image/heic";
+// A HEIC is named by its extension too: a system that knows no type for it
+// would grey it out in the file dialog.
+const PICS = "image/png,image/jpeg,image/webp,image/gif,image/avif,image/heic,image/heif,.heic,.heif";
 const CLIPS = "video/mp4,video/quicktime,video/webm,video/x-matroska,.mkv,.mov,.m4v";
 const SOUNDS = "audio/mpeg,audio/wav,audio/ogg,audio/flac,audio/aac,audio/mp4,audio/x-m4a,.mp3,.wav,.ogg,.oga,.opus,.flac,.aac,.m4a";
 
@@ -44,7 +46,7 @@ export function act(fn) {
 export function mountComposer() {
   return h("section", { class: "composer", id: "composer", "aria-label": t("composer.label") },
     h("div", { class: "dtools", id: "dtools" }),
-    h("div", { class: "seg kind", role: "radiogroup", "aria-label": t("kind.label"), id: "kind", "data-seg": "kind", "data-dur": 460 }),
+    h("div", { class: "seg kind", role: "radiogroup", "aria-label": t("kind.label"), id: "kind", "data-seg": "kind", "data-dur": DUR.l }),
     h("div", { id: "pwrap" },
       h("label", { class: "sr", for: "prompt" }, t("prompt.label")),
       h("textarea", { id: "prompt", rows: 3, maxlength: 4000 }),
@@ -54,7 +56,11 @@ export function mountComposer() {
     h("input", { type: "file", id: "slotfile", hidden: true }),
     h("div", { class: "how", id: "how" }),
     h("div", { class: "bar", id: "bar" },
-      h("div", { class: "price", "aria-live": "polite" }, h("b", { class: "pnum", id: "pnum" }), h("span", { id: "pcap" })),
+      // The figure rolls for the eye; a screen reader reads the same price as plain text, and the
+      // live region tells it when the price changes.
+      h("div", { class: "price", "aria-live": "polite" },
+        h("b", { class: "pnum", id: "pnum" }, h("span", { class: "odo", id: "podo", "aria-hidden": "true" }), h("span", { class: "sr", id: "psr" })),
+        h("span", { id: "pcap" })),
       h("button", { type: "button", class: "go", id: "go" })));
 }
 
@@ -66,25 +72,34 @@ export function wireComposer() {
     if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey)) return;
     e.preventDefault();
     const b = $("#go");
-    if (!b.disabled) b.click(); else anim(b, [{ transform: "none" }, { transform: "translateX(-4px)" }, { transform: "translateX(4px)" }, { transform: "none" }], { duration: 240 });
+    if (!b.disabled) b.click(); else anim(b, [{ transform: "none" }, { transform: "translateX(-4px)" }, { transform: "translateX(4px)" }, { transform: "none" }], { duration: DUR.s });
   });
   $("#file").addEventListener("change", (e) => { addFiles([...e.target.files]); e.target.value = ""; });
   $("#slotfile").addEventListener("change", (e) => { addFiles([...e.target.files], into); e.target.value = ""; });
-  // Photos come in by drop or paste too.
+  // Photos come in by drop or paste too, where the composer is in sight: on
+  // its page, with no sheet, question or whole screen over it. Anywhere else
+  // a drop is turned away, so the browser does not open the file in framy's
+  // place either, and a paste is the field's.
   const comp = $("#composer");
   comp.dataset.drop = t("files.drop");
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
+  const inSight = () => S.view === "create" && !sheetOpen() && $("#full").hidden && $("#ask").hidden;
   let depth = 0;
-  document.addEventListener("dragenter", (e) => { if (![...(e.dataTransfer?.types || [])].includes("Files")) return; depth++; comp.classList.add("drag"); });
-  document.addEventListener("dragleave", () => { if (--depth <= 0) { depth = 0; comp.classList.remove("drag"); } });
-  document.addEventListener("dragover", (e) => { if ([...(e.dataTransfer?.types || [])].includes("Files")) e.preventDefault(); });
+  document.addEventListener("dragenter", (e) => { if (!hasFiles(e) || !inSight()) return; depth++; comp.classList.add("drag"); });
+  document.addEventListener("dragleave", () => { if (depth && --depth <= 0) { depth = 0; comp.classList.remove("drag"); } });
+  document.addEventListener("dragover", (e) => { if (!hasFiles(e)) return; e.preventDefault(); if (!inSight()) e.dataTransfer.dropEffect = "none"; });
   document.addEventListener("drop", (e) => {
     depth = 0; comp.classList.remove("drag");
     const fs = [...(e.dataTransfer?.files || [])];
+    if (!fs.length) return;
+    e.preventDefault();
     // A slot the files were dropped on says what they are.
-    if (fs.length) { e.preventDefault(); addFiles(fs, e.slot || ""); }
+    if (inSight()) addFiles(fs, e.slot || "");
   });
   document.addEventListener("paste", (e) => {
-    const fs = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith("image/") || looksLikeClip(f));
+    const field = e.target.closest?.("input, textarea, [contenteditable]");
+    if (!inSight() || (field && field.id !== "prompt")) return;
+    const fs = [...(e.clipboardData?.files || [])].filter((f) => looksLikePhoto(f) || looksLikeClip(f));
     if (fs.length) { e.preventDefault(); addFiles(fs); }
   });
   // A price can make a row of tiles stack, and its marker has to follow.
@@ -94,7 +109,7 @@ export function wireComposer() {
     renderBar(); for (const g of fitSegs($$("#how [data-seg]"))) placeSeg(g, false, true);
   });
   // A clip turned the composer to video: the form slides over as on a switch.
-  addEventListener("framy:kind", (e) => anim($("#how"), [{ opacity: 0, transform: `translateX(${e.detail === "video" ? 36 : -36}px)` }, { opacity: 1, transform: "none" }], { duration: 420, easing: EASE }));
+  addEventListener("framy:kind", (e) => anim($("#how"), [{ opacity: 0, transform: `translateX(${e.detail === "video" ? 36 : -36}px)` }, { opacity: 1, transform: "none" }], { duration: DUR.l, easing: EASE }));
   // On a phone the composer is a dock: the page keeps room for it under the stage.
   addEventListener("resize", () => { if (howStale && howShown()) render(); });
   new ResizeObserver(() => { document.documentElement.style.setProperty("--dockh", comp.offsetHeight + "px"); if (isPhone()) refit(); }).observe(comp);
@@ -126,7 +141,7 @@ export function render() {
 function setKind(k) {
   const dir = k === "video" ? 1 : -1;
   act(() => { S.kind = k; placeFiles(); fitModel(); render(); });
-  anim($("#how"), [{ opacity: 0, transform: `translateX(${dir * 36}px)` }, { opacity: 1, transform: "none" }], { duration: 420, easing: EASE });
+  anim($("#how"), [{ opacity: 0, transform: `translateX(${dir * 36}px)` }, { opacity: 1, transform: "none" }], { duration: DUR.l, easing: EASE });
 }
 
 /* Phone: the model and the settings sit in one row over the prompt; the settings open in a sheet.
@@ -183,7 +198,7 @@ function sideways(el, stop) {
 const ahead = () => (document.dir === "rtl" ? -1 : 1);
 function stepScope(dir) {
   const ids = [null, ...FR().map((f) => f.id)], i = ids.indexOf(S.scope[S.kind]), to = ids[i + dir];
-  if (to === undefined) { anim($("#how"), [{ transform: "none" }, { transform: `translateX(${-dir * ahead() * 10}px)` }, { transform: "none" }], { duration: 260 }); return; }
+  if (to === undefined) { anim($("#how"), [{ transform: "none" }, { transform: `translateX(${-dir * ahead() * 10}px)` }, { transform: "none" }], { duration: DUR.s }); return; }
   setScope(to, dir);
 }
 export function tuneClosed() { const how = $("#how"); if (how.parentElement !== $("#composer")) $("#composer").insertBefore(how, $("#bar")); placeSegs($("#composer")); }
@@ -313,7 +328,7 @@ function framesSec() {
   const lab = h("span", { class: "lab" }, ic("stack"), h("span", { class: "lt" }, t("fr.label")), h("span", { class: "labr" }, h("span", { class: "right fcount" }, framesCount(P))));
   if (n < 2) return h("div", { class: "sec", "data-k": "h-frames" }, lab,
     h("button", { type: "button", class: "addfr wide", onclick: () => addFrame() }, ic("plus"), h("span", {}, t("fr.add_wide"), h("small", {}, t("fr.add_sub")))));
-  const seg = h("div", { class: "seg fseg", role: "radiogroup", "aria-label": t("fr.scope"), "data-seg": "scope", "data-dur": 380 },
+  const seg = h("div", { class: "seg fseg", role: "radiogroup", "aria-label": t("fr.scope"), "data-seg": "scope", "data-dur": DUR.m },
     opt({ key: "scope", v: "all", on: sel == null, cls: "all", pick: () => setScope(null) }, t("fr.all")),
     P.map((it) => opt({ key: "scope", v: it.fr.id, on: sel === it.fr.id, title: t("fr.n", { n: it.i + 1 }), pick: () => setScope(it.fr.id) },
       miniShape(ratioOf(it.set, it.m)), String(it.i + 1), hasOwn(it.fr) ? h("span", { class: "dot" }) : null)));
@@ -352,8 +367,8 @@ export function setScope(id, dir = 0) {
   act(() => { S.scope[S.kind] = id; render(); });
   if (vname(M()) !== old) ticker(name(), old, dir || 1);
   // The next frame's settings come in from its side, with the finger.
-  if (dir) anim($("#how"), [{ opacity: 0, transform: `translateX(${dir * ahead() * 28}px)` }, { opacity: 1, transform: "none" }], { duration: 340, easing: EASE });
-  if (id != null) anim($(`#stage [data-k="pv-${id}"]`), [{ transform: "scale(.96)" }, { transform: "none" }], { duration: 380, easing: SPRING });
+  if (dir) anim($("#how"), [{ opacity: 0, transform: `translateX(${dir * ahead() * 28}px)` }, { opacity: 1, transform: "none" }], { duration: DUR.m, easing: EASE });
+  if (id != null) anim($(`#stage [data-k="pv-${id}"]`), [{ transform: "scale(.96)" }, { transform: "none" }], { duration: DUR.m, easing: SPRING });
   syncStrip(id);
 }
 // A new frame starts as the one being set up (or as the common setup), and the others make room.
@@ -385,7 +400,7 @@ function axesControl(f, cur, onPick, id, priceOf) {
     if (vals.length < 2) return null;
     const same = (v) => AX.filter(([k2]) => k2 !== k && val(v, k2) === val(cur, k2)).length;
     const key = `${id}-${k}`;
-    return h("div", { class: "axis" }, h("span", { class: "k" }, t(title)), h("div", { class: "seg", role: "radiogroup", "aria-label": t(title), "data-seg": key, "data-dur": 340 }, vals.map((x) => {
+    return h("div", { class: "axis" }, h("span", { class: "k" }, t(title)), h("div", { class: "seg", role: "radiogroup", "aria-label": t(title), "data-seg": key, "data-dur": DUR.m }, vals.map((x) => {
       const exact = f.cur.find((v) => val(v, k) === x && same(v) === AX.length - 1);
       const near = exact || f.cur.filter((v) => val(v, k) === x).sort((a, b) => same(b) - same(a) || a.rank - b.rank)[0];
       return opt({ key, v: x, on: val(cur, k) === x, cls: exact ? "" : "off", title: exact ? near.label : t("ax.moves_to", { v: near.label }), pick: () => onPick(near) },
@@ -400,11 +415,11 @@ function variantBlock(m) {
   const cur = f.cur.filter((x) => x.id === m.id || !refuses(x.m));
   const kids = [];
   if (cur.length > 1) kids.push(f.axes ? axesControl(f, v, pickVar, "ax", priceNow)
-    : h("div", { class: "seg" + (cur.length > 3 ? " wrapping" : ""), role: "radiogroup", "aria-label": t("var.label"), "data-seg": "var", "data-dur": 420 },
+    : h("div", { class: "seg" + (cur.length > 3 ? " wrapping" : ""), role: "radiogroup", "aria-label": t("var.label"), "data-seg": "var", "data-dur": DUR.l },
       cur.map((x) => opt({ key: "var", v: x.id, on: x.id === m.id, title: x.note ? `${x.label}: ${x.note}` : x.label, pick: () => pickVar(x) }, x.label, h("small", {}, priceNow(x.m))))));
   const dep = deprecation(m);
-  if (dep) kids.push(h("p", { class: "mnote" }, ic("clock"), h("span", {}, dep.to ? [dep.when + " ", h("button", { type: "button", onclick: () => pickVar(C.varOf[dep.to.id] || { id: dep.to.id }) }, t("var.take", { name: dep.toName }))] : dep.text)));
-  else if (v.by) kids.push(h("p", { class: "mnote" }, ic("clock"), h("span", {}, t("var.outdated", { v: v.by.label }) + " ", h("button", { type: "button", onclick: () => pickVar(v.by) }, t("var.take", { name: v.by.label })))));
+  if (dep) kids.push(h("p", { class: "mnote" }, ic("clock"), h("span", {}, dep.to ? [spaced(dep.when), h("button", { type: "button", onclick: () => pickVar(C.varOf[dep.to.id] || { id: dep.to.id }) }, t("var.take", { name: dep.toName }))] : dep.text)));
+  else if (v.by) kids.push(h("p", { class: "mnote" }, ic("clock"), h("span", {}, spaced(t("var.outdated", { v: v.by.label })), h("button", { type: "button", onclick: () => pickVar(v.by) }, t("var.take", { name: v.by.label })))));
   else if (v.note) kids.push(h("p", { class: "mnote info" }, ic("info"), h("span", {}, f.axes ? h("b", {}, v.label + ": ") : null, v.note)));
   return kids.length ? h("div", { class: "mvars" }, kids) : null;
 }
@@ -431,7 +446,7 @@ function paySec(m, pay) {
   if (ps.length === 1 && usable(m, ps[0]) && !fr?.own.pay) return null;
   if (ps.length === 1) return h("div", { class: "paysec", "data-k": "h-pay" }, h("div", { class: "sec row" }, lab, h("div", { class: "pay1" }, name(ps[0]), h("small", {}, sub(ps[0])))));
   return h("div", { class: "paysec", "data-k": "h-pay" }, h("div", { class: "sec row" }, lab,
-    h("div", { class: "seg", role: "radiogroup", "aria-label": t("pay.label"), "data-seg": "pay", "data-dur": 380 }, ps.map((p) =>
+    h("div", { class: "seg", role: "radiogroup", "aria-label": t("pay.label"), "data-seg": "pay", "data-dur": DUR.m }, ps.map((p) =>
       opt({ key: "pay", v: p, on: pay === p, cls: usable(m, p) ? "" : "off", title: p === "free" ? freePer(kind) : connection(p) ? t("pay.your_key", { last4: connection(p).last4 }) : null,
         pick: () => act(() => { setPayHere(m, p); render(); }) }, h("span", { class: "row" }, name(p)), h("small", {}, sub(p)))))));
 }
@@ -520,7 +535,11 @@ function learnPriced(m, pay, o, s, name, values) {
     return true;
   };
   const k = o.id + "|" + name + "|" + JSON.stringify(s);
-  if (!pending.has(k) && !check()) pending.set(k, check);
+  if (!pending.has(k) && !check()) {
+    pending.set(k, check);
+    // A price that never comes (the network was down) must not keep its question for good.
+    if (pending.size > 200) pending.delete(pending.keys().next().value);
+  }
 }
 const pending = new Map();
 onPrices(() => { for (const [k, c] of [...pending]) if (c()) pending.delete(k); });
@@ -530,6 +549,8 @@ function toggle(name, v, set, sub) {
     onclick: (e) => { e.currentTarget.setAttribute("aria-checked", String(!v)); setTimeout(() => set(!v), 160); } },
     h("span", { class: "knob" }), h("span", { class: "tt" }, t(v ? "val.on" : "val.off")), sub);
 }
+// A slider over a long list goes by the value's place in it: a screen reader
+// is told the value ("6 s"), not the place ("4").
 function rangeControl(name, p, v) {
   const vals = p.type === "enum" ? ordered(p.values) : null;
   const step = p.type === "range" ? (p.max - p.min > 3 ? 0.5 : 0.1) : 1;
@@ -537,8 +558,9 @@ function rangeControl(name, p, v) {
     : h("input", { type: "range", min: p.min, max: p.max, step, value: v, "aria-label": label(name) });
   const val = () => (vals ? vals[+r.value] : +r.value);
   const cur = h("b", {}, show(name, v));
+  r.setAttribute("aria-valuetext", cur.textContent);
   fillRange(r);
-  r.addEventListener("input", () => { setWanted(name, val()); cur.textContent = show(name, val()); fillRange(r); renderBar(); });
+  r.addEventListener("input", () => { setWanted(name, val()); cur.textContent = show(name, val()); r.setAttribute("aria-valuetext", cur.textContent); fillRange(r); renderBar(); });
   r.addEventListener("change", () => act(() => render()));
   return h("div", { class: "rng" }, h("div", { class: "rline" }, r, cur),
     h("div", { class: "rends", "aria-hidden": "true" }, h("span", {}, show(name, vals ? vals[0] : p.min)), h("span", {}, show(name, vals ? vals[vals.length - 1] : p.max))));
@@ -605,15 +627,20 @@ function ratioControl(name, p, v, set, src, gapOf = () => null) {
   const tiles = list.map((x) => {
     const auto = x === "auto", r = auto ? src || 1 : ratioNum(x), gap = gapOf(x);
     const b = opt({ key, v: x, on: String(x) === String(v), cls: "rt" + (gap ? " gap" : ""), title: gap || (auto ? t(src ? "set.as_photo" : "val.auto") : String(x)), pick: () => set(x) },
-      shape(r, auto), auto ? t(src ? "val.photo" : "val.auto") : String(x));
+      shape(r, auto), auto ? h("span", { class: "rl" }, t(src ? "val.photo" : "val.auto")) : String(x));
     b.dataset.k = `h-rt-${name}-${x}`; b.dataset.km = "stay";
     return b;
   });
+  // The ratios beyond the common ones open with "+3" and close with "−3": figures fit a tile in any language.
   const hidden = p.values.length - list.length;
+  const few = p.values.filter((x) => COMMON.includes(String(x))), back = p.values.length - few.length - (few.some((x) => String(x) === String(v)) ? 0 : 1);
   if (hidden > 0) tiles.push(h("button", { type: "button", class: "rt more", "data-k": `h-rt-${name}-more`, "data-km": "stay", onclick: () => act(() => { S.allRatios = true; render(); }) }, "+" + hidden));
-  else if (S.allRatios && p.values.length > 8) tiles.push(h("button", { type: "button", class: "rt more", "data-k": `h-rt-${name}-more`, "data-km": "stay", onclick: () => act(() => { S.allRatios = false; render(); }) }, t("set.fewer")));
-  const box = h("div", { class: "ratios one", role: "radiogroup", "aria-label": label("aspect_ratio"), "data-seg": key, "data-dur": 360 }, tiles);
-  box.style.setProperty("--n", Math.ceil(tiles.length / Math.ceil(tiles.length / 8)));
+  else if (S.allRatios && p.values.length > 8 && back > 0) tiles.push(h("button", { type: "button", class: "rt more", "data-k": `h-rt-${name}-more`, "data-km": "stay", title: t("set.fewer"), "aria-label": t("set.fewer"), onclick: () => act(() => { S.allRatios = false; render(); }) }, "−" + back));
+  // "As photo" is a word among figures: its column takes the word's width, and the ratios share the rest.
+  const n = Math.ceil(tiles.length / Math.ceil(tiles.length / 8)), lead = String(list[0]) === "auto" && n > 1;
+  const box = h("div", { class: "ratios one" + (lead ? " lead" : ""), role: "radiogroup", "aria-label": label("aspect_ratio"), "data-seg": key, "data-dur": DUR.m }, tiles);
+  box.style.setProperty("--n", n);
+  if (lead) box.style.setProperty("--m", n - 1);
   return box;
 }
 
@@ -631,9 +658,13 @@ export function renderBar() {
   const text = free ? t("bar.free") : !ready ? "…" : unknown ? t("price.unknown") : priceText(e);
   const val = free ? 0 : unknown ? 1e9 : e.usd;
   const el = $("#pnum");
-  el.classList.toggle("usd", !free && !unknown);
-  if (!free && !unknown && e.currency && e.currency !== "USD") el.title = usd(e.kind === "up_to" ? e.max_usd : e.usd); else el.removeAttribute("title");
-  if (el.dataset.t !== text) roll(el, text, lastVal == null ? 1 : val >= lastVal ? 1 : -1);
+  // A price in another currency keeps its dollars behind it, for a mouse, a finger and the keyboard alike.
+  hint(el, !free && !unknown && e.currency && e.currency !== "USD" ? usd(e.kind === "up_to" ? e.max_usd : e.usd) : "");
+  const odo = $("#podo");
+  if (odo.dataset.t !== text) roll(odo, text, lastVal == null ? 1 : val >= lastVal ? 1 : -1);
+  // A price on its way is no price: a screen reader hears the next one, not "…" or the last model's.
+  const said = ready ? text : "", sr = $("#psr");
+  if (sr.textContent !== said) sr.textContent = said;
   lastVal = val;
   const cap = $("#pcap"), was = cap.textContent;
   let parts;
@@ -643,7 +674,7 @@ export function renderBar() {
   else if (e && e.discount && e.list_label) parts = [h("s", { class: "was" }, priceText({ ...e, label: e.list_label })), " ", h("b", { class: "off" }, "−" + fmtNum(Math.round(e.discount * 100)) + "%")];
   else parts = [""];
   cap.replaceChildren(...parts);
-  if (was !== cap.textContent && !cap.getAnimations().length) anim(cap, [{ opacity: 0 }, { opacity: 1 }], { duration: 240, delay: 120, fill: "backwards" });
+  if (was !== cap.textContent && !cap.getAnimations().length) anim(cap, [{ opacity: 0 }, { opacity: 1 }], { duration: DUR.s, delay: 120, fill: "backwards" });
   const fc = $("#how .fcount");
   if (fc) fc.textContent = framesCount(P);
   const btn = $("#go");

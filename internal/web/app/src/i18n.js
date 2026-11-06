@@ -31,6 +31,18 @@ export const fmtAt = (ms) => made("a" + lang, () => new Intl.DateTimeFormat(lang
 export const fmtInSecs = (s) => made("r" + lang, () => new Intl.RelativeTimeFormat(lang, { numeric: "auto" })).format(Math.max(1, Math.round(s)), "second");
 // "15 minutes": a length of time as a count of a unit, spelled out.
 export const fmtUnit = (n, unit) => made("u" + lang + unit, () => new Intl.NumberFormat(lang, { style: "unit", unit, unitDisplay: "long" })).format(n);
+// A day the catalog names ("2026-11-11", a model's shut-down day) as it is
+// written, the same day in every time zone, with the year when it is not this
+// one: read in the browser's zone, midnight UTC is the day before west of it.
+export function fmtDay(iso) {
+  const d = new Date(iso + "T00:00:00Z");
+  if (isNaN(d)) return iso;
+  const year = d.getUTCFullYear() !== new Date().getUTCFullYear();
+  return made("y" + lang + year, () => new Intl.DateTimeFormat(lang, { day: "numeric", month: "long", timeZone: "UTC", ...(year ? { year: "numeric" } : {}) })).format(d);
+}
+// A sentence with more after it on its line, a button to act on it: a space
+// between, but none after a full-width stop ("。"), which has its room in it.
+export const spaced = (s) => (/[。！？：]$/.test(s) ? s : s + " ");
 // "in 3 hours", "in 2 days": when something comes back.
 export function fmtIn(ms) {
   const sec = Math.max(60, (ms - Date.now()) / 1000), rtf = made("r" + lang, () => new Intl.RelativeTimeFormat(lang, { numeric: "auto" }));

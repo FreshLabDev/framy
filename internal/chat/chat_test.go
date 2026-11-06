@@ -291,7 +291,7 @@ func TestPastTheFreeTierAnotherProvidersKeyRunsItsModel(t *testing.T) {
 		provider  string
 	}{
 		{"the only model the key runs", []string{catalog.OpenAI}, "", "openai:openai/gpt-image-2.5", "OpenAI"},
-		{"the first the list shows", []string{catalog.OpenAI, catalog.Gemini}, "", "gemini:google/nano-banana-pro", "Google Gemini"},
+		{"the first the list shows", []string{catalog.OpenAI, catalog.Gemini}, "", "gemini:google/nano-banana-pro", "AI Studio"},
 		{"the suggested one first", []string{catalog.OpenAI, catalog.Gemini}, "openai/gpt-image-2.5", "openai:openai/gpt-image-2.5", "OpenAI"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -647,7 +647,7 @@ func TestStopARunningJob(t *testing.T) {
 		{"free image", true, catalog.Offer{ID: "openrouter:mai/image", Provider: catalog.OpenRouter, Kind: catalog.Image}, i18n.T("en", "run.stopped_image")},
 		{"free video", true, catalog.Offer{ID: "openrouter:wan/video", Provider: catalog.OpenRouter, Kind: catalog.Video}, i18n.T("en", "run.stopped_video")},
 		{"own key", false, catalog.Offer{ID: "gemini:gemini-3-pro-image", Provider: catalog.Gemini, Kind: catalog.Image},
-			"The model had already started, so the run goes on and your Google Gemini key pays for it. The result goes to your library on the site, not to the chat."},
+			"The model had already started, so the run goes on and your AI Studio key pays for it. The result goes to your library on the site, not to the chat."},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			h := newHarness(t)

@@ -18,6 +18,62 @@ export function h(tag, attrs = {}, ...kids) {
   return el;
 }
 
+/* The page draws a block again on every change, so after one the control in
+   focus is a new element, and the old one took the focus away with it: the
+   browser starts again from the top of the page. The control in focus is
+   remembered in words that last a redraw: an option by its group and value,
+   anything else by its id, or by the keyed block (data-k) or the block with
+   an id it is in, its kind and its place there. When a redraw takes it away,
+   its new self gets the focus, and a person on the keyboard goes on from
+   where they were. */
+const FOCUSABLE = "button, input, select, textarea, a[href], [tabindex]";
+const live = (el) => el.isConnected && !el.closest(".mirror, [inert], [aria-hidden='true']");
+// The controls of a keyed block of one kind, the block itself first when it is one.
+const controls = (k, tag) => (k ? [k, ...k.querySelectorAll(FOCUSABLE)].filter((x) => x.tagName === tag && x.matches(FOCUSABLE)) : []);
+export function focusKey(el) {
+  if (!el?.isConnected || el === document.body) return null;
+  const g = el.getAttribute("role") === "radio" && el.closest("[data-seg]");
+  if (g) return { seg: g.dataset.seg, v: el.dataset.v };
+  if (el.id) return { id: el.id };
+  const k = el.closest("[data-k], [id]");
+  if (!k) return null;
+  return { in: k.dataset.k != null ? `[data-k="${CSS.escape(k.dataset.k)}"]` : "#" + CSS.escape(k.id), i: controls(k, el.tagName).indexOf(el), tag: el.tagName };
+}
+export function refocus(key) {
+  if (!key) return false;
+  const first = (sel) => [...document.querySelectorAll(sel)].find(live);
+  let el = null;
+  if (key.seg) {
+    const rs = [...(first(`[data-seg="${CSS.escape(key.seg)}"]`)?.querySelectorAll(':scope > [role="radio"]') || [])];
+    el = rs.find((r) => r.dataset.v === key.v) || rs.find((r) => r.getAttribute("aria-checked") === "true") || rs.find((r) => r.tabIndex === 0);
+  } else if (key.in) {
+    const all = controls(first(key.in), key.tag);
+    el = all[Math.min(Math.max(0, key.i), all.length - 1)];
+  } else el = document.getElementById(key.id);
+  if (!el || !live(el) || el.disabled || !el.getClientRects().length) return false;
+  el.focus({ preventScroll: true });
+  return document.activeElement === el;
+}
+// held: the control in focus. A blur that leaves it on the page (a click
+// elsewhere, Escape) lets it go; a redraw that removes it does not.
+let held = null;
+document.addEventListener("focusin", (e) => { held = { el: e.target, key: focusKey(e.target) }; });
+document.addEventListener("focusout", (e) => {
+  const el = e.target;
+  queueMicrotask(() => { if (held?.el === el && live(el) && document.activeElement !== el) held = null; });
+});
+new MutationObserver(() => {
+  if (!held || live(held.el)) return;
+  const a = document.activeElement;
+  if (a && a !== document.body && a !== held.el) { held = null; return; }
+  // Gone for good (a removed file, a setting the new model has not): a
+  // second after it went, the focus is not pulled back to its like from
+  // wherever the person is by then.
+  held.gone ??= performance.now();
+  if (performance.now() - held.gone > 1000) { held = null; return; }
+  refocus(held.key);
+}).observe(document.documentElement, { childList: true, subtree: true });
+
 export const isPhone = () => !matchMedia("(min-width: 960px)").matches;
 export const isWide = () => matchMedia("(min-width: 900px)").matches;
 export const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
