@@ -220,6 +220,7 @@ func (a *API) quoteRoute(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		count := countOf(settings, inputs, it.Files)
+		count.Continues = source != nil
 		fillFrames(settings, m, offer, count.Images)
 		count.Frames = frameCount(settings)
 		fitDuration(settings, m, offer, &count)

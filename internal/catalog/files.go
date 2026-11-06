@@ -327,8 +327,11 @@ func (f Files) validate() error {
 			return fmt.Errorf("overlay: model %s: faces must be %s or %s", id, FacesRejected, FacesAdults)
 		}
 		if s := m.SourceVideo; s != nil {
-			if *s == (SourceVideo{}) {
+			if s.empty() {
 				return fmt.Errorf("overlay: model %s: source_video says nothing", id)
+			}
+			if !positive(s.Durations) {
+				return fmt.Errorf("overlay: model %s: source_video.durations are seconds above 0", id)
 			}
 			if s.MinSeconds < 0 || s.MaxSeconds < 0 || s.MaxMiB < 0 {
 				return fmt.Errorf("overlay: model %s: source_video limits cannot be negative", id)
@@ -474,16 +477,17 @@ func (r *References) validate() error {
 		return nil
 	}
 	if r.Image == 0 && r.Video == 0 && r.Audio == 0 && r.Files == 0 && r.VideoClip == nil && r.AudioClip == nil &&
-		!r.FrameRequired && len(r.ImageDurations) == 0 {
+		!r.FrameRequired && len(r.ImageDurations) == 0 && len(r.FrameDurations) == 0 {
 		return errors.New("references says nothing")
 	}
 	if r.Image < 0 || r.Video < 0 || r.Audio < 0 || r.Files < 0 {
 		return errors.New("references cannot be negative")
 	}
-	for _, d := range r.ImageDurations {
-		if d <= 0 {
-			return errors.New("references.image_durations are seconds above 0")
-		}
+	if !positive(r.ImageDurations) {
+		return errors.New("references.image_durations are seconds above 0")
+	}
+	if !positive(r.FrameDurations) {
+		return errors.New("references.frame_durations are seconds above 0")
 	}
 	if len(r.ImageDurations) > 0 && r.Image == 0 {
 		return errors.New("references.image_durations without references.image")
@@ -594,4 +598,9 @@ func (h *PriceHints) validate() error {
 		}
 	}
 	return nil
+}
+
+// positive reports whether every length is above zero.
+func positive(secs []float64) bool {
+	return !slices.ContainsFunc(secs, func(d float64) bool { return d <= 0 })
 }

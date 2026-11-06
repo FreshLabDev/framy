@@ -1817,6 +1817,24 @@
     "ja": "Nano Banana Pro より低価格、最大 4K",
     "ar": "أرخص من Nano Banana Pro، حتى 4K"
   },
+  "note.google/gemini-omni-1.2-flash": {
+    "en": "Newest, up to 15 s, cheaper than 1.1",
+    "ru": "Новейшая, до 15 с, дешевле, чем 1.1",
+    "uk": "Найновіша, до 15 с, дешевша, ніж 1.1",
+    "es": "El más reciente, hasta 15 s, más barato que 1.1",
+    "fr": "Le plus récent, jusqu’à 15 s, moins cher que 1.1",
+    "de": "Neuestes Modell, bis zu 15 s, günstiger als 1.1",
+    "it": "Il più recente, fino a 15 s, più economico di 1.1",
+    "pl": "Najnowszy, do 15 s, tańszy niż 1.1",
+    "cs": "Nejnovější, až 15 s, levnější než 1.1",
+    "tr": "En yeni, 15 sn’ye kadar, 1.1’den daha ucuz",
+    "sv": "Nyast, upp till 15 s, billigare än 1.1",
+    "be": "Найноўшая, да 15 с, таньней, чым 1.1",
+    "ca": "El més recent, fins a 15 s, més barat que 1.1",
+    "zh": "最新，最长 15 秒，比 1.1 更便宜",
+    "ja": "最新、最大 15 秒、1.1 より低価格",
+    "ar": "الأحدث، حتى 15 ث، أرخص من 1.1"
+  },
   "note.google/veo-3.1": {
     "en": "Higher quality than 3.1 Fast, up to 4K",
     "ru": "Качество выше, чем у 3.1 Fast, до 4K",

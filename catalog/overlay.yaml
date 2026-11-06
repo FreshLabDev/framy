@@ -626,12 +626,42 @@ models:
       video_clip: {total_seconds: 15, max_mb: 32}
       audio_clip: {max_mb: 32}
 
+  # Out on 5 November 2026 on the Gemini API and OpenRouter (which runs it
+  # on Google AI Studio): up to 15 s, a length one asks for, 30% below 1.1,
+  # and Google's own count of tokens a second at every resolution.
+  google/gemini-omni-1.2-flash:
+    name: Gemini Omni 1.2 Flash
+    maker: Google
+    family: {id: gemini-omni, gen: "1.2", tier: flash, label: 1.2 Flash}
+    offers: [gemini:gemini-omni-1.2-flash]
+    featured: true
+    # previous_interaction_id of the Interactions API; adds 3 to 10 s, up
+    # to 30 s in all.
+    continue: true
+    price:
+      tokens: {output_video: {360p: 1931, 720p: 5792, 1080p: 8688, 4K: 17376}}
+    # Reference pictures: 6 at any length, of which at most 3 of each of
+    # at most 2 people or things. Without frames Omni decides itself how to
+    # use a picture. From frames 3 to 10 s only.
+    references:
+      image: 6
+      frame_durations: [3, 4, 5, 6, 7, 8, 9, 10]
+    # A video to edit or extend, up to 15 s, sent inline up to 48 MiB; not
+    # in the EEA, Switzerland and the UK. An extension adds 3 to 10 s, as a
+    # continuation does. Omni also takes 3 clips of 3 s as references (one
+    # for a video over 10 s), which the catalog cannot offer beside a
+    # source: one video is the source.
+    source_video: {max_seconds: 15, max_mib: 48, durations: [3, 4, 5, 6, 7, 8, 9, 10]}
+    # No recognizable people, and no minors in the EEA, Switzerland and the UK.
+    faces: adults
+
+  # From 3 December 2026 Google runs 1.1's requests on 1.2, at 1.2's rates.
   google/gemini-omni-1.1-flash:
     name: Gemini Omni 1.1 Flash
     maker: Google
     family: {id: gemini-omni, gen: "1.1", tier: flash, label: 1.1 Flash}
     offers: [gemini:gemini-omni-1.1-flash]
-    featured: true
+    deprecated: {shuts_down: "2026-12-03", successor: google/gemini-omni-1.2-flash}
     # previous_interaction_id of the Interactions API.
     continue: true
     # The model picks the length; Google counts 5,792 tokens a second of

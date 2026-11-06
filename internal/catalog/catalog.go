@@ -220,6 +220,10 @@ type References struct {
 	// reference images, where the maker makes those at fewer lengths than
 	// from words or frames: Veo 3.1 at 8 s only.
 	ImageDurations []float64 `json:"image_durations,omitempty" yaml:"image_durations,omitempty"`
+	// FrameDurations are the only lengths of a video made from frames, where
+	// the maker makes those at fewer lengths than from words: Gemini Omni 1.2
+	// at 3 to 10 s, where words go to 15.
+	FrameDurations []float64 `json:"frame_durations,omitempty" yaml:"frame_durations,omitempty"`
 }
 
 // Clip bounds the attached videos or sounds of one run: the seconds and the
@@ -264,6 +268,14 @@ type SourceVideo struct {
 	// KeepsLength: the result is as long as the source, so the source's
 	// length sets the price.
 	KeepsLength bool `json:"keeps_length,omitempty" yaml:"keeps_length,omitempty"`
+	// Durations are the only lengths the model adds to a source, or to a
+	// video of its own it continues, where those are fewer than it lists:
+	// Gemini Omni 1.2 extends a clip by 3 to 10 s.
+	Durations []float64 `json:"durations,omitempty" yaml:"durations,omitempty"`
+}
+
+func (s SourceVideo) empty() bool {
+	return !s.Required && s.MinSeconds == 0 && s.MaxSeconds == 0 && s.MaxMiB == 0 && !s.KeepsLength && len(s.Durations) == 0
 }
 
 // Length is a range of seconds.

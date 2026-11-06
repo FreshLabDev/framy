@@ -298,10 +298,16 @@ func (c *calc) enumHas(value string) (has, other bool) {
 
 // seconds is the length of the output video, as a range.
 func (c *calc) seconds() (lo, hi float64, ok bool) {
+	v := c.req.Video
 	if d, ok := c.number("duration"); ok && d > 0 {
+		if s := c.m.Traits.SourceVideo; v != nil && s != nil && len(s.Durations) > 0 {
+			// A model that adds d seconds to a clip, as Omni 1.2 extends
+			// one, may bring back and bill the whole clip, as picks_length
+			// below counts it.
+			return d, d + v.Seconds, true
+		}
 		return d, d, true
 	}
-	v := c.req.Video
 	if s := c.m.Traits.SourceVideo; s != nil && s.KeepsLength && v != nil {
 		return v.Seconds, v.Seconds, true
 	}

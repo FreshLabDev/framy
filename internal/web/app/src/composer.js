@@ -538,7 +538,7 @@ const setWanted = setWantedHere;
 function settingField(m, pay, o, s, name) {
   if (name === "size") return sizeFields(m, pay, o, s);
   if (OPEN.has(name)) return openField(name, s[name]);
-  // With reference images some models make fewer lengths: only those are offered.
+  // With reference images, frames or a clip some models make fewer lengths: only those are offered.
   const all = o.params[name] || { type: "boolean" }, lens = name === "duration" ? refLengths(m, pay) : null;
   const fit = lens && all.type === "enum" ? all.values.filter((x) => lens.some((y) => +y === +x)) : lens;
   const p = lens ? { type: "enum", values: fit.length ? fit : lens } : all, v = s[name], key = "set-" + name;

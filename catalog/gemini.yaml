@@ -5,9 +5,10 @@
 # enum, range or boolean, and pricing as billable, unit and cost_usd.
 # overlay.yaml joins each one to its model.
 #
-# Sources, read on 26 October 2026 and again on 28 October
-# (docs/research/images.md, sections 2 and 4; docs/research/video.md,
-# section 4; docs/research/makers.md, Google):
+# Sources, read on 26 October 2026 and again on 28 October, and for Gemini
+# Omni 1.2 on 6 November (docs/research/images.md, sections 2 and 4;
+# docs/research/video.md, section 4; docs/research/makers.md, Google). The
+# Gemini API's pages moved to aistudio.google.com/docs/ in November:
 #   https://ai.google.dev/gemini-api/docs/image-generation
 #   https://ai.google.dev/gemini-api/docs/pricing
 #   https://ai.google.dev/gemini-api/docs/omni
@@ -124,6 +125,33 @@ models:
       - {billable: input_image, unit: token, cost_usd: 0.000002}
       - {billable: output_text, unit: token, cost_usd: 0.000012}
       - {billable: output_image, unit: token, cost_usd: 0.00012}
+
+  # Out on 5 November 2026. From 3 December Google sends 1.1's requests to
+  # it, at its rates.
+  - id: gemini-omni-1.2-flash
+    kind: video
+    name: Gemini Omni 1.2 Flash
+    input_modalities: [text, image, video]
+    supported_parameters:
+      # response_format.duration, "3s" to "15s" in whole seconds, 10 s when
+      # absent; the adapter writes a number as "6s". From frames, on a clip
+      # and going on from its own video 3 to 10 s only (the overlay).
+      duration: {type: enum, values: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]}
+      # 1080p and 4K are upscaled from 720p, the default. The Interactions
+      # API spells 4K as "4k", and the adapter sends it so.
+      resolution: {type: enum, values: [360p, 720p, 1080p, 4K]}
+      aspect_ratio: {type: enum, values: ["16:9", "9:16"]}
+      # Named in the prompt with <FIRST_FRAME> and <LAST_FRAME>, which Google
+      # takes only together with a first frame.
+      frame_images: {type: enum, values: [first_frame, last_frame]}
+    pricing:
+      - {billable: input_text, unit: token, cost_usd: 0.0000015}
+      - {billable: input_image, unit: token, cost_usd: 0.0000015}
+      - {billable: input_video, unit: token, cost_usd: 0.0000015}
+      # Thinking, and any words the model says.
+      - {billable: output_text, unit: token, cost_usd: 0.000009}
+      # 5,792 tokens per second of 720p, about $0.07 a second.
+      - {billable: output_video, unit: token, cost_usd: 0.000012}
 
   - id: gemini-omni-1.1-flash
     kind: video

@@ -79,7 +79,11 @@ func Build(up Upstream, files Files, now time.Time) Snapshot {
 			checkSourceVideo(id, m.Traits.SourceVideo, offers, warn)
 		}
 		if r := m.Traits.References; r != nil {
-			checkRefDurations(id, r.ImageDurations, offers, warn)
+			checkDurations(id, "references.image_durations", r.ImageDurations, offers, warn)
+			checkDurations(id, "references.frame_durations", r.FrameDurations, offers, warn)
+		}
+		if s := m.Traits.SourceVideo; s != nil {
+			checkDurations(id, "source_video.durations", s.Durations, offers, warn)
 		}
 		if h := m.Traits.Price; h != nil {
 			checkPrice(id, *h, offers, warn)
@@ -278,12 +282,12 @@ func checkSourceVideo(model string, s *SourceVideo, offers []Offer, warn func(st
 	}
 }
 
-// checkRefDurations warns when a length the overlay gives a video from
-// reference images is not one any offer makes.
-func checkRefDurations(model string, durations []float64, offers []Offer, warn func(string, ...any)) {
+// checkDurations warns when a length the overlay gives a video from some
+// files (field) is not one any offer makes.
+func checkDurations(model, field string, durations []float64, offers []Offer, warn func(string, ...any)) {
 	for _, d := range durations {
 		if !slices.ContainsFunc(offers, func(of Offer) bool { return lasts(of.Params["duration"], d) }) {
-			warn("model %s: references.image_durations has %g s, but no offer makes that duration", model, d)
+			warn("model %s: %s has %g s, but no offer makes that duration", model, field, d)
 		}
 	}
 }

@@ -241,7 +241,14 @@ func (c *calc) quantity(billable, unit string) (lo, hi float64, ok bool) {
 		t := per * c.videoInSeconds()
 		return t, t, true
 	case outputVideo + "/" + unitToken:
-		per, ok := c.hints.Tokens[outputVideo][c.resolution()]
+		// The setting is read lower-case, and the overlay writes 4K as the
+		// catalog lists it.
+		per, ok := 0, false
+		for k, n := range c.hints.Tokens[outputVideo] {
+			if strings.EqualFold(k, c.resolution()) {
+				per, ok = n, true
+			}
+		}
 		if !ok {
 			per, ok = c.hints.Tokens[outputVideo][catalog.Any]
 		}

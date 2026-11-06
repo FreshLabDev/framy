@@ -226,6 +226,14 @@ func TestEstimates(t *testing.T) {
 		{"omni at 720p", "gemini:gemini-omni-1.1-flash", Request{Settings: set{"resolution": "720p"}}, 5792 * 3 * 1.75e-5, 5792 * 10 * 1.75e-5, UpTo},
 		// Extending a 5 s clip may come back, and be billed, as 15 s.
 		{"omni extending a clip", "gemini:gemini-omni-1.1-flash", Request{Settings: set{"resolution": "720p"}, Video: clip}, 5792 * 3 * 1.75e-5, 5792 * 15 * 1.75e-5, UpTo},
+		// Omni 1.2 makes the length asked for, at Google's count for each
+		// resolution and $12 a million tokens.
+		{"omni 1.2 at 720p for 8 s", "gemini:gemini-omni-1.2-flash", Request{Settings: set{"resolution": "720p", "duration": 8}}, 5792 * 8 * 1.2e-5, 0, About},
+		{"omni 1.2 at 4K for 15 s", "gemini:gemini-omni-1.2-flash", Request{Settings: set{"resolution": "4K", "duration": 15}}, 17376 * 15 * 1.2e-5, 0, About},
+		// Extending a 5 s clip by 6 s may come back, and be billed, as 11 s.
+		{"omni 1.2 extending a clip", "gemini:gemini-omni-1.2-flash", Request{Settings: set{"resolution": "360p", "duration": 6}, Video: clip}, 1931 * 6 * 1.2e-5, 1931 * 11 * 1.2e-5, UpTo},
+		// Through OpenRouter, at its listed rate a second.
+		{"omni 1.2 through openrouter", "openrouter:google/gemini-omni-1.2-flash", Request{Settings: set{"resolution": "720p", "duration": 10}}, 0.069504 * 10, 0, Exact},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m, of := offer(t, tc.offer)

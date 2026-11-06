@@ -11,6 +11,14 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+### Added
+
+- Gemini Omni 1.2 Flash, out on 5 November, on a Gemini key and through
+  OpenRouter: videos of 3 to 15 s at a length you choose, so the price is
+  exact rather than "up to", 30% below 1.1, and a clip to edit or extend of
+  up to 15 s. It takes 1.1's place in the picker; 1.1 is marked as closing
+  on 3 December, when Google moves its requests to 1.2.
+
 ### Fixed
 
 - The library wrote "null" under its heading once the failed filter was
@@ -20,6 +28,13 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
   loading line that jumps: the list keeps what is read of it while the
   page comes, and an empty one says it is loading only when the wait is
   long enough to see.
+- A model that makes fewer lengths from frames, on a clip or when it goes
+  on from its own video offers only those then, and a run that asks for
+  another is refused before it starts: Omni 1.2 makes 3 to 10 s in those
+  cases, where words go to 15 s. Extending a clip by a set length is priced
+  up to the whole clip, which Google may bill.
+- The estimate of a video priced in tokens by resolution found no count
+  for 4K, written in capitals in the catalog.
 
 ## v0.1.0-alpha.5 - 2026-11-06
 
