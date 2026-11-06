@@ -6283,7 +6283,7 @@
   },
   "web.fail.timeout_l": {
     "en": "Over an hour",
-    "ru": "Не закончила за час",
+    "ru": "Дольше часа",
     "uk": "Понад годину",
     "es": "Más de una hora",
     "fr": "Plus d’une heure",
