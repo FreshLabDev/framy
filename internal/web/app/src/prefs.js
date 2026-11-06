@@ -9,7 +9,7 @@ import { C, PNAME, provMark, vname } from "./catalog.js";
 import { openPicker } from "./picker.js";
 import { clearPrices } from "./price.js";
 import { openSheet, closeSheets, toast, ask } from "./ui.js";
-import { anim, morph, opt, placeSegs } from "./motion.js";
+import { anim, morph, opt, placeSegs, DUR } from "./motion.js";
 import { signOut, forget, refreshMe } from "./run.js";
 import { LANGS, CURRENCIES } from "assets:lists";
 
@@ -54,7 +54,7 @@ export function openPrefs(p) {
   openSheet("#prefs");
   // Keys may have changed in another tab or in the bot: the sheet redraws when the answer is in.
   if (fresh) refreshMe();
-  if (fresh) $$("#prefsBody > *").slice(0, 8).forEach((el, i) => anim(el, [{ opacity: 0, transform: "translateY(8px)" }, { opacity: 1, transform: "none" }], { duration: 300, delay: 90 + i * 30, fill: "backwards" }));
+  if (fresh) $$("#prefsBody > *").slice(0, 8).forEach((el, i) => anim(el, [{ opacity: 0, transform: "translateY(8px)" }, { opacity: 1, transform: "none" }], { duration: DUR.m, delay: 90 + i * 30, fill: "backwards" }));
   if (!p) return;
   setTimeout(() => {
     const r = $(`#prefsBody [data-p="${p}"]`);
@@ -65,8 +65,8 @@ export function openPrefs(p) {
   }, 120);
 }
 
-const MORPH = { dur: 340, enter: (el, i) => anim(el, [{ opacity: 0, transform: "translateY(6px)" }, { opacity: 1, transform: "none" }], { duration: 260, delay: 80 + i * 30, fill: "backwards" }),
-  leave: (g) => anim(g, [{ opacity: 1 }, { opacity: 0 }], { duration: 160, fill: "forwards" }) };
+const MORPH = { dur: DUR.m, enter: (el, i) => anim(el, [{ opacity: 0, transform: "translateY(6px)" }, { opacity: 1, transform: "none" }], { duration: DUR.s, delay: 80 + i * 30, fill: "backwards" }),
+  leave: (g) => anim(g, [{ opacity: 1 }, { opacity: 0 }], { duration: DUR.xs, fill: "forwards" }) };
 // A change of the sheet: rows glide to their new places, new ones rise.
 function update(fn) {
   const body = $("#prefsBody");
@@ -453,7 +453,7 @@ export function renderPrefs() {
     h("div", { class: "group", "data-k": "g-tg" }, t("prefs.telegram")),
     deliverRow(),
     h("div", { class: "group", "data-k": "g-cur" }, t("prefs.currency")),
-    h("div", { class: "seg wrapping cur", role: "radiogroup", "aria-label": t("prefs.currency"), "data-seg": "cur", "data-dur": 360, "data-k": "s-cur" },
+    h("div", { class: "seg wrapping cur", role: "radiogroup", "aria-label": t("prefs.currency"), "data-seg": "cur", "data-dur": DUR.m, "data-k": "s-cur" },
       CURRENCIES.map((c) => opt({ key: "cur", v: c, on: S.me.currency === c, pick: () => setCurrency(c) }, c, h("small", {}, curName(c))))),
     h("p", { class: "note", "data-k": "n-cur" }, t("prefs.currency_note")),
     h("div", { class: "group", "data-k": "g-lang" }, t("prefs.language")),

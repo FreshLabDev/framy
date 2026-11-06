@@ -157,8 +157,10 @@ screen, a command or a table, check how the siblings do it.
   by their hashes (`web.App.CSP`); the boot script asks for the catalog and
   the person while the skeleton paints. The site's lines are the `web.*` keys
   of `internal/i18n/translations.json`. Motion is transform and opacity only,
-  with the Web Animations API, and `go test -tags=browser ./internal/web/`
-  checks the layout at 390 and 1440 px and that no task holds the main thread
+  with the Web Animations API, in four durations (`DUR`) and four curves (`EASE`,
+  `OUT`, `SPRING`, `SNAP`) written once in `motion.js` and mirrored as `--dur-*`
+  tokens in `app.css` (a test refuses any other number), and
+  `go test -tags=browser ./internal/web/` checks the layout at 390 and 1440 px and that no task holds the main thread
   over 50 ms on a CPU four times slower than an M-series laptop: the test
   measures the machine on DOM work like the steps', slows it to that speed,
   and brings a machine already slower than that down to the laptop's times

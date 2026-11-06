@@ -2,7 +2,7 @@
 // catalog, the person and the lines; this module waits for them, builds the
 // page and hands the skeleton over to it.
 import { $, h, ic } from "./dom.js";
-import { anim, placeSegs } from "./motion.js";
+import { anim, placeSegs, DUR } from "./motion.js";
 import { setTexts, t, lang, warmFormats } from "./i18n.js";
 import { session, setToken } from "./api.js";
 import { loadCatalog } from "./catalog.js";
@@ -72,7 +72,7 @@ function reveal() {
   placeSegs(app);
   renderStage();
   sk.hidden = true;
-  anim(app, [{ opacity: 0 }, { opacity: 1 }], { duration: 260 });
+  anim(app, [{ opacity: 0 }, { opacity: 1 }], { duration: DUR.s });
 }
 
 // In Telegram: its colours, its main button for Create and its back button for sheets.

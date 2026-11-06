@@ -7,7 +7,7 @@ import { $, h, ic } from "./dom.js";
 import { t, fmtNum } from "./i18n.js";
 import { api, ApiError } from "./api.js";
 import { S, M, clip, cutLimits } from "./state.js";
-import { opt, placeSeg } from "./motion.js";
+import { opt, placeSeg, DUR } from "./motion.js";
 import { openSheet, closeSheets } from "./ui.js";
 import { act, render } from "./composer.js";
 
@@ -216,7 +216,7 @@ export function openCut() {
   ED.play = h("button", { type: "button", class: "ib", "aria-label": t("cut.play"), title: t("cut.play"), onclick: togglePlay }, ic("play"));
   // ← and → move the chosen edge wherever the focus is (cut.keys), on the edges too: they do not
   // choose between them, and each edge is a stop for Tab.
-  ED.edges = h("div", { class: "seg edges", role: "radiogroup", "aria-label": t("cut.edge"), "data-seg": "edge", "data-dur": 300, "data-arrows": "own" });
+  ED.edges = h("div", { class: "seg edges", role: "radiogroup", "aria-label": t("cut.edge"), "data-seg": "edge", "data-dur": DUR.m, "data-arrows": "own" });
   const tl = h("div", { class: "timeline" });
   ED.tl = tl;
   const n = matchMedia("(min-width: 600px)").matches ? 12 : 8, r = (c.w || 16) / (c.h || 9);

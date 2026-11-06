@@ -5,19 +5,27 @@ import { h } from "./dom.js";
 
 const reduced = matchMedia("(prefers-reduced-motion: reduce)");
 export const motion = () => !reduced.matches;
-export const EASE = "cubic-bezier(.2,.8,.2,1)";
-export const SPRING = "cubic-bezier(.34,1.42,.55,1)";
-export const SNAP = "cubic-bezier(.3,1.3,.5,1)";
-export const OUT = "cubic-bezier(.45,0,.9,.5)";
 
-export const anim = (el, kf, o = {}) => (el && motion() ? el.animate(kf, { duration: 280, easing: EASE, ...o }) : null);
+// The rhythm of the interface: four durations and four curves, and nothing moves by any other. The
+// same values stand in app.css (:root --dur-*, --spring), and a test keeps the two together.
+// xs: a thing leaving, a colour or a hint; s: a small thing coming in; m: a block moving or a name
+// rolling; l: a sheet, a panel, a whole form changing.
+export const DUR = { xs: 150, s: 240, m: 340, l: 440 };
+// A motion that repeats (the spinner) has a period, which is not a step of the rhythm.
+export const LOOP = 900;
+export const EASE = "cubic-bezier(.2,.8,.2,1)"; // coming in and moving: fast, then settling
+export const OUT = "cubic-bezier(.45,0,.9,.5)"; // leaving: slow, then gone
+export const SPRING = "cubic-bezier(.34,1.42,.55,1)"; // a thing with weight: a little past, then back
+export const SNAP = "cubic-bezier(.3,1.3,.5,1)"; // the characters of a price: the same, a little tighter
+
+export const anim = (el, kf, o = {}) => (el && motion() ? el.animate(kf, { duration: DUR.s, easing: EASE, ...o }) : null);
 export const rise = (els, o = {}) =>
   [...els].forEach((el, i) =>
     anim(el, [{ opacity: 0, transform: `translate(${o.x || 0}px, ${o.y ?? 8}px)` }, { opacity: 1, transform: "none" }],
-      { duration: o.dur || 340, delay: (o.delay || 0) + i * (o.step ?? 40), easing: o.ease || EASE, fill: "backwards" }));
+      { duration: o.dur || DUR.m, delay: (o.delay || 0) + i * (o.step ?? 40), easing: o.ease || EASE, fill: "backwards" }));
 export const spin = (el, from, to, o = {}) =>
-  anim(el, [{ transform: `rotate(${from}deg)` }, { transform: `rotate(${to}deg)` }], { duration: 380, easing: SPRING, ...o });
-export const fadeIn = (el, o = {}) => anim(el, [{ opacity: 0 }, { opacity: 1 }], { duration: 240, fill: "backwards", ...o });
+  anim(el, [{ transform: `rotate(${from}deg)` }, { transform: `rotate(${to}deg)` }], { duration: DUR.m, easing: SPRING, ...o });
+export const fadeIn = (el, o = {}) => anim(el, [{ opacity: 0 }, { opacity: 1 }], { duration: DUR.s, fill: "backwards", ...o });
 
 // A cubic Bézier easing as a function, for keyframes sampled by hand.
 function bezier(css) {
@@ -85,7 +93,7 @@ function drawSeg(g, on, key, r, cw, animate) {
   const v = on.dataset.v ?? on.textContent, prev = SEGPOS.get(key);
   SEGPOS.set(key, { v, r });
   if (!animate || !prev || prev.v === v || !motion()) return;
-  const p = prev.r, dur = +(g.dataset.dur || 320), ease = curve(g.dataset.ease || SPRING);
+  const p = prev.r, dur = +(g.dataset.dur || DUR.m), ease = curve(g.dataset.ease || SPRING);
   const delay = !segLead || key === segLead ? 0 : 80 * ++segChain;
   const N = Math.max(12, Math.round(dur / 16)), a = [], b = [];
   for (let i = 0; i <= N; i++) {
@@ -187,7 +195,7 @@ export function snap(root, o = {}) {
       const from = resized
         ? { transformOrigin: "0 0", transform: `translate(${dx}px, ${dy}px) scale(${p.r.width / b.width}, ${p.r.height / b.height})` }
         : { transform: `translate(${dx}px, ${dy}px)` };
-      el.animate([from, { transformOrigin: "0 0", transform: "none" }], { duration: o.dur || 380, easing: o.ease || EASE, delay: wait, fill: "backwards" });
+      el.animate([from, { transformOrigin: "0 0", transform: "none" }], { duration: o.dur || DUR.m, easing: o.ease || EASE, delay: wait, fill: "backwards" });
     }
     news.forEach((el, i) => o.enter?.(el, i, wait));
     if (!o.leave) return;
@@ -226,8 +234,8 @@ export function ticker(box, oldText, dir = 1) {
   box.append(out);
   box.classList.add("rolling");
   out.animate([{ transform: "none", opacity: 1 }, { transform: `translateY(${-dir * 45}%)`, opacity: 0 }],
-    { duration: 150, easing: "cubic-bezier(.4,0,1,1)", fill: "forwards" }).finished.then(() => out.remove(), () => out.remove());
-  const a = cur.animate([{ transform: `translateY(${dir * 45}%)`, opacity: 0 }, { transform: "none", opacity: 1 }], { duration: 340, delay: 150, easing: EASE, fill: "backwards" });
+    { duration: DUR.xs, easing: OUT, fill: "forwards" }).finished.then(() => out.remove(), () => out.remove());
+  const a = cur.animate([{ transform: `translateY(${dir * 45}%)`, opacity: 0 }, { transform: "none", opacity: 1 }], { duration: DUR.m, delay: DUR.xs, easing: EASE, fill: "backwards" });
   const done = () => { if (!box.querySelector(":scope > .out")) box.classList.remove("rolling"); };
   a.finished.then(done, done);
 }
@@ -269,8 +277,8 @@ export function roll(el, text, dir) {
     const g = h("span", { class: "whole" }, old);
     el.append(g);
     g.animate([{ transform: "none", opacity: 1 }, { transform: `translateY(${-dir * 60}%)`, opacity: 0 }],
-      { duration: 150, easing: "cubic-bezier(.4,0,1,1)", fill: "forwards" }).finished.then(() => g.remove(), () => g.remove());
-    for (const part of el.children) if (part !== g) part.animate([{ transform: `translateY(${dir * 60}%)`, opacity: 0 }, { transform: "none", opacity: 1 }], { duration: 340, delay: 150, easing: SNAP, fill: "backwards" });
+      { duration: DUR.xs, easing: OUT, fill: "forwards" }).finished.then(() => g.remove(), () => g.remove());
+    for (const part of el.children) if (part !== g) part.animate([{ transform: `translateY(${dir * 60}%)`, opacity: 0 }, { transform: "none", opacity: 1 }], { duration: DUR.m, delay: DUR.xs, easing: SNAP, fill: "backwards" });
     return;
   }
   const a = [...oamt], b = [...amt], cols = box.children;
@@ -279,11 +287,11 @@ export function roll(el, text, dir) {
     const oc = a[a.length - (b.length - i)];
     if (oc === b[i]) continue;
     const d = 28 * k++, col = cols[i];
-    col.firstChild.animate([{ transform: `translateY(${dir * 95}%)`, opacity: 0 }, { transform: "none", opacity: 1 }], { duration: 380, easing: SNAP, delay: d, fill: "backwards" });
+    col.firstChild.animate([{ transform: `translateY(${dir * 95}%)`, opacity: 0 }, { transform: "none", opacity: 1 }], { duration: DUR.m, easing: SNAP, delay: d, fill: "backwards" });
     if (oc && oc.trim()) {
       const g = h("span", { class: "o" }, oc);
       col.append(g);
-      g.animate([{ transform: "none", opacity: 1 }, { transform: `translateY(${-dir * 95}%)`, opacity: 0 }], { duration: 240, easing: OUT, delay: d, fill: "forwards" })
+      g.animate([{ transform: "none", opacity: 1 }, { transform: `translateY(${-dir * 95}%)`, opacity: 0 }], { duration: DUR.s, easing: OUT, delay: d, fill: "forwards" })
         .finished.then(() => g.remove(), () => g.remove());
     }
   }
@@ -299,9 +307,9 @@ export function fly(src, r0, dst) {
   document.body.append(c);
   dst.style.visibility = "hidden";
   const dx = r1.left - r0.left, dy = r1.top - r0.top, s = r1.width / r0.width;
-  const done = () => { c.remove(); dst.style.visibility = ""; anim(dst, [{ transform: "scale(1.14)" }, { transform: "none" }], { duration: 300, easing: SPRING }); };
+  const done = () => { c.remove(); dst.style.visibility = ""; anim(dst, [{ transform: "scale(1.14)" }, { transform: "none" }], { duration: DUR.m, easing: SPRING }); };
   c.animate([{ transform: "none" }, { transform: `translate(${dx * 0.5}px, ${dy * 0.5 - 48}px) scale(${((1 + s) / 2) * 1.1})`, offset: 0.5 }, { transform: `translate(${dx}px, ${dy}px) scale(${s})` }],
-    { duration: 560, easing: "cubic-bezier(.45,0,.2,1)" }).finished.then(done, done);
+    { duration: DUR.l, easing: EASE }).finished.then(done, done);
 }
 
 // Blocks of a column glide to where they now stand when one above them grows or shrinks.
@@ -313,7 +321,7 @@ export function follow(host) {
     for (const [el, t] of was) {
       if (!el.offsetParent || el.getAnimations().length) continue;
       const dy = t - el.getBoundingClientRect().top;
-      if (Math.abs(dy) > 1) anim(el, [{ transform: `translateY(${dy}px)` }, { transform: "none" }], { duration: 380, easing: EASE });
+      if (Math.abs(dy) > 1) anim(el, [{ transform: `translateY(${dy}px)` }, { transform: "none" }], { duration: DUR.m, easing: EASE });
     }
   };
 }

@@ -2,7 +2,7 @@
 // or by price, with a search. On a wide screen the family under the pointer
 // shows its card on the right.
 import { $, $$, h, ic, isWide } from "./dom.js";
-import { anim, rise, morph, opt, placeSegs, placeSeg, fly, ticker, EASE, OUT, SPRING } from "./motion.js";
+import { anim, rise, morph, opt, placeSegs, placeSeg, fly, ticker, EASE, OUT, SPRING, DUR } from "./motion.js";
 import { t, fmtNum, byName, lang, spaced } from "./i18n.js";
 import { C, PNAME, vname, famText, famLogo, lg, provMark, freePlan, facts, refsOf, framesOf, needsImage, needsVideo, resRangeOf, durRangeOf, union, hasAudio, deprecation, fieldsOf, label } from "./catalog.js";
 import { S, M, images, payOf, keyOk, settings, altItem, misfit, famMisfit, freePer, refuses } from "./state.js";
@@ -23,9 +23,9 @@ const famFit = (f) => (FOR ? "" : famMisfit(f));
 const ok = (v) => FOR || !refuses(v.m);
 const shown = (f) => f.cur.filter(ok);
 const oldShown = (f) => f.old.filter(ok);
-const ROWS = (o = {}) => ({ dur: o.dur || 440, ease: EASE,
-  enter: (el, i) => anim(el, [{ opacity: 0, transform: "translateY(10px)" }, { opacity: 1, transform: "none" }], { duration: 360, delay: 80 + Math.min(i, 12) * (o.step ?? 30), fill: "backwards" }),
-  leave: (g) => anim(g, [{ opacity: 1, transform: "none" }, { opacity: 0, transform: "scale(.97)" }], { duration: 180, easing: OUT, fill: "forwards" }) });
+const ROWS = (o = {}) => ({ dur: o.dur || DUR.l, ease: EASE,
+  enter: (el, i) => anim(el, [{ opacity: 0, transform: "translateY(10px)" }, { opacity: 1, transform: "none" }], { duration: DUR.m, delay: 80 + Math.min(i, 12) * (o.step ?? 30), fill: "backwards" }),
+  leave: (g) => anim(g, [{ opacity: 1, transform: "none" }, { opacity: 0, transform: "scale(.97)" }], { duration: DUR.xs, easing: OUT, fill: "forwards" }) });
 const listUpdate = (fn, o) => morph($("#pkrows"), fn, ROWS(o));
 
 export function mountPicker() {
@@ -35,8 +35,8 @@ export function mountPicker() {
       h("div", { class: "pkl" },
         h("div", { class: "pktools" },
           h("input", { class: "search", id: "pksearch", type: "search", placeholder: t("pick.search"), "aria-label": t("pick.search_label"), autocomplete: "off",
-            oninput: (e) => listUpdate(() => { query = e.target.value; renderPicker(); }, { dur: 300, step: 15 }) }),
-          h("div", { class: "seg", id: "pksort", role: "radiogroup", "aria-label": t("pick.order"), "data-seg": "sort", "data-dur": 380 })),
+            oninput: (e) => listUpdate(() => { query = e.target.value; renderPicker(); }, { dur: DUR.m, step: 15 }) }),
+          h("div", { class: "seg", id: "pksort", role: "radiogroup", "aria-label": t("pick.order"), "data-seg": "sort", "data-dur": DUR.m })),
         h("div", { id: "pkrows" })),
       h("div", { class: "pkd", id: "pkd" }))));
 }
@@ -76,7 +76,7 @@ export function openPicker(o) {
 }
 function renderSort(place = true) {
   $("#pksort").replaceChildren(...[["maker", "grid", t("pick.by_maker")], ["price", "sort", t("pick.cheaper")]].map(([k, i, l]) =>
-    opt({ key: "sort", v: k, on: S.sort === k, pick: () => listUpdate(() => { S.sort = k; renderSort(); renderPicker(); }, { dur: 560 }) }, ic(i), l)));
+    opt({ key: "sort", v: k, on: S.sort === k, pick: () => listUpdate(() => { S.sort = k; renderSort(); renderPicker(); }, { dur: DUR.l }) }, ic(i), l)));
   if (place) placeSeg($("#pksort"));
 }
 
@@ -92,7 +92,7 @@ const hoverFam = (f, wide, vid) => (e) => {
 };
 const focusFam = (f, vid) => () => { if (isWide() && shows(f, vid)) { clearTimeout(hoverT); showFam(f, vid); } };
 let found = [];
-function clearSearch() { listUpdate(() => { query = ""; $("#pksearch").value = ""; renderPicker(); }, { dur: 300, step: 15 }); $("#pksearch").focus(); }
+function clearSearch() { listUpdate(() => { query = ""; $("#pksearch").value = ""; renderPicker(); }, { dur: DUR.m, step: 15 }); $("#pksearch").focus(); }
 const focusId = () => (FOR ? FOR.cur : M()?.id);
 const lowUsd = (f) => (shown(f).some((v) => freePlan(v.m)) ? 0 : Math.min(...shown(f).map((v) => { const e = lowest(bestItems(v.m)); return !e || e.kind === "unknown" ? Infinity : e.usd; })));
 
@@ -124,7 +124,7 @@ function renderPicker(o = {}) {
   if (!fams.length) rows.push(h("div", { class: "pkempty", "data-k": "none" }, h("p", {}, t("pick.nothing", { q: query.trim() })),
     h("button", { type: "button", class: "x", onclick: clearSearch }, ic("close"), t("pick.reset"))));
   box.replaceChildren(...rows);
-  if (o.fresh) rise(rows.flatMap((r) => (r.classList.contains("recs") ? [...r.children] : [r])).slice(0, 16), wide ? { x: 24, y: 0, step: 26, delay: 90, dur: 420 } : { y: 14, step: 26, delay: 90 });
+  if (o.fresh) rise(rows.flatMap((r) => (r.classList.contains("recs") ? [...r.children] : [r])).slice(0, 16), wide ? { x: 24, y: 0, step: 26, delay: 90, dur: DUR.l } : { y: 14, step: 26, delay: 90 });
   renderDetail();
   placeSegs($("#picker"));
 }
@@ -182,7 +182,7 @@ function renderDetail() {
   const ok = f && f.kind === K(), prev = detFam;
   detFam = ok ? f.idx : null;
   box.replaceChildren(ok ? detail(f) : "");
-  if (ok && prev !== null && prev !== f.idx) anim(box.firstChild, [{ opacity: 0.4 }, { opacity: 1 }], { duration: 160 });
+  if (ok && prev !== null && prev !== f.idx) anim(box.firstChild, [{ opacity: 0.4 }, { opacity: 1 }], { duration: DUR.xs });
   placeSegs(box);
 }
 
@@ -202,7 +202,7 @@ function choose(v, from) {
 
 function vlist(f, sel, pickIt) {
   const key = "dl-" + f.idx;
-  return h("div", { class: "vlist", role: "radiogroup", "aria-label": t("var.label"), "data-seg": key, "data-dur": 380 }, shown(f).map((v) =>
+  return h("div", { class: "vlist", role: "radiogroup", "aria-label": t("var.label"), "data-seg": key, "data-dur": DUR.m }, shown(f).map((v) =>
     opt({ key, v: v.id, on: v.id === sel.id, cls: "vl", pick: () => pickIt(v) }, h("b", {}, v.label),
       h("span", { class: "p" }, freePlan(v.m) ? t("pay.free") : minEl(bestItems(v.m))), v.note ? h("span", { class: "n" }, v.note) : null)));
 }
@@ -210,7 +210,7 @@ function detail(f) {
   const want = S.detVar[f.idx], cur = focusId();
   const vs = shown(f), sel0 = (want && C.famOf[want] === f && C.varOf[want]) || (C.famOf[cur] === f && C.varOf[cur]) || f.def;
   const sel = ok(sel0) || !vs.length ? sel0 : vs[0], m = sel.m;
-  const pickIt = (v) => { S.detVar[f.idx] = v.id; if (S.info == null) S.hover = f.idx; renderDetail(); rise($("#pkd .dl")?.children || [], { y: 4, step: 18, dur: 260 }); };
+  const pickIt = (v) => { S.detVar[f.idx] = v.id; if (S.info == null) S.hover = f.idx; renderDetail(); rise($("#pkd .dl")?.children || [], { y: 4, step: 18, dur: DUR.s }); };
   const rows = [], plan = freePlan(m), dep = deprecation(m);
   if (vs.length < 2) rows.push(["coin", t("det.price_now"), plan && payOf(m) === "free" ? t("pay.free") : minEl(bestItems(m))]);
   if (plan) rows.push(["ticket", t("det.free"), freePer(m.kind)]);

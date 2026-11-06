@@ -2,7 +2,7 @@
 // and the one button. Every change goes through act(), which lets the blocks
 // glide from where they stood to where they stand now.
 import { $, $$, h, ic, isPhone, MAC } from "./dom.js";
-import { anim, rise, spin, opt, placeSegs, placeSeg, fitSegs, snap, ticker, roll, follow, EASE, SPRING, OUT, motion } from "./motion.js";
+import { anim, rise, spin, opt, placeSegs, placeSeg, fitSegs, snap, ticker, roll, follow, EASE, SPRING, OUT, motion, DUR } from "./motion.js";
 import { t, fmtNum, fmtIn, fmtSecs, spaced } from "./i18n.js";
 import { C, PNAME, vname, famLogo, lg, provMark, freePlan, pays, offerOf, facts, factEl, deprecation, fieldsOf, SECONDARY, SEARCH, SICON,
   label, show, ordered, ratioNum, ratioOfSize, sizeK, resScore, needsVideo } from "./catalog.js";
@@ -18,12 +18,12 @@ import { generate, signIn } from "./run.js";
 import { openCut, thumbMedia, frameEl, looksLikeClip } from "./clips.js";
 import { openPrefs } from "./prefs.js";
 
-const FORM = { rel: true, dur: 380, after: 90,
-  enter: (el, i, wait) => anim(el, [{ opacity: 0, transform: "translateY(6px)" }, { opacity: 1, transform: "none" }], { duration: 280, delay: 110 + wait + i * 30, fill: "backwards" }),
-  leave: (g) => anim(g, [{ opacity: 1 }, { opacity: 0 }], { duration: 110, easing: OUT, fill: "forwards" }) };
-const FILES = { dur: 360,
-  enter: (el) => anim(el, [{ transform: "scale(.4) rotate(-6deg)", opacity: 0 }, { transform: "none", opacity: 1 }], { duration: 480, easing: SPRING }),
-  leave: (g) => anim(g, [{ transform: "none", opacity: 1 }, { transform: "scale(.4)", opacity: 0 }], { duration: 220, easing: OUT, fill: "forwards" }) };
+const FORM = { rel: true, dur: DUR.m, after: 90,
+  enter: (el, i, wait) => anim(el, [{ opacity: 0, transform: "translateY(6px)" }, { opacity: 1, transform: "none" }], { duration: DUR.s, delay: 110 + wait + i * 30, fill: "backwards" }),
+  leave: (g) => anim(g, [{ opacity: 1 }, { opacity: 0 }], { duration: DUR.xs, easing: OUT, fill: "forwards" }) };
+const FILES = { dur: DUR.m,
+  enter: (el) => anim(el, [{ transform: "scale(.4) rotate(-6deg)", opacity: 0 }, { transform: "none", opacity: 1 }], { duration: DUR.l, easing: SPRING }),
+  leave: (g) => anim(g, [{ transform: "none", opacity: 1 }, { transform: "scale(.4)", opacity: 0 }], { duration: DUR.s, easing: OUT, fill: "forwards" }) };
 
 // A HEIC is named by its extension too: a system that knows no type for it
 // would grey it out in the file dialog.
@@ -46,7 +46,7 @@ export function act(fn) {
 export function mountComposer() {
   return h("section", { class: "composer", id: "composer", "aria-label": t("composer.label") },
     h("div", { class: "dtools", id: "dtools" }),
-    h("div", { class: "seg kind", role: "radiogroup", "aria-label": t("kind.label"), id: "kind", "data-seg": "kind", "data-dur": 460 }),
+    h("div", { class: "seg kind", role: "radiogroup", "aria-label": t("kind.label"), id: "kind", "data-seg": "kind", "data-dur": DUR.l }),
     h("div", { id: "pwrap" },
       h("label", { class: "sr", for: "prompt" }, t("prompt.label")),
       h("textarea", { id: "prompt", rows: 3, maxlength: 4000 }),
@@ -72,7 +72,7 @@ export function wireComposer() {
     if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey)) return;
     e.preventDefault();
     const b = $("#go");
-    if (!b.disabled) b.click(); else anim(b, [{ transform: "none" }, { transform: "translateX(-4px)" }, { transform: "translateX(4px)" }, { transform: "none" }], { duration: 240 });
+    if (!b.disabled) b.click(); else anim(b, [{ transform: "none" }, { transform: "translateX(-4px)" }, { transform: "translateX(4px)" }, { transform: "none" }], { duration: DUR.s });
   });
   $("#file").addEventListener("change", (e) => { addFiles([...e.target.files]); e.target.value = ""; });
   $("#slotfile").addEventListener("change", (e) => { addFiles([...e.target.files], into); e.target.value = ""; });
@@ -105,7 +105,7 @@ export function wireComposer() {
   // A price can make a row of tiles stack, and its marker has to follow.
   onPrices(() => { renderBar(); for (const g of fitSegs($$("#how [data-seg]"))) placeSeg(g, false, true); });
   // A clip turned the composer to video: the form slides over as on a switch.
-  addEventListener("framy:kind", (e) => anim($("#how"), [{ opacity: 0, transform: `translateX(${e.detail === "video" ? 36 : -36}px)` }, { opacity: 1, transform: "none" }], { duration: 420, easing: EASE }));
+  addEventListener("framy:kind", (e) => anim($("#how"), [{ opacity: 0, transform: `translateX(${e.detail === "video" ? 36 : -36}px)` }, { opacity: 1, transform: "none" }], { duration: DUR.l, easing: EASE }));
   // On a phone the composer is a dock: the page keeps room for it under the stage.
   addEventListener("resize", () => { if (howStale && howShown()) render(); });
   new ResizeObserver(() => { document.documentElement.style.setProperty("--dockh", comp.offsetHeight + "px"); if (isPhone()) refit(); }).observe(comp);
@@ -136,7 +136,7 @@ export function render() {
 function setKind(k) {
   const dir = k === "video" ? 1 : -1;
   act(() => { S.kind = k; placeFiles(); fitModel(); render(); });
-  anim($("#how"), [{ opacity: 0, transform: `translateX(${dir * 36}px)` }, { opacity: 1, transform: "none" }], { duration: 420, easing: EASE });
+  anim($("#how"), [{ opacity: 0, transform: `translateX(${dir * 36}px)` }, { opacity: 1, transform: "none" }], { duration: DUR.l, easing: EASE });
 }
 
 /* Phone: the model and the settings sit in one row over the prompt; the settings open in a sheet.
@@ -189,7 +189,7 @@ function sideways(el, stop) {
 }
 function stepScope(dir) {
   const ids = [null, ...FR().map((f) => f.id)], i = ids.indexOf(S.scope[S.kind]), to = ids[i + dir];
-  if (to === undefined) { anim($("#how"), [{ transform: "none" }, { transform: `translateX(${-dir * 10}px)` }, { transform: "none" }], { duration: 260 }); return; }
+  if (to === undefined) { anim($("#how"), [{ transform: "none" }, { transform: `translateX(${-dir * 10}px)` }, { transform: "none" }], { duration: DUR.s }); return; }
   setScope(to, dir);
 }
 export function tuneClosed() { const how = $("#how"); if (how.parentElement !== $("#composer")) $("#composer").insertBefore(how, $("#bar")); placeSegs($("#composer")); }
@@ -319,7 +319,7 @@ function framesSec() {
   const lab = h("span", { class: "lab" }, ic("stack"), h("span", { class: "lt" }, t("fr.label")), h("span", { class: "labr" }, h("span", { class: "right fcount" }, framesCount(P))));
   if (n < 2) return h("div", { class: "sec", "data-k": "h-frames" }, lab,
     h("button", { type: "button", class: "addfr wide", onclick: () => addFrame() }, ic("plus"), h("span", {}, t("fr.add_wide"), h("small", {}, t("fr.add_sub")))));
-  const seg = h("div", { class: "seg fseg", role: "radiogroup", "aria-label": t("fr.scope"), "data-seg": "scope", "data-dur": 380 },
+  const seg = h("div", { class: "seg fseg", role: "radiogroup", "aria-label": t("fr.scope"), "data-seg": "scope", "data-dur": DUR.m },
     opt({ key: "scope", v: "all", on: sel == null, cls: "all", pick: () => setScope(null) }, t("fr.all")),
     P.map((it) => opt({ key: "scope", v: it.fr.id, on: sel === it.fr.id, title: t("fr.n", { n: it.i + 1 }), pick: () => setScope(it.fr.id) },
       miniShape(ratioOf(it.set, it.m)), String(it.i + 1), hasOwn(it.fr) ? h("span", { class: "dot" }) : null)));
@@ -357,8 +357,8 @@ export function setScope(id, dir = 0) {
   const old = vname(M());
   act(() => { S.scope[S.kind] = id; render(); });
   if (vname(M()) !== old) ticker(name(), old, dir || 1);
-  if (dir) anim($("#how"), [{ opacity: 0, transform: `translateX(${dir * 28}px)` }, { opacity: 1, transform: "none" }], { duration: 340, easing: EASE });
-  if (id != null) anim($(`#stage [data-k="pv-${id}"]`), [{ transform: "scale(.96)" }, { transform: "none" }], { duration: 380, easing: SPRING });
+  if (dir) anim($("#how"), [{ opacity: 0, transform: `translateX(${dir * 28}px)` }, { opacity: 1, transform: "none" }], { duration: DUR.m, easing: EASE });
+  if (id != null) anim($(`#stage [data-k="pv-${id}"]`), [{ transform: "scale(.96)" }, { transform: "none" }], { duration: DUR.m, easing: SPRING });
   syncStrip(id);
 }
 // A new frame starts as the one being set up (or as the common setup), and the others make room.
@@ -390,7 +390,7 @@ function axesControl(f, cur, onPick, id, priceOf) {
     if (vals.length < 2) return null;
     const same = (v) => AX.filter(([k2]) => k2 !== k && val(v, k2) === val(cur, k2)).length;
     const key = `${id}-${k}`;
-    return h("div", { class: "axis" }, h("span", { class: "k" }, t(title)), h("div", { class: "seg", role: "radiogroup", "aria-label": t(title), "data-seg": key, "data-dur": 340 }, vals.map((x) => {
+    return h("div", { class: "axis" }, h("span", { class: "k" }, t(title)), h("div", { class: "seg", role: "radiogroup", "aria-label": t(title), "data-seg": key, "data-dur": DUR.m }, vals.map((x) => {
       const exact = f.cur.find((v) => val(v, k) === x && same(v) === AX.length - 1);
       const near = exact || f.cur.filter((v) => val(v, k) === x).sort((a, b) => same(b) - same(a) || a.rank - b.rank)[0];
       return opt({ key, v: x, on: val(cur, k) === x, cls: exact ? "" : "off", title: exact ? near.label : t("ax.moves_to", { v: near.label }), pick: () => onPick(near) },
@@ -405,7 +405,7 @@ function variantBlock(m) {
   const cur = f.cur.filter((x) => x.id === m.id || !refuses(x.m));
   const kids = [];
   if (cur.length > 1) kids.push(f.axes ? axesControl(f, v, pickVar, "ax", priceNow)
-    : h("div", { class: "seg" + (cur.length > 3 ? " wrapping" : ""), role: "radiogroup", "aria-label": t("var.label"), "data-seg": "var", "data-dur": 420 },
+    : h("div", { class: "seg" + (cur.length > 3 ? " wrapping" : ""), role: "radiogroup", "aria-label": t("var.label"), "data-seg": "var", "data-dur": DUR.l },
       cur.map((x) => opt({ key: "var", v: x.id, on: x.id === m.id, title: x.note ? `${x.label}: ${x.note}` : x.label, pick: () => pickVar(x) }, x.label, h("small", {}, priceNow(x.m))))));
   const dep = deprecation(m);
   if (dep) kids.push(h("p", { class: "mnote" }, ic("clock"), h("span", {}, dep.to ? [spaced(dep.when), h("button", { type: "button", onclick: () => pickVar(C.varOf[dep.to.id] || { id: dep.to.id }) }, t("var.take", { name: dep.toName }))] : dep.text)));
@@ -436,7 +436,7 @@ function paySec(m, pay) {
   if (ps.length === 1 && usable(m, ps[0]) && !fr?.own.pay) return null;
   if (ps.length === 1) return h("div", { class: "paysec", "data-k": "h-pay" }, h("div", { class: "sec row" }, lab, h("div", { class: "pay1" }, name(ps[0]), h("small", {}, sub(ps[0])))));
   return h("div", { class: "paysec", "data-k": "h-pay" }, h("div", { class: "sec row" }, lab,
-    h("div", { class: "seg", role: "radiogroup", "aria-label": t("pay.label"), "data-seg": "pay", "data-dur": 380 }, ps.map((p) =>
+    h("div", { class: "seg", role: "radiogroup", "aria-label": t("pay.label"), "data-seg": "pay", "data-dur": DUR.m }, ps.map((p) =>
       opt({ key: "pay", v: p, on: pay === p, cls: usable(m, p) ? "" : "off", title: p === "free" ? freePer(kind) : connection(p) ? t("pay.your_key", { last4: connection(p).last4 }) : null,
         pick: () => act(() => { setPayHere(m, p); render(); }) }, h("span", { class: "row" }, name(p)), h("small", {}, sub(p)))))));
 }
@@ -620,7 +620,7 @@ function ratioControl(name, p, v, set, src, gapOf = () => null) {
   else if (S.allRatios && p.values.length > 8 && back > 0) tiles.push(h("button", { type: "button", class: "rt more", "data-k": `h-rt-${name}-more`, "data-km": "stay", title: t("set.fewer"), "aria-label": t("set.fewer"), onclick: () => act(() => { S.allRatios = false; render(); }) }, "−" + back));
   // "As photo" is a word among figures: its column takes the word's width, and the ratios share the rest.
   const n = Math.ceil(tiles.length / Math.ceil(tiles.length / 8)), lead = String(list[0]) === "auto" && n > 1;
-  const box = h("div", { class: "ratios one" + (lead ? " lead" : ""), role: "radiogroup", "aria-label": label("aspect_ratio"), "data-seg": key, "data-dur": 360 }, tiles);
+  const box = h("div", { class: "ratios one" + (lead ? " lead" : ""), role: "radiogroup", "aria-label": label("aspect_ratio"), "data-seg": key, "data-dur": DUR.m }, tiles);
   box.style.setProperty("--n", n);
   if (lead) box.style.setProperty("--m", n - 1);
   return box;
@@ -656,7 +656,7 @@ export function renderBar() {
   else if (e && e.discount && e.list_label) parts = [h("s", { class: "was" }, priceText({ ...e, label: e.list_label })), " ", h("b", { class: "off" }, "−" + fmtNum(Math.round(e.discount * 100)) + "%")];
   else parts = [""];
   cap.replaceChildren(...parts);
-  if (was !== cap.textContent && !cap.getAnimations().length) anim(cap, [{ opacity: 0 }, { opacity: 1 }], { duration: 240, delay: 120, fill: "backwards" });
+  if (was !== cap.textContent && !cap.getAnimations().length) anim(cap, [{ opacity: 0 }, { opacity: 1 }], { duration: DUR.s, delay: 120, fill: "backwards" });
   const fc = $("#how .fcount");
   if (fc) fc.textContent = framesCount(P);
   const btn = $("#go");

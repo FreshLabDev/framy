@@ -2,7 +2,7 @@
 // run starts, that run: its files going up, the wait, a retry, the result,
 // or why there is none, with the buttons that fit.
 import { $, $$, h, ic, isPhone } from "./dom.js";
-import { anim, rise, snap, EASE, motion } from "./motion.js";
+import { anim, rise, snap, EASE, motion, DUR } from "./motion.js";
 import { t, fmtNum } from "./i18n.js";
 import { C, vname, famLogo, lg, ratioNum, ratioOfSize, PNAME, provMark, show, SICON } from "./catalog.js";
 import { S, M, payOf, settings, sourceRatio, connection, FR, MAXFR, scopeFr, plan } from "./state.js";
@@ -87,10 +87,10 @@ function lay(box, L) {
 // A frame that comes grows out of its place; one removed shrinks away.
 // In the phone's strip the roll is the motion: a card there only shows up, since a
 // moving or growing card would make the strip snap to the one beside it.
-const CELLS = { box: true, dur: 440,
+const CELLS = { box: true, dur: DUR.l,
   enter: (el, i) => el.classList.contains("cell") && anim(el, el.parentElement?.classList.contains("strip") ? [{ opacity: 0 }, { opacity: 1 }] : [{ opacity: 0, transform: "scale(.9)" }, { opacity: 1, transform: "none" }],
-    { duration: 360, delay: 60 + i * 40, easing: EASE, fill: "backwards" }),
-  leave: (g) => (g.classList.contains("cell") ? anim(g, [{ opacity: 1, transform: "none" }, { opacity: 0, transform: "scale(.9)" }], { duration: 240, easing: EASE, fill: "forwards" }) : null) };
+    { duration: DUR.m, delay: 60 + i * 40, easing: EASE, fill: "backwards" }),
+  leave: (g) => (g.classList.contains("cell") ? anim(g, [{ opacity: 1, transform: "none" }, { opacity: 0, transform: "scale(.9)" }], { duration: DUR.s, easing: EASE, fill: "forwards" }) : null) };
 export function stageFrom() { return snap($("#stage"), CELLS); }
 
 // A run has ended: refused, stopped before the job, or every job of it final.
@@ -430,7 +430,7 @@ function renderRun(st, run) {
     const res = v.res;
     media = res.content_type?.startsWith("video/") ? player(res) : h("img", { src: res.url, alt: run.prompt || "", decoding: "async" });
     const pic = media.tagName === "IMG" ? media : media.querySelector("video");
-    pic.addEventListener(media === pic ? "load" : "loadeddata", () => anim(pic, [{ opacity: 0 }, { opacity: 1 }], { duration: 420 }), { once: true });
+    pic.addEventListener(media === pic ? "load" : "loadeddata", () => anim(pic, [{ opacity: 0 }, { opacity: 1 }], { duration: DUR.l }), { once: true });
   }
   // While the page cannot reach framy, the frame says so; it hears again by itself.
   const going = run.phase === "job" && !isFinal(j.status);
@@ -500,7 +500,7 @@ export function runChanged() {
   const d = stageFrom();
   renderStage();
   d();
-  if (fresh && S.showJob) anim($("#stage [data-k=pv]"), [{ transform: "scale(.96)", opacity: 0.6 }, { transform: "none", opacity: 1 }], { duration: 420, easing: EASE });
+  if (fresh && S.showJob) anim($("#stage [data-k=pv]"), [{ transform: "scale(.96)", opacity: 0.6 }, { transform: "none", opacity: 1 }], { duration: DUR.l, easing: EASE });
   else if (motion() && (run.multi ? !runOver(run) : run.phase !== "job" || !isFinal(run.job?.status))) rise($$("#stage .jbox .c"), { y: 6 });
 }
 

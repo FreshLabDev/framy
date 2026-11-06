@@ -5,7 +5,7 @@
 // too: / is the composer, /library the library. The Mini App keeps its
 // address and walks back with Telegram's back button instead.
 import { $, $$, h, ic, isWide, isPhone } from "./dom.js";
-import { anim, morph, opt, placeSegs, leadSeg, motion, OUT } from "./motion.js";
+import { anim, morph, opt, placeSegs, leadSeg, motion, OUT, DUR, LOOP } from "./motion.js";
 import { t, lang, fmtNum, fmtSecs } from "./i18n.js";
 import { api, isFinal, outsOf } from "./api.js";
 import { C, vname, famLogo, lg, show, SICON, SHOWN, factEl, ratioNum, ratioOfSize } from "./catalog.js";
@@ -38,7 +38,7 @@ export function go(v, how = "push") {
     else { placeSegs($("#create")); renderStage(); refit(); }
     if (how !== "none") {
       scrollTo(0, 0);
-      anim($(v === "library" ? "#library" : "#create"), [{ opacity: 0, transform: "translateY(8px)" }, { opacity: 1, transform: "none" }], { duration: 280 });
+      anim($(v === "library" ? "#library" : "#create"), [{ opacity: 0, transform: "translateY(8px)" }, { opacity: 1, transform: "none" }], { duration: DUR.s });
     }
     window.dispatchEvent(new Event("framy:view"));
     polling();
@@ -136,9 +136,9 @@ async function refresh() {
   } catch (e) { if (e.status === 401) refreshMe(); }
 }
 
-const LIBMORPH = { dur: 360,
-  enter: (el, i, wait) => anim(el, [{ opacity: 0, transform: "translateY(10px)" }, { opacity: 1, transform: "none" }], { duration: 300, delay: wait + Math.min(i, 12) * 24, fill: "backwards" }),
-  leave: (g) => anim(g, [{ opacity: 1 }, { opacity: 0 }], { duration: 160, easing: OUT, fill: "forwards" }) };
+const LIBMORPH = { dur: DUR.m,
+  enter: (el, i, wait) => anim(el, [{ opacity: 0, transform: "translateY(10px)" }, { opacity: 1, transform: "none" }], { duration: DUR.m, delay: wait + Math.min(i, 12) * 24, fill: "backwards" }),
+  leave: (g) => anim(g, [{ opacity: 1 }, { opacity: 0 }], { duration: DUR.xs, easing: OUT, fill: "forwards" }) };
 // A change of the list: shown at once where the library is in view, else when it is next.
 function swap(fn) {
   if (libOn() && !$("#library").hidden) morph($("#library"), () => { fn(); renderLibrary(); }, LIBMORPH);
@@ -291,7 +291,7 @@ function cover(j) {
       const im = h("img", { src, alt: "", loading: "lazy", decoding: "async" });
       // A link read more than an hour ago no longer opens: the run is read again for new ones.
       im.addEventListener("error", () => relink(j.id), { once: true });
-      if (!im.complete) im.addEventListener("load", () => anim(im, [{ opacity: 0 }, { opacity: 1 }], { duration: 240 }), { once: true });
+      if (!im.complete) im.addEventListener("load", () => anim(im, [{ opacity: 0 }, { opacity: 1 }], { duration: DUR.s }), { once: true });
       kids.push(im);
     } else kids.push(h("span", { class: "c" }, ic(vid ? "film" : "image"), res.url ? null : h("small", {}, t("lib.gone"))));
     if (vid && res.seconds) kids.push(h("span", { class: "badge" }, ic("play"), fmtSecs(res.seconds)));
@@ -364,7 +364,7 @@ function empty() {
 }
 function spinner() {
   const s = h("i", { class: "lspin", "aria-hidden": "true" });
-  anim(s, [{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }], { duration: 900, iterations: Infinity, easing: "linear" });
+  anim(s, [{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }], { duration: LOOP, iterations: Infinity, easing: "linear" });
   return s;
 }
 const loading = () => h("div", { class: "libmore", "data-k": "lload", role: "status" }, spinner(), t("lib.loading"));
@@ -523,7 +523,7 @@ function showIn(j, d = 0) {
   setRun(j);
   setPath("/r/" + V.id, "replace", V.pushed ? { lib: 1 } : null);
   fill();
-  if (d) anim($("#viewBody").firstChild, [{ opacity: 0, transform: `translateX(${d * 32}px)` }, { opacity: 1, transform: "none" }], { duration: 300 });
+  if (d) anim($("#viewBody").firstChild, [{ opacity: 0, transform: `translateX(${d * 32}px)` }, { opacity: 1, transform: "none" }], { duration: DUR.m });
   fresh();
   polling();
 }
@@ -780,8 +780,8 @@ export function openFull(at = 0, items = null) {
   box.focus({ preventScroll: true });
   strip.scrollLeft = dirOf() * at * strip.clientWidth;
   upd();
-  anim(box, [{ opacity: 0 }, { opacity: 1 }], { duration: 200 });
-  anim(cells[at]?.firstChild, [{ transform: "scale(.94)", opacity: 0.4 }, { transform: "none", opacity: 1 }], { duration: 320 });
+  anim(box, [{ opacity: 0 }, { opacity: 1 }], { duration: DUR.s });
+  anim(cells[at]?.firstChild, [{ transform: "scale(.94)", opacity: 0.4 }, { transform: "none", opacity: 1 }], { duration: DUR.m });
 }
 export function closeFull(quick = false) {
   const box = $("#full");
@@ -790,7 +790,7 @@ export function closeFull(quick = false) {
   FULL = null;
   box.querySelectorAll("video").forEach((v) => v.pause());
   const done = () => { if (FULL) return; box.hidden = true; box.replaceChildren(); document.documentElement.classList.remove("full-on"); if (!quick) back?.focus?.({ preventScroll: true }); };
-  const a = quick ? null : anim(box, [{ opacity: 1 }, { opacity: 0 }], { duration: 160, fill: "forwards" });
+  const a = quick ? null : anim(box, [{ opacity: 1 }, { opacity: 0 }], { duration: DUR.xs, fill: "forwards" });
   if (a) a.finished.then(done, done); else done();
 }
 // Caught before the viewer's own keys: Escape closes only this, the arrows go between results, not runs.
