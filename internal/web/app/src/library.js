@@ -176,6 +176,7 @@ function renderLibrary() {
   else if (L.err && !list.length) body = [slim(t("lib.failed"), "again", t("act.retry"), () => { swap(() => { L.err = ""; L.loaded = false; }); load(); })];
   else if (!list.length) body = [empty()];
   else body = [...days(entries(list)).map(dayEl), foot(list)];
+  pruneTiles();
   const tools = S.signed && L.loaded && (L.any || L.kind !== "all" || !!L.q);
   root.replaceChildren(h("div", { class: "libhead", "data-k": "lhead" }, h("h1", {}, t("tab.library")), tools ? kinds() : null, tools ? searchBox() : null), ...body);
   placeSegs(root);
@@ -183,6 +184,14 @@ function renderLibrary() {
   if (focused) Q.input.focus({ preventScroll: true });
 }
 
+// A tile is kept so its picture never loads twice while its run stays in the list. One whose run is
+// not in the list any more (another search, another kind, a page replaced) is not coming back as it
+// was, and holds its picture in memory: it goes.
+function pruneTiles() {
+  const live = new Set();
+  for (const j of L.jobs) { live.add(j.id); if (j.batch) live.add("b:" + j.batch); }
+  for (const k of TILES.keys()) if (!live.has(k)) TILES.delete(k);
+}
 function kinds() {
   return h("div", { class: "seg", role: "radiogroup", "aria-label": t("lib.show"), "data-seg": "lib" },
     [["all", "grid", t("lib.all")], ["image", "image", t("lib.images")], ["video", "video", t("lib.videos")]].map(([k, i, label]) =>

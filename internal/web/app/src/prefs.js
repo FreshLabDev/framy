@@ -95,8 +95,15 @@ function size(bytes) {
   if (mb >= 1024) return t("unit.gb", { n: fmtNum(mb / 1024, { maximumFractionDigits: 1 }) });
   return t("unit.mb", { n: fmtNum(mb, { maximumFractionDigits: mb < 10 ? 1 : 0 }) });
 }
+// The names of the currencies in the page's language. The namer is slow to make, so there is one for
+// the language, not one for each currency each time the settings are drawn.
+let namer, namerLang = "";
 function curName(c) {
-  try { return new Intl.DisplayNames([lang], { type: "currency" }).of(c) || c; } catch { return c; }
+  if (namerLang !== lang) {
+    namerLang = lang;
+    try { namer = new Intl.DisplayNames([lang], { type: "currency" }); } catch { namer = null; }
+  }
+  try { return namer?.of(c) || c; } catch { return c; }
 }
 
 /* Keys. */

@@ -9,18 +9,29 @@ import { api } from "./api.js";
 const cache = new Map(); // key -> {estimate, refusal, settings}
 const waiting = new Map(); // key -> item
 const listeners = new Set();
-let timer = 0, inflight = 0;
+let timer = 0, inflight = 0, fails = 0;
+
+// The page keeps the latest answers, not every one: a session that walks the picker and the settings
+// for hours would otherwise grow without end. A Map keeps the order of its keys, so reading an
+// answer moves it to the back, and what is on screen (painted again with every batch) stays.
+export const CACHE_MAX = 1000;
+const remember = (map, k, v) => { map.delete(k); map.set(k, v); if (map.size > CACHE_MAX) map.delete(map.keys().next().value); };
+const recall = (map, k) => { const v = map.get(k); if (v !== undefined) { map.delete(k); map.set(k, v); } return v; };
+// A price that did not come because the network or the server was busy is asked again a little
+// later, a few times; a refusal (a request the server will not price) is not.
+const RETRY = [2000, 4000, 8000, 15000, 15000];
+const retryable = (e) => e?.code === "network" || e?.status === 429 || e?.status >= 500;
 
 // Everything the server prices by is in the key: a price for a run without its
 // files must not stand for one with them (files framy keeps go as inputs).
 export const keyOf = (it) => JSON.stringify([it.offer, it.pay || "", it.settings || {}, it.files || [], it.inputs || [], it.continues || 0, it.prompt ? it.prompt.length : 0]);
-export const known = (it) => cache.get(keyOf(it));
+export const known = (it) => recall(cache, keyOf(it));
 export const onPrices = (fn) => listeners.add(fn);
 export const clearPrices = () => { cache.clear(); totals.clear(); };
 
 // need() returns what is known now and asks for the rest, in one request a moment later.
 export function need(it) {
-  const k = keyOf(it), got = cache.get(k);
+  const k = keyOf(it), got = recall(cache, k);
   if (got) return got;
   if (!waiting.has(k)) { waiting.set(k, it); if (!timer) timer = setTimeout(flush, 40); }
   return null;
@@ -35,15 +46,22 @@ async function flush() {
   inflight++;
   try {
     const r = await api("/api/quote", { method: "POST", body: { items: batch.map(([, it]) => it) } });
-    (r.items || []).forEach((x, i) => { const k = batch[i]?.[0]; if (k) cache.set(k, x); });
-  } catch {
-    // A price that did not come stays a question mark; the next change asks again.
+    (r.items || []).forEach((x, i) => { const k = batch[i]?.[0]; if (k) remember(cache, k, x); });
+    fails = 0;
+  } catch (e) {
+    // A price that did not come stays a question mark. When it is the network or a busy server,
+    // it is asked again in a moment, so the question mark goes by itself; else the next change asks.
+    if (retryable(e) && fails < RETRY.length) {
+      for (const [k, it] of batch) if (!waiting.has(k) && !cache.has(k)) waiting.set(k, it);
+      clearTimeout(timer);
+      timer = setTimeout(flush, RETRY[fails++]);
+    } else fails = 0;
   } finally {
     inflight--;
   }
   // One pass over the page, not one search per run: a batch can hold 200.
   const fresh = new Set(batch.map(([k]) => k));
-  for (const el of document.querySelectorAll("[data-q]")) if (fresh.has(el.dataset.q)) paint(el, cache.get(el.dataset.q));
+  for (const el of document.querySelectorAll("[data-q]")) if (fresh.has(el.dataset.q)) paint(el, recall(cache, el.dataset.q));
   for (const fn of listeners) fn();
 }
 
@@ -91,7 +109,7 @@ const hint = (e) => (e && e.currency && e.currency !== "USD" && e.kind !== "unkn
 export function priceEl(it, o = {}) {
   const k = keyOf(it), el = h("span", { class: "usd q" + (o.cls ? " " + o.cls : ""), "data-q": k });
   need(it);
-  paint(el, cache.get(k), o);
+  paint(el, recall(cache, k), o);
   el._o = o;
   return el;
 }
@@ -110,14 +128,14 @@ export const busy = () => inflight > 0 || waiting.size > 0;
 const totals = new Map(); // key -> {total, jobs}
 const askedT = new Set();
 const totalKey = (items) => items.map(keyOf).join("\n");
-export const knownTotal = (items) => totals.get(totalKey(items));
+export const knownTotal = (items) => recall(totals, totalKey(items));
 export function needTotal(items) {
-  const k = totalKey(items), got = totals.get(k);
+  const k = totalKey(items), got = recall(totals, k);
   if (got || askedT.has(k) || !items.length) return got || null;
   askedT.add(k);
   api("/api/quote", { method: "POST", body: { items, batch: true } }).then((r) => {
-    totals.set(k, { total: r.total || null, jobs: r.jobs || [] });
-    (r.items || []).forEach((x, i) => { if (items[i]) cache.set(keyOf(items[i]), x); });
+    remember(totals, k, { total: r.total || null, jobs: r.jobs || [] });
+    (r.items || []).forEach((x, i) => { if (items[i]) remember(cache, keyOf(items[i]), x); });
     for (const fn of listeners) fn();
   }, () => {}).finally(() => askedT.delete(k));
   return null;
@@ -128,7 +146,7 @@ export function needTotal(items) {
 // most it can cost, so the label is written again from its least.
 const mins = new Set();
 export function lowest(items) {
-  const got = items.map((it) => cache.get(keyOf(it)));
+  const got = items.map((it) => recall(cache, keyOf(it)));
   if (got.some((g) => !g)) return null;
   const es = got.map((g) => g.estimate).filter((e) => e && e.kind !== "unknown");
   if (!es.length) return { kind: "unknown" };

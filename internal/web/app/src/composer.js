@@ -521,7 +521,11 @@ function learnPriced(m, pay, o, s, name, values) {
     return true;
   };
   const k = o.id + "|" + name + "|" + JSON.stringify(s);
-  if (!pending.has(k) && !check()) pending.set(k, check);
+  if (!pending.has(k) && !check()) {
+    pending.set(k, check);
+    // A price that never comes (the network was down) must not keep its question for good.
+    if (pending.size > 200) pending.delete(pending.keys().next().value);
+  }
 }
 const pending = new Map();
 onPrices(() => { for (const [k, c] of [...pending]) if (c()) pending.delete(k); });
