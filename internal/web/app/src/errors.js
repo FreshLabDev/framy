@@ -78,8 +78,9 @@ export function failure(j) {
   if (j.status === "cancelled") return { cls: "cancelled", label: t("stage.cancelled"), text: "", ...none, acts: again };
   // Expired is the run deadline, an hour after the request went out, whatever
   // the last poll said; a failed timeout is a call that got no answer in time
-  // (180 s for an image, a 408, 504 or 524), so it says no hour.
-  if (j.status === "expired") return { cls: "timeout", label: t("fail.timeout_l"), text: "", note: may, acts: again };
+  // (180 s for an image, a 408, 504 or 524), so it says no hour. A key that
+  // stopped working, or ran short, in that hour says so instead (sent, above).
+  if (j.status === "expired" && cls !== "key" && cls !== "money") return { cls: "timeout", label: t("fail.timeout_l"), text: "", note: may, acts: again };
   const face = faceOf(j, cls), m = C.byId[j.model];
   if (face) return { cls: "faces", label: t(face === "video" ? "fail.faces_clip_l" : "fail.faces_photo_l"), text: t("fail.faces", { model: m ? vname(m) : P }),
     ...(cls === "moderation" && free ? { note: t("fail.free_spent") } : none), acts: ["model", "edit"] };

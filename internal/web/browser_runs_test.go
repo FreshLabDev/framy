@@ -724,7 +724,7 @@ func TestBrowserRuns(t *testing.T) {
 	// it went to the provider: it may be paid, and its price is not $0.
 	for cls, w := range map[string]struct{ label, first string }{
 		"key":   {"The key does not work", "Replace the OpenRouter key"},
-		"money": {"No money on the key", "Top up OpenRouter"},
+		"money": {"The key is out of credits", "Top up OpenRouter"},
 	} {
 		s = js[map[string]any](t, ctx, pageHelpers+runHelpers+`return await press("late:`+cls+`", (s) => s.failed);`)
 		acts, _ := s["acts"].([]any)
