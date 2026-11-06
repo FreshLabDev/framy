@@ -368,12 +368,24 @@ func TestBrowserTabNames(t *testing.T) {
 	ts := fakeSite(t, runs.mount)
 	for _, w := range []int64{390, 1440} {
 		ctx := browserAs(t, ts.URL, w, 844, opened{phone: w < 960})
-		if got := fmt.Sprint(axNames(t, ctx, "link")); got != "[Create Library]" {
+		if got := fmt.Sprint(axNames(t, ctx, "link")); got != "[framy Create Library]" {
 			t.Errorf("at %d px the tabs are named %s", w, got)
 		}
 		wide := js[bool](t, ctx, `return document.documentElement.scrollWidth <= innerWidth;`)
 		if !wide {
 			t.Errorf("at %d px the page scrolls sideways", w)
+		// Each view has a heading of its own and names the browser's tab.
+		got := js[map[string]any](t, ctx, pageHelpers+`
+		const create = [...document.querySelectorAll("#create h1")].map((e) => e.textContent).join(","), first = document.title;
+		document.querySelector('.tabs a[data-v="library"]').click();
+		await wait(600);
+		const lib = document.title;
+		document.querySelector('.tabs a[data-v="create"]').click();
+		await wait(600);
+		return { create, first, lib, back: document.title };`)
+		if got["create"] != "Create" || got["first"] != "framy" || got["lib"] != "Library · framy" || got["back"] != "framy" {
+			t.Errorf("at %d px the views are named %v", w, got)
+		}
 		}
 		noErrors(t, ctx)
 	}

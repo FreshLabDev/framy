@@ -64,14 +64,15 @@ function mount() {
   app.dataset.view = S.view;
   app.replaceChildren(
     h("div", { class: "wrap" }, h("header", { class: "top", id: "top" }),
-      h("main", { class: "create", id: "create" }, mountComposer(), h("section", { class: "stage", id: "stage", "aria-label": t("stage.label") }),
+      // The view's heading, for a screen reader's list of them: the composer shows none of its own.
+      h("main", { class: "create", id: "create" }, h("h1", { class: "sr" }, t("tab.create")), mountComposer(), h("section", { class: "stage", id: "stage", "aria-label": t("stage.label") }),
         // What a screen reader hears of a run; the stage is drawn anew, so it stands beside it.
         h("p", { class: "sr", id: "stageSay", role: "status" })),
       mountLibrary()),
     h("div", { class: "scrim", id: "scrim", hidden: true, onclick: () => closeSheets() }),
     mountPicker(),
     h("section", { class: "sheet half", id: "tune", hidden: true, "aria-label": t("tune.title"), role: "dialog", "aria-modal": "true" },
-      h("header", {}, h("h3", { id: "tuneTitle" }, t("tune.title")), h("button", { type: "button", class: "x", "data-close": "" }, t("pick.done"))),
+      h("header", { role: "none" }, h("h3", { id: "tuneTitle" }, t("tune.title")), h("button", { type: "button", class: "x", "data-close": "" }, t("pick.done"))),
       h("div", { class: "body", id: "tuneBody" })),
     mountCutter(),
     mountPrefs(),

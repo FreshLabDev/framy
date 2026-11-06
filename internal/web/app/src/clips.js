@@ -272,7 +272,7 @@ export const fmtPart = (s) => fmtNum(s, { maximumFractionDigits: 2 });
 
 export function mountCutter() {
   const el = h("section", { class: "sheet cutter", id: "cutter", hidden: true, role: "dialog", "aria-modal": "true", "aria-labelledby": "cutT" },
-    h("header", {}, h("h3", { id: "cutT" }), h("button", { type: "button", class: "x", "data-close": "" }, t("cancel"))),
+    h("header", { role: "none" }, h("h3", { id: "cutT" }), h("button", { type: "button", class: "x", "data-close": "" }, t("cancel"))),
     h("div", { class: "body", id: "cutBody" }));
   el.addEventListener("closed", () => { stopPlay(); ED.view?.removeAttribute("src"); });
   return el;

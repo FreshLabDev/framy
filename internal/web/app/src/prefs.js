@@ -39,7 +39,7 @@ export function mountPrefs() {
   // Back from OpenRouter with the browser's Back button: the page is the one it left.
   addEventListener("pageshow", (e) => { if (e.persisted && KS.openrouter?.going) update(() => { KS.openrouter.going = false; }); });
   return h("section", { class: "sheet", id: "prefs", hidden: true, "aria-label": t("prefs.title"), role: "dialog", "aria-modal": "true" },
-    h("header", {}, h("h3", {}, t("prefs.title")), h("button", { type: "button", class: "x", "data-close": "" }, t("pick.done"))),
+    h("header", { role: "none" }, h("h3", {}, t("prefs.title")), h("button", { type: "button", class: "x", "data-close": "" }, t("pick.done"))),
     h("div", { class: "body", id: "prefsBody" }));
 }
 

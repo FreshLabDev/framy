@@ -30,7 +30,7 @@ const listUpdate = (fn, o) => keepFocus(() => morph($("#pkrows"), fn, ROWS(o)));
 
 export function mountPicker() {
   return h("section", { class: "sheet wide", id: "picker", hidden: true, "aria-label": t("pick.label"), role: "dialog", "aria-modal": "true", onclosed: () => { FOR = null; } },
-    h("header", {}, h("h3", { id: "pickTitle" }), h("button", { type: "button", class: "x", "data-close": "" }, t("pick.done"))),
+    h("header", { role: "none" }, h("h3", { id: "pickTitle" }), h("button", { type: "button", class: "x", "data-close": "" }, t("pick.done"))),
     h("div", { class: "body" }, h("div", { class: "pk" },
       h("div", { class: "pkl" },
         h("div", { class: "pktools" },

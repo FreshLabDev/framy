@@ -28,9 +28,16 @@ const RUN = /^\/r\/([1-9]\d{0,17})$/;
 function setPath(path, how, state = null) {
   if (S.mini || how === "none") return;
   inHistory(() => {
-    if (how === "push" && location.pathname === path) return;
-    history[how === "push" && !takeEntry() ? "pushState" : "replaceState"](state, "", path);
+    if (!(how === "push" && location.pathname === path)) history[how === "push" && !takeEntry() ? "pushState" : "replaceState"](state, "", path);
+    nameTab();
   });
+}
+// The browser's tab says the view, so several open tabs, and the entries of
+// the history, tell the library and a run from the composer.
+function nameTab() {
+  if (S.mini) return;
+  const p = location.pathname, name = RUN.test(p) ? (V.j ? t("kind." + V.j.kind) : "") : p === "/library" ? t("tab.library") : "";
+  document.title = name ? name + " · framy" : "framy";
 }
 
 // go shows one view: "create" or "library". how is what it does to the
@@ -64,6 +71,7 @@ export function route() {
   }
   if (viewerOpen()) { V.quiet = true; V.pushed = false; closeSheets(); }
   go(p === "/library" ? "library" : "create", "none");
+  nameTab();
 }
 addEventListener("popstate", () => { if (!S.mini) route(); });
 
@@ -564,7 +572,7 @@ const runAt = (list) => list.findIndex((e) => e.jobs.some((x) => x.id === V.id))
 
 export function mountViewer() {
   const el = h("section", { class: "sheet wide", id: "viewer", hidden: true, role: "dialog", "aria-modal": "true", "aria-labelledby": "viewTitle" },
-    h("header", {}, h("h3", { id: "viewTitle" }), h("div", { class: "vnav", id: "vnav" }), h("button", { type: "button", class: "x", "data-close": "" }, t("view.close"))),
+    h("header", { role: "none" }, h("h3", { id: "viewTitle" }), h("div", { class: "vnav", id: "vnav" }), h("button", { type: "button", class: "x", "data-close": "" }, t("view.close"))),
     h("div", { class: "body", id: "viewBody" }));
   el.addEventListener("closed", closed);
   return el;
@@ -771,6 +779,7 @@ function fill() {
   if (!j) return;
   const m = C.byId[j.model];
   $("#viewTitle").replaceChildren(ic(j.kind), h("span", { class: "t" }, t("kind." + j.kind)));
+  nameTab();
   nav();
   const v = view(run, { res: V.i, again: againBtn });
   const cost = j.cost?.label ? j.cost.label : v.zero ? zeroOf(j.estimate?.label) : j.free ? t("bar.free") : j.estimate && !v.fail ? priceText(j.estimate) : "";
