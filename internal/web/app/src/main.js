@@ -15,16 +15,17 @@ import { signIn, refreshMe, generate, netState, closeMini, keepPrompt } from "./
 import { mountCutter, openCut } from "./clips.js";
 import { mountPrefs, openPrefs, renderPrefs, prefsOpen, oauthResult, oauthBack } from "./prefs.js";
 import { mountLibrary, mountViewer, mountFull, tabs, go, route, libMe } from "./library.js";
-import { MARK } from "assets:lists";
+import { MARK, FATAL } from "assets:lists";
 
 const B = window.framy;
 
+// The lines of the page may be what did not come: these are inside app.js, in the page's language.
 function fatal() {
   $("#skel").hidden = true;
-  const app = $("#app");
+  const app = $("#app"), [text, again] = FATAL[B.lang] || FATAL.en;
   app.hidden = false;
-  app.replaceChildren(h("div", { class: "fatal" }, h("p", {}, "framy could not load. Check the connection and try again."),
-    h("button", { type: "button", onclick: () => location.reload() }, "Try again")));
+  app.replaceChildren(h("div", { class: "fatal" }, h("img", { src: MARK, alt: "", width: 48, height: 48 }), h("p", {}, text),
+    h("button", { type: "button", onclick: () => location.reload() }, again)));
 }
 
 // Signed in, the person's picture opens the settings; signing out is in them.

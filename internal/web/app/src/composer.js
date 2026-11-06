@@ -645,9 +645,12 @@ export function renderBar() {
   if (fc) fc.textContent = framesCount(P);
   const btn = $("#go");
   btn.parentElement.classList.toggle("says", !!nx.why);
-  btn.replaceChildren(nx.icon ? ic(nx.icon) : "", nx.label, nx.on ? h("small", { class: "kbd" }, MAC ? "⌘↵" : "Ctrl ↵") : "");
+  // The keys that press it, as the keyboard prints them (Strg on a German one); a screen reader hears them as the shortcut.
+  const keys = MAC ? "⌘↵" : t("kbd.ctrl") + " ↵";
+  btn.replaceChildren(nx.icon ? ic(nx.icon) : "", nx.label, nx.on ? h("small", { class: "kbd", "aria-hidden": "true" }, keys) : "");
   btn.disabled = !nx.on;
+  if (nx.on) btn.setAttribute("aria-keyshortcuts", MAC ? "Meta+Enter" : "Control+Enter"); else btn.removeAttribute("aria-keyshortcuts");
   btn.onclick = nx.act === "create" ? generate : nx.act === "signin" ? signIn : nx.act === "cut" ? openCut : nx.act === "key" ? () => openPrefs(nx.provider) : nx.act === "close" ? closeMini : null;
-  btn.title = nx.on ? `${nx.label} (${MAC ? "⌘ Enter" : "Ctrl+Enter"})` : "";
+  btn.title = nx.on ? `${nx.label} (${keys})` : "";
   window.dispatchEvent(new CustomEvent("framy:button", { detail: nx }));
 }

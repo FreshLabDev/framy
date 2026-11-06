@@ -5903,6 +5903,24 @@
     "ja": "うまくいきませんでした。もう一度お試しください。",
     "ar": "لم ينجح الأمر. حاول مرة أخرى."
   },
+  "web.fatal.text": {
+    "en": "framy could not load. Check the connection and try again.",
+    "ru": "framy не загрузился. Проверь соединение и попробуй ещё раз.",
+    "uk": "framy не завантажився. Перевір з’єднання і спробуй ще раз.",
+    "es": "framy no se pudo cargar. Revisa la conexión e inténtalo de nuevo.",
+    "fr": "framy n’a pas pu se charger. Vérifie la connexion et réessaie.",
+    "de": "framy konnte nicht geladen werden. Prüfe die Verbindung und versuche es noch einmal.",
+    "it": "framy non si è caricato. Controlla la connessione e riprova.",
+    "pl": "Nie udało się wczytać framy. Sprawdź połączenie i spróbuj ponownie.",
+    "cs": "framy se nepodařilo načíst. Zkontroluj připojení a zkus to znovu.",
+    "tr": "framy yüklenemedi. Bağlantını kontrol edip tekrar dene.",
+    "sv": "framy kunde inte laddas. Kontrollera anslutningen och försök igen.",
+    "be": "framy не загрузіўся. Правер злучэнне і паспрабуй яшчэ раз.",
+    "ca": "framy no s’ha pogut carregar. Comprova la connexió i torna-ho a provar.",
+    "zh": "framy 无法加载。请检查网络连接后再试。",
+    "ja": "framy を読み込めませんでした。接続を確認して、もう一度お試しください。",
+    "ar": "تعذّر تحميل framy. تحقق من الاتصال وحاول مرة أخرى."
+  },
   "web.files.add": {
     "en": "Add",
     "ru": "Добавить",
@@ -7234,6 +7252,24 @@
     "zh": "Google 搜索建议",
     "ja": "Google 検索の候補",
     "ar": "اقتراحات بحث Google"
+  },
+  "web.kbd.ctrl": {
+    "en": "Ctrl",
+    "ru": "Ctrl",
+    "uk": "Ctrl",
+    "es": "Ctrl",
+    "fr": "Ctrl",
+    "de": "Strg",
+    "it": "Ctrl",
+    "pl": "Ctrl",
+    "cs": "Ctrl",
+    "tr": "Ctrl",
+    "sv": "Ctrl",
+    "be": "Ctrl",
+    "ca": "Ctrl",
+    "zh": "Ctrl",
+    "ja": "Ctrl",
+    "ar": "Ctrl"
   },
   "web.key.accepted": {
     "en": "Key …{last4} · accepted",

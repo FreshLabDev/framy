@@ -28,6 +28,7 @@ import (
 
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/emulation"
+	"github.com/chromedp/cdproto/fetch"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 )
@@ -190,6 +191,59 @@ func TestBrowserNotesInPageLanguage(t *testing.T) {
 		titles: [...document.querySelectorAll('#how [data-seg="var"] [title]')].map((b) => b.title).join(" | ") };`)
 	if s["lang"] != "ru" || s["note"] != "Быстрее и дешевле, качество близко" || !strings.Contains(s["titles"].(string), "2.6: Точнее, для дизайна") {
 		t.Errorf("notes of a Russian page: %v", s)
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserFatalInPageLanguage opens a German page whose lines and catalog
+// do not come: the page says so in German all the same, from lines inside
+// app.js. Loaded, the page prints Ctrl as a German keyboard does, Strg, and
+// tells a screen reader the shortcut.
+func TestBrowserFatalInPageLanguage(t *testing.T) {
+	ts := fakeSite(t, nil)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	js[bool](t, ctx, `localStorage.setItem("framy.lang", "de"); return true;`)
+	if _, err := chromedp.Call(ctx, fetch.Enable, fetch.EnableParams{Patterns: []*fetch.RequestPattern{{URLPattern: "*/api/catalog*"}, {URLPattern: "*/texts-*"}}}); err != nil {
+		t.Fatal(err)
+	}
+	paused := chromedp.Events(ctx, fetch.RequestPaused)
+	go func() {
+		for ev, err := range paused {
+			if err != nil {
+				return
+			}
+			_, _ = chromedp.Call(ctx, fetch.FulfillRequest, fetch.FulfillRequestParams{RequestID: ev.RequestID, ResponseCode: 503, Body: []byte("down")})
+		}
+	}()
+	if _, err := chromedp.Run(ctx, chromedp.Reload()); err != nil {
+		t.Fatal(err)
+	}
+	got := js[map[string]any](t, ctx, pageHelpers+`
+	for (let i = 0; i < 100 && !document.querySelector(".fatal"); i++) await wait(100);
+	const f = document.querySelector(".fatal");
+	return { lang: document.documentElement.lang, text: f?.querySelector("p")?.textContent || "", again: f?.querySelector("button")?.textContent || "", mark: (f?.querySelector("img")?.getBoundingClientRect().width || 0) === 48 };`)
+	if got["lang"] != "de" || got["text"] != "framy konnte nicht geladen werden. Prüfe die Verbindung und versuche es noch einmal." || got["again"] != "Erneut versuchen" || got["mark"] != true {
+		t.Errorf("the page that could not load, in German: %v", got)
+	}
+
+	if _, err := chromedp.Call(ctx, fetch.Disable, cdp.Empty{}); err != nil {
+		t.Fatal(err)
+	}
+	err := chromedp.Do(ctx, chromedp.Func(func(ctx context.Context, tg *chromedp.Target) error {
+		_, err := cdp.Call(ctx, tg, page.AddScriptToEvaluateOnNewDocument, page.AddScriptToEvaluateOnNewDocumentParams{Source: `Object.defineProperty(navigator, "platform", { get: () => "Win32" });`})
+		return err
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := chromedp.Run(ctx, chromedp.Reload()); err != nil {
+		t.Fatal(err)
+	}
+	ready(t, ctx)
+	kbd := js[map[string]any](t, ctx, `const go = document.querySelector("#go");
+	return { kbd: go.querySelector(".kbd")?.textContent || "", hidden: go.querySelector(".kbd")?.getAttribute("aria-hidden"), keys: go.getAttribute("aria-keyshortcuts"), title: go.title };`)
+	if kbd["kbd"] != "Strg ↵" || kbd["hidden"] != "true" || kbd["keys"] != "Control+Enter" || !strings.HasSuffix(kbd["title"].(string), "(Strg ↵)") {
+		t.Errorf("the shortcut on a German page: %v", kbd)
 	}
 	noErrors(t, ctx)
 }

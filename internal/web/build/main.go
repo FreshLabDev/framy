@@ -96,7 +96,7 @@ func run() error {
 	if mark == "" || icons["framy-32.png"] == "" || icons["framy-180.png"] == "" {
 		return errors.New("app/icon: want framy.svg, framy-32.png and framy-180.png")
 	}
-	texts, err := writeTexts(o)
+	texts, fatal, err := writeTexts(o)
 	if err != nil {
 		return err
 	}
@@ -126,7 +126,7 @@ func run() error {
 		Format:      api.FormatESModule,
 		Plugins: []api.Plugin{
 			virtual("assets:logos", "export default "+string(logoJS)+";"),
-			virtual("assets:lists", "export const LANGS = "+mustJSON(langs)+";\nexport const CURRENCIES = "+mustJSON(fx.Codes)+";\nexport const MARK = "+mustJSON(mark)+";"),
+			virtual("assets:lists", "export const LANGS = "+mustJSON(langs)+";\nexport const CURRENCIES = "+mustJSON(fx.Codes)+";\nexport const MARK = "+mustJSON(mark)+";\nexport const FATAL = "+mustJSON(fatal)+";"),
 		},
 	})
 	if err != nil {
@@ -234,16 +234,20 @@ func inlineDir(dir, ext, mime string) (map[string]string, error) {
 
 // writeTexts writes the site's lines of each language as its own file, the
 // missing ones in English, and returns their URLs by language.
-func writeTexts(o *out) (map[string]string, error) {
+// fatalLines are what the page says when it could not load, its own lines
+// perhaps among what did not come: they go inside app.js, in every language.
+var fatalLines = []string{"fatal.text", "act.retry"}
+
+func writeTexts(o *out) (map[string]string, map[string][]string, error) {
 	raw, err := os.ReadFile(filepath.Join("..", "i18n", "translations.json"))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var all map[string]map[string]string
 	if err := json.Unmarshal(raw, &all); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	urls := map[string]string{}
+	urls, fatal := map[string]string{}, map[string][]string{}
 	for _, l := range i18n.LANGUAGE_OPTIONS {
 		lines := map[string]string{}
 		for k, by := range all {
@@ -258,11 +262,17 @@ func writeTexts(o *out) (map[string]string, error) {
 			lines[name] = t
 		}
 		if len(lines) == 0 {
-			return nil, errors.New("translations.json has no web.* lines")
+			return nil, nil, errors.New("translations.json has no web.* lines")
+		}
+		for _, k := range fatalLines {
+			if lines[k] == "" {
+				return nil, nil, fmt.Errorf("translations.json has no web.%s", k)
+			}
+			fatal[l.Code] = append(fatal[l.Code], lines[k])
 		}
 		urls[l.Code] = o.put("texts-"+l.Code+".json", []byte(mustJSON(lines)))
 	}
-	return urls, nil
+	return urls, fatal, nil
 }
 
 // mustJSON is JSON with sorted keys and no HTML escaping, so the bytes are the
