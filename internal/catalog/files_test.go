@@ -92,6 +92,7 @@ func TestLoadFilesRejects(t *testing.T) {
 		{"one effort value", map[string]string{"overlay.yaml": "models:\n  a/b:\n    effort: {parameter: quality, values: [high]}\n"}, "at least two values"},
 		{"text in a descriptor", map[string]string{"overlay.yaml": joined, "gemini.yaml": strings.Replace(gemini, "{type: range, min: 1, max: 1}", "{type: text}", 1)}, "text is only for pass-through"},
 		{"empty enum", map[string]string{"overlay.yaml": joined, "gemini.yaml": strings.Replace(gemini, "{type: range, min: 1, max: 1}", "{type: enum}", 1)}, "needs values"},
+		{"default outside the values", map[string]string{"overlay.yaml": joined, "gemini.yaml": strings.Replace(gemini, "{type: range, min: 1, max: 1}", "{type: enum, values: [low, high], default: medium}", 1)}, "not one of the values"},
 		{"inverted range", map[string]string{"overlay.yaml": joined, "gemini.yaml": strings.Replace(gemini, "min: 1, max: 1", "min: 2, max: 1", 1)}, "min <= max"},
 		{"free price", map[string]string{"overlay.yaml": joined, "gemini.yaml": strings.Replace(gemini, "0.00003", "0", 1)}, "positive cost_usd"},
 		{"bad kind", map[string]string{"overlay.yaml": joined, "gemini.yaml": strings.Replace(gemini, "kind: image", "kind: audio", 1)}, "kind must be"},

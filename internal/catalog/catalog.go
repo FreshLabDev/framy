@@ -47,6 +47,11 @@ type Param struct {
 	Values []any    `json:"values,omitempty" yaml:"values,omitempty"`
 	Min    *float64 `json:"min,omitempty" yaml:"min,omitempty"`
 	Max    *float64 `json:"max,omitempty" yaml:"max,omitempty"`
+	// Default is what the provider does when the field is left out, where a
+	// hand-written descriptor says so. A setting that no rule of Defaults
+	// decides starts on it, so a run nobody set it for is no worse than the
+	// provider's own. It is one of Values.
+	Default any `json:"default,omitempty" yaml:"default,omitempty"`
 	// Passthrough marks a setting the provider takes among its own options
 	// rather than as a field of the request. The overlay supplies its values,
 	// since OpenRouter lists only the names.
@@ -67,6 +72,9 @@ func (p Param) validate(name string, allowText bool) error {
 	case Enum:
 		if len(p.Values) == 0 {
 			return fmt.Errorf("parameter %s: an enum needs values", name)
+		}
+		if p.Default != nil && !slices.ContainsFunc(p.Values, func(v any) bool { return sameValue(v, p.Default) }) {
+			return fmt.Errorf("parameter %s: the default %v is not one of the values", name, p.Default)
 		}
 	case Range:
 		if p.Min == nil || p.Max == nil || *p.Min > *p.Max {

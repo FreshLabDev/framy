@@ -95,6 +95,18 @@ func TestBuildJoinsNanoBanana(t *testing.T) {
 	if _, ok := nb.Offers[1].Params["thinking_level"]; ok {
 		t.Fatal("the OpenRouter offer gained thinking_level")
 	}
+	// Without a choice the run thinks as it does at Google: medium on 2.1,
+	// minimal on the 3.1 models.
+	for id, want := range map[string]string{
+		"google/gemini-nano-banana-2.1":      "medium",
+		"google/gemini-3.1-flash-image":      "minimal",
+		"google/gemini-3.1-flash-lite-image": "minimal",
+	} {
+		m := modelByID(t, snap, id)
+		if got := Defaults(m.Offers[0], 0)["thinking_level"]; got != want {
+			t.Errorf("%s: default thinking_level = %v, want %s", id, got, want)
+		}
+	}
 
 	omni := modelByID(t, snap, "google/gemini-omni-1.1-flash")
 	if got := offerIDs(omni); !slices.Equal(got, []string{"gemini:gemini-omni-1.1-flash"}) || omni.Kind != Video || !omni.Traits.Continue {

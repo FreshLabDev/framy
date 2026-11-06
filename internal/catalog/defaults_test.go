@@ -160,3 +160,27 @@ func everyRouteHas(of Offer, name string) bool {
 	}
 	return true
 }
+
+// A setting no rule decides starts on what the provider does without it,
+// where the descriptor says: Nano Banana 2.1 thinks at medium by itself, so a
+// run nobody set it for is no worse than one in AI Studio. A provider default
+// the offer no longer lists (an exclude took it) falls back to the old rule.
+func TestDefaultsFollowTheProvidersOwn(t *testing.T) {
+	level := func(own any, values ...any) Offer {
+		return Offer{Kind: Image, Params: map[string]Param{"thinking_level": {Type: Enum, Values: values, Default: own}}}
+	}
+	for _, tc := range []struct {
+		name string
+		of   Offer
+		want any
+	}{
+		{"the middle level", level("medium", "minimal", "medium", "high"), "medium"},
+		{"the least, said so", level("minimal", "minimal", "high"), "minimal"},
+		{"none said", level(nil, "minimal", "medium", "high"), "minimal"},
+		{"the default was excluded", level("medium", "minimal", "high"), "minimal"},
+	} {
+		if got := Defaults(tc.of, 0)["thinking_level"]; got != tc.want {
+			t.Errorf("%s: thinking_level = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}

@@ -132,7 +132,7 @@ No catalog gives defaults, so one rule in Go (`catalog.Defaults`) picks the valu
 - Size, where a model has it instead of an aspect ratio: the same shape at about 1024×1024. A video's `size` gets none, since OpenRouter refuses it next to a resolution or an aspect ratio.
 - Resolution: the smallest that reaches 1K for an image or 720p for a video, else the largest.
 - Duration: the shortest of at least 5 seconds, else the longest.
-- Quality: `medium`, else `standard`; background: `auto`; complexity: `high`, OpenAI's own default; any other choice: `auto`, else the first, which for an effort is the least.
+- Quality: `medium`, else `standard`; background: `auto`; complexity: `high`, OpenAI's own default; any other choice: what the provider does without the field where the hand-written descriptor says so (`default:` on the parameter), else `auto`, else the first, which for an effort is the least. Nano Banana 2.1 thinks at `medium` as it does at Google, so a result is never worse than the maker's own, as with input detail; the 3.1 models start on `minimal`, which is Google's default for them.
 - One result; sound on, as OpenRouter has it; Google Search off; any other range in its middle.
 
 Only the settings the composer draws get a default; the rest stay the provider's. Nor does a setting one of OpenRouter's upstreams would not take with that value: sending it would narrow the upstreams OpenRouter may try, while the estimate counts the cheapest.
@@ -144,7 +144,7 @@ The owner asked for effort settings. Four families of model have them at their m
 | Model | Parameter | Values | Effect on price |
 |:--|:--|:--|:--|
 | GPT Image 2.5 and 2.6 (OpenAI) | `quality` | `low`, `medium`, `high`, `xhigh`, `max` | 1024×1024 from $0.006 to $0.21; 2.6 costs $0.025 at `low` and $0.043 at `medium`, as 2.5 from `high` up |
-| Nano Banana 2.1, 3.1 Flash, Lite (Gemini direct) | `thinking_level` | `minimal`, `medium`, `high` (2.1); `minimal`, `high` (3.1) | thinking tokens are billed |
+| Nano Banana 2.1, 3.1 Flash, Lite (Gemini direct) | `thinking_level` | `minimal`, `medium`, `high` (2.1); `minimal`, `high` (3.1) | thinking tokens are billed; starts on `medium` (2.1) or `minimal` (3.1), Google's own |
 | Riverflow 2.5 | `reasoning` | `low`, `medium`, `high`; Pro also `xhigh` | dynamic price |
 | Krea K3 Edit | `thinking_mode` | `fast` (the default) and `high` through OpenRouter; `ultra` at Krea only | +$0.02 on `high` |
 
