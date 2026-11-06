@@ -71,7 +71,7 @@ function mount() {
       mountLibrary()),
     h("div", { class: "scrim", id: "scrim", hidden: true, onclick: () => closeSheets() }),
     mountPicker(),
-    h("section", { class: "sheet half", id: "tune", hidden: true, "aria-label": t("tune.title"), role: "dialog", "aria-modal": "true" },
+    h("section", { class: "sheet half", id: "tune", hidden: true, "aria-labelledby": "tuneTitle", role: "dialog", "aria-modal": "true" },
       h("header", { role: "none" }, h("h3", { id: "tuneTitle" }, t("tune.title")), h("button", { type: "button", class: "x", "data-close": "" }, t("pick.done"))),
       h("div", { class: "body", id: "tuneBody" })),
     mountCutter(),
