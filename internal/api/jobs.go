@@ -417,17 +417,22 @@ func (a *API) quote(r *http.Request, user int64, lang string) (fx.Quote, error) 
 			return fx.Quote{}, err
 		}
 	}
-	country := ""
-	if web.FromProxy(r) {
-		country = r.Header.Get("CF-IPCountry")
-	}
-	code := fx.Default(chosen, country, lang)
+	code := fx.Default(chosen, country(r), lang)
 	q, err := a.cfg.Store.Quote(ctx, code, fx.Day(a.now()))
 	if errors.Is(err, fx.ErrNoRate) {
 		a.log.Warn("no rate saved; the price is shown in USD", "currency", code)
 		return fx.Dollar, nil
 	}
 	return q, err
+}
+
+// country is the one Cloudflare saw the request come from, believed only
+// through the trusted proxy; "" when there is none.
+func country(r *http.Request) string {
+	if !web.FromProxy(r) {
+		return ""
+	}
+	return r.Header.Get("CF-IPCountry")
 }
 
 // priceRequest is the estimate's input. The first pictures are frames, as

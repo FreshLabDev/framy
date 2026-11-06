@@ -334,15 +334,16 @@ async function setDeliver(on) {
 }
 
 /* Currency and language: PATCH /api/me. */
+// c is a currency, or "" for Auto: by the country, else the language, as before any pick.
 async function setCurrency(c) {
-  if (!S.me || S.me.currency === c) return;
-  const was = S.me.currency;
-  S.me.currency = c;
+  if (!S.me || (c ? S.me.currency_chosen && S.me.currency === c : !S.me.currency_chosen)) return;
+  const was = { currency: S.me.currency, currency_chosen: S.me.currency_chosen };
+  Object.assign(S.me, { currency: c || S.me.currency_auto || S.me.currency, currency_chosen: !!c });
   renderPrefs();
   try { S.me = await patchMe({ currency: c }); }
   catch (e) {
     if (e.code === "sign_in") return lost();
-    S.me.currency = was;
+    Object.assign(S.me, was);
     toast(e.code === "network" ? t("err.network") : t("prefs.not_saved"));
   }
   clearPrices();
@@ -452,7 +453,8 @@ function drawPrefs() {
     deliverRow(),
     h("div", { class: "group", "data-k": "g-cur" }, t("prefs.currency")),
     h("div", { class: "seg wrapping cur", role: "radiogroup", "aria-label": t("prefs.currency"), "data-seg": "cur", "data-dur": 360, "data-k": "s-cur" },
-      CURRENCIES.map((c) => opt({ key: "cur", v: c, on: S.me.currency === c, pick: () => setCurrency(c) }, c, h("small", {}, fmtCurrency(c))))),
+      opt({ key: "cur", v: "auto", on: !S.me.currency_chosen, pick: () => setCurrency("") }, t("val.auto"), h("small", {}, S.me.currency_auto || "")),
+      CURRENCIES.map((c) => opt({ key: "cur", v: c, on: !!S.me.currency_chosen && S.me.currency === c, pick: () => setCurrency(c) }, c, h("small", {}, fmtCurrency(c))))),
     h("p", { class: "note", "data-k": "n-cur" }, t("prefs.currency_note")),
     h("div", { class: "group", "data-k": "g-lang" }, t("prefs.language")),
     sheetRow("lang", ic("info"), t("prefs.lang_row"), t("prefs.lang_sub"), sel),

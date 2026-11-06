@@ -27,7 +27,7 @@ import (
 type fakePrefs struct {
 	mu        sync.Mutex
 	conns     map[string]map[string]any
-	currency  string
+	currency  string // the person's pick, "" for Auto, which gives UAH
 	language  string
 	langPick  bool              // the language is the person's own pick
 	defaults  map[string]string // default models by kind
@@ -49,8 +49,13 @@ func (f *fakePrefs) me() map[string]any {
 			list = append(list, c)
 		}
 	}
+	cur := f.currency
+	if cur == "" {
+		cur = "UAH"
+	}
 	return map[string]any{
-		"user_id": 1, "name": "Ada", "language": f.language, "language_chosen": f.langPick, "currency": f.currency, "currency_chosen": true, "connections": list,
+		"user_id": 1, "name": "Ada", "language": f.language, "language_chosen": f.langPick,
+		"currency": cur, "currency_chosen": f.currency != "", "currency_auto": "UAH", "connections": list,
 		"default_models": maps.Clone(f.defaults), "deliver_to_telegram": f.deliver,
 		"free": map[string]any{
 			"images": map[string]any{"used": 5, "limit": 5, "left": 0, "window_seconds": 86400, "frees_at": time.Now().Add(3 * time.Hour).UTC()},
@@ -67,7 +72,7 @@ func (f *fakePrefs) connect(p, last4, status string) {
 
 func (f *fakePrefs) mount(srv *Server) {
 	f.conns = map[string]map[string]any{}
-	f.currency, f.language, f.defaults, f.deliver = "USD", "en", map[string]string{}, true
+	f.currency, f.language, f.defaults, f.deliver = "", "en", map[string]string{}, true
 	signIn := func(w http.ResponseWriter) bool {
 		if f.deleted {
 			writeTestJSON(w, http.StatusUnauthorized, map[string]any{"error": "sign_in"})
@@ -371,18 +376,25 @@ func TestBrowserPrefs(t *testing.T) {
 		t.Errorf("check without an answer: %v", s)
 	}
 
-	// The currency goes to the server, and the prices follow.
+	// The currency goes to the server, and the prices follow; Auto, which
+	// names what it gives, goes back to the currency of the country.
 	s = prefs(t, ctx, `
+	const on = () => sheet().querySelector('[data-seg="cur"] [aria-checked="true"]').dataset.v;
+	const first = on();
 	sheet().querySelector('[data-seg="cur"] [data-v="EUR"]').click();
-	await until(() => sheet().querySelector('[data-seg="cur"] [data-v="EUR"]').getAttribute("aria-checked") === "true");
+	await until(() => on() === "EUR");
 	await wait(300);
-	return { on: sheet().querySelector('[data-seg="cur"] [aria-checked="true"]').dataset.v, names: [...sheet().querySelectorAll('[data-seg="cur"] small')].map((x) => x.textContent) };`)
+	const names = [...sheet().querySelectorAll('[data-seg="cur"] small')].map((x) => x.textContent);
+	sheet().querySelector('[data-seg="cur"] [data-v="auto"]').click();
+	await until(() => on() === "auto");
+	await wait(300);
+	return { first, names, back: on() };`)
 	f.with(func() {
-		if len(f.patches) != 1 || f.patches[0]["currency"] != "EUR" || f.currency != "EUR" {
+		if len(f.patches) != 2 || f.patches[0]["currency"] != "EUR" || f.patches[1]["currency"] != "" || f.currency != "" {
 			t.Errorf("currency sent: %v", f.patches)
 		}
 	})
-	if s["on"] != "EUR" || !strings.Contains(fmt.Sprint(s["names"]), "Euro") {
+	if s["first"] != "auto" || s["back"] != "auto" || !strings.Contains(fmt.Sprint(s["names"]), "Euro") || !strings.HasPrefix(fmt.Sprint(s["names"]), "[UAH ") {
 		t.Errorf("currency: %v", s)
 	}
 
