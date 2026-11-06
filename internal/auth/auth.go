@@ -61,8 +61,8 @@ const (
 	// Renew moves its end, in the database and in the cookie's Max-Age, when
 	// the site loads the person. Someone who comes back within a month is
 	// never signed out in the middle of their work; a session nobody uses
-	// ends. The settings say it (web.prefs.signed_sub,
-	// TestTheSiteSaysHowLongASignInLasts).
+	// ends. The settings say so, counted from the last visit
+	// (web.prefs.signed_sub, TestTheSiteSaysHowLongASignInLasts).
 	SessionLife = 30 * 24 * time.Hour
 	// renewEvery is how stale a session's end may get before Renew moves it:
 	// at most one write per session a day, however often the site loads.
