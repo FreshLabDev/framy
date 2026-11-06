@@ -11,6 +11,113 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+The review of 5 November, worked through: about 490 findings across the
+bot, the site, the Mini App, jobs, prices, storage and deployment. Six
+migrations, and two changes on the host before this image runs on either
+stack.
+
+### Before you deploy
+
+- Each stack reads its database URL from `secrets/database-url` (one line,
+  framy_core's URL with its password, uid 101, mode 0400) instead of
+  building it from `FRAMY_CORE_PASSWORD`: a variable shows in
+  `docker inspect`, a file does not.
+- `TRUSTED_PROXIES` is cloudflared's own address on the management
+  network, no longer the network's range: any other container in that range
+  could write `CF-Connecting-IP`.
+- The KEK file must be readable by its owner only (`chmod 400`); one that
+  group or others can read stops the start and names the file. Keep it out
+  of the host's backup of the stack directory, since the database dumps hold
+  the keys it opens.
+- The container's own files are read-only, `/metrics` listens on the
+  container's loopback only, and the stacks get four CPUs. The Bot API
+  directory comes in as the volume `bot-api`, so `docker inspect` no longer
+  shows the bot's token in a mount; after a new token, remove
+  `framy_bot-api` with the stack down.
+- The test bot goes through the local Bot API, as production does.
+- Optional: `R2_INCOMING_BUCKET` with a token of its own puts the site's
+  clips in a bucket that token alone can write.
+
+### Migrations
+
+The test bot applies them first, and production on alpha.4 keeps running on
+them.
+
+- `031_site_press_end.sql`: an index for the DM's sender of site presses.
+- `032_session_stack.sql`: a session works only on the stack that made it.
+  Every session before it counts as production's, so people signed in on the
+  test bot sign in there once more. A release before it reads sessions of
+  any stack.
+- `033_job_notice_and_index.sql`: a job's notice names the job and nobody,
+  since any role on core-postgres can listen; indexes for chat runs that
+  point at a file and for the runs of the last month.
+- `034_deleted_provider_message.sql`: clears what providers said about runs
+  deleted before the code did.
+- `035_job_forget.sql`: the jobs of a deleted account stop saying whose they
+  were once the free allowance no longer counts them.
+- `036_oauth_ticket.sql`: one-time tickets to connect OpenRouter from the
+  Mini App.
+
+### Added
+
+- Seed and Leave out (a negative prompt) in the settings, where the model
+  takes them: Veo, Kling, Wan and the image models with a seed.
+- Connect OpenRouter from the Mini App without signing in again in the
+  browser: the Mini App hands the browser a five-minute ticket.
+- Sign out everywhere, in the settings.
+- The library can show only the runs that did not work, and delete them
+  all.
+- A picture made goes on as a photo to change or as a video's first frame.
+- Google's search suggestions and sources show with a grounded result.
+- A visitor picks the language before signing in.
+- The operator chat hears a disk past 80% and jobs nothing takes, and
+  `/healthz` turns unhealthy when calls to Telegram keep failing.
+- `@framyin_bot a fox` in a group framy is in makes a fox; framy greets a
+  group it joins.
+
+### Changed
+
+- A sign-in lasts 30 days after the last visit, not from the sign-in, and
+  signing in again ends the browser's earlier session.
+- The Mini App uses Telegram's own feedback: haptics when a run ends, a
+  closing confirmation while a run is being set up, the main button's
+  progress.
+- Prices: FLUX.2 Pro and Max count the references' megapixels, Nano Banana
+  counts its inputs, FLUX Video Upscale is priced by creativity and frame
+  rate, Seedream 5.0 Pro at 1K costs its base rate, and an "up to" run holds
+  the free budget for its top.
+- Money and lists follow each language's way of writing them.
+- The texts in all 16 languages were reread: one word per thing in each
+  language, a run is a generation where the language says so, and French
+  has its non-breaking spaces.
+
+### Fixed
+
+- A paid video is no longer lost when its key, River's last attempt, a slow
+  copy to R2 or a moment without the database interrupts the check on it;
+  pictures kept before a lost ending make the run done, with their cost.
+- A second press of Create is a repeat, not a used-up allowance, and a run
+  on a key starts at the price the bar shows.
+- A result Telegram refuses ends its run instead of being sent again
+  forever, and one that went out is not sent twice when its record failed.
+- A busy group is paced, and a 429 holds that chat until its wait.
+- The site works from the keyboard and a screen reader, in forced colours,
+  with less motion and right to left in Arabic, and every control on a touch
+  screen is a finger wide.
+
+### Security
+
+- A key pasted into a prompt or a text setting goes nowhere: the run is
+  refused before anything keeps it.
+- Sessions: the login cookie is signed, a session ended anywhere is refused
+  everywhere at once, and a Mini App token ends with the launch it came
+  from.
+- Storage: no Telegram id in file names, a link to put a clip holds that
+  clip and no more, and deleting a run or an account clears what the
+  provider said about it and the DM message it went in.
+- The release publishes the image CI tested, built from pinned base images,
+  and scans its packages.
+
 ## v0.1.0-alpha.4 - 2026-11-02
 
 Fixes for what the first two days of alpha.3 showed in production's logs:
