@@ -5,6 +5,7 @@
 package web
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/evanw/esbuild/pkg/api"
@@ -72,16 +73,20 @@ func TestBrowserPriceCacheBounded(t *testing.T) {
 	}
 }
 
-// TestBrowserPriceRetry: a price that did not come because the network was
-// down or the server busy is asked again by itself; a refusal is not.
+// TestBrowserPriceRetry: a price on the page that did not come because the
+// network was down or the server busy is asked again by itself, each wait
+// twice the last and 30 s at most, for as long as the page shows it (Create
+// waits for it, so giving up would leave the person stuck); one framy refused
+// is asked once; back online, a price that did not come is asked at once.
 func TestBrowserPriceRetry(t *testing.T) {
 	ts := fakeAPI(t)
 	ctx := browser(t, ts.URL, 1440, 900, false)
 	js[bool](t, ctx, priceBundle(t)+"; return true;")
 	got := js[map[string]any](t, ctx, priceKit+`
-	const fetch0 = window.fetch, st = window.setTimeout;
-	// The pauses between tries are seconds; the test lives them in milliseconds.
-	window.setTimeout = (f, ms, ...a) => st(f, ms >= 1000 ? 15 : ms, ...a);
+	const fetch0 = window.fetch, st = window.setTimeout, waits = [];
+	// The waits between tries are seconds; the test lives them in milliseconds.
+	window.setTimeout = (f, ms, ...a) => { if (ms >= 500) waits.push(Math.round(ms / 100) * 100); return st(f, ms >= 500 ? 15 : ms, ...a); };
+	const pause = (ms) => new Promise((r) => st(r, ms));
 	let calls = 0, mode = "network";
 	window.fetch = async (u, o) => {
 	  if (!String(u).endsWith("/api/quote")) return fetch0(u, o);
@@ -91,45 +96,52 @@ func TestBrowserPriceRetry(t *testing.T) {
 	  if (mode === "refused") return new Response(JSON.stringify({ error: "bad_request" }), { status: 400, headers: { "Content-Type": "application/json" } });
 	  return answer(JSON.parse(o.body));
 	};
+	const shown = (it) => { const el = P.priceEl(it); document.body.append(el); return el; };
 	const out = {};
-	// Down for the first two tries, then back.
-	const a = item(1);
-	P.need(a);
-	await new Promise((r) => st(r, 5));
+	// Down for the first two tries, then back: the price on the page fills in.
+	const a = shown(item(1));
+	await pause(45);
 	mode = "busy";
-	await new Promise((r) => st(r, 60));
+	await pause(60);
 	mode = "ok";
-	await new Promise((r) => st(r, 200));
+	await pause(200);
 	await settle();
-	out.recovered = P.known(a) !== undefined; out.callsRecovered = calls;
-	// Down for good: it tries a few times and gives up, no loop.
-	calls = 0; mode = "network";
-	P.need(item(2));
-	await new Promise((r) => st(r, 600));
-	await settle();
-	out.gaveUp = calls; out.stillBusy = P.busy();
-	// A refusal is asked once.
+	out.recovered = [P.known(item(1)) !== undefined, a.textContent, calls >= 3];
+	// Down for good: asked again while it is on the page, the waits growing.
+	calls = 0; waits.length = 0; mode = "network";
+	const b = shown(item(2));
+	await pause(500);
+	out.waits = waits.slice(0, 7);
+	// Off the page, nobody asks.
+	b.remove();
+	await pause(150);
+	const n0 = calls;
+	await pause(300);
+	out.offPage = calls - n0;
+	// A refusal is asked once, on the page or not.
 	calls = 0; mode = "refused";
-	P.need(item(3));
-	await new Promise((r) => st(r, 200));
+	shown(item(3));
+	await pause(300);
 	out.refused = calls;
-	// Asking again after giving up works once the network is back.
+	// Back online, a price that did not come is asked at once, not after its wait.
+	window.setTimeout = st;
+	calls = 0; mode = "network";
+	shown(item(4));
+	await pause(150);
 	mode = "ok";
-	P.need(item(2));
-	await new Promise((r) => st(r, 200));
-	out.later = P.known(item(2)) !== undefined;
-	window.fetch = fetch0; window.setTimeout = st;
+	dispatchEvent(new Event("online"));
+	await pause(150);
+	// Long before its wait of a second is over. (The page's own prices hear the event too.)
+	out.online = P.known(item(4)) !== undefined;
+	window.fetch = fetch0;
 	return out;`)
-	if got["recovered"] != true {
-		t.Errorf("the price did not come back after the network did: %v", got)
+	want := map[string]string{
+		"recovered": "[true $0.01 true]", "waits": "[1000 2000 4000 8000 16000 30000 30000]",
+		"offPage": "0", "refused": "1", "online": "true",
 	}
-	if n := got["gaveUp"].(float64); n < 3 || n > 7 || got["stillBusy"] != false {
-		t.Errorf("a quote that stays down was asked %v times (busy: %v), want a few and then stop", got["gaveUp"], got["stillBusy"])
-	}
-	if got["refused"] != float64(1) {
-		t.Errorf("a refusal was asked %v times, want once", got["refused"])
-	}
-	if got["later"] != true {
-		t.Errorf("asking again after giving up did not work: %v", got)
+	for k, w := range want {
+		if g := fmt.Sprint(got[k]); g != w {
+			t.Errorf("%s = %s, want %s", k, g, w)
+		}
 	}
 }

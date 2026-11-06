@@ -34,23 +34,41 @@ export const onPrices = (fn) => listeners.add(fn);
 export const clearPrices = () => { cache.clear(); totals.clear(); failed.clear(); failedT.clear(); };
 
 // need() returns what is known now and asks for the rest, in one request a moment later.
-// A price that did not come is asked again once its wait is over, not at once.
+// A price that did not come is asked again once its wait is over, not at once;
+// one framy refused is not asked again by itself: the same question gets the
+// same answer, and the next change asks another.
 export function need(it) {
   const k = keyOf(it), got = recall(cache, k);
   if (got) return got;
   if (waiting.has(k) || later.has(k)) return null;
-  const due = (failed.get(k)?.at || 0) - Date.now();
+  const f = failed.get(k);
+  if (f?.refused) return null;
+  const due = (f?.at || 0) - Date.now();
   if (due > 0) {
     later.add(k);
-    setTimeout(() => { later.delete(k); need(it); }, due);
+    setTimeout(() => { if (later.delete(k)) ask(k, it); }, due);
     return null;
   }
+  ask(k, it);
+  return null;
+}
+function ask(k, it) {
+  if (cache.has(k) || waiting.has(k)) return;
   waiting.set(k, it);
   if (!timer) timer = setTimeout(flush, 40);
-  return null;
 }
 // The wait before a price that did not come is asked again: 1 s, then twice as long each time, at most 30 s.
 const backoff = (n) => Math.min(30000, 1000 * 2 ** (n - 1));
+// The network or a busy server: worth asking again. Anything else framy said is its answer.
+const passing = (e) => e?.code === "network" || e?.status === 429 || e?.status >= 500;
+// Back online, the prices that did not come are asked at once, not after their wait.
+addEventListener("online", () => {
+  later.clear();
+  for (const f of failed.values()) f.at = 0;
+  for (const f of failedT.values()) f.at = 0;
+  for (const el of document.querySelectorAll("[data-q]")) if (el._it) need(el._it);
+  for (const fn of listeners) fn();
+});
 
 async function flush() {
   timer = 0;
@@ -64,11 +82,11 @@ async function flush() {
     const r = await api("/api/quote", { method: "POST", body: { items: batch.map(([, it]) => it) } });
     (r.items || []).forEach((x, i) => { const k = batch[i]?.[0]; if (k) { remember(cache, k, x); failed.delete(k); } });
     ok = true;
-  } catch {
+  } catch (e) {
     // A price that did not come waits a little and is asked again while the
     // page still shows it: the bar keeps its "…" and Create waits for it.
-    const now = Date.now();
-    for (const [k] of batch) { const n = (failed.get(k)?.n || 0) + 1; failed.set(k, { n, at: now + backoff(n) }); }
+    const now = Date.now(), refused = !passing(e);
+    for (const [k] of batch) { const n = (failed.get(k)?.n || 0) + 1; failed.set(k, { n, at: now + backoff(n), refused }); }
   } finally {
     inflight--;
   }
