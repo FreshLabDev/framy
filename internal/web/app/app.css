@@ -75,6 +75,9 @@ p {margin: 0;}
    button says "Sign in" by Telegram's plane, and under 360 px the name gives way to the mark. */
 @media (max-width: 479px) {.signin > .t {display: none;} .signin > .ts {display: block;}}
 @media (max-width: 359px) {.top:has(.signin) .logo span {display: none;}}
+/* With the language beside it the line is tight up to 400 px: Catalan's "Inicia la sessió" needs
+   the room the gaps give up. */
+@media (max-width: 399px) {.top:has(.glang) {gap: 8px;} .top .signin {padding: 0 12px; gap: 6px;}}
 @media (max-width: 520px) {
   .me .t {display: none;}
 }
