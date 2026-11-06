@@ -534,6 +534,13 @@ func TestEveryKeyTheSiteNamesExists(t *testing.T) {
 			line := 1 + strings.Count(string(src[:m[0]]), "\n")
 			checked++
 			after := strings.TrimLeft(string(src[m[1]:]), " \t\n")
+			// The build bundles the models' notes (note.<model id>) with the web.* lines.
+			if strings.HasPrefix(key, "note.") {
+				if !starts(key) {
+					t.Errorf("%s:%d: no line of translations.json starts with %s", path, line, key)
+				}
+				continue
+			}
 			if end == "${" || strings.HasSuffix(key, ".") || strings.HasPrefix(after, "+") {
 				if !starts("web." + key) {
 					t.Errorf("%s:%d: no line of translations.json starts with web.%s", path, line, key)

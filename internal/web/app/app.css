@@ -258,6 +258,11 @@ input[type="range"]::-moz-range-thumb {width: 20px; height: 20px; background: va
 .ghost .c b, .jbox .c b, .c.under b {font: 700 clamp(20px, 4vw, 42px)/1 var(--display); color: var(--muted);}
 .ghost .c small, .jbox .c small, .c.under small {font-size: 13px; color: var(--muted);}
 .ghost .c > .ic, .jbox .c > .ic {width: 34px; height: 34px; color: var(--muted);}
+/* A small empty frame, as on a short phone, says what fits: the shape, then
+   the model, and the icon only where there is room for all three. */
+.ghost {container-type: size;}
+@container (max-height: 149.98px) { .ghost .c > .ic {display: none;} }
+@container (max-height: 99.98px) { .ghost .c small {display: none;} }
 @media (min-width: 960px) {
   .stage {position: sticky; top: 12px;}
 }
@@ -459,7 +464,13 @@ input.search::placeholder {color: var(--muted);}
   .composer .fgroup > .gt {flex-wrap: nowrap;}
   .composer .fhint, .composer .fhint.cut {flex: 1 1 160px; padding-inline-start: 0; font-size: 13px;}
   .composer .fgroup.cont {flex: 1 1 100%;}
-  .composer .bar {padding-top: 0;}
+  /* A long next step ("Connect OpenRouter") takes a line of its own, the whole
+     width, rather than squeeze the price, and so does one with a line under
+     the price that says why or when (.says): it reads to its end. Create and
+     Sign in stay beside the price down to 320 px. */
+  .composer .bar {padding-top: 0; flex-wrap: wrap; row-gap: 8px;}
+  .composer .price {flex: 1000 1 120px;}
+  .composer .bar.says .price {flex-basis: 180px;}
   .composer .pnum {font-size: 30px;}
   /* On a phone the button leaves the price a narrow column: the line under the price runs on
      under the button, the whole width of the dock, and a long name of the button takes two lines
@@ -471,7 +482,7 @@ input.search::placeholder {color: var(--muted);}
     .composer .bar > .price > #pcap {grid-column: 1 / -1; grid-row: 2;}
     .composer .bar > .go {grid-column: 2; grid-row: 1; justify-self: end; max-width: 100%; text-align: center; line-height: 1.15;}
   }
-  .composer .go {min-width: 136px;}
+  .composer .go {min-width: 136px; flex: 1 0 auto;}
   .composer::after {inset: 0;}
   .top {height: 56px;}
   .stage .preview {justify-items: center;}
@@ -495,6 +506,14 @@ input.search::placeholder {color: var(--muted);}
 @media (max-width: 420px) {
   .chipbtn > .lg {display: none;}
   .chipbtn:not(.set) {padding: 0 10px; gap: 6px;}
+}
+/* On a phone a long name takes two lines rather than lose its end, which
+   is what tells one variant from another ("2.6 Flash"). */
+@media (max-width: 959px) {
+  .chipbtn .nm > span {white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.15;}
+}
+@media (max-width: 389.98px) {
+  .composer .go {padding: 0 16px;}
 }
 
 /* The run on the stage. */
@@ -542,6 +561,15 @@ input.search::placeholder {color: var(--muted);}
 .jwhy .note {color: var(--soft);}
 .jprompt[hidden] {display: none;}
 .jacts {display: flex; flex-wrap: wrap; gap: var(--gap);}
+/* Search grounding: Google's suggestions as Google drew them, then the pages the result cites, in one row. */
+.ground {display: grid; gap: 6px; min-width: 0;}
+.ground .gnum {font-size: 12px; font-weight: 700; color: var(--muted);}
+.gsug {display: block; width: 100%; height: 50px; border: 0; background: transparent; color-scheme: dark;}
+.gsrc {display: flex; align-items: center; gap: 4px 12px; min-width: 0; height: 24px; overflow-x: auto; scrollbar-width: none; white-space: nowrap; font-size: 13px; color: var(--soft);}
+.gsrc::-webkit-scrollbar {display: none;}
+.gsrc .ic {flex: none; width: 14px; height: 14px; color: var(--muted);}
+.gsrc a {flex: none; max-width: 240px; overflow: hidden; text-overflow: ellipsis; color: var(--soft); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px;}
+.gsrc a:hover {color: var(--ink);}
 .jacts > .sqs {display: contents;}
 :is(.jacts, .sqs) > :is(button, a) {height: 42px; padding: 0 14px; display: inline-flex; align-items: center; gap: 8px; background: var(--deep); color: var(--ink); text-decoration: none; font-weight: 600; font-size: 15px;}
 .jacts > .primary {background: var(--ink); color: var(--field);}
@@ -563,6 +591,10 @@ input.search::placeholder {color: var(--muted);}
 @media (max-width: 389.98px) {
   .sqs > .sq2 {width: 42px; padding: 0; justify-content: center;}
   .sqs > .sq2 > .t {display: none;}
+  /* Six buttons and more under a result (a picture's): Download goes square too, so
+     they stay one row over the dock; its word stays for a screen reader. */
+  #stage .jacts:has(> :nth-child(6)) > .primary {flex: none; width: 42px; padding: 0; position: relative;}
+  #stage .jacts:has(> :nth-child(6)) > .primary > .t {position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;}
 }
 .jprompt {display: flex; align-items: flex-start; gap: 8px; min-width: 0; font-size: 15px; color: var(--muted);}
 .jprompt > .tx {flex: 1; min-width: 0; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;}
@@ -635,6 +667,7 @@ input.search::placeholder {color: var(--muted);}
 #prefs .group:first-child {margin-top: 0;}
 .srow {display: flex; align-items: center; gap: 14px; min-height: 60px; padding: 10px; padding-inline-start: 12px; background: var(--deep);}
 .srow > .ic, .srow > .lgi {flex: none; width: 20px; height: 20px; margin-inline: 8px; color: var(--soft);}
+.srow > .av {flex: none; width: 28px; height: 28px; margin-inline: 4px; display: grid; place-items: center; background: var(--ink); color: var(--field); font-weight: 700; object-fit: cover;}
 .srow .l {flex: 1; min-width: 0;}
 .srow .l b {display: block; font-weight: 700;}
 .srow .l > span {display: block; font-size: 14px; color: var(--muted); overflow-wrap: anywhere;}

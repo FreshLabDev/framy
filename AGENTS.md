@@ -169,7 +169,11 @@ screen, a command or a table, check how the siblings do it.
   over 50 ms on a CPU four times slower than an M-series laptop: the test
   measures the machine on DOM work like the steps', slows it to that speed,
   and brings a machine already slower than that down to the laptop's times
-  (`cpuRef` in `browser_test.go`). Fonts and libraries are served by
+  (`cpuRef` in `browser_test.go`). The composer, the person's settings, the
+  library and the viewer are walked twice, each time on the page loaded
+  afresh, so a first, cold opening counts. With reduced motion asked, nothing
+  may move on the same walk: no `animate()`, no CSS animation, no transition
+  of a place or a size, no smooth scroll. Fonts and libraries are served by
   the service itself; only `telegram-web-app.js` comes from outside, and only
   the Mini App loads it.
 

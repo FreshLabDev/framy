@@ -151,12 +151,15 @@ func TestADownloadNameHasTheExtensionOfItsType(t *testing.T) {
 	}
 }
 
-func TestFirstTagOfAcceptLanguage(t *testing.T) {
+func TestAcceptLangIsTheFirstFramySpeaks(t *testing.T) {
 	for in, want := range map[string]string{
-		"uk-UA,uk;q=0.9,en;q=0.8": "uk", "en": "en", "pl-PL": "pl", "*": "", "": "", "x": "", "fil-PH": "fil",
+		"uk-UA,uk;q=0.9,en;q=0.8": "uk", "en": "en", "pl-PL": "pl", "*": "", "": "", "x": "", "fil-PH": "",
 		"123": "", "uk;q=0.1": "uk", " BE-by ": "be",
+		// The page speaks the first language of the browser it can: so do the notes and the amounts.
+		"kk-KZ,kk;q=0.9,ru;q=0.8,en;q=0.7": "ru", "pt-BR, pt;q=0.9, en;q=0.5, de;q=0.7": "de",
+		"ru;q=0,en": "en", "ja;q=oops,fr": "fr", "zh_CN": "zh", "nl,sv;q=0.8,de;q=0.8": "sv",
 	} {
-		if got := firstTag(in); got != want {
+		if got := acceptLang(in); got != want {
 			t.Errorf("%q: %q, want %q", in, got, want)
 		}
 	}

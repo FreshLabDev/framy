@@ -7,6 +7,12 @@ import { known, need, priced, knownTotal } from "./price.js";
 
 export const S = {
   signed: false, me: null, mini: false, tg: null, online: navigator.onLine,
+  // expired is why framy refused the Mini App's launch data (init_data_expired or
+  // init_data_invalid): nobody is signed in until Telegram opens the Mini App anew.
+  expired: "",
+  // unsure: framy did not say who is here (a 5xx, the tunnel, the network),
+  // which is not "nobody": until it does, nobody is asked to sign in again.
+  unsure: false,
   // meV counts the person's changes to the account on this page, a sign-out
   // among them: a read of /api/me begun before one is older than what the page holds.
   meV: 0,
@@ -34,7 +40,7 @@ export const FR = () => S.frames[S.kind];
 export const scopeFr = () => FR().find((f) => f.id === S.scope[S.kind]) || null;
 export const common = () => C.byId[S.model[S.kind]];
 export const frModel = (fr) => C.byId[fr.own.model] || common();
-export const frPay = (fr) => { const m = frModel(fr); return fr.own.pay && pays(m).includes(fr.own.pay) ? fr.own.pay : basePay(m); };
+export const frPay = (fr) => { const m = frModel(fr); return holds(m, fr.own.pay) ? fr.own.pay : basePay(m); };
 export const frWanted = (fr) => ({ ...S.wanted, ...fr.own.wanted });
 // What the composer changes now: one frame's, or the common one of all.
 export const wanted = () => { const fr = scopeFr(); return fr ? frWanted(fr) : S.wanted; };
@@ -187,22 +193,32 @@ export const fitsFree = (m) => {
   if (p.start_frame && S.kind === "video" && images().some((f) => slotOf(f) !== "start")) return false;
   return n <= freeTakes(p) && n >= (p.min_inputs || 0) && !(S.cont && S.cont.model === m.id);
 };
+// The free allowance can pay now: for anyone signed out, and for a person
+// while runs are left and the tier is open.
+export const freeNow = (kind) => !S.signed || freeLeft(kind) > 0;
+// The key to connect for a model when none of its keys works: the one its free
+// runs go through (framy's OpenRouter key pays for them), else its first.
+export const keyToConnect = (m) => freePlan(m)?.offer.provider || m.offers[0].provider;
+// A payment chosen for a model still holds: free only while it can pay, since
+// a choice made then (or a run brought back) must not leave the button dead.
+const holds = (m, p) => !!p && pays(m).includes(p) && (p !== "free" || freeNow(m.kind));
 // The payment of a model: the frame's own, else the one chosen, else free while it lasts, else a working key, else what the model has.
 export function payOf(m) {
   const fr = scopeFr();
-  if (m && fr?.own.pay && frModel(fr) === m && pays(m).includes(fr.own.pay)) return fr.own.pay;
+  if (m && fr?.own.pay && frModel(fr) === m && holds(m, fr.own.pay)) return fr.own.pay;
   return basePay(m);
 }
 function basePay(m) {
   if (!m) return "";
   const want = S.pay[m.id];
-  if (want && pays(m).includes(want)) return want;
-  if (freePlan(m) && fitsFree(m) && (!S.signed || freeLeft(m.kind) > 0)) return "free";
+  if (holds(m, want)) return want;
+  if (freePlan(m) && fitsFree(m) && freeNow(m.kind)) return "free";
   const keyed = m.offers.map((o) => o.provider).filter(keyOk);
   if (keyed.length) return keyed[0];
-  return freePlan(m) ? "free" : m.offers[0].provider;
+  // Free that cannot pay now leaves the run on the key the button connects, at its price there.
+  return freePlan(m) && freeNow(m.kind) ? "free" : keyToConnect(m);
 }
-export const usable = (m, pay) => !S.signed || (pay === "free" ? freeLeft(m.kind) > 0 : keyOk(pay));
+export const usable = (m, pay) => (pay === "free" ? freeNow(m.kind) : !S.signed || keyOk(pay));
 
 export function sourceRatio() { const i = images()[0] || clip(); return i && i.w && i.h ? i.w / i.h : null; }
 export const settings = (m, pay, w = wanted()) => withRefLengths(m, pay, withFrames(m, pay, settingsOf(m, pay, w, sourceRatio())));
@@ -431,18 +447,17 @@ export function renewRefused() {
 export function next(prompt) {
   if (!M()) return { label: t("go.create"), on: false };
   const items = plan(), cont = items.some((it) => contFits(it.m, it.pay)), empty = !prompt.trim() && !S.files.length && !cont;
-  if (!S.signed) return { label: t(S.mini ? "go.create" : "go.signin"), act: "signin", on: !empty || S.mini };
+  if (!S.signed && S.mini && S.expired) return { label: t("go.close"), act: "close", on: true, why: reopenText() };
+  if (!S.signed && S.unsure) return { label: t("go.offline"), on: false };
+  // Signing in needs no prompt: the button goes at once, and what is typed meanwhile waits for the return.
+  if (!S.signed) return { label: t(S.mini ? "go.create" : "go.signin"), act: "signin", on: true };
   if (!S.online) return { label: t("go.offline"), on: false };
   if (S.busy) return { label: t("go.starting"), on: false };
-  const fi = items.find((it) => it.pay === "free");
-  if (fi) {
-    const k = fi.m.kind;
-    if (S.closed[k] > Date.now()) return { label: t("go.free_closed", { time: fmtTime(S.closed[k]) }), on: false };
-    if (freeLeft(k) <= 0) return { label: t("go.free_out"), on: false, why: freesAt(k) ? t("bar.free_back", { at: fmtAt(freesAt(k)) }) : "" };
-    if (items.some((it) => it.short)) return { label: t("go.free_only", { n: freeLeft(k) }), on: false, why: freesAt(k) ? t("bar.free_back", { at: fmtAt(freesAt(k)) }) : "" };
-  }
+  // A free frame is there only while free can pay (holds, basePay); one past what is left is short.
+  const fi = items.find((it) => it.pay === "free"), k = fi?.m.kind;
+  if (fi && items.some((it) => it.short)) return { label: t("go.free_only", { n: freeLeft(k) }), on: false, why: freesAt(k) ? t("bar.free_back", { at: fmtAt(freesAt(k)) }) : "" };
   const nokey = items.find((it) => it.pay !== "free" && !keyOk(it.pay));
-  if (nokey) return keyStep(nokey.pay);
+  if (nokey) return keyStep(nokey.pay, nokey.m);
   for (const it of items) {
     const r = route(it.m, it.pay);
     if (needsVideo(it.m) && !contFits(it.m, it.pay) && !S.files.some((f, i) => f.kind === "video" && r[i]?.go)) return { label: t("go.need_clip"), on: false };
@@ -452,7 +467,7 @@ export function next(prompt) {
   if (cut) return { label: t("go.pick_part", { n: fmtNum(cut) }), icon: "film", act: "cut", on: true };
   for (const it of items) {
     const q = known(runItem(it.m, it.pay, it.set));
-    if (q?.refusal?.error === "no_connection" || q?.refusal?.error === "connection_invalid") return keyStep(offerOf(it.m, it.pay).provider);
+    if (q?.refusal?.error === "no_connection" || q?.refusal?.error === "connection_invalid") return keyStep(offerOf(it.m, it.pay).provider, it.m);
     if (q?.refusal) return { label: refusalLabel(q.refusal, it.m), on: false };
   }
   // A run on a key starts at the price the bar shows, so not before the bar shows one.
@@ -460,8 +475,18 @@ export function next(prompt) {
   if (paid.length && !(items.length < 2 ? priced(paid[0]) : knownTotal(paid)?.total)) return { label: t("go.create"), icon: "spark", act: "create", on: false };
   return { label: t("go.create"), icon: "spark", act: "create", on: !empty };
 }
+// Why the Mini App has to be opened again, and that it has to.
+export const reopenText = () => t(S.expired === "init_data_expired" ? "auth.mini_expired" : "auth.mini_failed");
 // A key is missing or stopped working: the button opens the settings at it.
-const keyStep = (p) => ({ label: t(connection(p) ? "go.rekey" : "go.connect", { provider: PNAME[p] || p }), icon: "key", act: "key", provider: p, on: true });
+// When it is there because free cannot pay now, the line under the price
+// says when free is back.
+const keyStep = (p, m) => ({ label: t(connection(p) ? "go.rekey" : "go.connect", { provider: PNAME[p] || p }), icon: "key", act: "key", provider: p, on: true, why: freeBack(m) });
+function freeBack(m) {
+  if (!S.signed || !m || !freePlan(m) || !fitsFree(m) || freeNow(m.kind)) return "";
+  const k = m.kind;
+  if (S.closed[k] > Date.now()) return t("go.free_closed", { time: fmtTime(S.closed[k]) });
+  return freesAt(k) ? t("bar.free_back", { at: fmtAt(freesAt(k)) }) : "";
+}
 export function refusalLabel(r, m) {
   switch (r.error) {
     case "free_limit": return t("go.free_out");

@@ -2,7 +2,8 @@
 
 // Command build makes the site's assets: it bundles internal/web/app into
 // one minified script and one stylesheet, copies the fonts and the marks,
-// writes the web.* lines of every language, and fills the page template.
+// writes the web.* lines and the models' notes of every language, and fills
+// the page template.
 // Every asset is named by its content (app.3f9a1c2b4d5e.js), so the server
 // gives it a year in the cache; the page itself is checked every time.
 //
@@ -36,6 +37,9 @@ const (
 	dist = "dist"
 	// prefix marks the lines of translations.json that belong to the site.
 	prefix = "web."
+	// notes are the models' lines (note.<model id>), which the site shows
+	// under their own keys in the language it speaks.
+	notes = "note."
 )
 
 func main() {
@@ -92,7 +96,7 @@ func run() error {
 	if mark == "" || icons["framy-32.png"] == "" || icons["framy-180.png"] == "" {
 		return errors.New("app/icon: want framy.svg, framy-32.png and framy-180.png")
 	}
-	texts, err := writeTexts(o)
+	texts, fatal, err := writeTexts(o)
 	if err != nil {
 		return err
 	}
@@ -122,7 +126,7 @@ func run() error {
 		Format:      api.FormatESModule,
 		Plugins: []api.Plugin{
 			virtual("assets:logos", "export default "+string(logoJS)+";"),
-			virtual("assets:lists", "export const LANGS = "+mustJSON(langs)+";\nexport const CURRENCIES = "+mustJSON(fx.Codes)+";\nexport const MARK = "+mustJSON(mark)+";"),
+			virtual("assets:lists", "export const LANGS = "+mustJSON(langs)+";\nexport const CURRENCIES = "+mustJSON(fx.Codes)+";\nexport const MARK = "+mustJSON(mark)+";\nexport const FATAL = "+mustJSON(fatal)+";"),
 		},
 	})
 	if err != nil {
@@ -230,34 +234,45 @@ func inlineDir(dir, ext, mime string) (map[string]string, error) {
 
 // writeTexts writes the site's lines of each language as its own file, the
 // missing ones in English, and returns their URLs by language.
-func writeTexts(o *out) (map[string]string, error) {
+// fatalLines are what the page says when it could not load, its own lines
+// perhaps among what did not come: they go inside app.js, in every language.
+var fatalLines = []string{"fatal.text", "act.retry"}
+
+func writeTexts(o *out) (map[string]string, map[string][]string, error) {
 	raw, err := os.ReadFile(filepath.Join("..", "i18n", "translations.json"))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var all map[string]map[string]string
 	if err := json.Unmarshal(raw, &all); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	urls := map[string]string{}
+	urls, fatal := map[string]string{}, map[string][]string{}
 	for _, l := range i18n.LANGUAGE_OPTIONS {
 		lines := map[string]string{}
 		for k, by := range all {
-			if !strings.HasPrefix(k, prefix) {
+			name, web := strings.CutPrefix(k, prefix)
+			if !web && !strings.HasPrefix(k, notes) {
 				continue
 			}
 			t := by[l.Code]
 			if t == "" {
 				t = by[i18n.DefaultLang]
 			}
-			lines[strings.TrimPrefix(k, prefix)] = t
+			lines[name] = t
 		}
 		if len(lines) == 0 {
-			return nil, errors.New("translations.json has no web.* lines")
+			return nil, nil, errors.New("translations.json has no web.* lines")
+		}
+		for _, k := range fatalLines {
+			if lines[k] == "" {
+				return nil, nil, fmt.Errorf("translations.json has no web.%s", k)
+			}
+			fatal[l.Code] = append(fatal[l.Code], lines[k])
 		}
 		urls[l.Code] = o.put("texts-"+l.Code+".json", []byte(mustJSON(lines)))
 	}
-	return urls, nil
+	return urls, fatal, nil
 }
 
 // mustJSON is JSON with sorted keys and no HTML escaping, so the bytes are the

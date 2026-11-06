@@ -26,7 +26,7 @@ func TestMeIsTheSignedInPerson(t *testing.T) {
 	}
 	want := map[string]any{
 		"user_id": float64(alice), "name": "Olesya Kovalenko", "photo_url": "https://t.me/i/userpic/320/olesya.jpg",
-		"language": "uk", "language_chosen": false, "currency": "EUR", "currency_chosen": true, "signed_in_at": "2026-10-27T09:30:00Z",
+		"language": "uk", "language_chosen": false, "currency": "EUR", "currency_chosen": true, "currency_auto": "UAH", "signed_in_at": "2026-10-27T09:30:00Z",
 		"deliver_to_telegram": true,
 	}
 	for k, v := range want {
@@ -63,7 +63,7 @@ func TestMeWithoutACard(t *testing.T) {
 	r.store.lang[bob] = "pl"
 	resp := r.do(bob, "GET", "/api/me", nil)
 	m := jsonOf(t, resp)
-	if resp.StatusCode != http.StatusOK || m["name"] != "" || m["photo_url"] != "" || m["currency"] != "PLN" || m["currency_chosen"] != false {
+	if resp.StatusCode != http.StatusOK || m["name"] != "" || m["photo_url"] != "" || m["currency"] != "PLN" || m["currency_chosen"] != false || m["currency_auto"] != "PLN" {
 		t.Fatalf("%d %v", resp.StatusCode, m)
 	}
 	if _, ok := m["signed_in_at"]; ok {

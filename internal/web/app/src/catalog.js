@@ -2,7 +2,7 @@
 // families, the free plans by offer, what each model takes, and the settings
 // a person can change. Prices are not here: they come from POST /api/quote.
 import { h, ic } from "./dom.js";
-import { t, fmtNum, fmtDay } from "./i18n.js";
+import { t, has, fmtNum, fmtIsoDay } from "./i18n.js";
 import LOGOS from "assets:logos";
 
 export const C = { models: [], byId: {}, FAM: [], famOf: {}, varOf: {}, plans: {}, free: {}, recommend: {} };
@@ -23,7 +23,10 @@ export function loadCatalog(cat) {
     const fm = m.family || {}, key = fm.id || m.id;
     let f = byKey[key];
     if (!f) { f = byKey[key] = { key, name: fm.name || m.name, axes: !!fm.line, order: i, vars: [] }; C.FAM.push(f); }
-    f.vars.push({ id: m.id, m, gen: fm.gen || "", tier: fm.tier || "", label: fm.label || m.name, note: m.note || "",
+    // The note is a line of the interface, in the language the page speaks: the catalog's
+    // is in the language the server guessed for the request, which can be another.
+    f.vars.push({ id: m.id, m, gen: fm.gen || "", tier: fm.tier || "", label: fm.label || m.name,
+      get note() { return has("note." + m.id) ? t("note." + m.id) : m.note || ""; },
       line: fm.line || "", fmt: fm.format || "", rank: fm.rank ?? 0, outBy: fm.outdated_by, isDef: !!fm.default });
   });
   C.FAM.forEach((f, i) => {
@@ -223,7 +226,7 @@ export function deprecation(m) {
   if (!m.deprecated) return null;
   const to = m.successor && C.byId[m.successor];
   const toName = to ? (C.famOf[to.id] === C.famOf[m.id] ? C.varOf[to.id].label : vname(to)) : "";
-  const v = { date: m.shuts_down ? fmtDay(m.shuts_down) : "", maker: m.maker, name: toName }, day = v.date ? "shuts" : "closing";
+  const v = { date: m.shuts_down ? fmtIsoDay(m.shuts_down) : "", maker: m.maker, name: toName }, day = v.date ? "shuts" : "closing";
   // A date that ends in a full stop of its own ("1 февраля 2027 г.") ends the
   // sentence with it, not with two.
   const say = (k) => { const s = t(k, v); return v.date.endsWith(".") ? s.replace(`${v.date}.`, v.date) : s; };

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -28,7 +29,7 @@ import (
 type fakePrefs struct {
 	mu        sync.Mutex
 	conns     map[string]map[string]any
-	currency  string
+	currency  string // the person's pick, "" for Auto, which gives UAH
 	language  string
 	langPick  bool              // the language is the person's own pick
 	defaults  map[string]string // default models by kind
@@ -70,8 +71,13 @@ func (f *fakePrefs) me() map[string]any {
 			list = append(list, c)
 		}
 	}
+	cur := f.currency
+	if cur == "" {
+		cur = "UAH"
+	}
 	return map[string]any{
-		"user_id": 1, "name": "Ada", "language": f.language, "language_chosen": f.langPick, "currency": f.currency, "currency_chosen": true, "connections": list,
+		"user_id": 1, "name": "Ada", "language": f.language, "language_chosen": f.langPick,
+		"currency": cur, "currency_chosen": f.currency != "", "currency_auto": "UAH", "connections": list,
 		"default_models": maps.Clone(f.defaults), "deliver_to_telegram": f.deliver,
 		"free": map[string]any{
 			"images": map[string]any{"used": 5, "limit": 5, "left": 0, "window_seconds": 86400, "frees_at": time.Now().Add(3 * time.Hour).UTC()},
@@ -89,7 +95,7 @@ func (f *fakePrefs) connect(p, last4, status string) {
 
 func (f *fakePrefs) mount(srv *Server) {
 	f.conns = map[string]map[string]any{}
-	f.currency, f.language, f.defaults, f.deliver = "USD", "en", map[string]string{}, true
+	f.currency, f.language, f.defaults, f.deliver = "", "en", map[string]string{}, true
 	signIn := func(w http.ResponseWriter) bool {
 		if f.deleted || f.out || f.allOut || f.launchOld {
 			writeTestJSON(w, http.StatusUnauthorized, map[string]any{"error": "sign_in"})
@@ -338,11 +344,15 @@ func TestBrowserPrefs(t *testing.T) {
 	await until(() => !sheet().hidden && rowOf("gemini"));
 	await wait(500);
 	return { or: rowText("openrouter"), oa: rowText("openai"), ge: rowText("gemini"), groups: [...document.querySelectorAll("#prefs .group")].map((g) => g.textContent),
-	  out: !!btn(sheet(), "Sign out"), store: note("p-store"), free: note("p-free-image") };`)
-	if fmt.Sprint(s["or"]) != "map[bad:false btns:[Connect] sub:Sign in through OpenRouter. Have a key? Paste it]" ||
-		fmt.Sprint(s["oa"]) != "map[bad:false btns:[Key] sub:Paste a key and framy checks it]" ||
+	  out: !!btn(sheet(), "Sign out"), who: note("p-out"), store: note("p-store"), free: note("p-free-image") };`)
+	// Each says what the key needs to make anything, which the check on save
+	// cannot see: credits, or a project with billing.
+	if fmt.Sprint(s["or"]) != "map[bad:false btns:[Connect] sub:Sign in through OpenRouter and pay with its credits. Have a key? Paste it]" ||
+		fmt.Sprint(s["oa"]) != "map[bad:false btns:[Key] sub:Needs credits on the account]" ||
+		fmt.Sprint(s["ge"]) != "map[bad:false btns:[Key] sub:Needs a project with billing]" ||
 		fmt.Sprint(s["groups"]) != "[Model keys Free Default models Telegram Currency Language Account]" ||
-		s["out"] != true || s["store"] != "Files stored: 1230 MB · images, videos and uploads" || !strings.HasPrefix(s["free"].(string), "Images0 of 5 left in any 24 hours · next one in 3 hours") {
+		s["out"] != true || s["who"] != "AAdaA sign-in lasts 30 daysSign out" ||
+		s["store"] != "Files stored: 1230 MB · images, videos and uploads" || !strings.HasPrefix(s["free"].(string), "Images0 of 5 left in any 24 hours · next one in 3 hours") {
 		t.Errorf("settings: %v", s)
 	}
 
@@ -374,8 +384,8 @@ func TestBrowserPrefs(t *testing.T) {
 		s = prefs(t, ctx, `
 	await typeKey("openai", `+jsString(key)+`);
 	await until(() => kerr("openai") && !form("openai").querySelector("[data-wait]").disabled);
-	return { err: kerr("openai"), kept: form("openai").querySelector("input").value };`)
-		if s["err"] != want || s["kept"] != key {
+	return { err: kerr("openai"), kept: form("openai").querySelector("input").value, markup: document.documentElement.outerHTML.includes(`+jsString(key)+`) };`)
+		if s["err"] != want || s["kept"] != key || s["markup"] != false {
 			t.Errorf("%s: %v", key, s)
 		}
 	}
@@ -421,7 +431,7 @@ func TestBrowserPrefs(t *testing.T) {
 	btn(rowOf("openai"), "Disconnect").click();
 	await until(() => note("pr-openai"));
 	return { note: note("pr-openai"), row: rowText("openai") };`)
-	if s["note"] != "The key is gone from framy. Revoke it at OpenAI too: platform.openai.com/api-keys." || fmt.Sprint(s["row"]) != "map[bad:false btns:[Key] sub:Paste a key and framy checks it]" {
+	if s["note"] != "The key is gone from framy. Revoke it at OpenAI too: platform.openai.com/api-keys." || fmt.Sprint(s["row"]) != "map[bad:false btns:[Key] sub:Needs credits on the account]" {
 		t.Errorf("disconnected: %v", s)
 	}
 
@@ -452,18 +462,25 @@ func TestBrowserPrefs(t *testing.T) {
 		t.Errorf("check without an answer: %v", s)
 	}
 
-	// The currency goes to the server, and the prices follow.
+	// The currency goes to the server, and the prices follow; Auto, which
+	// names what it gives, goes back to the currency of the country.
 	s = prefs(t, ctx, `
+	const on = () => sheet().querySelector('[data-seg="cur"] [aria-checked="true"]').dataset.v;
+	const first = on();
 	sheet().querySelector('[data-seg="cur"] [data-v="EUR"]').click();
-	await until(() => sheet().querySelector('[data-seg="cur"] [data-v="EUR"]').getAttribute("aria-checked") === "true");
+	await until(() => on() === "EUR");
 	await wait(300);
-	return { on: sheet().querySelector('[data-seg="cur"] [aria-checked="true"]').dataset.v, names: [...sheet().querySelectorAll('[data-seg="cur"] small')].map((x) => x.textContent) };`)
+	const names = [...sheet().querySelectorAll('[data-seg="cur"] small')].map((x) => x.textContent);
+	sheet().querySelector('[data-seg="cur"] [data-v="auto"]').click();
+	await until(() => on() === "auto");
+	await wait(300);
+	return { first, names, back: on() };`)
 	f.with(func() {
-		if len(f.patches) != 1 || f.patches[0]["currency"] != "EUR" || f.currency != "EUR" {
+		if len(f.patches) != 2 || f.patches[0]["currency"] != "EUR" || f.patches[1]["currency"] != "" || f.currency != "" {
 			t.Errorf("currency sent: %v", f.patches)
 		}
 	})
-	if s["on"] != "EUR" || !strings.Contains(fmt.Sprint(s["names"]), "Euro") {
+	if s["first"] != "auto" || s["back"] != "auto" || !strings.Contains(fmt.Sprint(s["names"]), "Euro") || !strings.HasPrefix(fmt.Sprint(s["names"]), "[UAH ") {
 		t.Errorf("currency: %v", s)
 	}
 
@@ -755,6 +772,61 @@ func TestBrowserPrefsSignOutLate(t *testing.T) {
 	noErrors(t, ctx)
 }
 
+// TestBrowserFreeUsedUp opens the composer of a person with no key whose
+// free pictures are used up. The button connects OpenRouter instead of
+// standing grey, the price is the run's on that key rather than "Free", and
+// when free runs are back reads to its end under it; on a phone the button
+// takes its own line for that. Free is no choice in Pay with, and the week's
+// free video still goes free.
+func TestBrowserFreeUsedUp(t *testing.T) {
+	f := &fakePrefs{}
+	ts := fakeSite(t, f.mount)
+	ctx := browser(t, ts.URL, 390, 844, true)
+	s := prefs(t, ctx, `
+	const p = document.querySelector("#prompt"), go = document.querySelector("#go"), pc = document.querySelector("#pcap");
+	p.value = "a fox in the snow"; p.dispatchEvent(new Event("input"));
+	await until(() => /Connect/.test(go.textContent) && /\$/.test(document.querySelector("#pnum").dataset.t));
+	await wait(400);
+	const out = { go: go.firstChild.nextSibling.textContent, on: !go.disabled, price: document.querySelector("#pnum").dataset.t, cap: pc.textContent,
+	  cut: pc.scrollWidth > pc.clientWidth + 1 || pc.scrollHeight > pc.clientHeight + 1, under: go.getBoundingClientRect().top >= pc.getBoundingClientRect().bottom };
+	go.click();
+	await until(() => !sheet().hidden);
+	await wait(400);
+	out.focus = document.activeElement.textContent.trim();
+	out.inRow = !!document.activeElement.closest('[data-p="openrouter"]');
+	document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+	await until(() => sheet().hidden);
+	document.querySelectorAll("#kind > button")[1].click();
+	await until(() => /Create/.test(go.textContent));
+	await wait(400);
+	out.video = [go.firstChild.nextSibling.textContent, document.querySelector("#pnum").dataset.t];
+	return out;`)
+	if s["go"] != "Connect OpenRouter" || s["on"] != true || !strings.HasPrefix(fmt.Sprint(s["price"]), "≈ $") ||
+		!regexp.MustCompile(`^Next free run: [A-Z][a-z]+ \d{1,2} at \d{1,2}:\d\d [AP]M$`).MatchString(fmt.Sprint(s["cap"])) || s["cut"] != false || s["under"] != true {
+		t.Errorf("free used up on a phone: %v", s)
+	}
+	if s["focus"] != "Connect" || s["inRow"] != true {
+		t.Errorf("the button leads to OpenRouter's row: %v", s)
+	}
+	if fmt.Sprint(s["video"]) != "[Create Free]" {
+		t.Errorf("the free video: %v", s["video"])
+	}
+
+	// Pay with has Free used up and not to be picked, and OpenRouter picked.
+	ctx = browser(t, ts.URL, 1440, 900, false)
+	s = prefs(t, ctx, `
+	await until(() => document.querySelector('#how [data-seg="pay"] [data-v="free"]'));
+	const seg = (v) => document.querySelector('#how [data-seg="pay"] [data-v="' + v + '"]');
+	seg("free").click();
+	await wait(300);
+	return { free: [seg("free").disabled, seg("free").getAttribute("aria-checked"), seg("free").textContent], key: seg("openrouter").getAttribute("aria-checked"),
+	  go: document.querySelector("#go").firstChild.nextSibling.textContent };`)
+	if fmt.Sprint(s["free"]) != "[true false FreeUsed up]" || s["key"] != "true" || s["go"] != "Connect OpenRouter" {
+		t.Errorf("pay with: %v", s)
+	}
+	noErrors(t, ctx)
+}
+
 // TestBrowserPrefsLanguage checks that a new language is the server's and
 // the page's: it reloads in it, with the settings open again.
 func TestBrowserPrefsLanguage(t *testing.T) {
@@ -774,13 +846,13 @@ func TestBrowserPrefsLanguage(t *testing.T) {
 	await until(() => !sheet().hidden);
 	await wait(300);
 	return { lang: document.documentElement.lang, title: sheet().querySelector("h3").textContent, sel: sheet().querySelector("select.pick").value,
-	  prompt: document.querySelector("#prompt").value, opts: sheet().querySelector("select.pick").options.length };`)
+	  prompt: document.querySelector("#prompt").value, opts: sheet().querySelector("select.pick").options.length, kept: localStorage.getItem("framy.language") };`)
 	f.with(func() {
 		if len(f.patches) != 1 || f.patches[0]["language"] != "ru" {
 			t.Errorf("language sent: %v", f.patches)
 		}
 	})
-	if s["lang"] != "ru" || s["title"] != "Настройки" || s["sel"] != "ru" || s["prompt"] != "a fox" || s["opts"] != float64(17) {
+	if s["lang"] != "ru" || s["title"] != "Настройки" || s["sel"] != "ru" || s["prompt"] != "a fox" || s["opts"] != float64(17) || s["kept"] != "ru" {
 		t.Errorf("language: %v", s)
 	}
 	// Automatic again: the language core resolves, and the list says Automatic.
@@ -792,9 +864,37 @@ func TestBrowserPrefsLanguage(t *testing.T) {
 	reloaded(t, ctx)
 	s = prefs(t, ctx, `
 	await until(() => !sheet().hidden);
-	return { lang: document.documentElement.lang, sel: sheet().querySelector("select.pick").value, shown: sheet().querySelector("select.pick").selectedOptions[0].textContent };`)
-	if s["lang"] != "en" || s["sel"] != "" || s["shown"] != "Automatic" {
+	return { lang: document.documentElement.lang, sel: sheet().querySelector("select.pick").value, shown: sheet().querySelector("select.pick").selectedOptions[0].textContent,
+	  kept: localStorage.getItem("framy.language") };`)
+	if s["lang"] != "en" || s["sel"] != "" || s["shown"] != "Automatic" || s["kept"] != "en" {
 		t.Errorf("automatic: %v", s)
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserPrefsBelarusian checks the settings and the composer in
+// Belarusian, whose data Chromium's Intl lacks: when the next free run comes,
+// the names of the currencies and the numbers are Belarusian, not English.
+func TestBrowserPrefsBelarusian(t *testing.T) {
+	f := &fakePrefs{}
+	ts := fakeSite(t, f.mount)
+	f.with(func() { f.language = "be" })
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	ready(t, ctx)
+	s := prefs(t, ctx, `
+	const back = document.querySelector("#composer").innerText;
+	document.querySelector("#meBtn").click();
+	await until(() => !sheet().hidden && rowOf("gemini"));
+	await wait(300);
+	return { lang: document.documentElement.lang, back, free: note("p-free-image"), store: note("p-store"), text: sheet().innerText };`)
+	month := `(студзеня|лютага|сакавіка|красавіка|мая|чэрвеня|ліпеня|жніўня|верасня|кастрычніка|лістапада|снежня)`
+	text := fmt.Sprint(s["text"])
+	if s["lang"] != "be" || !strings.Contains(fmt.Sprint(s["free"]), "праз 3 гадзіны") || !strings.Contains(fmt.Sprint(s["store"]), "30") ||
+		!strings.Contains(text, "долар ЗША") || !strings.Contains(text, "беларускі рубель") || strings.Contains(text, "Dollar") {
+		t.Errorf("settings in Belarusian: %v", s)
+	}
+	if !regexp.MustCompile(`\d{1,2} ` + month + ` у \d{1,2}:\d\d`).MatchString(fmt.Sprint(s["back"])) {
+		t.Errorf("when the next free run comes, in Belarusian: %q", s["back"])
 	}
 	noErrors(t, ctx)
 }
@@ -966,11 +1066,13 @@ func TestBrowserPrefsPhone(t *testing.T) {
 	const shown = window.__tg.settingsShown;
 	window.__tg.settings();
 	await until(() => !sheet().hidden && rowOf("openrouter"));
-	const before = rowText("openrouter"), out = !!btn(sheet(), "Sign out");
+	const before = rowText("openrouter"), out = !!btn(sheet(), "Sign out"), who = note("p-out");
 	btn(rowOf("openrouter"), "Connect").click();
 	await until(() => rowText("openrouter").btns[0] === "Open again");
-	return { shown, before, out, away: rowText("openrouter"), links: window.__tg.links.map((u) => new URL(u).pathname) };`)
-	if s["shown"] != true || s["out"] != false || fmt.Sprint(s["before"]) != "map[bad:false btns:[Connect] sub:Opens in the browser. Have a key? Paste it]" ||
+	return { shown, before, out, who, away: rowText("openrouter"), links: window.__tg.links.map((u) => new URL(u).pathname) };`)
+	// Whose account a key goes to shows in the Mini App too, with no Sign out.
+	if s["shown"] != true || s["out"] != false || s["who"] != "AAdaSigned in with Telegram" ||
+		fmt.Sprint(s["before"]) != "map[bad:false btns:[Connect] sub:Opens in the browser. Pay with OpenRouter credits. Have a key? Paste it]" ||
 		fmt.Sprint(s["away"]) != "map[bad:false btns:[Open again] sub:OpenRouter is open in the browser. Sign in there, allow access and come back here.]" ||
 		fmt.Sprint(s["links"]) != "[/oauth/openrouter/start]" {
 		t.Errorf("mini app connect: %v", s)

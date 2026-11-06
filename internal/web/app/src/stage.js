@@ -1,20 +1,21 @@
 // The stage: the frame of what Create will make, in its shape, and once a
 // run starts, that run: its files going up, the wait, a retry, the result,
 // or why there is none, with the buttons that fit.
-import { $, $$, h, ic, isPhone, docked, inFlow } from "./dom.js";
+import { $, $$, h, ic, isPhone, docked, inFlow, keepFocus } from "./dom.js";
 import { anim, rise, snap, EASE, motion, DUR } from "./motion.js";
 import { t, fmtNum, fmtSecs } from "./i18n.js";
 import { C, vname, famLogo, lg, ratioNum, ratioOfSize, PNAME, provMark, show, SICON } from "./catalog.js";
-import { S, M, payOf, settings, sourceRatio, connection, FR, MAXFR, scopeFr, plan } from "./state.js";
+import { S, M, payOf, settings, sourceRatio, connection, keyToConnect, FR, MAXFR, scopeFr, plan } from "./state.js";
 import { isFinal, outsOf, POLL_MS } from "./api.js";
 import { failure, waiting, left, BILLING } from "./errors.js";
 import { priceText, sumOf } from "./price.js";
 import { setScope, addFrame, removeFrame, openTune, framesNote, miniShape } from "./composer.js";
 import { openFull } from "./library.js";
 import { halftone } from "./halftone.js";
+import { grounding, groundRoom } from "./ground.js";
 import { player, fmtClock } from "./player.js";
 import { openPrefs } from "./prefs.js";
-import { again, quiet, editPrompt, otherModel, cancel, byKey, keyFor, takePrice, drop, pickPart, copyPrompt, continueFrom, fromLastFrame, canShare, share, jobsOf, frameRun } from "./run.js";
+import { again, quiet, editPrompt, otherModel, cancel, byKey, keyFor, takePrice, drop, pickPart, copyPrompt, continueFrom, fromLastFrame, changePicture, animate, canShare, share, jobsOf, frameRun } from "./run.js";
 
 // The shape of a run: its ratio, or the photo's for "auto", else square.
 export function ratioOf(set, m) {
@@ -106,7 +107,7 @@ const keepMedia = (key, make) => { const el = kept.get(key) || make(); keeping.s
 
 export function renderStage() {
   keeping = new Map();
-  try { drawStage(); } finally {
+  try { keepFocus(drawStage); } finally {
     // A video the stage no longer draws is no longer watched for the screen.
     for (const [k, el] of kept) if (!keeping.has(k) && el.tagName === "VIDEO") onScreen?.unobserve(el);
     kept = keeping;
@@ -126,7 +127,8 @@ function drawStage() {
   const add = h("button", { type: "button", class: "link addf", "data-k": "pv-add", disabled: full, title: full ? t("fr.max", { n: MAXFR[S.kind] }) : t("fr.add_sub"), onclick: () => addFrame() }, ic("plus"), t("fr.add_short"));
   const tip = fr && !phone ? h("span", { class: "scopetip", "data-k": "pv-tip" }, miniShape(ratioOf(P[fi].set, P[fi].m), 14), h("span", { class: "t" }, t("fr.tune", { n: fi + 1 })),
     h("button", { type: "button", "aria-label": t("fr.to_all"), title: t("fr.to_all"), onclick: () => setScope(null) }, ic("close"))) : null;
-  const head = h("div", { class: "shead", "data-k": "pv-head" }, tip, add), under = phone ? 48 : 40;
+  // Under the frames on a phone: the dots of a strip, or the way back to a run; one empty frame needs no room there.
+  const head = h("div", { class: "shead", "data-k": "pv-head" }, tip, add), under = phone ? (many || run ? 48 : 0) : 40;
   let main;
   if (!many) {
     const pay = payOf(m), set = settings(m, pay), r = ratioOf(set, m), b = fit(r, under), f = C.famOf[m.id];
@@ -257,6 +259,10 @@ function runRatio(run, res = outsOf(run.job)[0]) {
 
 // The tag of a run read every few seconds, since its stream was refused.
 const pollTag = () => { const every = fmtSecs(POLL_MS / 1000); return h("span", { class: "jtag", title: t("net.poll_tip", { every }) }, t("net.poll", { every })); };
+// What a run that goes on says while the page cannot follow it: no connection, nobody signed
+// in, or the Mini App's session over.
+const NETLINE = { lost: "net.lost_line", signin: "net.signin_line", reopen: "net.reopen_line" };
+
 // A line that counts down: its text is asked again every second.
 const live = (text, cls = "") => { const el = h("small", { class: ("tk " + cls).trim() }, text()); el._text = text; return el; };
 // The wait: how long since the press, or since the job was made, and how long
@@ -366,9 +372,12 @@ export function actRow(items, priced = false) {
 // A square one shows only its icon on a phone, so each says its name.
 export const B =(icon, label, fn, cls = "") => h("button", { type: "button", class: cls || null, "aria-label": cls.startsWith("sq") ? label : null, onclick: fn }, ic(icon), h("span", { class: "t" }, label));
 const againActs = (run) => [B("again", t("act.retry"), () => again(run), "primary"), B("edit", t("act.edit"), () => editPrompt(run))];
+// The run again on the person's key; with no key that works, the way to
+// connect the one it would go on.
 function keyBtn(run) {
-  const p = keyFor(run);
-  return p ? B("key", t("act.bykey", { provider: PNAME[p] }), () => byKey(run), "primary") : null;
+  const p = keyFor(run), m = C.byId[run.model];
+  if (p) return B("key", t("act.bykey", { provider: PNAME[p] }), () => byKey(run), "primary");
+  return m ? keyFix(keyToConnect(m), "primary") : null;
 }
 const againBtn = (run, o, label, cls) => (o.again ? o.again(label, cls) : B("again", label, () => again(run), cls));
 function failActs(run, f, o = {}) {
@@ -418,6 +427,9 @@ function doneActs(run, j, res, o = {}) {
     part?.url ? download(j, part, 0, { label: t("act.part"), cls: "sq" }) : null,
     againBtn(run, o, t("act.again"), "sq2"),
     B("edit", t("act.edit"), () => editPrompt(run), "sq"),
+    // A picture goes on as the photo of the next run or the first frame of a video; a clip goes on from its end.
+    !vid && res.url ? B("image", t("act.change"), () => changePicture(run, res), "sq") : null,
+    !vid && res.url ? B("video", t("act.animate"), () => animate(run, res), "sq") : null,
     vid && res.url ? B("next", t("act.continue"), () => continueFrom(run, res), "sq") : null, sb];
 }
 
@@ -468,8 +480,8 @@ function runCell(run, c, mixed, items) {
     media = keepMedia(key, () => (vid ? cellVideo(res) : h("img", { src: res.url, alt: run.prompt || "", decoding: "async" })));
     if (vid) pp = keepMedia(key + "-pp", () => playBtn(media));
   }
-  if (going && run.net === "lost" && v.status) {
-    const lost = h("small", { class: "lost" }, t("net.lost_line")), sub2 = v.status.querySelector("small");
+  if (going && NETLINE[run.net] && v.status) {
+    const lost = h("small", { class: "lost" }, t(NETLINE[run.net])), sub2 = v.status.querySelector("small");
     if (sub2) sub2.replaceWith(lost); else v.status.append(lost);
   }
   const at = items.findIndex((x) => x.i === i), open = () => at >= 0 && openFull(at, items);
@@ -481,7 +493,7 @@ function runCell(run, c, mixed, items) {
     v.done ? media : [h("i"), h("i"), h("i"), h("i")], v.done ? null : v.status || null,
     v.done ? h("button", { type: "button", class: "fhit", "aria-label": t("view.result", { n: fmtNum(i + 1) }) }) : null,
     h("span", { class: "num" }, String(i + 1)), mixed && f && m ? h("span", { class: "chip tm" }, lg(famLogo(f), f.maker, "s"), h("span", {}, vname(m))) : null, dl, pp);
-  if (v.ht) halftone(cell, v.ht.fig, { ...v.ht, n: run.n, id, lost: going && run.net === "lost" });
+  if (v.ht) halftone(cell, v.ht.fig, { ...v.ht, n: run.n, id, lost: going && !!NETLINE[run.net] });
   else if (v.done) halftone(cell, "reveal", { n: run.n, id });
   return cell;
 }
@@ -494,10 +506,17 @@ function renderPress(st, run) {
   const models = [...new Set(run.frames.map((fm) => fm.model))], mixed = models.length > 1, items = doneItems(cells);
   // Nothing came: the first frame's reason stands for the press, and Again runs all of it.
   if (!live.length) return renderRun(st, failed[0].sub);
+  // Google's suggestions and the sources of each grounded job go under the results and their
+  // buttons, once a job (frames alike go as one), with the numbers of its frames when the press
+  // has others.
+  const gj = new Map();
+  for (const c of live) { const j = c.sub.job; if (j?.grounding) { if (!gj.has(j.id)) gj.set(j.id, { j, ns: [] }); gj.get(j.id).ns.push(fmtNum(c.i + 1)); } }
+  const gr = [...gj.values()].map(({ j, ns }) => grounding(j, ns.length < live.length ? ns.join(", ") : ""));
+  const under = UNDER + groundRoom([...gj.values()].map((x) => x.j));
   const rs = live.map((c) => c.r), box = h("div", { class: "board run", "data-k": "pv" }, live.map((c) => runCell(run, c, mixed, items)));
   const size = live.length > 1 ? (u) => { const L = board(rs, u); lay(box, L); return L.h; }
     : (u) => { const x = fit(rs[0], u); lay(box, { w: x.w, h: x.h, pos: [{ x: 0, y: 0, w: x.w, h: x.h }] }); return x.h; };
-  size(UNDER);
+  size(under);
   const js = jobsOf(run), going = run.phase === "prep" || js.some((j) => !isFinal(j.status)), over = runOver(run);
   // Once it is over, what each paid job cost: its bill, or nothing when it failed before any charge.
   const paidJobs = js.filter((j) => !j.free), zero = (j) => cells.some((c) => c.sub.job === j && c.v.zero);
@@ -514,8 +533,8 @@ function renderPress(st, run) {
       h("button", { type: "button", class: "sq", "aria-label": t("stage.next"), title: t("stage.next"), onclick: () => drop() }, ic("plus"), h("span", { class: "t" }, t("stage.next")))];
   const prompt = run.prompt ? h("p", { class: "jprompt", "data-k": "j-prompt", hidden: samePrompt(run) }, h("span", { class: "tx" }, run.prompt),
     h("button", { type: "button", class: "cp", "aria-label": t("act.copy"), title: t("act.copy"), onclick: () => copyPrompt(run.prompt) }, ic("copy"))) : null;
-  st.replaceChildren(h("div", { class: "preview", "data-k": "pvbox" }, box), h("div", { class: "jfoot", "data-k": "j-foot" }, line, why, h("div", { class: "jacts acts", "data-k": "j-acts" }, actRow(acts)), prompt));
-  box._fit = () => roomUnder(st, size);
+  st.replaceChildren(h("div", { class: "preview", "data-k": "pvbox" }, box), h("div", { class: "jfoot", "data-k": "j-foot" }, line, why, h("div", { class: "jacts acts", "data-k": "j-acts" }, actRow(acts)), gr, prompt));
+  box._fit = () => roomUnder(st, size, under);
   box._fit();
 }
 // Every result of the press saved, one after another: a browser asks once to allow them, Telegram asks for each.
@@ -538,21 +557,22 @@ function allDown(items) {
    the room that is missing, so they are seen without scrolling, and never
    behind the dock on a phone. The prompt under them is not counted: it shows
    while the composer holds another, and the frame does not shrink as the
-   person types. size(under) lays the frame out and gives its height. */
+   person types; Google's sources under a grounded result are (under).
+   size(under) lays the frame out and gives its height. */
 const UNDER = 70;
-function roomUnder(st, size) {
-  const h0 = size(UNDER), acts = st.querySelector(":scope > .jfoot > .jacts");
+function roomUnder(st, size, under = UNDER) {
+  const h0 = size(under), acts = st.querySelector(":scope > .jfoot > .jacts");
   // A stage out of sight has nothing to measure; it is drawn again when it comes back.
   if (!acts?.getClientRects().length) return;
   // Where the stage stands with the page at its top (on a computer it sticks once scrolled).
   const phone = docked(), top0 = (phone ? st : st.parentElement).getBoundingClientRect().top + scrollY;
   const edge = innerHeight - (phone ? $("#composer").offsetHeight : 0) - 24;
   const over = Math.ceil(acts.getBoundingClientRect().bottom - st.getBoundingClientRect().top + top0 - edge);
-  if (over > 0) size(UNDER + space(UNDER).H - h0 + over);
+  if (over > 0) size(under + space(under).H - h0 + over);
 }
 
 function renderRun(st, run) {
-  const v = view(run), r = runRatio(run), b = fit(r, UNDER), j = run.job, m = C.byId[run.model];
+  const j = run.job, v = view(run), r = runRatio(run), under = UNDER + groundRoom([j]), b = fit(r, under), m = C.byId[run.model];
   let media = null;
   if (v.done) {
     const res = v.res;
@@ -563,17 +583,17 @@ function renderRun(st, run) {
       return el;
     });
   }
-  // While the page cannot reach framy, the frame says so; it hears again by itself.
+  // While the page cannot follow the run, the frame says why; it hears again by itself once it can.
   const going = run.phase === "job" && !isFinal(j.status);
-  if (going && run.net === "lost" && v.status) {
-    const lost = h("small", { class: "lost" }, t("net.lost_line")), sub = v.status.querySelector("small");
+  if (going && NETLINE[run.net] && v.status) {
+    const lost = h("small", { class: "lost" }, t(NETLINE[run.net])), sub = v.status.querySelector("small");
     if (sub) sub.replaceWith(lost); else v.status.append(lost);
   }
   const box = h("div", { class: "jbox" + (v.done ? " done" : "") + (v.fail ? " failed" : ""), "data-k": "pv", style: { width: b.w + "px", height: b.h + "px" } },
     v.done ? media : [h("i"), h("i"), h("i"), h("i")], v.status || null);
   if (v.status) { box._c = v.status; v.status._box = box; }
   // The dots: a figure for the state, or the result showing through them as it arrives.
-  if (v.ht) halftone(box, v.ht.fig, { ...v.ht, n: run.n, lost: going && run.net === "lost" });
+  if (v.ht) halftone(box, v.ht.fig, { ...v.ht, n: run.n, lost: going && !!NETLINE[run.net] });
   else if (v.done) halftone(box, "reveal", { n: run.n });
   const cost = j?.cost?.label ? j.cost.label : v.zero ? zeroOf(j?.estimate?.label || run.priceLabel)
     : j?.free || (run.pay === "free" && !v.fail) ? t("bar.free") : run.shownLabel && !v.fail ? run.shownLabel : "";
@@ -587,8 +607,8 @@ function renderRun(st, run) {
     h("button", { type: "button", class: "cp", "aria-label": t("act.copy"), title: t("act.copy"), onclick: () => copyPrompt(run.prompt) }, ic("copy"))) : null;
   const acts = h("div", { class: "jacts acts", "data-k": "j-acts" }, actRow([...v.acts,
     runOver(run) ? h("button", { type: "button", class: "sq", "aria-label": t("stage.next"), title: t("stage.next"), onclick: () => drop() }, ic("plus"), h("span", { class: "t" }, t("stage.next"))) : null]));
-  st.replaceChildren(h("div", { class: "preview", "data-k": "pvbox" }, box), h("div", { class: "jfoot", "data-k": "j-foot" }, line, why, acts, prompt));
-  box._fit = () => { roomUnder(st, (u) => { const f = fit(r, u); box.style.width = f.w + "px"; box.style.height = f.h + "px"; return f.h; }); caption(box); };
+  st.replaceChildren(h("div", { class: "preview", "data-k": "pvbox" }, box), h("div", { class: "jfoot", "data-k": "j-foot" }, line, why, acts, grounding(j), prompt));
+  box._fit = () => { roomUnder(st, (u) => { const f = fit(r, u); box.style.width = f.w + "px"; box.style.height = f.h + "px"; return f.h; }, under); caption(box); };
   box._fit();
 }
 
@@ -625,7 +645,7 @@ const sigOf = (run) => [run.n, run.phase, jobsOf(run).map((j) => [j.status, j.re
 // The run changed: the stage shows its new state, the frame glides to its new shape.
 export function runChanged() {
   const run = S.run;
-  if (!run) { shownSig = ""; renderStage(); return; }
+  if (!run) { shownSig = ""; renderStage(); say(""); return; }
   const sig = sigOf(run);
   if (sig === shownSig && run.step === shownStep) return;
   const fresh = run.n !== shownN;
@@ -633,8 +653,34 @@ export function runChanged() {
   const d = stageFrom();
   renderStage();
   d();
+  say(phaseOf(run));
   if (fresh && S.showJob) anim($("#stage [data-k=pv]"), [{ transform: "scale(.96)", opacity: 0.6 }, { transform: "none", opacity: 1 }], { duration: DUR.l, easing: EASE });
   else if (motion() && (run.multi ? !runOver(run) : run.phase !== "job" || !isFinal(run.job?.status))) rise($$("#stage .jbox .c, #stage .c.under"), { y: 6 });
+}
+
+// What a screen reader hears of the run: each phase once as it comes (getting
+// ready, in the queue, making it, ready, or why it gave nothing), never the
+// clock, and while the next one is set up too.
+let said = "";
+function say(text) {
+  const el = $("#stageSay");
+  if (!el || text === said) return;
+  said = text;
+  el.textContent = text;
+}
+const labelOf = (v) => v.status?.querySelector("b")?.textContent || "";
+const withWhy = (label, why) => (why ? t("stage.why", { label, why }) : label);
+function phaseOf(run) {
+  if (run.multi && run.phase === "job") {
+    const js = jobsOf(run);
+    if (js.some((j) => j.status === "running")) return t("stage.running");
+    if (js.some((j) => !isFinal(j.status))) return t("stage.queued");
+    const cells = cellsOf(run), failed = cells.filter((c) => c.v.fail);
+    if (failed.length === cells.length) return phaseOf(failed[0].sub);
+    return withWhy(t("stage.done"), failed.map((c) => t("fr.failed", { n: c.i + 1, why: labelOf(c.v) })).join(" "));
+  }
+  const v = view(run);
+  return v.done ? t("stage.done") : withWhy(labelOf(v), v.fail ? v.why.filter(Boolean).join(" ") : "");
 }
 
 // The countdowns on the stage and in the viewer, once a second while there are any.

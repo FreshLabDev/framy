@@ -1,10 +1,10 @@
 // The settings: the person's keys, what is left free, the default models,
 // the DM, the currency, the language and the account. Each change goes to
 // the server first; the sheet shows what it said.
-import { $, $$, h, ic } from "./dom.js";
-import { t, lang, fmtNum, fmtIn, fmtInSecs, fmtTime } from "./i18n.js";
+import { $, $$, h, ic, keepFocus } from "./dom.js";
+import { t, lang, fmtNum, fmtIn, fmtInSecs, fmtTime, fmtCurrency } from "./i18n.js";
 import { api } from "./api.js";
-import { S, connection, autoModel, ownDefault } from "./state.js";
+import { S, connection, autoModel, ownDefault, reopenText } from "./state.js";
 import { C, PNAME, provMark, vname } from "./catalog.js";
 import { openPicker } from "./picker.js";
 import { clearPrices } from "./price.js";
@@ -96,16 +96,6 @@ function size(bytes) {
   const mb = bytes / 1048576;
   if (mb >= 1024) return t("unit.gb", { n: fmtNum(mb / 1024, { maximumFractionDigits: 1 }) });
   return t("unit.mb", { n: fmtNum(mb, { maximumFractionDigits: mb < 10 ? 1 : 0 }) });
-}
-// The names of the currencies in the page's language. The namer is slow to make, so there is one for
-// the language, not one for each currency each time the settings are drawn.
-let namer, namerLang = "";
-function curName(c) {
-  if (namerLang !== lang) {
-    namerLang = lang;
-    try { namer = new Intl.DisplayNames([lang], { type: "currency" }); } catch { namer = null; }
-  }
-  try { return namer?.of(c) || c; } catch { return c; }
 }
 
 /* Keys. */
@@ -260,13 +250,21 @@ function keyRows(p) {
       k.away ? h("button", { type: "button", class: "fixw", onclick: oauthStart }, t("key.open_again"))
         : h("button", { type: "button", class: "primary fixw", disabled: !!k.going, onclick: oauthStart }, ic(S.mini ? "out" : "plus"), h("span", {}, t(k.going ? "key.going" : "key.connect"))));
   } else {
-    r = row(t("key.paste_sub"), k.edit ? null : h("button", { type: "button", class: "primary", onclick: () => edit(p) }, ic("plus"), h("span", {}, t("key.add"))));
+    // What the key needs to make anything, since the check on save cannot
+    // see it: credits at OpenAI, a project with billing at AI Studio.
+    r = row(t("key." + p + "_sub"), k.edit ? null : h("button", { type: "button", class: "primary", onclick: () => edit(p) }, ic("plus"), h("span", {}, t("key.add"))));
   }
   r.dataset.p = p;
   out.push(r);
   if (k.edit) {
-    const input = h("input", { type: "password", name: "key-" + p, autocomplete: "off", autocapitalize: "off", spellcheck: "false", placeholder: LOOK[p],
-      "aria-label": t("key.field", { provider: P }), "aria-invalid": String(!!k.err), value: k.draft || "" });
+    // A key is no password of the site: password managers are asked not to
+    // offer or keep it. What was pasted comes back as the field's value, never
+    // as an attribute, so it does not stand in the page's markup for anything
+    // that reads it (an extension, a page translator, a report of the page).
+    const input = h("input", { type: "password", autocomplete: "off", autocapitalize: "off", spellcheck: "false", placeholder: LOOK[p],
+      "data-1p-ignore": "", "data-lpignore": "true", "data-bwignore": "", "data-form-type": "other",
+      "aria-label": t("key.field", { provider: P }), "aria-invalid": String(!!k.err) });
+    input.value = k.draft || "";
     input.addEventListener("input", () => { k.draft = input.value; });
     out.push(h("form", { class: "kform", "data-k": "pk-" + p, onsubmit: (e) => { e.preventDefault(); save(p, input.value); } }, input,
       waitBtn(p, t("key.check"), { class: "primary", type: "submit" }),
@@ -353,16 +351,18 @@ async function setDeliver(on) {
 // time: a choice made while one is saving waits for it, and only the newest
 // is sent. Sent together, they could be answered, or kept, out of order, and
 // the page and the account end on different currencies.
+// c is a currency, or "" for Auto: by the country, else the language, as before any pick.
 let curNext = null, curSaving = false;
 async function setCurrency(c) {
-  if (!S.me || S.me.currency === c) return;
-  const was = S.me.currency;
-  S.me.currency = curNext = c;
+  if (!S.me || (c ? S.me.currency_chosen && S.me.currency === c : !S.me.currency_chosen)) return;
+  const was = { currency: S.me.currency, currency_chosen: S.me.currency_chosen };
+  Object.assign(S.me, { currency: c || S.me.currency_auto || S.me.currency, currency_chosen: !!c });
+  curNext = c;
   renderPrefs();
   if (curSaving) return;
   curSaving = true;
   let me = null, err = null;
-  while (curNext) {
+  while (curNext !== null) {
     const want = curNext;
     curNext = null;
     try { me = await patchMe({ currency: want }); err = null; } catch (e) { err = e; }
@@ -371,7 +371,7 @@ async function setCurrency(c) {
   if (err && gone(err)) return lost(err);
   if (me) S.me = me;
   if (err) {
-    S.me.currency = me ? me.currency : was;
+    if (!me) Object.assign(S.me, was);
     toast(err.code === "network" ? t("err.network") : t("prefs.not_saved"));
   }
   clearPrices();
@@ -393,7 +393,7 @@ async function setLanguage(code) {
   const to = me.language || code || lang;
   if (to === lang) { meChanged(); update(); return; }
   try {
-    localStorage.setItem("framy.lang", to);
+    localStorage.setItem("framy.language", to);
     sessionStorage.setItem("framy.prefs", "1");
     sessionStorage.setItem("framy.draft", $("#prompt").value);
   } catch {}
@@ -449,13 +449,27 @@ const gone = (e) => e.code === "sign_in" || !!launchGone(e);
 function lost(e) {
   closeSheets(true);
   forget();
-  toast(t(launchGone(e) || "err.sign_in"), { ms: 6000 });
+  toast(S.mini ? reopenText() : t(launchGone(e) || "err.sign_in"), { ms: 6000 });
 }
 
-export function renderPrefs() {
+// Whose account this is, by the name and picture of the Telegram sign-in:
+// a key saved here goes to this account. The site signs out here; the Mini
+// App is signed in by Telegram for as long as it is open.
+function whoRow() {
+  const me = S.me, name = (me.name || "").trim();
+  const av = me.photo_url ? h("img", { class: "av", src: me.photo_url, alt: "", referrerpolicy: "no-referrer" }) : h("span", { class: "av", "aria-hidden": "true" }, (name || "?").slice(0, 1).toUpperCase());
+  if (S.mini) return sheetRow("out", av, name || t("prefs.signed_tg"), name ? t("prefs.signed_tg") : "");
+  return sheetRow("out", av, name || t("prefs.signed_tg"), t("prefs.signed_sub"),
+    h("button", { type: "button", onclick: async () => { await signOut(); if (!S.signed) closeSheets(); } }, t("auth.signout")),
+    h("button", { type: "button", onclick: async () => { await signOutAll(); if (!S.signed) closeSheets(); } }, t("auth.signout_all")));
+}
+
+// The sheet is drawn anew on every change: the control the keyboard was on,
+// and a form being typed in, keep the focus.
+export function renderPrefs() { keepFocus(drawPrefs); }
+function drawPrefs() {
   const body = $("#prefsBody");
   if (!body || !S.me) return;
-  // A form being typed in keeps its focus across a redraw.
   const typing = document.activeElement?.closest?.("#prefsBody .kform")?.dataset.k;
   const st = S.me.storage;
   // Automatic until the person picks one in framy, whatever the other bots of the family hold.
@@ -476,15 +490,14 @@ export function renderPrefs() {
     deliverRow(),
     h("div", { class: "group", "data-k": "g-cur" }, t("prefs.currency")),
     h("div", { class: "seg wrapping cur", role: "radiogroup", "aria-label": t("prefs.currency"), "data-seg": "cur", "data-dur": DUR.m, "data-k": "s-cur" },
-      CURRENCIES.map((c) => opt({ key: "cur", v: c, on: S.me.currency === c, pick: () => setCurrency(c) }, c, h("small", {}, curName(c))))),
+      opt({ key: "cur", v: "auto", on: !S.me.currency_chosen, pick: () => setCurrency("") }, t("val.auto"), h("small", {}, S.me.currency_auto || "")),
+      CURRENCIES.map((c) => opt({ key: "cur", v: c, on: !!S.me.currency_chosen && S.me.currency === c, pick: () => setCurrency(c) }, c, h("small", {}, fmtCurrency(c))))),
     h("p", { class: "note", "data-k": "n-cur" }, t("prefs.currency_note")),
     h("div", { class: "group", "data-k": "g-lang" }, t("prefs.language")),
     sheetRow("lang", ic("info"), t("prefs.lang_row"), t("prefs.lang_sub"), sel),
     h("div", { class: "group", "data-k": "g-acc" }, t("prefs.account")),
     st ? sheetRow("store", ic("stack"), t("prefs.stored", { n: fmtNum(st.files) }), t("prefs.stored_sub", { size: size(st.bytes) })) : null,
-    S.mini ? null : sheetRow("out", ic("out"), t("prefs.signed_tg"), t("prefs.signed_sub"),
-      h("button", { type: "button", onclick: async () => { await signOut(); if (!S.signed) closeSheets(); } }, t("auth.signout")),
-      h("button", { type: "button", onclick: async () => { await signOutAll(); if (!S.signed) closeSheets(); } }, t("auth.signout_all"))),
+    whoRow(),
     sheetRow("del", ic("trash"), t("prefs.delete"), accSub,
       h("button", { type: "button", class: "danger", disabled: ACC === "busy", onclick: deleteAccount }, ic("trash"),
         h("span", {}, t(ACC === "busy" ? "prefs.deleting_btn" : ACC === "fail" ? "prefs.delete_again" : "prefs.delete_btn")))));

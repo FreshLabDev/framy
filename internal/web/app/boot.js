@@ -5,21 +5,32 @@
 // TEXTS (language -> URL of its lines) is filled in by the build.
 (() => {
   const langs = TEXTS;
-  // In the Mini App Telegram hands the signed launch data in the fragment.
+  // In the Mini App Telegram hands the signed launch data in the fragment. It
+  // is believed only inside Telegram: a link carrying someone else's launch
+  // data, opened in a browser, would sign that browser into their account,
+  // and a key pasted there would be saved to it. A native client gives the
+  // page its bridge before any script runs (TelegramWebviewProxy, or
+  // external.notify on old Windows ones); Telegram Web shows it in a frame,
+  // and the CSP (frame-ancestors) lets nobody else frame the site. localhost
+  // is a developer's own machine, where the fragment alone emulates it.
+  const inTelegram = !!window.TelegramWebviewProxy || !!(window.external && "notify" in window.external) || window.parent !== window || location.hostname === "localhost";
   const frag = new URLSearchParams(location.hash.slice(1));
-  let initData = frag.get("tgWebAppData") || "";
+  let initData = inTelegram ? frag.get("tgWebAppData") || "" : "";
   try {
     if (initData) sessionStorage.setItem("framy.init", initData);
-    else initData = sessionStorage.getItem("framy.init") || "";
+    else if (inTelegram) initData = sessionStorage.getItem("framy.init") || "";
   } catch {}
   const mini = !!initData;
   let tgUser = null;
   try { tgUser = JSON.parse(new URLSearchParams(initData).get("user") || "null"); } catch {}
 
-  // The language: the one the person chose here, else Telegram's, else the browser's.
+  // The language: the account's, as framy said it the last time someone was
+  // signed in here, else Telegram's, else the browser's. A guess is never
+  // kept, so it follows a browser or a Telegram set to another language.
+  // (framy.lang, which kept the guesses too, is no longer read.)
   const pick = (code) => { code = String(code || "").toLowerCase().split(/[-_]/)[0]; return langs[code] ? code : ""; };
   let saved = "";
-  try { saved = localStorage.getItem("framy.lang") || ""; } catch {}
+  try { saved = localStorage.getItem("framy.language") || ""; } catch {}
   const lang = pick(saved) || (tgUser && pick(tgUser.language_code)) || (navigator.languages || [navigator.language]).map(pick).find(Boolean) || "en";
   document.documentElement.lang = lang;
   if (lang === "ar") document.documentElement.dir = "rtl";

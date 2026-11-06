@@ -4,7 +4,7 @@
 import { $ } from "./dom.js";
 import { t } from "./i18n.js";
 import { api, watchJob, isFinal, outsOf } from "./api.js";
-import { S, M, payOf, settings, fastOf, going, clip, contFits, keyOk, runItem, plan, paidItems, newFrame, next, renewFiles, holdFiles, freeLinks } from "./state.js";
+import { S, M, reopenText, payOf, settings, fastOf, going, clip, contFits, keyOk, runItem, plan, paidItems, newFrame, next, renewFiles, holdFiles, freeLinks } from "./state.js";
 import { C, offerOf, PNAME, framesOf, photoLimit } from "./catalog.js";
 import { priced, knownTotal, priceText, clearPrices } from "./price.js";
 import { act, render, renderBar, toComposer } from "./composer.js";
@@ -27,9 +27,24 @@ export async function signIn() {
   await keepDraft();
   // The Mini App signs in with its launch data, which a load trades again.
   if (S.mini) { location.reload(); return; }
-  // Back where the person was: the composer, the library or one run of it.
-  const back = /^\/(library|r\/\d+)$/.test(location.pathname) ? location.pathname : "/";
+  // Back where the person was: the composer, the library or one run of it. A run the stage
+  // still follows comes back as that run of the library, which goes on following it.
+  const r = S.run, on = r?.phase === "job" && r.job && !(r.jobs || [r.job]).every((j) => isFinal(j.status));
+  const back = on ? "/r/" + r.job.id : /^\/(library|r\/\d+)$/.test(location.pathname) ? location.pathname : "/";
   location.assign("/auth/login?return_to=" + encodeURIComponent(back));
+}
+
+// The Mini App's session ended (framy refused its launch data): Telegram closes it, to be
+// opened again from the bot, and what was typed waits for that next open.
+export function closeMini() {
+  keepPrompt();
+  if (S.tg?.close) S.tg.close(); else toast(reopenText(), { ms: 8000 });
+}
+// What is typed in a Mini App whose session ended is kept as it is typed, not only on Close:
+// it is as often closed by Telegram's own button or a swipe, which the page does not hear.
+export function keepPrompt() {
+  const text = $("#prompt")?.value || "";
+  try { if (text.trim()) localStorage.setItem("framy.kept", JSON.stringify({ text, at: Date.now() })); else localStorage.removeItem("framy.kept"); } catch {}
 }
 
 export async function signOut() {
@@ -72,34 +87,35 @@ export function forget() {
   window.dispatchEvent(new Event("framy:me"));
 }
 
-// It says what it learnt: true signed in, false signed out, undefined when framy
-// or the network did not answer and nothing changed.
+// Reads the account again; true once framy answered who it is or that
+// nobody is signed in, false when it could not be asked.
 export async function refreshMe() {
   const v = S.meV;
-  let known;
+  let said = true;
   try {
     const me = await api("/api/me");
+    S.unsure = false;
     // A setting changed meanwhile, and its answer is the newer account.
     if (S.meV !== v) return true;
     const was = S.me?.currency;
-    S.me = me; S.signed = known = true;
+    S.me = me; S.signed = true;
     if (was && was !== me.currency) clearPrices();
   } catch (e) {
     // The session is gone (signed out everywhere, the account deleted): the page forgets the person.
     // A Mini App's token ends with its launch, an hour after Telegram signed it, and only opening
     // framy again gets a new one: the page says so, once, instead of just showing nobody.
     if (e.status === 401) {
-      const said = S.signed && launchGone(e);
+      const gone = S.signed && launchGone(e);
+      S.unsure = false;
       forget();
-      if (said) toast(t(said), { ms: 8000 });
-      return false;
+      if (gone) toast(t(gone), { ms: 8000 });
+      return true;
     }
+    said = false;
   }
   window.dispatchEvent(new Event("framy:me"));
-  return known;
+  return said;
 }
-// A job's stream or reads refused for want of a session: is anyone still signed in here?
-const lost = (e) => { if (e?.status === 401) refreshMe(); };
 
 /* A run: what was pressed, and where it stands. phase is "prep" while the
    files go up, "job" once the server made the job, "refused" when it would
@@ -244,7 +260,7 @@ function followAll(run) {
     if (S.run !== run) return;
     if (!was && run.jobs.every((x) => isFinal(x.status))) ended(run);
     runChanged();
-  }, lost, (net) => { run.net = net; netState(net); if (S.run === run) runChanged(); }));
+  }, (e) => unwatched(run, e), (net) => { run.net = net; netState(net); if (S.run === run) runChanged(); }));
   stopWatch = () => stops.forEach((f) => f?.());
 }
 
@@ -283,7 +299,25 @@ function follow(run) {
     if (S.run !== run) return;
     if (isFinal(j.status) && !isFinal(was)) ended(run);
     runChanged();
-  }, lost, (net) => { run.net = net; netState(net); if (S.run === run) runChanged(); });
+  }, (e) => unwatched(run, e), (net) => { run.net = net; netState(net); if (S.run === run) runChanged(); });
+}
+// The page stopped hearing of a run before it ended. A job that is not the
+// person's (another account signed in in this browser, or theirs deleted)
+// leaves the stage; signed out, or the Mini App's session over, the run stays
+// and says it goes on without the page.
+function unwatched(run, e) {
+  const here = S.run === run;
+  if (e.status === 404) {
+    if (run.gone) return;
+    run.gone = true;
+    toast(t("view.not_found"), { ms: 6000 });
+    if (here) { stopWatch?.(); stopWatch = null; S.run = null; S.showJob = false; runChanged(); renderBar(); }
+  } else {
+    // The Mini App cannot sign in again by itself: it has to be opened anew.
+    run.net = S.mini ? "reopen" : "signin";
+    if (here) runChanged();
+  }
+  refreshMe();
 }
 // What the end of a job changes beyond the stage: the free counts, and a key
 // or the free tier found not to work.
@@ -506,6 +540,8 @@ export async function continueFrom(run = S.run, res = outsOf(run.job)[0]) {
   }
   await fromLastFrame({ job: j.id, model: j.model, url: res.url, secs: res.seconds || 0, result: res.id });
 }
+const takesFrame = (m) => m && m.kind === "video" && framesOf(m) > 0 && m.offers.some((o) => photoLimit(m, o.provider) > 0);
+const takesPhoto = (m) => m && m.kind === "image" && m.offers.some((o) => photoLimit(m, o.provider) > 0);
 // The last frame of a clip framy keeps becomes the first frame of a new video,
 // on the same model when it takes one, else on the first that does.
 export async function fromLastFrame(src = S.cont) {
@@ -513,7 +549,6 @@ export async function fromLastFrame(src = S.cont) {
   let shot;
   try { shot = await api(`/api/files/${src.result}/last-frame`, { method: "POST" }); }
   catch (e) { toast(refusal(e).text, { ms: 6000 }); return; }
-  const takesFrame = (m) => m && m.kind === "video" && framesOf(m) > 0 && m.offers.some((o) => photoLimit(m, o.provider) > 0);
   const id = takesFrame(C.byId[src.model]) ? src.model : (C.recommend.video || []).find((x) => takesFrame(C.byId[x]));
   act(() => {
     S.kind = "video";
@@ -528,6 +563,32 @@ export async function fromLastFrame(src = S.cont) {
   });
   $("#prompt").focus({ preventScroll: true });
   toComposer();
+}
+
+/* A picture framy made, back in the composer by its id with nothing to upload:
+   the photo to change (Change the picture), or the first frame of a video
+   (Animate). The model is the one that made it when it takes one, else the
+   kind's own, else the first suggested that does; the prompt is left for
+   what to change or how it moves. */
+export const changePicture = (run, res) => usePicture(run, res, "image");
+export const animate = (run, res) => usePicture(run, res, "video");
+function usePicture(run, res, kind) {
+  const fits = kind === "video" ? takesFrame : takesPhoto;
+  const id = [run.kind === kind ? run.model : "", S.model[kind], ...(C.recommend[kind] || [])].find((x) => fits(C.byId[x]));
+  const was = S.kind;
+  leave(run);
+  act(() => {
+    S.kind = kind;
+    if (id) S.model[kind] = id;
+    S.cont = null; S.cut = null;
+    S.files = [{ id: "r" + res.id, kind: "image", server: true, name: "", upload: res.id, w: res.width, h: res.height, url: res.thumb?.url || res.url,
+      slot: kind === "video" ? "start" : undefined, meta: { content_type: res.content_type, bytes: res.bytes, width: res.width, height: res.height } }];
+    $("#prompt").value = "";
+    S.showJob = false;
+    render();
+  });
+  if (S.kind !== was) window.dispatchEvent(new CustomEvent("framy:kind", { detail: S.kind }));
+  $("#prompt").focus({ preventScroll: true });
 }
 
 /* Runs of the library: a job of the person's, from GET /api/jobs, as a run

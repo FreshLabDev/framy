@@ -7,6 +7,7 @@
 import { t, fmtTime, fmtAt, fmtSecs, fmtNum, fmtUnit } from "./i18n.js";
 import { C, PNAME, vname, hasAudio } from "./catalog.js";
 import { priceText } from "./price.js";
+import { S, reopenText } from "./state.js";
 
 // MONEY_PAUSE_MIN is free.MoneyPause: how long the free tier stays closed
 // after a free run found framy's key out of credits. The server closes it;
@@ -75,6 +76,10 @@ export function failure(j) {
   // key could not send.
   const sent = j.status === "expired" ? { note: may } : none;
   if (j.status === "cancelled") return { cls: "cancelled", label: t("stage.cancelled"), text: "", ...none, acts: again };
+  // Expired is the run deadline, an hour after the request went out, whatever
+  // the last poll said; a failed timeout is a call that got no answer in time
+  // (180 s for an image, a 408, 504 or 524), so it says no hour.
+  if (j.status === "expired") return { cls: "timeout", label: t("fail.timeout_l"), text: "", note: may, acts: again };
   const face = faceOf(j, cls), m = C.byId[j.model];
   if (face) return { cls: "faces", label: t(face === "video" ? "fail.faces_clip_l" : "fail.faces_photo_l"), text: t("fail.faces", { model: m ? vname(m) : P }),
     ...(cls === "moderation" && free ? { note: t("fail.free_spent") } : none), acts: ["model", "edit"] };
@@ -92,7 +97,7 @@ export function failure(j) {
     // The model refused the sound it made (copyright); nothing was charged.
     case "sound": return { cls, label: t("fail.sound_l"), text: t("fail.sound"), ...none, acts: m && hasAudio(m) ? ["quiet", "edit"] : again };
     case "rate_limited": case "unavailable": return { cls, label: t("fail.no_answer_l"), text: "", ...none, note: (free ? back + " " : "") + t("fail.later"), acts: again };
-    case "timeout": return { cls, label: t("fail.timeout_l"), text: "", note: may, acts: again };
+    case "timeout": return { cls, label: t("stage.expired"), text: "", note: may, acts: again };
     case "provider": return { cls, label: t("fail.provider_l"), text: "", note: may, said, acts: again };
     case "interrupted": return { cls, label: t("fail.interrupted_l"), text: t("fail.interrupted"), note: may, acts: again };
     case "storage": return { cls, label: t("fail.storage_l"), text: t(vid ? "fail.storage_video" : "fail.storage"), note: t(free ? "fail.free_back" : "fail.charged"), acts: again };
@@ -100,7 +105,7 @@ export function failure(j) {
     // framy did not send it: a setting the offer lacks, so nothing reached the provider.
     case "invalid_request": return { cls, label: t("fail.invalid_l"), text: t("fail.invalid"), ...none, acts: ["edit"] };
     case "draft_expired": return { cls, label: t("stage.expired"), text: t("fail.draft_expired"), ...none, acts: again };
-    default: return { cls: cls || "unknown", label: t(j.status === "expired" ? "stage.expired" : "stage.failed"), text: t("fail.unknown"), note: "", acts: again };
+    default: return { cls: cls || "unknown", label: t("stage.failed"), text: t("fail.unknown"), note: "", acts: again };
   }
 }
 
@@ -156,7 +161,7 @@ export function refusal(err, ctx = {}) {
     case "shutting_down": return R(t("ref.restart_l"), t("ref.restart"), ["again"]);
     case "network": return R(t("ref.offline_l"), t("err.network"), ["again"]);
     case "http_429": case "busy": case "unavailable": return R(t("ref.busy_l"), t("err.busy"), ["again"]);
-    case "sign_in": return R(t("ref.signin_l"), t("err.sign_in"));
+    case "sign_in": return S.mini ? R(t("ref.reopen_l"), reopenText()) : R(t("ref.signin_l"), t("err.sign_in"));
     case "init_data_expired": case "init_data_invalid": return R(t("ref.signin_l"), t(launchGone(err)));
     default: return R(t("stage.failed"), t("err.generic", { code }), ["again"]);
   }

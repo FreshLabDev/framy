@@ -4,26 +4,33 @@
 // at /r/<job id>, with what can be done with it. The page's views and their addresses live here
 // too: / is the composer, /library the library. The Mini App keeps its
 // address and walks back with Telegram's back button instead.
-import { $, $$, h, ic, isWide, isPhone } from "./dom.js";
+import { $, $$, h, ic, isWide, isPhone, keepFocus, markOf, findMark } from "./dom.js";
 import { anim, morph, opt, placeSegs, leadSeg, motion, OUT, DUR, LOOP } from "./motion.js";
-import { t, lang, fmtNum, fmtSecs } from "./i18n.js";
+import { t, lang, fmtNum, fmtSecs, fmtRel, fmtDay, fmtWhen } from "./i18n.js";
 import { api, isFinal, outsOf } from "./api.js";
 import { C, vname, famLogo, lg, show, SICON, SHOWN, factEl, ratioNum, ratioOfSize } from "./catalog.js";
-import { S } from "./state.js";
+import { S, reopenText } from "./state.js";
 import { failure } from "./errors.js";
 import { known, priceEl, priceText, onPrices, sumOf, knownTotal, needTotal } from "./price.js";
 import { thumbMedia } from "./clips.js";
 import { player } from "./player.js";
-import { openSheet, closeSheets, toast, ask } from "./ui.js";
+import { grounding } from "./ground.js";
+import { openSheet, closeSheets, toast, ask, layer, goBack, inHistory, takeEntry } from "./ui.js";
 import { view, B, actRow, ticking, renderStage, refit } from "./stage.js";
-import { runOfJob, runOfBatch, frameRun, again, removeJob, signIn, shownOf, onLeave, copyPrompt, refreshMe } from "./run.js";
+import { runOfJob, runOfBatch, frameRun, again, removeJob, signIn, closeMini, shownOf, onLeave, copyPrompt, refreshMe } from "./run.js";
 
 /* Views and addresses. */
 
 const RUN = /^\/r\/([1-9]\d{0,17})$/;
+// A change waits for a back of the page's own that is on its way (ui.js), and
+// a new address pushed while a sheet or the whole screen has the entry takes
+// that entry's place.
 function setPath(path, how, state = null) {
-  if (S.mini || how === "none" || (how === "push" && location.pathname === path)) return;
-  history[how === "push" ? "pushState" : "replaceState"](state, "", path);
+  if (S.mini || how === "none") return;
+  inHistory(() => {
+    if (how === "push" && location.pathname === path) return;
+    history[how === "push" && !takeEntry() ? "pushState" : "replaceState"](state, "", path);
+  });
 }
 
 // go shows one view: "create" or "library". how is what it does to the
@@ -168,13 +175,17 @@ export function libMe() {
   polling();
 }
 
-function renderLibrary() {
+// The kinds, the tiles and the end of the list are drawn anew; the one the
+// keyboard was on keeps the focus, and the search field is never drawn anew.
+function renderLibrary() { keepFocus(drawLibrary); }
+function drawLibrary() {
   const root = $("#library");
   if (!root) return;
   L.dirty = false;
   const list = shown(), focused = Q && document.activeElement === Q.input;
   let body;
-  if (!S.signed) body = [signedOut()];
+  // framy has not said yet who is here: no sign-in for someone who may be signed in.
+  if (!S.signed) body = [S.unsure ? loading() : signedOut()];
   else if (!L.loaded || (!list.length && L.busy === "page")) body = [loading()];
   else if (L.err && !list.length) body = [slim(t("lib.failed"), "again", t("act.retry"), () => { swap(() => { L.err = ""; L.loaded = false; }); load(); })];
   else if (!list.length) body = [empty()];
@@ -282,17 +293,14 @@ function find(v) {
 }
 
 // Days: today and yesterday by name, the others by date, with the year when it is another.
-const fmts = new Map();
-const fmtOf = (k, make) => { let f = fmts.get(k); if (!f) fmts.set(k, (f = make())); return f; };
 const dayStart = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
 function dayName(d) {
   const now = new Date(), ago = Math.max(0, Math.round((dayStart(now) - dayStart(d)) / 864e5));
   if (ago < 2) {
-    const s = fmtOf("r" + lang, () => new Intl.RelativeTimeFormat(lang, { numeric: "auto" })).format(-ago, "day");
+    const s = fmtRel(-ago, "day");
     return s.charAt(0).toLocaleUpperCase(lang) + s.slice(1);
   }
-  const year = d.getFullYear() !== now.getFullYear();
-  return fmtOf("d" + lang + year, () => new Intl.DateTimeFormat(lang, { day: "numeric", month: "long", ...(year ? { year: "numeric" } : {}) })).format(d);
+  return fmtDay(d.getTime(), d.getFullYear() !== now.getFullYear());
 }
 // The runs of the list: a press of several frames is one run, its jobs in the
 // order of their frames (the server never cuts a press across pages).
@@ -432,8 +440,10 @@ const slim = (text, icon, label, fn) => h("div", { class: "lempty slim", "data-k
 // Signed out: the library asks for the sign-in, and the composer stays a press
 // away for whoever came by a link and would rather try it first.
 function signedOut() {
-  return h("div", { class: "lempty", "data-k": "lempty" }, frame(), h("div", { class: "t" }, h("h2", {}, t("lib.signin_title")), h("p", {}, t("lib.signin_text")),
-    h("div", { class: "two" }, h("button", { type: "button", class: "go", onclick: signIn }, ic("send"), t("auth.signin")),
+  // The Mini App whose session ended signs in only by being opened again.
+  const gone = S.mini && S.expired;
+  return h("div", { class: "lempty", "data-k": "lempty" }, frame(), h("div", { class: "t" }, h("h2", {}, t("lib.signin_title")), h("p", {}, gone ? reopenText() : t("lib.signin_text")),
+    gone ? h("button", { type: "button", class: "go", onclick: closeMini }, t("go.close")) : h("div", { class: "two" }, h("button", { type: "button", class: "go", onclick: signIn }, ic("send"), t("auth.signin")),
       h("a", { class: "x", href: "/", onclick: (e) => { if (S.mini || !(e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) { e.preventDefault(); go("create"); } } }, ic("spark"), t("tab.create")))));
 }
 function empty() {
@@ -568,7 +578,7 @@ function closed() {
   polling();
   if (quiet) return;
   // Closed by its own button: the address goes back to the library.
-  if (V.pushed) { V.pushed = false; history.back(); } else setPath("/library", "replace");
+  if (V.pushed) { V.pushed = false; inHistory(goBack); } else setPath("/library", "replace");
 }
 
 // The run with id, at its own address: from the list read already, else read now.
@@ -594,7 +604,8 @@ function openView(j, push, pushed = push) {
   setRun(j); V.pushed = !S.mini && pushed;
   if (push) setPath("/r/" + V.id, "push", { lib: 1 });
   fill();
-  openSheet("#viewer");
+  // On the site its address is its entry in the history; the Mini App has none.
+  openSheet("#viewer", { own: !S.mini });
   size();
   fresh();
   polling();
@@ -771,7 +782,7 @@ function fill() {
     h("button", { type: "button", class: "cp", "aria-label": t("act.copy"), title: t("act.copy"), onclick: () => copyPrompt(j.prompt) }, ic("copy"))) : null;
   $("#viewBody").replaceChildren(h("div", { class: "vrun", "data-run": j.id },
     h("div", { class: "vmain" }, mediaOf(j, v), picks(j)),
-    h("div", { class: "vside" }, line, why, acts, prompt, facts(j), inputs(j))));
+    h("div", { class: "vside" }, line, why, acts, grounding(j), prompt, facts(j), inputs(j))));
   size();
   ticking();
 }
@@ -838,7 +849,7 @@ export function openFull(at = 0, items = null) {
   // The videos under the whole screen stop while it is open, and those that played go on after.
   const under = [...document.querySelectorAll("#app video")].filter((v) => !v.paused && !box.contains(v));
   under.forEach((v) => v.pause());
-  FULL = { items, strip, at: -1, back: document.activeElement, under };
+  FULL = { items, strip, at: -1, back: document.activeElement, mark: markOf(document.activeElement), under };
   // What the strip shows now: the count, the dots, the arrows, the actions of that result, and only its video plays.
   const upd = () => {
     if (!FULL) return;
@@ -860,6 +871,7 @@ export function openFull(at = 0, items = null) {
   box.replaceChildren(h("div", { class: "fbar" }, cnt, h("button", { type: "button", class: "x", onclick: () => closeFull() }, ic("close"), t("view.close"))),
     h("div", { class: "fmid" }, strip, nav), h("div", { class: "fbot" }, dots, acts));
   box.hidden = false;
+  layer("full", () => closeFull());
   document.documentElement.classList.add("full-on");
   box.tabIndex = -1;
   box.focus({ preventScroll: true });
@@ -871,8 +883,9 @@ export function openFull(at = 0, items = null) {
 export function closeFull(quick = false) {
   const box = $("#full");
   if (!FULL || !box) return;
-  const { back, under } = FULL;
+  const { under } = FULL, back = FULL.back?.isConnected ? FULL.back : findMark(FULL.mark);
   FULL = null;
+  layer("full", null);
   box.querySelectorAll("video").forEach((v) => v.pause());
   under.forEach((v) => { if (v.isConnected && !v._held) v.play().catch(() => {}); });
   const done = () => { if (FULL) return; box.hidden = true; box.replaceChildren(); document.documentElement.classList.remove("full-on"); if (!quick) back?.focus?.({ preventScroll: true }); };
@@ -896,7 +909,7 @@ const WHERE = new Set(["mini_app", "dm", "group", "guest"]);
 function facts(j) {
   const s = j.settings || {}, out = [];
   for (const n of SHOWN) if (s[n] != null && s[n] !== "") out.push(factEl([SICON[n] || "info", show(n, s[n])]));
-  const when = fmtOf("w" + lang, () => new Intl.DateTimeFormat(lang, { dateStyle: "long", timeStyle: "short" })).format(new Date(j.created_at));
+  const when = fmtWhen(Date.parse(j.created_at));
   const where = WHERE.has(j.surface) ? t("view.where_" + j.surface) : "";
   return [out.length ? h("div", { class: "facts vfacts" }, out) : null, h("p", { class: "vwhen" }, when, where ? h("br") : null, where)];
 }

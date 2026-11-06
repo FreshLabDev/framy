@@ -73,6 +73,50 @@ new MutationObserver(() => {
   if (performance.now() - held.gone > 1000) { held = null; return; }
   refocus(held.key);
 }).observe(document.documentElement, { childList: true, subtree: true });
+/* Focus across a redraw that a caller asks for, and a control found again
+   once a layer closes. A block drawn anew replaces the control a person
+   was on with the keyboard, and the browser puts the focus back at the start
+   of the page. markOf says how to find that control again: an option by its
+   group and value, else its id or key, else its kind and name under the
+   nearest block with one. A button that now says something else is another
+   button, and gets no focus it did not have. Copies that are leaving or only
+   paint (aria-hidden) never count. */
+const q = (s) => `"${CSS.escape(s)}"`;
+export function markOf(el) {
+  if (!el?.isConnected || el === document.body || el === document.documentElement) return null;
+  const seg = el.parentElement;
+  if (el.dataset.v != null && seg?.dataset.seg) return { sel: `[data-seg=${q(seg.dataset.seg)}] > [data-v=${q(el.dataset.v)}]` };
+  if (el.id) return { sel: "#" + CSS.escape(el.id) };
+  if (el.dataset.k) return { sel: `[data-k=${q(el.dataset.k)}]` };
+  const up = el.parentElement?.closest("[data-k], [id]");
+  if (!up) return null;
+  let sig = el.localName;
+  if (el.classList[0]) sig += `.${CSS.escape(el.classList[0])}`;
+  const lab = el.getAttribute("aria-label");
+  if (lab) sig += `[aria-label=${q(lab)}]`;
+  return { up: up.id ? "#" + CSS.escape(up.id) : `[data-k=${q(up.dataset.k)}]`, sig, i: [...up.querySelectorAll(sig)].indexOf(el), text: lab ? null : el.textContent };
+}
+export function findMark(m) {
+  if (!m) return null;
+  if (m.sel) return $$(m.sel).find(live) || null;
+  const up = $$(m.up).find(live);
+  if (!up) return null;
+  const all = $$(m.sig, up).filter(live);
+  return (m.text != null ? all.find((el) => el.textContent === m.text) : all[m.i]) || null;
+}
+// keepFocus runs a redraw; a control that had the focus and was drawn anew
+// gets it back in its new form. Nested calls leave it to the outer one.
+let keeping = 0;
+export function keepFocus(fn) {
+  if (keeping) return fn();
+  const was = document.activeElement, m = markOf(was);
+  keeping++;
+  try { return fn(); } finally {
+    keeping--;
+    const now = document.activeElement;
+    if (m && !was.isConnected && (!now || now === document.body)) findMark(m)?.focus({ preventScroll: true });
+  }
+}
 
 export const isPhone = () => !matchMedia("(min-width: 960px)").matches;
 // A low window, a phone on its side or a page zoomed in, has no room for the composer as a dock at the

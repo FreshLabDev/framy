@@ -8,6 +8,7 @@ import (
 
 	"github.com/FreshLabDev/framy/internal/db"
 	"github.com/FreshLabDev/framy/internal/free"
+	"github.com/FreshLabDev/framy/internal/fx"
 	"github.com/FreshLabDev/framy/internal/keys"
 )
 
@@ -28,6 +29,9 @@ type meJSON struct {
 	// country or the language.
 	Currency       string `json:"currency"`
 	CurrencyChosen bool   `json:"currency_chosen"`
+	// CurrencyAuto is the one prices would show in without a pick, by the
+	// country and then the language: what "Auto" in the settings gives.
+	CurrencyAuto string `json:"currency_auto"`
 	// SignedInAt is the sign-in that gave the name and the photo.
 	SignedInAt *time.Time `json:"signed_in_at,omitempty"`
 	// Connections are the person's keys, by provider, with the last four
@@ -141,7 +145,8 @@ func (a *API) me(w http.ResponseWriter, r *http.Request) {
 	}
 	out := meJSON{
 		UserID: user, Name: card.Name, PhotoURL: card.PhotoURL, Language: lang, LanguageChosen: settings.LanguagePicked,
-		Currency: q.Code, CurrencyChosen: chosen != "" && q.Code == chosen, Connections: make([]connectionJSON, 0, len(conns)),
+		Currency: q.Code, CurrencyChosen: chosen != "" && q.Code == chosen, CurrencyAuto: fx.Default("", country(r), lang),
+		Connections:       make([]connectionJSON, 0, len(conns)),
 		DefaultModels:     defaultModelsJSON{Image: settings.DefaultImage, Video: settings.DefaultVideo},
 		DeliverToTelegram: settings.Deliver,
 	}

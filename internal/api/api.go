@@ -42,6 +42,7 @@ import (
 	"github.com/FreshLabDev/framy/internal/db"
 	"github.com/FreshLabDev/framy/internal/free"
 	"github.com/FreshLabDev/framy/internal/fx"
+	"github.com/FreshLabDev/framy/internal/i18n"
 	"github.com/FreshLabDev/framy/internal/jobs"
 	"github.com/FreshLabDev/framy/internal/keys"
 	"github.com/FreshLabDev/framy/internal/storage"
@@ -559,40 +560,46 @@ func (a *API) anyone(r *http.Request) int64 {
 	return id
 }
 
-// language is the person's language for writing amounts: core's, else the
-// first tag of Accept-Language, else English. userID 0 is nobody signed in.
+// language is the person's language for notes and amounts, picked as the
+// page picks its own: core's where framy speaks it, else the first language
+// of Accept-Language framy speaks, else English. userID 0 is nobody signed in.
 func (a *API) language(ctx context.Context, r *http.Request, userID int64) string {
-	var lang string
 	if userID != 0 {
-		var err error
-		if lang, err = a.cfg.Store.UserLang(ctx, userID); err != nil {
+		lang, err := a.cfg.Store.UserLang(ctx, userID)
+		if err != nil {
 			a.log.Warn("user language", "error", err)
 		}
-	}
-	if lang == "" {
-		lang = firstTag(r.Header.Get("Accept-Language"))
-	}
-	if lang == "" {
-		lang = "en"
-	}
-	return lang
-}
-
-// firstTag is the first language of an Accept-Language value, without its
-// region: "uk-UA,uk;q=0.9,en;q=0.8" gives "uk". "*" and junk give "".
-func firstTag(h string) string {
-	first, _, _ := strings.Cut(h, ",")
-	first, _, _ = strings.Cut(first, ";")
-	tag, _, _ := strings.Cut(strings.ToLower(strings.TrimSpace(first)), "-")
-	if len(tag) < 2 || len(tag) > 3 {
-		return ""
-	}
-	for _, c := range tag {
-		if c < 'a' || c > 'z' {
-			return ""
+		if lang = i18n.Normalize(lang); i18n.IsSupported(lang) {
+			return lang
 		}
 	}
-	return tag
+	if lang := acceptLang(r.Header.Get("Accept-Language")); lang != "" {
+		return lang
+	}
+	return i18n.DefaultLang
+}
+
+// acceptLang is the language of an Accept-Language value framy speaks that
+// the browser prefers most, without its region: "kk-KZ,kk;q=0.9,ru;q=0.8"
+// gives "ru". Of equal weights the first wins; q=0, "*" and junk never do,
+// and none framy speaks gives "".
+func acceptLang(h string) string {
+	best, top := "", 0.0
+	for _, part := range strings.Split(h, ",") {
+		tag, params, _ := strings.Cut(part, ";")
+		q := 1.0
+		if v, ok := strings.CutPrefix(strings.TrimSpace(params), "q="); ok {
+			f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+			if err != nil {
+				continue
+			}
+			q = f
+		}
+		if code := i18n.Normalize(tag); q > top && i18n.IsSupported(code) {
+			best, top = code, q
+		}
+	}
+	return best
 }
 
 // A mutex-guarded set of the streams a person holds.

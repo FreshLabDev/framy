@@ -59,9 +59,27 @@ const fakeWrapped = `refused: openrouter 400: HTTP 400: {"error":{"code":"Invali
 // VP8 (ffmpeg -f lavfi -i color=c=0x00606E:s=32x18:r=8:d=2 -c:v libvpx).
 const loopWebM = "GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAANoEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHWTbuMU6uEElTDZ1OsggEyTbuMU6uEHFO7a1OsggNS7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsCrXsYMPQkBNgIxMYXZmNjMuMS4xMDFXQYxMYXZmNjMuMS4xMDFEiYhAn0AAAAAAABZUrmvXrgEAAAAAAABO14EBc8WILdqadVgB8fKcgQAitZyDdW5kiIEAhoVWX1ZQOIOBASPjg4QHc1lA4JCwgSC6gRKagQJVsIRVuYEBVe6BAOwBAAAAAAAAAgAAElTDZ/pzc59jwIBnyJlFo4dFTkNPREVSRIeMTGF2ZjYzLjEuMTAxc3PVY8CLY8WILdqadVgB8fJnyKBFo4dFTkNPREVSRIeTTGF2YzYzLjEuMTAxIGxpYnZweGfIoUWjiERVUkFUSU9ORIeTMDA6MDA6MDIuMDAwMDAwMDAwAB9DtnVBm+eBAKO9gQAAgNACAJ0BKiAAEgAARwiFhYiFhIgCAgJ1qgP4AgghCD0A/v4ND//SbPE2eJs+SR/+djfnY352N/5zIKOVgQB9ALEBAAEQEAAYABhYL/QACHAAo5WBAPoAsQEAARAQABgAGFgv9AAIcACjlYEBdwCxAQABEBAAGAAYWC/0AAhwAKOVgQH0ALEBAAEQEAAYABhYL/QACHAAo5WBAnEAsQEAARAQABgAGFgv9AAIcACjlYEC7gCxAQABEBAAGAAYWC/0AAhwAKOVgQNrALEBAAEQEBRgAGFgv9AAIcAAo5WBA+gAsQEAARAQABgAGFgv9AAIcACjlYEEZQCxAQABEBAAGAAYWC/0AAhwAKOVgQTiALEBAAEQEAAYABhYL/QACHAAo5WBBV8AsQEAARAQABgAGFgv9AAIcACjlYEF3ACxAQABEBAAGAAYWC/0AAhwAKOVgQZZALEBAAEQEAAYABhYL/QACHAAo5WBBtYAsQEAARAQABgAGFgv9AAIcACjlYEHUwCxAQABEBAAGAAYWC/0AAhwABxTu2uRu4+zgQC3iveBAfGCAbHwgQM="
 
+// fakeSuggestion is a Search Suggestion as Google writes it: its own <style>
+// and a chip that links to Google's results. fakeOdd has what Google's do
+// not: a style attribute, an event handler, a script, a form that would post
+// to framy and a link that is a script.
+const fakeSuggestion = `<style>
+.container { align-items: center; border-radius: 8px; display: flex; font-family: Google Sans, Roboto, sans-serif; font-size: 14px; line-height: 20px; padding: 8px 12px; }
+.chip { display: inline-block; border: solid 1px; border-radius: 16px; min-width: 14px; padding: 5px 16px; text-align: center; user-select: none; margin: 0 8px; }
+.carousel { overflow: auto; scrollbar-width: none; white-space: nowrap; margin-right: -12px; }
+@media (prefers-color-scheme: dark) { .container { background-color: #1f1f1f; } .chip { background-color: #2c2c2c; border-color: #3c4043; color: #fff; text-decoration: none; } }
+@media (prefers-color-scheme: light) { .container { background-color: #fafafa; } .chip { background-color: #fff; border-color: #d2d2d2; color: #5e5e5e; text-decoration: none; } }
+</style>
+<div class="container"><div class="headline"><svg width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="8" fill="#4285f4"/></svg></div>
+<div class="carousel"><a class="chip" href="https://www.google.com/search?q=eiffel+tower+at+night&amp;client=app-vertex-grounding">eiffel tower at night</a></div></div>`
+
+const fakeOdd = `<div class="headline" style="display: flex; margin-right: 4px">odd</div><img src="data:," onerror="parent.__ran = true">` +
+	`<script>parent.__ran = true</script><form method="post" action="/auth/logout"><button>out</button></form><a class="bad" href="javascript:parent.__ran = true">bad</a>`
+
 // fakeRuns is the API of a signed-in person with a working OpenRouter key and
 // no free pictures left, whose jobs follow the prompt: "fail:<class>" fails
-// with that class, "retry" waits for a retry, "running" runs and never ends,
+// with that class, "expired:<class>" passes the run's hour with it as the
+// last poll's, "retry" waits for a retry, "running" runs and never ends,
 // "poll" is read without the event stream, "done" makes a picture ("slow"
 // after two seconds of running), "faces" and "wrapped" are refused by the
 // provider in its own JSON, and "refuse:<code>" is refused before any job.
@@ -80,6 +98,12 @@ type fakeRuns struct {
 	// launchOld: the Mini App's launch data is past its hour, so POST
 	// /auth/miniapp answers init_data_expired.
 	launchOld atomic.Bool
+	gone      bool // signed out: a "stream:401" job was watched
+	expired   bool // the Mini App's launch data is refused, as an hour after Telegram signed it
+	trades    int  // how many times the launch data was traded for a token
+	// keyless: no key is connected, and a free picture is left by the meter,
+	// as when the bot took the last one since the page read it.
+	keyless bool
 }
 
 // signOutElsewhere is "Sign out everywhere" pressed on another device.
@@ -94,6 +118,7 @@ func (f *fakeRuns) signedOut(w http.ResponseWriter) bool {
 	default:
 		return false
 	}
+
 }
 
 type fakeJob struct {
@@ -110,11 +135,23 @@ func (f *fakeRuns) mount(srv *Server) {
 		if f.signedOut(w) {
 			return
 		}
+
+		f.mu.Lock()
+		gone, keyless := f.gone, f.keyless
+		f.mu.Unlock()
+		if gone {
+			writeTestJSON(w, http.StatusUnauthorized, map[string]any{"error": "sign_in"})
+			return
+		}
+		conns := []map[string]any{{"id": "c1", "provider": "openrouter", "last4": "abcd", "status": "ok"}}
+		images := map[string]any{"used": 5, "limit": 5, "left": 0, "window_seconds": 86400, "frees_at": time.Now().Add(3 * time.Hour).UTC()}
+		if keyless {
+			conns, images = []map[string]any{}, map[string]any{"used": 4, "limit": 5, "left": 1, "window_seconds": 86400}
+		}
 		writeTestJSON(w, http.StatusOK, map[string]any{
-			"user_id": 1, "name": "Ada", "language": lang, "currency": "USD", "deliver_to_telegram": !f.offDM,
-			"connections": []map[string]any{{"id": "c1", "provider": "openrouter", "last4": "abcd", "status": "ok"}},
+			"user_id": 1, "name": "Ada", "language": lang, "currency": "USD", "deliver_to_telegram": !f.offDM, "connections": conns,
 			"free": map[string]any{
-				"images": map[string]any{"used": 5, "limit": 5, "left": 0, "window_seconds": 86400, "frees_at": time.Now().Add(3 * time.Hour).UTC()},
+				"images": images,
 				"videos": map[string]any{"used": 0, "limit": 1, "left": 1, "window_seconds": 604800},
 			},
 		})
@@ -132,7 +169,7 @@ func (f *fakeRuns) mount(srv *Server) {
 		}
 		f.mu.Lock()
 		// Read without the stream, the job moves one step a read.
-		if j.steps[0]["prompt"] == "poll" && j.shown < len(j.steps) {
+		if p := j.steps[0]["prompt"]; (p == "poll" || p == "stream:500") && j.shown < len(j.steps) {
 			j.shown++
 		}
 		cur := j.steps[max(0, j.shown-1)]
@@ -140,9 +177,32 @@ func (f *fakeRuns) mount(srv *Server) {
 		writeTestJSON(w, http.StatusOK, withID(cur, id))
 	})
 	srv.HandleFunc("GET /api/jobs/{id}/events", f.events, Stream())
+	// The library: every job as it stands now, the newest first.
+	srv.HandleFunc("GET /api/jobs", func(w http.ResponseWriter, _ *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		out := []map[string]any{}
+		for id := f.next; id > 0; id-- {
+			if j := f.jobs[id]; j != nil {
+				m := withID(j.steps[len(j.steps)-1], id)
+				m["created_at"] = time.Now().UTC()
+				out = append(out, m)
+			}
+		}
+		writeTestJSON(w, http.StatusOK, map[string]any{"jobs": out})
+	})
 	srv.HandleFunc("POST /api/jobs/{id}/cancel", f.cancel)
 	srv.HandleFunc("POST /auth/miniapp", func(w http.ResponseWriter, _ *http.Request) {
 		if f.launchOld.Load() {
+			writeTestJSON(w, http.StatusUnauthorized, map[string]any{"error": "init_data_expired"})
+			return
+		}
+
+		f.mu.Lock()
+		f.trades++
+		expired := f.expired
+		f.mu.Unlock()
+		if expired {
 			writeTestJSON(w, http.StatusUnauthorized, map[string]any{"error": "init_data_expired"})
 			return
 		}
@@ -264,6 +324,9 @@ func (f *fakeRuns) create(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(p, "late:"):
 		// A sent run whose key stopped working while framy asked about it, for the hour.
 		steps = append(steps, at("running", nil), at("expired", map[string]any{"error": map[string]any{"class": strings.TrimPrefix(p, "late:"), "message": fakeOwnLine}}))
+	case strings.HasPrefix(p, "expired:"):
+		cls := strings.TrimPrefix(p, "expired:")
+		steps = append(steps, at("running", nil), at("expired", map[string]any{"error": map[string]any{"class": cls, "message": fakeMessage}}))
 	case p == "faces", p == "wrapped":
 		msg := map[string]string{"faces": fakeFaces, "wrapped": fakeWrapped}[p]
 		steps = append(steps, at("running", nil), at("failed", map[string]any{"error": map[string]any{"class": "refused", "message": msg, "from_provider": p == "wrapped"}}))
@@ -272,7 +335,7 @@ func (f *fakeRuns) create(w http.ResponseWriter, r *http.Request) {
 	case p == "retry":
 		steps = append(steps, at("queued", map[string]any{"error": map[string]any{"class": "rate_limited", "message": fakeMessage},
 			"retry_at": time.Now().Add(30 * time.Second).UTC()}))
-	case p == "running":
+	case p == "running", p == "stream:404", p == "stream:401", p == "stream:expired":
 		steps = append(steps, at("running", nil))
 	case p == "done:video":
 		url := "http://" + r.Host + "/test/clip.mp4"
@@ -304,12 +367,20 @@ func (f *fakeRuns) create(w http.ResponseWriter, r *http.Request) {
 		url := "http://" + r.Host + "/test/result.svg"
 		steps = append(steps, at("running", nil), at("done", map[string]any{"cost": map[string]any{"usd": 0.08, "amount": 0.08, "currency": "USD", "label": "$0.080"},
 			"results": []map[string]any{{"id": 11, "content_type": "image/svg+xml", "url": url, "download": url + "?download=1", "width": 1365, "height": 1024}}}))
+
+	case p == "done:grounded":
+		// A run grounded in Google Search: Google's suggestion and the pages it cites.
+		url := "http://" + r.Host + "/test/result.png"
+		steps = append(steps, at("running", nil), at("done", map[string]any{"cost": map[string]any{"usd": 0.04, "amount": 0.04, "currency": "USD", "label": "$0.040"},
+			"results": []map[string]any{{"id": 7, "content_type": "image/png", "url": url, "download": url + "?download=1", "width": 1024, "height": 1024}},
+			"grounding": map[string]any{"suggestions": []string{fakeSuggestion, fakeOdd}, "queries": []string{"eiffel tower at night"},
+				"sources": []map[string]any{{"url": "https://en.wikipedia.org/wiki/Eiffel_Tower", "title": "wikipedia.org"}, {"url": "https://www.toureiffel.paris/en"}, {"url": "javascript:alert(1)", "title": "bad"}}}}))
 	case p == "slow":
 		for range 14 {
 			steps = append(steps, at("running", nil))
 		}
 		fallthrough
-	case p == "done", p == "poll", p == "done:big":
+	case p == "done", p == "poll", p == "done:big", p == "stream:500":
 		// Result 8 is one Telegram will not take.
 		url, rid := "http://"+r.Host+"/test/result.png", 7
 		if p == "done:big" {
@@ -329,7 +400,8 @@ func (f *fakeRuns) create(w http.ResponseWriter, r *http.Request) {
 // batch answers a press of several frames as the server does: the frames
 // with the same offer, payer and settings go as one job, whose results stand
 // on those frames in order. "frames:<a>,<b>,…" gives the jobs, in order, the
-// outcomes done, fail:<class> or running; any other prompt makes them all
+// outcomes done, grounded (done, with Google's suggestion and a source),
+// fail:<class> or running; any other prompt makes them all
 // done, and "refuse:<code>" refuses the press for its second frame.
 func (f *fakeRuns) batch(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
@@ -409,12 +481,20 @@ func (f *fakeRuns) batch(w http.ResponseWriter, r *http.Request) {
 			steps = append(steps, at("running", map[string]any{"kind": "video"}), at("done", map[string]any{"kind": "video", "results": results,
 				"cost": map[string]any{"usd": usd, "amount": usd, "currency": "USD", "label": fmt.Sprintf("$%.3f", usd)}}))
 		default:
+			var grounding map[string]any
+			if outcome == "grounded" {
+				grounding = map[string]any{"suggestions": []string{fakeSuggestion}, "sources": []map[string]any{{"url": "https://en.wikipedia.org/wiki/Eiffel_Tower", "title": "wikipedia.org"}}}
+			}
 			var results []map[string]any
 			for k := range frames {
 				results = append(results, map[string]any{"id": 100 + 10*g + k, "content_type": "image/png", "url": url, "download": url + "?download=1", "width": 1024, "height": 1024})
 			}
-			steps = append(steps, at("running", nil), at("done", map[string]any{"results": results,
-				"cost": map[string]any{"usd": usd, "amount": usd, "currency": "USD", "label": fmt.Sprintf("$%.3f", usd)}}))
+			done := at("done", map[string]any{"results": results,
+				"cost": map[string]any{"usd": usd, "amount": usd, "currency": "USD", "label": fmt.Sprintf("$%.3f", usd)}})
+			if grounding != nil {
+				done["grounding"] = grounding
+			}
+			steps = append(steps, at("running", nil), done)
 		}
 		f.mu.Lock()
 		f.next++
@@ -437,8 +517,30 @@ func (f *fakeRuns) events(w http.ResponseWriter, r *http.Request) {
 		writeTestJSON(w, http.StatusNotFound, map[string]any{"error": "not_found"})
 		return
 	}
-	if j.steps[0]["prompt"] == "poll" {
+	switch j.steps[0]["prompt"] {
+	case "poll":
 		writeTestJSON(w, http.StatusTooManyRequests, map[string]any{"error": "too_many_streams"})
+		return
+	case "stream:500":
+		// framy failing, or the tunnel in front of it: an answer that is not the stream.
+		w.Header().Set("Retry-After", "1")
+		writeTestJSON(w, http.StatusInternalServerError, map[string]any{"error": "internal"})
+		return
+	case "stream:404":
+		writeTestJSON(w, http.StatusNotFound, map[string]any{"error": "not_found"})
+		return
+	case "stream:401":
+		f.mu.Lock()
+		f.gone = true
+		f.mu.Unlock()
+		writeTestJSON(w, http.StatusUnauthorized, map[string]any{"error": "sign_in"})
+		return
+	case "stream:expired":
+		// The Mini App's token ran out and its launch data is too old to trade again.
+		f.mu.Lock()
+		f.expired = true
+		f.mu.Unlock()
+		writeTestJSON(w, http.StatusUnauthorized, map[string]any{"error": "sign_in"})
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -456,7 +558,7 @@ func (f *fakeRuns) events(w http.ResponseWriter, r *http.Request) {
 		j.shown = max(j.shown, n+1)
 		f.mu.Unlock()
 		say(n+1, j.steps[n])
-		if st := j.steps[n]["status"]; st == "failed" || st == "done" {
+		if st := j.steps[n]["status"]; st == "failed" || st == "expired" || st == "done" {
 			return
 		}
 		select {
@@ -549,7 +651,7 @@ func TestBrowserRuns(t *testing.T) {
 		"region":          {"Region not served", "does not serve the country framy's server is in", "Another model", false, true},
 		"rate_limited":    {"No answer", "Try again in a few minutes", "Try again", false, true},
 		"unavailable":     {"No answer", "Try again in a few minutes", "Try again", false, true},
-		"timeout":         {"Over an hour", "may have charged up to $0.040", "Try again", false, false},
+		"timeout":         {"Took too long", "may have charged up to $0.040", "Try again", false, false},
 		"provider":        {"Provider failure", "may have charged up to $0.040", "Try again", true, false},
 		"interrupted":     {"Run interrupted", "was not sent again", "Try again", false, false},
 		"storage":         {"Not saved", "The provider charged for it", "Try again", false, false},
@@ -575,9 +677,16 @@ func TestBrowserRuns(t *testing.T) {
 		}
 	}
 
+	// Only a run past its hour says so; whatever the last poll said, the
+	// provider may have charged for it.
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`return await press("expired:provider", (s) => s.failed);`)
+	if s["timeout"] == true || s["label"] != "Over an hour" || !strings.Contains(s["why"].(string), "may have charged up to $0.040") || s["said"] != "" {
+		t.Errorf("expired: %v", s)
+	}
+
 	// A refusal for a real person in a file says so in framy's words, with no
 	// JSON, and offers another model; Another model opens the picker.
-	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+`
 	const s = await press("faces", (s) => s.failed);
 	const other = [...document.querySelectorAll("#stage .jacts button")].find((b) => b.textContent.trim() === "Another model");
 	other?.click();
@@ -758,6 +867,201 @@ func TestBrowserVideoWaitSaysLeave(t *testing.T) {
 	}
 }
 
+// TestBrowserRunsNoKey checks the way on for a person with no key when the
+// free run is refused after all: where a person with a key gets the run on
+// it, the card connects OpenRouter, and so does the button while the free
+// runs are paused, with when they are back under the price.
+func TestBrowserRunsNoKey(t *testing.T) {
+	runs := &fakeRuns{keyless: true}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`return await press("refuse:free_limit", (s) => s.failed);`)
+	if !strings.HasPrefix(fmt.Sprint(s["acts"]), "[Connect OpenRouter Edit the prompt") {
+		t.Errorf("free limit with no key: %v", s)
+	}
+	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const s = await press("refuse:free_closed", (s) => s.failed);
+	const go = document.querySelector("#go");
+	for (let i = 0; i < 30 && !/Connect/.test(go.textContent); i++) await wait(100);
+	s.go = [go.firstChild.nextSibling.textContent, go.disabled];
+	s.cap = document.querySelector("#pcap").textContent;
+	[...document.querySelectorAll("#stage .jacts > button")].find((b) => b.textContent.trim() === "Connect OpenRouter")?.click();
+	for (let i = 0; i < 30 && document.querySelector("#prefs").hidden; i++) await wait(100);
+	await wait(400);
+	s.focus = document.activeElement.closest('[data-p="openrouter"]') ? document.activeElement.textContent.trim() : "";
+	return s;`)
+	if s["label"] != "Free runs paused" || !strings.HasPrefix(fmt.Sprint(s["acts"]), "[Connect OpenRouter Edit the prompt") || fmt.Sprint(s["go"]) != "[Connect OpenRouter false]" ||
+		!regexp.MustCompile(`^Free again at \d{1,2}:\d\d [AP]M$`).MatchString(fmt.Sprint(s["cap"])) || s["focus"] != "Connect" {
+		t.Errorf("free paused with no key: %v", s)
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserRunsSaid checks what a screen reader hears of a run: a status
+// region beside the stage says each phase once as it comes, never the
+// clock, and why a run gave nothing.
+func TestBrowserRunsSaid(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const el = document.querySelector("#stageSay"), heard = [];
+	new MutationObserver(() => { if (el.textContent) heard.push(el.textContent); }).observe(el, { childList: true, characterData: true, subtree: true });
+	await press("slow", (s) => s.done);
+	await wait(300);
+	const done = heard.splice(0);
+	await press("fail:key", (s) => s.failed);
+	await wait(300);
+	return { role: el.getAttribute("role"), inStage: !!el.closest("#stage"), done, failed: heard };`)
+	done := fmt.Sprint(s["done"])
+	if s["role"] != "status" || s["inStage"] != false || done != "[Getting ready In the queue Making it Ready]" && done != "[In the queue Making it Ready]" {
+		t.Errorf("a run said: %v", s)
+	}
+	if f, _ := s["failed"].([]any); len(f) == 0 || f[len(f)-1] != "The key does not work. OpenRouter no longer accepts the key: it was revoked, or this model is closed to it." {
+		t.Errorf("a failed run said: %v", s["failed"])
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserStreamFails checks a run whose events cannot be heard: a stream
+// framy keeps failing gives way to reading the job, which ends with the
+// result; a job that is not the person's leaves the stage saying so; signed
+// out, the run says it goes on.
+func TestBrowserStreamFails(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const s = await press("stream:500", (s) => s.done);
+	return { ...s, tag: document.querySelector("#stage .jtag")?.textContent || "" };`)
+	if s["done"] != true {
+		t.Errorf("a stream that fails: %v", s)
+	}
+	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	document.querySelector("#stage .jacts .sq[aria-label]:last-child")?.click();
+	await wait(300);
+	const s = await press("stream:404", () => !document.querySelector("#stage .jbox"));
+	return { ...s, toast: document.querySelector(".toast")?.textContent || "", ghost: !!document.querySelector("#stage .ghost") };`)
+	if s["timeout"] == true || s["ghost"] != true || s["toast"] != "There is no such run in your library." {
+		t.Errorf("a job that is gone: %v", s)
+	}
+	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const s = await press("stream:401", (s) => /Sign in again/.test(s.sub));
+	for (let i = 0; i < 30 && !/^Sign in/.test(document.querySelector("#go")?.textContent); i++) await wait(100);
+	return { ...s, go: document.querySelector("#go")?.textContent || "" };`)
+	if s["timeout"] == true || s["sub"] != "Sign in again: the run goes on on the server" || !strings.HasPrefix(s["go"].(string), "Sign in") {
+		t.Errorf("signed out under a run: %v", s)
+	}
+	noErrors(t, ctx)
+	// Signing in again comes back to the run, which the library goes on following.
+	js[bool](t, ctx, `setTimeout(() => document.querySelector("#go").click(), 50); return true;`)
+	back := ""
+	for i := 0; i < 30 && !strings.HasPrefix(back, "/auth/"); i++ {
+		time.Sleep(100 * time.Millisecond)
+		back = js[string](t, ctx, `return location.pathname + location.search;`)
+	}
+	if !strings.HasPrefix(back, "/auth/login?return_to=%2Fr%2F") {
+		t.Errorf("signing in from the run goes to %q", back)
+	}
+}
+
+// TestBrowserGrounding shows a run grounded in Google Search: Google's
+// suggestion in its frame, drawn with Google's own styles (the dark ones)
+// although the page's CSP takes no inline style, no script of it running and
+// no form or script link left in it, its chip opening Google's results
+// outside the frame; the cited pages as links under the result and its
+// buttons, a link that is not the web left out; the same in the library's
+// viewer; and on the smallest phone the buttons still above the dock.
+func TestBrowserGrounding(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	look := `
+	const look = async (root) => {
+		const [f, odd] = root.querySelectorAll(".ground iframe.gsug");
+		for (let i = 0; i < 30 && !f?.contentDocument?.querySelector(".chip"); i++) await wait(100);
+		const d = f?.contentDocument, chip = d?.querySelector(".chip"), cs = chip && d.defaultView.getComputedStyle(chip);
+		const hl = odd?.contentDocument?.querySelector(".headline"), stage = document.querySelector("#stage .jbox")?.getBoundingClientRect();
+		const opened = [];
+		window.open = (u) => { opened.push(u); return null; };
+		chip?.click();
+		odd?.contentDocument?.querySelector("a.bad")?.click();
+		const od = odd?.contentDocument;
+		return { radius: cs?.borderRadius || "", flex: hl ? odd.contentWindow.getComputedStyle(hl).display : "", height: Math.round(f?.getBoundingClientRect().height || 0),
+			inner: d?.documentElement.scrollHeight || 0, ran: !!window.__ran, dropped: !!od && !od.querySelector("script, form, [onerror]") && !od.querySelector("a.bad").hasAttribute("href"),
+			dark: cs?.backgroundColor || "", opened, url: location.href,
+			sources: [...root.querySelectorAll(".ground .gsrc a")].map((a) => a.textContent + " " + a.href), fits: !stage || stage.bottom <= innerHeight };
+	};`
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+look+`
+	await press("done:grounded", (s) => s.done);
+	await wait(300);
+	return await look(document.querySelector("#stage"));`)
+	want := func(where string, s map[string]any) {
+		t.Helper()
+		// Google's dark styles: the frame's prefers-color-scheme follows its color-scheme.
+		if s["radius"] != "16px" || s["flex"] != "flex" || s["ran"] != false || s["dropped"] != true || s["dark"] != "rgb(44, 44, 44)" ||
+			fmt.Sprint(s["opened"]) != "[https://www.google.com/search?q=eiffel+tower+at+night&client=app-vertex-grounding]" || strings.Contains(fmt.Sprint(s["url"]), "google") ||
+			fmt.Sprint(s["sources"]) != "[wikipedia.org https://en.wikipedia.org/wiki/Eiffel_Tower toureiffel.paris https://www.toureiffel.paris/en]" ||
+			s["height"] != s["inner"] || s["height"].(float64) < 30 {
+			t.Errorf("%s: %v", where, s)
+		}
+	}
+	want("stage", s)
+	if s["fits"] != true {
+		t.Errorf("the result and its grounding do not fit the stage: %v", s)
+	}
+	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+look+`
+	document.querySelector('#top .tabs a[data-v="library"]').click();
+	for (let i = 0; i < 40 && !document.querySelector("#library .li"); i++) await wait(100);
+	document.querySelector("#library .li")?.click();
+	for (let i = 0; i < 40 && !document.querySelector("#viewBody .ground"); i++) await wait(100);
+	return await look(document.querySelector("#viewBody"));`)
+	want("viewer", s)
+	// What the page's CSP refused is what Google's HTML may not do in it: a style attribute
+	// (which the page gives the frame through the CSSOM) and a handler, which never runs.
+	refused := func(ctx context.Context) {
+		t.Helper()
+		for _, e := range js[[]string](t, ctx, `return window.__errs;`) {
+			if e != "csp: style-src-attr inline" && e != "csp: script-src-attr inline" {
+				t.Errorf("the page reported: %s", e)
+			}
+		}
+	}
+	refused(ctx)
+
+	// In the Mini App a chip and a source open in Telegram's browser, and the Mini App stays.
+	mini := miniBrowser(t, ts.URL)
+	m := js[map[string]any](t, mini, pageHelpers+runHelpers+`
+	for (let i = 0; i < 50 && !window.__tg?.main; i++) await wait(100);
+	const p = document.querySelector("#prompt");
+	p.value = "done:grounded"; p.dispatchEvent(new Event("input"));
+	await wait(80);
+	window.__tg.main();
+	for (let i = 0; i < 140 && !stage().done; i++) await wait(100);
+	const f = document.querySelector("#stage .ground iframe.gsug");
+	for (let i = 0; i < 30 && !f?.contentDocument?.querySelector(".chip"); i++) await wait(100);
+	f?.contentDocument?.querySelector(".chip")?.click();
+	document.querySelector("#stage .gsrc a")?.click();
+	await wait(100);
+	return { links: window.__tg.links, url: location.pathname };`)
+	if fmt.Sprint(m["links"]) != "[https://www.google.com/search?q=eiffel+tower+at+night&client=app-vertex-grounding https://en.wikipedia.org/wiki/Eiffel_Tower]" || m["url"] != "/" {
+		t.Errorf("Mini App: %v", m)
+	}
+	refused(mini)
+
+	// On the smallest phone the result's buttons stay above the dock, and Google's block follows them.
+	small := browser(t, ts.URL, 320, 568, true)
+	p := js[map[string]any](t, small, pageHelpers+runHelpers+`
+	await press("done:grounded", (s) => s.done);
+	await wait(300);
+	const acts = document.querySelector("#stage .jacts").getBoundingClientRect(), g = document.querySelector("#stage .ground")?.getBoundingClientRect();
+	return { acts: Math.round(acts.bottom), dock: Math.round(document.querySelector("#composer").getBoundingClientRect().top), after: !!g && g.top >= acts.bottom };`)
+	if p["acts"].(float64) > p["dock"].(float64) || p["after"] != true {
+		t.Errorf("a grounded result at 320x568: %v", p)
+	}
+	refused(small)
+}
+
 // TestBrowserRunsPhone checks a failure on a phone: the reason and its
 // buttons sit over the dock and nothing scrolls sideways.
 func TestBrowserRunsPhone(t *testing.T) {
@@ -906,13 +1210,18 @@ const fakeTelegram = `(() => {
     MainButton: button, BackButton: { show() { tg.back = true; }, hide() { tg.back = false; }, onClick(fn) { tg.backClick = fn; } },
     onEvent(name, fn) { tg.events[name] = fn; },
     shareMessage(id) { tg.shared.push(id); },
-    downloadFile() {}, openLink(u) { tg.links.push(u); },
+    downloadFile() {}, openLink(u) { tg.links.push(u); }, close() { tg.closed = true; },
     SettingsButton: { show() { tg.settingsShown = true; }, hide() { tg.settingsShown = false; }, onClick(fn) { tg.settings = fn; } },
   } };
 })();`
 
+// telegramBridge is what a native Telegram client gives the page before any
+// of its scripts runs; the page believes the launch data only with it.
+const telegramBridge = `window.TelegramWebviewProxy = { postEvent() {} };`
+
 // miniBrowser opens the page as the Mini App on a phone: with Telegram's
-// launch data in the fragment, and fakeTelegram served for Telegram's script.
+// launch data in the fragment, Telegram's bridge, and fakeTelegram served for
+// Telegram's script.
 func miniBrowser(t *testing.T, url string) context.Context {
 	t.Helper()
 	opts := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.WindowSize(390, 844), chromedp.NoSandbox)
@@ -941,7 +1250,7 @@ func miniBrowser(t *testing.T, url string) context.Context {
 	err := chromedp.Do(ctx,
 		chromedp.EmulateViewport(390, 844, chromedp.EmulateMobile, chromedp.EmulateTouch, chromedp.EmulateScale(2)),
 		chromedp.Func(func(ctx context.Context, tg *chromedp.Target) error {
-			_, err := cdp.Call(ctx, tg, page.AddScriptToEvaluateOnNewDocument, page.AddScriptToEvaluateOnNewDocumentParams{Source: watch})
+			_, err := cdp.Call(ctx, tg, page.AddScriptToEvaluateOnNewDocument, page.AddScriptToEvaluateOnNewDocumentParams{Source: watch + telegramBridge})
 			return err
 		}),
 		chromedp.Navigate(url+"/#tgWebAppData="+neturl.QueryEscape(init)+"&tgWebAppVersion=8.0&tgWebAppPlatform=ios"),
@@ -951,6 +1260,145 @@ func miniBrowser(t *testing.T, url string) context.Context {
 	}
 	ready(t, ctx)
 	return ctx
+}
+
+// TestBrowserMiniOutsideTelegram opens a link with someone's Mini App launch
+// data in an ordinary browser: the page stays the site, signed out, and never
+// trades the data for a token, so nothing done in that tab lands in the
+// account the data belongs to.
+func TestBrowserMiniOutsideTelegram(t *testing.T) {
+	var mu sync.Mutex
+	trades := 0
+	ts := fakeSite(t, func(srv *Server) {
+		srv.HandleFunc("POST /auth/miniapp", func(w http.ResponseWriter, _ *http.Request) {
+			mu.Lock()
+			trades++
+			mu.Unlock()
+			writeTestJSON(w, http.StatusOK, map[string]any{"token": "test-token", "expires_in": 3600})
+		})
+		srv.HandleFunc("GET /api/me", func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("Authorization") == "" {
+				writeTestJSON(w, http.StatusUnauthorized, map[string]any{"error": "sign_in"})
+				return
+			}
+			writeTestJSON(w, http.StatusOK, map[string]any{"user_id": 1, "name": "Mallory", "language": "en", "currency": "USD"})
+		})
+	})
+	user := `{"id":1,"first_name":"Mallory","language_code":"en"}`
+	init := "auth_date=1&user=" + neturl.QueryEscape(user) + "&hash=test"
+	ctx := browser(t, ts.URL+"/#tgWebAppData="+neturl.QueryEscape(init)+"&tgWebAppVersion=9.0&tgWebAppPlatform=ios", 390, 844, true)
+	got := js[map[string]any](t, ctx, pageHelpers+`
+	await wait(300);
+	let kept = null;
+	try { kept = sessionStorage.getItem("framy.init"); } catch {}
+	return { mini: window.framy.mini, signin: vis(document.querySelector("#top .signin")), me: !!document.querySelector("#meBtn"), kept };`)
+	mu.Lock()
+	n := trades
+	mu.Unlock()
+	if got["mini"] != false || got["signin"] != true || got["me"] != false || got["kept"] != nil || n != 0 {
+		t.Errorf("launch data outside Telegram: %v, %d trades", got, n)
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserMeFails opens the page while framy cannot say who is there:
+// GET /api/me answers 503 twice. That is no "signed out": the page offers no
+// sign-in to a person who may well be signed in, says framy is out of reach,
+// and asks again until the account comes.
+func TestBrowserMeFails(t *testing.T) {
+	var mu sync.Mutex
+	asked := 0
+	ts := fakeSite(t, func(srv *Server) {
+		srv.HandleFunc("GET /api/me", func(w http.ResponseWriter, _ *http.Request) {
+			mu.Lock()
+			asked++
+			n := asked
+			mu.Unlock()
+			if n <= 2 {
+				writeTestJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "unavailable"})
+				return
+			}
+			writeTestJSON(w, http.StatusOK, map[string]any{"user_id": 1, "name": "Ada", "language": "en", "currency": "USD",
+				"connections": []map[string]any{}, "free": map[string]any{
+					"images": map[string]any{"used": 0, "limit": 5, "left": 5, "window_seconds": 86400},
+					"videos": map[string]any{"used": 0, "limit": 1, "left": 1, "window_seconds": 604800}}})
+		})
+	})
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	got := js[map[string]any](t, ctx, pageHelpers+`
+	const go = document.querySelector("#go");
+	const first = { signin: !!document.querySelector("#top .signin"), me: !!document.querySelector("#meBtn"), go: go.textContent, on: !go.disabled,
+	  toast: document.querySelector(".toast")?.textContent || "" };
+	for (let i = 0; i < 100 && !document.querySelector("#meBtn"); i++) await wait(100);
+	return { ...first, after: !!document.querySelector("#meBtn"), cap: document.querySelector("#pcap").textContent, goAfter: go.textContent };`)
+	if got["signin"] != false || got["me"] != false || got["go"] != "Offline" || got["on"] != false || !strings.HasPrefix(got["toast"].(string), "No connection to framy") {
+		t.Errorf("while framy cannot say who is here: %v", got)
+	}
+	if got["after"] != true || got["cap"] != "Free left: 5 of 5" || !strings.HasPrefix(got["goAfter"].(string), "Create") {
+		t.Errorf("once framy answers: %v", got)
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserMiniExpired lets the Mini App's session end: framy stops taking
+// its launch data, as it does an hour after Telegram signed it. Opened that
+// late, the Mini App says to open it again and its main button closes it;
+// what was typed then, also after the button, comes back on the next open. When the session ends under
+// a run, the run says it goes on on the server, and the dead launch data is
+// traded once, not again and again.
+func TestBrowserMiniExpired(t *testing.T) {
+	const old = "The Telegram session is too old. Close framy and open it again."
+	runs := &fakeRuns{expired: true}
+	ts := fakeSite(t, runs.mount)
+	ctx := miniBrowser(t, ts.URL)
+	trades := func() int { runs.mu.Lock(); defer runs.mu.Unlock(); return runs.trades }
+	s := js[map[string]any](t, ctx, pageHelpers+`
+	for (let i = 0; i < 50 && !window.__tg?.main; i++) await wait(100);
+	await wait(200);
+	const pc = document.querySelector("#pcap");
+	const out = { button: window.__tg.params?.text || "", cap: pc.textContent, toast: document.querySelector(".toast")?.textContent || "",
+		tabs: !!document.querySelector("#top .tabs"), cut: pc.scrollWidth > pc.clientWidth + 1 || pc.scrollHeight > pc.clientHeight + 1 };
+	const p = document.querySelector("#prompt");
+	p.value = "a fox"; p.dispatchEvent(new Event("input"));
+	await wait(80);
+	window.__tg.main();
+	const closed = !!window.__tg.closed;
+	// Typed on and closed by Telegram's own button, which the page does not hear.
+	p.value = "a fox in the snow"; p.dispatchEvent(new Event("input"));
+	return { ...out, closed };`)
+	// The line under the price says it to its end, on two lines.
+	if s["button"] != "Close framy" || s["cap"] != old || s["cut"] != false || s["toast"] != old || s["tabs"] != false || s["closed"] != true || trades() != 1 {
+		t.Errorf("opened with old launch data: %v, %d trades", s, trades())
+	}
+	noErrors(t, ctx)
+
+	// Opened again with launch data framy takes: what was typed is back.
+	runs.mu.Lock()
+	runs.expired = false
+	runs.mu.Unlock()
+	if _, err := chromedp.Run(ctx, chromedp.Reload()); err != nil {
+		t.Fatal(err)
+	}
+	ready(t, ctx)
+	s = js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	for (let i = 0; i < 50 && !window.__tg?.main; i++) await wait(100);
+	const back = { prompt: document.querySelector("#prompt").value, button: window.__tg.params?.text || "" };
+	const p = document.querySelector("#prompt");
+	p.value = "stream:expired"; p.dispatchEvent(new Event("input"));
+	await wait(80);
+	window.__tg.main();
+	for (let i = 0; i < 100 && !/Open framy/.test(stage().sub); i++) await wait(100);
+	const s = stage(), toast = document.querySelector(".toast")?.textContent || "";
+	await wait(2500);
+	return { ...s, back, toast, button: window.__tg.params?.text || "", cap: document.querySelector("#pcap").textContent };`)
+	back, _ := s["back"].(map[string]any)
+	if back["prompt"] != "a fox in the snow" || back["button"] != "Create" {
+		t.Errorf("opened again: %v", back)
+	}
+	if s["sub"] != "Open framy again: the run goes on on the server" || s["button"] != "Close framy" || s["cap"] != old || s["toast"] != old || trades() != 3 {
+		t.Errorf("the session ended under a run: %v, %d trades", s, trades())
+	}
+	noErrors(t, ctx)
 }
 
 // TestBrowserMiniShare checks Share in the Mini App: a result goes to
@@ -1483,6 +1931,50 @@ func TestBrowserUploadsGoAgain(t *testing.T) {
 		if got := fmt.Sprint(s[k]); got != w {
 			t.Errorf("%s = %s, want %s", k, got, w)
 		}
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserPictureGoesOn checks what a picture framy made can become: the
+// photo of the next run (Change the image) or the first frame of a video
+// (Animate). It goes back into the composer by its id, with nothing to
+// upload and an empty prompt to say what to change, and its price is asked
+// with it.
+func TestBrowserPictureGoesOn(t *testing.T) {
+	runs := &fakeRuns{}
+	ts := fakeSite(t, runs.mount)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	s := js[map[string]any](t, ctx, pageHelpers+runHelpers+`
+	const quotes = [], fetch0 = window.fetch;
+	window.fetch = (u, o) => { if (String(u).endsWith("/api/quote")) quotes.push(JSON.parse(o.body)); return fetch0(u, o); };
+	const asked = (kind) => quotes.flatMap((q) => q.items).some((it) => it.pay && (it.inputs || []).includes(7) && it.offer.includes(kind === "video" ? "video" : ""));
+	const there = async (kind) => {
+	  let th = null;
+	  for (let i = 0; i < 50 && !th; i++) { await wait(100); th = document.querySelector("#files .thumb[data-k=fr7]"); }
+	  await wait(600);
+	  return { kind: document.querySelector("#kind [aria-checked=true]")?.dataset.v, thumb: !!th, files: document.querySelectorAll("#files .thumb").length,
+	    slot: th?.closest("[data-k^=g-]")?.dataset.k || "", prompt: document.querySelector("#prompt").value, focus: document.activeElement === document.querySelector("#prompt"),
+	    frame: !!document.querySelector("#stage [data-k=pv]"), asked: asked(kind), model: document.querySelector("#how .mname")?.textContent || "" };
+	};
+	let s = await press("done", (s) => s.done);
+	const acts = s.acts;
+	document.querySelector("#stage .jacts button[aria-label='Change the image']").click();
+	const change = await there("image");
+	quotes.length = 0;
+	s = await press("done", (s) => s.done);
+	document.querySelector("#stage .jacts button[aria-label=Animate]").click();
+	const anim = await there("video");
+	return { acts, change, anim };`)
+	if acts := fmt.Sprint(s["acts"]); !strings.HasPrefix(acts, "[Download Again Edit the prompt Change the image Animate") {
+		t.Errorf("the buttons on a picture: %v", acts)
+	}
+	c, _ := s["change"].(map[string]any)
+	if c["kind"] != "image" || c["thumb"] != true || c["files"] != float64(1) || c["prompt"] != "" || c["focus"] != true || c["frame"] != true || c["asked"] != true {
+		t.Errorf("change the picture: %v", c)
+	}
+	a, _ := s["anim"].(map[string]any)
+	if a["kind"] != "video" || a["thumb"] != true || a["files"] != float64(1) || a["slot"] != "g-start" || a["prompt"] != "" || a["focus"] != true || a["asked"] != true {
+		t.Errorf("animate: %v", a)
 	}
 	noErrors(t, ctx)
 }

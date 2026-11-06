@@ -1,31 +1,32 @@
 // framy's site and Mini App. The inline boot script has already asked for the
 // catalog, the person and the lines; this module waits for them, builds the
 // page and hands the skeleton over to it.
-import { $, h, ic } from "./dom.js";
+import { $, h, ic, keepFocus } from "./dom.js";
 import { anim, placeSegs, DUR } from "./motion.js";
 import { setTexts, t, lang, warmFormats } from "./i18n.js";
-import { session, setToken } from "./api.js";
+import { session, setToken, endSession } from "./api.js";
 import { loadCatalog, PNAME } from "./catalog.js";
-import { S, initModels, useDefaults } from "./state.js";
+import { S, initModels, useDefaults, reopenText } from "./state.js";
 import { mountComposer, wireComposer, wireTuneSwipe, render, renderBar, tuneClosed } from "./composer.js";
 import { mountPicker, prefetchPicker } from "./picker.js";
 import { renderStage } from "./stage.js";
-import { closeSheets, onSheets, toast, sheetOpen } from "./ui.js";
-import { signIn, refreshMe, generate, netState } from "./run.js";
+import { closeSheets, onSheets, toast, overOpen, closeTop, useHistory } from "./ui.js";
+import { signIn, refreshMe, generate, netState, closeMini, keepPrompt } from "./run.js";
 import { mountCutter, openCut } from "./clips.js";
 import { mountPrefs, openPrefs, renderPrefs, prefsOpen, oauthResult, oauthBack } from "./prefs.js";
-import { mountLibrary, mountViewer, mountFull, fullOpen, closeFull, tabs, go, route, libMe } from "./library.js";
+import { mountLibrary, mountViewer, mountFull, tabs, go, route, libMe } from "./library.js";
 import { takeDraft } from "./draft.js";
-import { MARK } from "assets:lists";
+import { MARK, FATAL } from "assets:lists";
 
 const B = window.framy;
 
+// The lines of the page may be what did not come: these are inside app.js, in the page's language.
 function fatal() {
   $("#skel").hidden = true;
-  const app = $("#app");
+  const app = $("#app"), [text, again] = FATAL[B.lang] || FATAL.en;
   app.hidden = false;
-  app.replaceChildren(h("div", { class: "fatal" }, h("p", {}, "framy could not load. Check the connection and try again."),
-    h("button", { type: "button", onclick: () => location.reload() }, "Try again")));
+  app.replaceChildren(h("div", { class: "fatal" }, h("img", { src: MARK, alt: "", width: 48, height: 48 }), h("p", {}, text),
+    h("button", { type: "button", onclick: () => location.reload() }, again)));
 }
 
 // Signed in, the person's picture opens the settings; signing out is in them.
@@ -39,7 +40,7 @@ function account() {
     return h("button", { type: "button", class: "me", id: "meBtn", onclick: () => openPrefs(), "aria-label": t("prefs.title"), "aria-haspopup": "dialog" }, av, h("span", { class: "t" }, t("prefs.title")));
   }
   // A phone shows the short line; the whole one stays the button's name.
-  return S.mini ? null : h("button", { type: "button", class: "signin", onclick: signIn, "aria-label": t("auth.signin") },
+  return S.mini || S.unsure ? null : h("button", { type: "button", class: "signin", onclick: signIn, "aria-label": t("auth.signin") },
     ic("send"), h("span", { class: "t" }, t("auth.signin")), h("span", { class: "ts" }, t("auth.signin_short")));
 }
 // The mark leads to the composer from anywhere, signed in or not: a person who
@@ -50,9 +51,10 @@ function logo() {
   return h("a", { class: "logo", href: "/", onclick: (e) => { if (!S.mini && (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) return; e.preventDefault(); go("create"); } },
     h("img", { src: MARK, alt: "" }), h("span", {}, "framy"));
 }
+// The header is drawn anew on every change of view; a tab pressed with the keyboard keeps the focus.
 function renderTop() {
   const top = $("#top");
-  top.replaceChildren(...[logo(), tabs(), h("span", { class: "sp" }), account()].filter(Boolean));
+  keepFocus(() => top.replaceChildren(...[logo(), tabs(), h("span", { class: "sp" }), account()].filter(Boolean)));
   placeSegs(top);
 }
 
@@ -62,7 +64,9 @@ function mount() {
   app.dataset.view = S.view;
   app.replaceChildren(
     h("div", { class: "wrap" }, h("header", { class: "top", id: "top" }),
-      h("main", { class: "create", id: "create" }, mountComposer(), h("section", { class: "stage", id: "stage", "aria-label": t("stage.label") })),
+      h("main", { class: "create", id: "create" }, mountComposer(), h("section", { class: "stage", id: "stage", "aria-label": t("stage.label") }),
+        // What a screen reader hears of a run; the stage is drawn anew, so it stands beside it.
+        h("p", { class: "sr", id: "stageSay", role: "status" })),
       mountLibrary()),
     h("div", { class: "scrim", id: "scrim", hidden: true, onclick: () => closeSheets() }),
     mountPicker(),
@@ -100,11 +104,14 @@ function telegram(tg) {
     tg.disableVerticalSwipes?.();
   } catch {}
   const mb = tg.MainButton;
-  let run = null;
-  const sync = (nx) => {
+  let run = null, last = null;
+  // The composer's button, shown only with the composer: not in the library, nor under
+  // a sheet, a result on the whole screen or a question, where its run and price are out of sight.
+  const sync = (nx = last) => {
     if (!nx) return;
-    run = nx.act === "create" ? generate : nx.act === "signin" ? signIn : nx.act === "cut" ? openCut : nx.act === "key" ? () => openPrefs(nx.provider) : null;
-    mb.setParams({ text: nx.label, is_active: !!nx.on, is_visible: S.view === "create", color: "#FFFFFF", text_color: "#00606E" });
+    last = nx;
+    run = nx.act === "create" ? generate : nx.act === "signin" ? signIn : nx.act === "cut" ? openCut : nx.act === "key" ? () => openPrefs(nx.provider) : nx.act === "close" ? closeMini : null;
+    mb.setParams({ text: nx.label, is_active: !!nx.on, is_visible: S.view === "create" && !overOpen(), color: "#FFFFFF", text_color: "#00606E" });
   };
   addEventListener("framy:button", (e) => sync(e.detail));
   addEventListener("framy:view", () => renderBar());
@@ -116,13 +123,24 @@ function telegram(tg) {
     const sb = () => (S.signed ? tg.SettingsButton.show() : tg.SettingsButton.hide());
     sb(); addEventListener("framy:me", sb);
   }
-  const back = () => (sheetOpen() || S.view === "library" ? tg.BackButton.show() : tg.BackButton.hide());
-  onSheets(back);
+  // Shown while anything is open over the page, the whole screen of a result included, and in the library.
+  const back = () => (overOpen() || S.view === "library" ? tg.BackButton.show() : tg.BackButton.hide());
+  onSheets(() => { back(); sync(); });
   addEventListener("framy:view", back);
   back();
-  tg.BackButton.onClick(() => (fullOpen() ? closeFull() : sheetOpen() ? closeSheets() : go("create")));
+  tg.BackButton.onClick(() => closeTop() || go("create"));
   // Telegram could not send a prepared message; closing the picker is no failure.
   tg.onEvent?.("shareMessageFailed", (e) => { if (e?.error !== "USER_DECLINED") toast(t("share.failed")); });
+}
+
+// framy did not say who is here: it is asked again, a little later each
+// time, until it answers who it is or that nobody is signed in.
+function findMe(wait = 2000) {
+  setTimeout(async () => {
+    if (!S.unsure) return;
+    if (await refreshMe()) netState("live");
+    else findMe(Math.min(wait * 2, 60000));
+  }, wait);
 }
 
 async function main() {
@@ -134,12 +152,12 @@ async function main() {
   setTexts(B.lang, texts);
   loadCatalog(cat);
   initModels();
-  let authFail = null, meLost = false;
+  let authFail = null;
   try { const a = await B.auth; if (a) setToken(a); } catch (e) { authFail = e; }
-  try { S.me = authFail ? null : await B.me; } catch { S.me = null; meLost = true; }
-  // Telegram's launch data refused (4xx) is said; framy or the network not answering is asked again.
-  const refused = authFail && authFail.status >= 400 && authFail.status < 500;
-  if (authFail && !refused) meLost = true;
+  // Launch data framy refused cannot be traded again: the Mini App has to be opened anew.
+  if (authFail?.status === 401 || authFail?.status === 400) { endSession(authFail.error); S.expired = session.dead; }
+  // Only a 401 says nobody is signed in; any other failure leaves it unknown.
+  try { S.me = authFail ? null : await B.me; } catch { S.me = null; S.unsure = !authFail; }
   S.signed = !!S.me;
   useDefaults();
   // The person's own language, where it is another than the one guessed for the first paint.
@@ -147,7 +165,8 @@ async function main() {
   if (want && want !== B.lang && B.langs[want]) {
     try { setTexts(want, await fetch(B.langs[want]).then((r) => r.json())); } catch {}
   }
-  try { localStorage.setItem("framy.lang", lang); } catch {}
+  // Kept for the first paint of the next load: the account's language only, never a guess.
+  if (S.me) try { localStorage.setItem("framy.language", lang); } catch {}
   // Back from a load the page made itself (signing in, OpenRouter, a language): the composer as it was.
   const lost = await takeDraft();
   await B.css;
@@ -157,6 +176,7 @@ async function main() {
   reveal();
   // The address names the view: /library, a run of it at /r/<id>, or the composer.
   addEventListener("framy:view", renderTop);
+  useHistory(!S.mini);
   route();
 
   if (lost > 0) toast(t("files.again"), { ms: 8000 });
@@ -171,8 +191,18 @@ async function main() {
   let back = null;
   try { back = sessionStorage.getItem("framy.prefs"); sessionStorage.removeItem("framy.prefs"); } catch {}
   if (back && S.signed && !sp.get("connect") && at === null) openPrefs();
-  if (refused) toast(t(authFail.error === "init_data_expired" ? "auth.mini_expired" : "auth.mini_failed"), { ms: 8000 });
-  if (meLost) meAgain();
+  if (authFail) toast(S.expired ? reopenText() : t("err.network"), { ms: 8000 });
+  if (S.unsure) { netState("lost"); findMe(); }
+  // Opened too late, with what was kept from the last time in the prompt: kept again for the next open.
+  if (S.expired) keepPrompt();
+  // The session ends while the Mini App is open, an hour or so after Telegram opened it:
+  // the page says so once, and its button closes the Mini App to be opened again.
+  addEventListener("framy:expired", (e) => {
+    S.expired = e.detail; S.me = null; S.signed = false;
+    keepPrompt();
+    toast(reopenText(), { ms: 8000 });
+    window.dispatchEvent(new Event("framy:me"));
+  });
 
   addEventListener("framy:me", () => { renderTop(); render(); libMe(); if (prefsOpen()) { if (S.signed) renderPrefs(); else closeSheets(true); } });
   // Back on the page after a while: the free counts and the keys may have changed elsewhere.
@@ -183,20 +213,11 @@ async function main() {
     if (oauthBack()) return;
     if (S.signed && hidAt && Date.now() - hidAt > 30000) refreshMe();
   });
-  addEventListener("online", () => { S.online = true; netState("live"); renderBar(); });
+  addEventListener("online", () => { S.online = true; netState("live"); renderBar(); if (S.unsure) refreshMe(); });
   addEventListener("offline", () => { S.online = false; netState("lost"); renderBar(); });
   (window.requestIdleCallback || setTimeout)(warmFormats);
   prefetchPicker();
   B.tg.then(telegram);
-}
-
-// The person could not be read at start, framy or the network having missed a beat (a 503, not a
-// 401): ask again a few times, so a moment's outage does not show a signed-in person signed out.
-async function meAgain() {
-  for (const ms of [3000, 10000, 30000]) {
-    await new Promise((done) => setTimeout(done, ms));
-    if (S.signed || (await refreshMe()) !== undefined) return;
-  }
 }
 
 main();

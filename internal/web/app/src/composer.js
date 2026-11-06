@@ -1,7 +1,7 @@
 // The composer: what to make, the model, how to pay, the settings, the price
 // and the one button. Every change goes through act(), which lets the blocks
 // glide from where they stood to where they stand now.
-import { $, $$, h, ic, isPhone, inFlow, MAC } from "./dom.js";
+import { $, $$, h, ic, isPhone, inFlow, MAC, keepFocus } from "./dom.js";
 import { anim, rise, spin, opt, placeSegs, placeSeg, fitSegs, snap, ticker, roll, follow, EASE, SPRING, OUT, motion, DUR } from "./motion.js";
 import { t, fmtNum, fmtIn, fmtSecs, spaced } from "./i18n.js";
 import { C, PNAME, vname, famLogo, lg, provMark, freePlan, pays, offerOf, facts, factEl, deprecation, fieldsOf, SECONDARY, SEARCH, SICON,
@@ -14,7 +14,7 @@ import { renderStage, stageFrom, refit, runOver, ratioOf, syncStrip } from "./st
 import { openPicker } from "./picker.js";
 import { openSheet, closeSheets, hint, sheetOpen } from "./ui.js";
 import { addFiles, removeFile, fitModel, looksLikePhoto } from "./files.js";
-import { generate, signIn } from "./run.js";
+import { generate, signIn, closeMini, keepPrompt } from "./run.js";
 import { openCut, thumbMedia, frameEl, looksLikeClip, fmtPart } from "./clips.js";
 import { openPrefs } from "./prefs.js";
 
@@ -34,13 +34,15 @@ const SOUNDS = "audio/mpeg,audio/wav,audio/ogg,audio/flac,audio/aac,audio/mp4,au
 let ACTING = 0;
 // Every change of the composer: the form's blocks glide, new ones rise, gone ones fade; the frame on the stage refits.
 export function act(fn) {
-  const how = $("#how"), host = $("#composer");
-  const a = snap(how, FORM), b = snap($("#files"), FILES), c = follow(host), d = stageFrom();
-  // A change after a result is the next run being set up: the stage shows its frame again.
-  if (S.showJob && runOver(S.run)) S.showJob = false;
-  ACTING++;
-  try { fn(); renderStage(); } finally { ACTING--; }
-  a(); b(); c(); d();
+  keepFocus(() => {
+    const how = $("#how"), host = $("#composer");
+    const a = snap(how, FORM), b = snap($("#files"), FILES), c = follow(host), d = stageFrom();
+    // A change after a result is the next run being set up: the stage shows its frame again.
+    if (S.showJob && runOver(S.run)) S.showJob = false;
+    ACTING++;
+    try { fn(); renderStage(); } finally { ACTING--; }
+    a(); b(); c(); d();
+  });
 }
 
 export function mountComposer() {
@@ -68,7 +70,13 @@ export function mountComposer() {
 export function wireComposer() {
   const p = $("#prompt");
   try { p.value = sessionStorage.getItem("framy.draft") || ""; } catch {}
-  p.addEventListener("input", () => { fitPrompt(); renderBar(); try { sessionStorage.setItem("framy.draft", p.value); } catch {} });
+  // What was typed when a Mini App whose session ended was closed comes back once, within a day.
+  if (S.mini) try {
+    const k = JSON.parse(localStorage.getItem("framy.kept") || "null");
+    localStorage.removeItem("framy.kept");
+    if (!p.value && k?.text && Date.now() - k.at < 864e5) p.value = k.text;
+  } catch {}
+  p.addEventListener("input", () => { fitPrompt(); renderBar(); try { sessionStorage.setItem("framy.draft", p.value); } catch {} if (S.expired) keepPrompt(); });
   p.addEventListener("keydown", (e) => {
     if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey)) return;
     e.preventDefault();
@@ -144,7 +152,9 @@ export function toComposer() {
   if (inFlow()) $("#composer").scrollIntoView({ block: "start", behavior: motion() ? "smooth" : "auto" });
 }
 
-export function render() {
+// A choice made with the keyboard stays where it was made: the blocks are drawn anew, the focus comes back to the control.
+export function render() { keepFocus(draw); }
+function draw() {
   if (!M()) return;
   renewFiles();
   tidy();
@@ -180,9 +190,9 @@ function setKind(k) {
 function renderTools() {
   const P = plan(), m = common(), f = C.famOf[m.id], more = new Set(P.map((it) => it.m.id).filter((id) => id !== m.id)).size;
   $("#dtools").replaceChildren(
-    h("button", { type: "button", class: "chipbtn", "aria-haspopup": "dialog", onclick: () => { if (S.scope[S.kind] != null) { S.scope[S.kind] = null; render(); } openPicker(); } },
+    h("button", { type: "button", class: "chipbtn", id: "mchip", "aria-haspopup": "dialog", onclick: () => { if (S.scope[S.kind] != null) { S.scope[S.kind] = null; render(); } openPicker(); } },
       lg(famLogo(f), f.maker, "o"), h("span", { class: "nm" }, h("span", {}, vname(m))), more ? h("small", { class: "more" }, "+" + fmtNum(more)) : null, ic("chevd")),
-    h("button", { type: "button", class: "chipbtn set", onclick: () => openTune(null), "aria-label": P.length > 1 ? `${t("tune.title")}, ${t("fr.label")}: ${fmtNum(P.length)}` : t("tune.title") },
+    h("button", { type: "button", class: "chipbtn set", id: "tchip", onclick: () => openTune(null), "aria-label": P.length > 1 ? `${t("tune.title")}, ${t("fr.label")}: ${fmtNum(P.length)}` : t("tune.title") },
       ic("sliders"), h("span", {}, t("tune.short")), P.length > 1 ? h("b", { class: "cnt" }, "×" + fmtNum(P.length)) : null));
 }
 // On a phone the settings live in a sheet: they are built when it opens, not
@@ -338,7 +348,7 @@ function fitPrompt() {
 /* The frames (on a phone), the model card, the payment, the settings. */
 function renderHow(m, pay) {
   const f = C.famOf[m.id], fr = scopeFr();
-  const head = h("button", { type: "button", class: "mhead", "aria-haspopup": "dialog", onclick: openPicker },
+  const head = h("button", { type: "button", class: "mhead", id: "mhead", "aria-haspopup": "dialog", onclick: openPicker },
     lg(famLogo(f), f.maker),
     h("span", { class: "txt" }, h("span", { class: "mname" }, h("span", {}, vname(m))),
       h("span", { class: "facts" }, facts(m, 4).filter((x) => x[0] !== "ticket").slice(0, 3).map((x) => { const e = factEl(x); e.dataset.k = "fa-" + x[0]; return e; }))),
@@ -480,7 +490,8 @@ function paySec(m, pay) {
   if (ps.length === 1) return h("div", { class: "paysec", "data-k": "h-pay" }, h("div", { class: "sec row" }, lab, h("div", { class: "pay1" }, name(ps[0]), h("small", {}, sub(ps[0])))));
   return h("div", { class: "paysec", "data-k": "h-pay" }, h("div", { class: "sec row" }, lab,
     h("div", { class: "seg", role: "radiogroup", "aria-label": t("pay.label"), "data-seg": "pay", "data-dur": DUR.m }, ps.map((p) =>
-      opt({ key: "pay", v: p, on: pay === p, cls: usable(m, p) ? "" : "off", title: p === "free" ? freePer(kind) : connection(p) ? t("pay.your_key", { last4: connection(p).last4 }) : null,
+      // Free that cannot pay now is not a choice: a run on it could not go.
+      opt({ key: "pay", v: p, on: pay === p, cls: usable(m, p) ? "" : "off", disabled: p === "free" && !usable(m, p), title: p === "free" ? freePer(kind) : connection(p) ? t("pay.your_key", { last4: connection(p).last4 }) : null,
         pick: () => act(() => { setPayHere(m, p); render(); }) }, h("span", { class: "row" }, name(p)), h("small", {}, sub(p)))))));
 }
 
@@ -711,9 +722,13 @@ export function renderBar() {
   const fc = $("#how .fcount");
   if (fc) fc.textContent = framesCount(P);
   const btn = $("#go");
-  btn.replaceChildren(nx.icon ? ic(nx.icon) : "", nx.label, nx.on ? h("small", { class: "kbd" }, MAC ? "⌘↵" : "Ctrl ↵") : "");
+  btn.parentElement.classList.toggle("says", !!nx.why);
+  // The keys that press it, as the keyboard prints them (Strg on a German one); a screen reader hears them as the shortcut.
+  const keys = MAC ? "⌘↵" : t("kbd.ctrl") + " ↵";
+  btn.replaceChildren(nx.icon ? ic(nx.icon) : "", nx.label, nx.on ? h("small", { class: "kbd", "aria-hidden": "true" }, keys) : "");
   btn.disabled = !nx.on;
-  btn.onclick = nx.act === "create" ? generate : nx.act === "signin" ? signIn : nx.act === "cut" ? openCut : nx.act === "key" ? () => openPrefs(nx.provider) : null;
-  btn.title = nx.on ? `${nx.label} (${MAC ? "⌘ Enter" : "Ctrl+Enter"})` : "";
+  if (nx.on) btn.setAttribute("aria-keyshortcuts", MAC ? "Meta+Enter" : "Control+Enter"); else btn.removeAttribute("aria-keyshortcuts");
+  btn.onclick = nx.act === "create" ? generate : nx.act === "signin" ? signIn : nx.act === "cut" ? openCut : nx.act === "key" ? () => openPrefs(nx.provider) : nx.act === "close" ? closeMini : null;
+  btn.title = nx.on ? `${nx.label} (${keys})` : "";
   window.dispatchEvent(new CustomEvent("framy:button", { detail: nx }));
 }

@@ -592,6 +592,32 @@ func TestBrowserViewer(t *testing.T) {
 	noErrors(t, ctx)
 }
 
+// TestBrowserLibraryBelarusian checks the library in Belarusian, whose data
+// Chromium's Intl lacks: its days and the date of a run are in Belarusian,
+// not in English.
+func TestBrowserLibraryBelarusian(t *testing.T) {
+	f := newFakeLibrary()
+	f.lang = "be"
+	ts := fakeSite(t, f.mount)
+	ctx := browser(t, ts.URL+"/library", 1440, 900, false)
+	got := js[map[string]any](t, ctx, libHelpers+`
+	await settled();
+	const r = { lang: document.documentElement.lang, days: [...document.querySelectorAll("#library .lday > h2")].slice(0, 3).map((e) => e.textContent) };
+	tiles()[6].click();
+	await until(() => vis(document.querySelector("#viewer")) && document.querySelector("#viewer .vwhen"));
+	r.when = document.querySelector("#viewer .vwhen").innerText.split("\n")[0];
+	return r;`)
+	month := `(студзеня|лютага|сакавіка|красавіка|мая|чэрвеня|ліпеня|жніўня|верасня|кастрычніка|лістапада|снежня)`
+	days, _ := got["days"].([]any)
+	if got["lang"] != "be" || len(days) != 3 || days[0] != "Сёння" || days[1] != "Учора" || !regexp.MustCompile(`^\d{1,2} `+month+`( \d{4} г\.)?$`).MatchString(fmt.Sprint(days[2])) {
+		t.Errorf("days in Belarusian: %v", got)
+	}
+	if !regexp.MustCompile(`^\d{1,2} ` + month + ` \d{4} г\. у \d\d:\d\d$`).MatchString(fmt.Sprint(got["when"])) {
+		t.Errorf("when a run was made, in Belarusian: %q", got["when"])
+	}
+	noErrors(t, ctx)
+}
+
 // TestBrowserLibraryPhone checks the library and the viewer at phone widths:
 // nothing wider than the screen, the tabs as icons, the actions on the sheet.
 func TestBrowserLibraryPhone(t *testing.T) {
@@ -724,10 +750,12 @@ func TestBrowserLibraryMini(t *testing.T) {
 }
 
 // TestBrowserLibrarySmooth walks the library as TestBrowserSmooth walks the
-// composer, on the same slowed CPU: the tab, the filter, a search, the next
-// page, the viewer with its arrows, the whole screen and back, on a phone and
-// on a desktop. A step that held the main thread over 50 ms fails it; each
-// step counts its better run of two.
+// composer, on the same slowed CPU: the person's settings, the tab, the
+// filter, a search, the next page, the viewer with its arrows, the whole
+// screen and back, on a phone and on a desktop. A step that held the main
+// thread over 50 ms fails it. The walk runs twice, each time on the page
+// loaded afresh, so the first, cold building of the settings and of the
+// library counts; each step counts its better run of two.
 func TestBrowserLibrarySmooth(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -739,10 +767,16 @@ func TestBrowserLibrarySmooth(t *testing.T) {
 			ts := fakeSite(t, f.mount)
 			ctx := browser(t, ts.URL, tc.w, tc.h, tc.phone)
 			scale := slowCPU(t, ctx)
-			js[any](t, ctx, pageHelpers+`await wait(1500); return 1;`)
 			// One run per call: a run takes longer than js allows a call.
 			var runs []map[string]float64
-			for range 2 {
+			for n := range 2 {
+				if n > 0 {
+					if _, err := chromedp.Run(ctx, chromedp.Reload()); err != nil {
+						t.Fatal(err)
+					}
+					ready(t, ctx)
+				}
+				js[any](t, ctx, pageHelpers+`await wait(1500); return 1;`)
 				runs = append(runs, js[map[string]float64](t, ctx, libHelpers+`
 	let marks = [];
 	const step = async (name, fn, ms = 900) => {
@@ -755,6 +789,8 @@ func TestBrowserLibrarySmooth(t *testing.T) {
 	const kind = (v) => () => document.querySelector("#library [data-seg=lib] [data-v=" + v + "]").click();
 	const type = (v) => () => { const q = document.querySelector("#library .lsearch input"); q.value = v; q.dispatchEvent(new Event("input", { bubbles: true })); };
 	  window.__long = [];
+	  await step("settings", () => document.querySelector("#meBtn").click());
+	  await step("close settings", key("Escape"));
 	  await step("library", () => document.querySelector("#top .tab[data-v=library]").click(), 1500);
 	  await step("videos", kind("video"), 1200);
 	  await step("all", kind("all"), 1200);
@@ -785,6 +821,9 @@ func TestBrowserLibrarySmooth(t *testing.T) {
 	await wait(300);
 	return window.__long.some(([, ms]) => ms >= 100);`) {
 				t.Fatal("the browser reports no long tasks, so the check cannot work")
+			}
+			if slow := js[float64](t, ctx, cpuWork); slow*scale < 2*cpuRef {
+				t.Fatalf("the page loaded again is not slowed: %.1f ms", slow)
 			}
 			type task struct {
 				Step string  `json:"step"`

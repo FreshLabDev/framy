@@ -311,3 +311,27 @@ func TestBucketSetHasABound(t *testing.T) {
 		}
 	}
 }
+
+func TestFullBucketSetKeepsThoseWhoUsedTheirAllowanceUp(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	set := newBucketSet(perSecond(0.001, 3))
+	set.max = 100
+	// One visitor has spent everything.
+	for i := 0; i < 3; i++ {
+		set.take("spent", now)
+	}
+	if ok, _ := set.take("spent", now); ok {
+		t.Fatal("the bucket gave a fourth token")
+	}
+	// Many addresses, each having made one request, fill the set.
+	for i := 0; i < 500; i++ {
+		set.take(fmt.Sprintf("k%d", i), now)
+		if set.size() > 100 {
+			t.Fatalf("size %d passed the bound", set.size())
+		}
+	}
+	// Filling it did not hand the spent visitor a fresh allowance.
+	if ok, _ := set.take("spent", now); ok {
+		t.Fatal("a full set gave a visitor over the limit a fresh bucket")
+	}
+}

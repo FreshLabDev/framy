@@ -31,6 +31,7 @@ import (
 
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/emulation"
+	"github.com/chromedp/cdproto/fetch"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 )
@@ -281,6 +282,119 @@ func keepOnFailure(t *testing.T, ctx context.Context) {
 	})
 }
 
+// TestBrowserNotesInPageLanguage opens the page in Russian over a catalog
+// whose notes came in English, as the server writes them for a request
+// without the person and a browser whose first language framy does not
+// speak: the notes under the models are in the page's language anyway.
+func TestBrowserNotesInPageLanguage(t *testing.T) {
+	ts := fakeSite(t, nil)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	js[bool](t, ctx, `localStorage.setItem("framy.language", "ru"); return true;`)
+	if _, err := chromedp.Run(ctx, chromedp.Reload()); err != nil {
+		t.Fatal(err)
+	}
+	ready(t, ctx)
+	s := js[map[string]any](t, ctx, `return { lang: document.documentElement.lang, note: document.querySelector("#how .mnote.info")?.textContent || "",
+		titles: [...document.querySelectorAll('#how [data-seg="var"] [title]')].map((b) => b.title).join(" | ") };`)
+	if s["lang"] != "ru" || s["note"] != "Быстрее и дешевле, качество близко" || !strings.Contains(s["titles"].(string), "2.6: Точнее, для дизайна") {
+		t.Errorf("notes of a Russian page: %v", s)
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserFatalInPageLanguage opens a German page whose lines and catalog
+// do not come: the page says so in German all the same, from lines inside
+// app.js. Loaded, the page prints Ctrl as a German keyboard does, Strg, and
+// tells a screen reader the shortcut.
+func TestBrowserFatalInPageLanguage(t *testing.T) {
+	ts := fakeSite(t, nil)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	js[bool](t, ctx, `localStorage.setItem("framy.language", "de"); return true;`)
+	if _, err := chromedp.Call(ctx, fetch.Enable, fetch.EnableParams{Patterns: []*fetch.RequestPattern{{URLPattern: "*/api/catalog*"}, {URLPattern: "*/texts-*"}}}); err != nil {
+		t.Fatal(err)
+	}
+	paused := chromedp.Events(ctx, fetch.RequestPaused)
+	go func() {
+		for ev, err := range paused {
+			if err != nil {
+				return
+			}
+			_, _ = chromedp.Call(ctx, fetch.FulfillRequest, fetch.FulfillRequestParams{RequestID: ev.RequestID, ResponseCode: 503, Body: []byte("down")})
+		}
+	}()
+	if _, err := chromedp.Run(ctx, chromedp.Reload()); err != nil {
+		t.Fatal(err)
+	}
+	got := js[map[string]any](t, ctx, pageHelpers+`
+	for (let i = 0; i < 100 && !document.querySelector(".fatal"); i++) await wait(100);
+	const f = document.querySelector(".fatal");
+	return { lang: document.documentElement.lang, text: f?.querySelector("p")?.textContent || "", again: f?.querySelector("button")?.textContent || "", mark: (f?.querySelector("img")?.getBoundingClientRect().width || 0) === 48 };`)
+	if got["lang"] != "de" || got["text"] != "framy konnte nicht geladen werden. Prüfe die Verbindung und versuche es noch einmal." || got["again"] != "Erneut versuchen" || got["mark"] != true {
+		t.Errorf("the page that could not load, in German: %v", got)
+	}
+
+	if _, err := chromedp.Call(ctx, fetch.Disable, cdp.Empty{}); err != nil {
+		t.Fatal(err)
+	}
+	err := chromedp.Do(ctx, chromedp.Func(func(ctx context.Context, tg *chromedp.Target) error {
+		_, err := cdp.Call(ctx, tg, page.AddScriptToEvaluateOnNewDocument, page.AddScriptToEvaluateOnNewDocumentParams{Source: `Object.defineProperty(navigator, "platform", { get: () => "Win32" });`})
+		return err
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := chromedp.Run(ctx, chromedp.Reload()); err != nil {
+		t.Fatal(err)
+	}
+	ready(t, ctx)
+	kbd := js[map[string]any](t, ctx, `const go = document.querySelector("#go");
+	return { kbd: go.querySelector(".kbd")?.textContent || "", hidden: go.querySelector(".kbd")?.getAttribute("aria-hidden"), keys: go.getAttribute("aria-keyshortcuts"), title: go.title };`)
+	if kbd["kbd"] != "Strg ↵" || kbd["hidden"] != "true" || kbd["keys"] != "Control+Enter" || !strings.HasSuffix(kbd["title"].(string), "(Strg ↵)") {
+		t.Errorf("the shortcut on a German page: %v", kbd)
+	}
+	noErrors(t, ctx)
+}
+
+// TestBrowserCyrillicForms opens the page in Ukrainian: its Cyrillic has the
+// forms Russian has, not Sofia Sans's Bulgarian ones (a т like an m is twice
+// as wide), in both faces and whatever language an element is in.
+func TestBrowserCyrillicForms(t *testing.T) {
+	ts := fakeSite(t, nil)
+	ctx := browser(t, ts.URL, 1440, 900, false)
+	js[bool](t, ctx, `localStorage.setItem("framy.language", "uk"); return true;`)
+	if _, err := chromedp.Run(ctx, chromedp.Reload()); err != nil {
+		t.Fatal(err)
+	}
+	ready(t, ctx)
+	s := js[map[string]any](t, ctx, `
+	const text = "Додати твій ґудзик", out = { lang: document.documentElement.lang };
+	for (const font of ["400 40px 'Sofia Sans'", "700 40px 'Sofia Sans Extra Condensed'"]) {
+	  await document.fonts.load(font, text);
+	  const w = {};
+	  for (const lang of ["ru", "uk", "be", "en"]) {
+	    const el = document.createElement("span");
+	    Object.assign(el.style, { font, position: "absolute", whiteSpace: "nowrap" });
+	    el.lang = lang;
+	    el.textContent = text;
+	    document.body.append(el);
+	    w[lang] = el.getBoundingClientRect().width;
+	    el.remove();
+	  }
+	  out[font] = w;
+	}
+	return out;`)
+	if s["lang"] != "uk" {
+		t.Fatalf("the page is in %v", s["lang"])
+	}
+	for _, font := range []string{"400 40px 'Sofia Sans'", "700 40px 'Sofia Sans Extra Condensed'"} {
+		w, _ := s[font].(map[string]any)
+		if ru, _ := w["ru"].(float64); ru == 0 || w["uk"] != ru || w["be"] != ru || w["en"] != ru {
+			t.Errorf("%s: the width of the line in each language %v, want the Russian one in all", font, w)
+		}
+	}
+	noErrors(t, ctx)
+}
+
 // ready waits until the app has replaced the skeleton and the prices are in.
 func ready(t *testing.T, ctx context.Context) {
 	t.Helper()
@@ -420,6 +534,29 @@ func TestBrowserPhone(t *testing.T) {
 	noErrors(t, ctx)
 }
 
+// TestBrowserSmallPhone checks the composer on the smallest phone (320 by
+// 568, an iPhone SE): the model's whole name shows in its chip, the empty
+// frame keeps what it says inside it, and the line under the price is read
+// to its end, signed in or not.
+func TestBrowserSmallPhone(t *testing.T) {
+	runs := &fakeRuns{}
+	for name, ts := range map[string]*httptest.Server{"signed out": fakeAPI(t), "signed in": fakeSite(t, runs.mount)} {
+		ctx := browser(t, ts.URL, 320, 568, true)
+		got := js[map[string]any](t, ctx, pageHelpers+`
+	await wait(400);
+	const clipped = (el) => !!el && (el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1);
+	const g = document.querySelector("#stage .ghost"), gr = g.getBoundingClientRect();
+	const inside = [...g.querySelectorAll(".c > *")].filter(vis).every((el) => { const r = el.getBoundingClientRect(); return r.top >= gr.top && r.bottom <= gr.bottom && r.left >= gr.left && r.right <= gr.right; });
+	const dock = document.querySelector("#composer").getBoundingClientRect();
+	return { name: clipped(document.querySelector("#dtools .chipbtn .nm > span")), cap: clipped(document.querySelector("#pcap")), inside,
+	  size: Math.round(gr.height), above: Math.round(dock.top - gr.bottom), overflow: document.documentElement.scrollWidth - innerWidth };`)
+		if got["name"] != false || got["cap"] != false || got["inside"] != true || got["size"].(float64) < 110 || got["above"].(float64) < 0 || got["overflow"].(float64) > 0 {
+			t.Errorf("%s at 320x568: %v", name, got)
+		}
+		noErrors(t, ctx)
+	}
+}
+
 func TestBrowserDesktop(t *testing.T) {
 	ts := fakeAPI(t)
 	ctx := browser(t, ts.URL, 1440, 900, false)
@@ -433,6 +570,14 @@ func TestBrowserDesktop(t *testing.T) {
 	};`)
 	if got["overflow"].(float64) > 0 || got["side"].(float64) < 24 || got["fits"] != true || got["how"] != true || got["chip"] != false || got["font"] != true {
 		t.Errorf("desktop layout: %v", got)
+	}
+	// Nobody signed in and nothing typed: the button signs in at once, and the line under the price says what that gives.
+	// The language is guessed from the browser, and a guess is not kept.
+	bar := js[map[string]any](t, ctx, `const go = document.querySelector("#go");
+	return { go: go.textContent, on: !go.disabled, cap: document.querySelector("#pcap").textContent, prompt: document.querySelector("#prompt").value,
+	  kept: localStorage.getItem("framy.language") };`)
+	if bar["prompt"] != "" || bar["on"] != true || !strings.HasPrefix(bar["go"].(string), "Sign in to create") || bar["cap"] != "Sign in for 5 free a day" || bar["kept"] != nil {
+		t.Errorf("signed out, nothing typed: %v", bar)
 	}
 	res := js[map[string]any](t, ctx, pageHelpers+`return await steady();`)
 	if res["groups"].(float64) == 0 || len(res["bad"].([]any)) > 0 {
@@ -531,9 +676,11 @@ return best;`
 //
 // The CPU is slowed until cpuWork takes four times cpuRef. A machine that is
 // slower than that already, like a CI runner, is not slowed, and its times
-// are brought down to the laptop's by the same ratio. The steps run twice and
-// each step counts its better run, so one hiccup of a shared runner does not
-// fail it.
+// are brought down to the laptop's by the same ratio. The steps run twice,
+// each time on the page loaded afresh, so the first, cold opening of the
+// picker (its rows built, its marks drawn for the first time) counts as a
+// person meets it; each step counts its better run, so one hiccup of a shared
+// runner does not fail it.
 func TestBrowserSmooth(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -562,7 +709,15 @@ func TestBrowserSmooth(t *testing.T) {
 				MS   float64 `json:"ms"`
 			}
 			// For each step, the longest task of each run.
-			runs := js[[]map[string]float64](t, ctx, pageHelpers+`
+			var runs []map[string]float64
+			for n := range 2 {
+				if n > 0 {
+					if _, err := chromedp.Run(ctx, chromedp.Reload()); err != nil {
+						t.Fatal(err)
+					}
+					ready(t, ctx)
+				}
+				runs = append(runs, js[map[string]float64](t, ctx, pageHelpers+`
 	// Each step starts in a task of its own, so every task that begins after
 	// its mark and before the next one is that step's.
 	let marks = [];
@@ -578,31 +733,31 @@ func TestBrowserSmooth(t *testing.T) {
 	  if (v) await step("variant", () => v.click());
 	};
 	await wait(2500); // the idle prefetch of the picker's prices
-	const runs = [];
-	for (let n = 0; n < 2; n++) {
-	  marks = [];
-	  window.__long = [];
-	  const kind = [...document.querySelectorAll("#kind > button")];
-	  await step("video", () => kind[1].click());
-	  await step("image", () => kind[0].click());
-	  `+tc.steps+`
-	  marks.push(["end", performance.now()]);
-	  const run = {};
-	  for (const [name] of marks.slice(0, -1)) run[name] = 0;
-	  // A task from before the first step can be reported late.
-	  for (const [at, ms] of window.__long) {
-	    const m = marks.filter((x) => x[1] <= at).pop();
-	    if (m && m[0] !== "end") run[m[0]] = Math.max(run[m[0]], ms);
-	  }
-	  runs.push(run);
-	}
-	// A task known to be long, to show the observer works here.
 	window.__long = [];
+	const kind = [...document.querySelectorAll("#kind > button")];
+	await step("video", () => kind[1].click());
+	await step("image", () => kind[0].click());
+	`+tc.steps+`
+	marks.push(["end", performance.now()]);
+	const run = {};
+	for (const [name] of marks.slice(0, -1)) run[name] = 0;
+	// A task from before the first step can be reported late.
+	for (const [at, ms] of window.__long) {
+	  const m = marks.filter((x) => x[1] <= at).pop();
+	  if (m && m[0] !== "end") run[m[0]] = Math.max(run[m[0]], ms);
+	}
+	return run;`))
+			}
+			// A task known to be long, to show the observer works here, and
+			// that the page loaded again is as slow as the first.
+			if !js[bool](t, ctx, pageHelpers+`window.__long = [];
 	await new Promise((r) => setTimeout(() => { const t = performance.now(); while (performance.now() - t < 120); r(); }));
 	await wait(300);
-	return window.__long.some(([, ms]) => ms >= 100) ? runs : null;`)
-			if runs == nil {
+	return window.__long.some(([, ms]) => ms >= 100);`) {
 				t.Fatal("the browser reports no long tasks, so the check cannot work")
+			}
+			if slow := js[float64](t, ctx, cpuWork); slow*scale < 2*cpuRef {
+				t.Fatalf("the page loaded again is not slowed: %.1f ms", slow)
 			}
 			var worst []task
 			for name, ms := range runs[0] {
@@ -623,6 +778,108 @@ func TestBrowserSmooth(t *testing.T) {
 				}
 			}
 			t.Logf("long tasks, laptop ms: %v", worst)
+			noErrors(t, ctx)
+		})
+	}
+}
+
+// moves records, from the first line of every document, what moves on the
+// page: each call of animate(), each CSS animation and each transition of
+// where or how big a thing is, and each smooth scroll. A change of colour or
+// of opacity is no move.
+const moves = `
+window.__moves = [];
+const who = (el) => el ? (el.id ? "#" + el.id : el.tagName.toLowerCase() + (typeof el.className === "string" && el.className ? "." + el.className.split(" ")[0] : "")) : "";
+const anim0 = Element.prototype.animate;
+Element.prototype.animate = function (kf, o) { __moves.push("animate " + who(this)); return anim0.call(this, kf, o); };
+addEventListener("animationstart", (e) => __moves.push("css " + e.animationName + " " + who(e.target)), true);
+addEventListener("transitionrun", (e) => { if (!/color|opacity|shadow|outline/.test(e.propertyName)) __moves.push("transition " + e.propertyName + " " + who(e.target)); }, true);
+for (const o of [Element.prototype, window]) for (const k of ["scrollTo", "scrollBy", "scrollIntoView"]) {
+  const f0 = o[k];
+  if (f0) o[k] = function (a, ...r) { if (a && a.behavior === "smooth") __moves.push(k + " smooth " + who(this === window ? null : this)); return f0.call(this, a, ...r); };
+}
+`
+
+// TestBrowserReducedMotionWalk walks the site with "reduce motion" asked, on a
+// phone and on a desktop: the kind, a variant, the sheets, the picker, the
+// person's settings, a run that comes back done, the library, the viewer and
+// the whole screen. Nothing may move on the way, as design.md says of the
+// motion kit: every animation goes through motion(), off when less motion is
+// asked.
+func TestBrowserReducedMotionWalk(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		w, h  int64
+		phone bool
+		// sheets opens and closes what this size has.
+		sheets string
+	}{
+		{"phone", 390, 844, true, `
+	await step("settings", () => document.querySelector("#dtools .chipbtn.set").click());
+	await step("settings closed", esc);
+	await step("picker", () => document.querySelector("#dtools .chipbtn").click(), 1200);
+	await step("picker closed", esc);`},
+		{"desktop", 1440, 900, false, `
+	await step("picker", () => document.querySelector("#how .mhead").click(), 1200);
+	await step("picker closed", esc);`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakeLibrary()
+			ts := fakeSite(t, f.mount)
+			ctx := browser(t, ts.URL, tc.w, tc.h, tc.phone)
+			// Asked before the page loads again, so its first frame is counted too.
+			err := chromedp.Do(ctx, chromedp.Func(func(ctx context.Context, tg *chromedp.Target) error {
+				if _, err := cdp.Call(ctx, tg, emulation.SetEmulatedMedia, emulation.SetEmulatedMediaParams{Features: []*emulation.MediaFeature{{Name: "prefers-reduced-motion", Value: "reduce"}}}); err != nil {
+					return err
+				}
+				_, err := cdp.Call(ctx, tg, page.AddScriptToEvaluateOnNewDocument, page.AddScriptToEvaluateOnNewDocumentParams{Source: moves})
+				return err
+			}), chromedp.Reload())
+			if err != nil {
+				t.Fatal(err)
+			}
+			ready(t, ctx)
+			got := js[map[string]any](t, ctx, libHelpers+`
+	const seen = {};
+	const step = async (name, fn, ms = 700) => {
+	  const n = __moves.length;
+	  try { fn(); } catch (e) { seen[name] = ["failed: " + e.message]; }
+	  await wait(ms);
+	  if (__moves.length > n) seen[name] = [...new Set(__moves.slice(n))];
+	};
+	const esc = () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+	const key = (k) => () => document.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true }));
+	await wait(600);
+	if (__moves.length) seen.load = [...new Set(__moves)];
+	const kind = [...document.querySelectorAll("#kind > button")];
+	await step("video", () => kind[1].click());
+	await step("image", () => kind[0].click());
+	const v = [...document.querySelectorAll("#how [data-seg=var] > button")].find((b) => b.getAttribute("aria-checked") !== "true");
+	if (v) await step("variant", () => v.click());
+	`+tc.sheets+`
+	await step("account", () => document.querySelector("#meBtn").click(), 900);
+	await step("account closed", esc);
+	await step("create", () => { const p = document.querySelector("#prompt"); p.value = "a fox"; p.dispatchEvent(new Event("input")); setTimeout(() => document.querySelector("#go").click(), 300); }, 2000);
+	const done = !!document.querySelector("#stage .jbox.done img");
+	await step("library", () => document.querySelector("#top .tab[data-v=library]").click(), 1200);
+	await settled();
+	await step("videos", () => document.querySelector("#library [data-seg=lib] [data-v=video]").click(), 1000);
+	await step("all", () => document.querySelector("#library [data-seg=lib] [data-v=all]").click(), 1000);
+	await settled();
+	await step("viewer", () => tiles()[10].click(), 1000);
+	await step("next run", key("ArrowRight"));
+	await step("whole screen", () => document.querySelector("#viewer .vexp").click());
+	await step("next result", key("ArrowRight"));
+	await step("whole screen closed", key("Escape"));
+	await step("viewer closed", key("Escape"), 900);
+	await step("back to create", () => document.querySelector("#top .tab[data-v=create]").click(), 900);
+	return { reduced: matchMedia("(prefers-reduced-motion: reduce)").matches, done, seen };`)
+			if got["reduced"] != true || got["done"] != true {
+				t.Fatalf("the walk did not go as planned: %v", got)
+			}
+			if seen, _ := got["seen"].(map[string]any); len(seen) > 0 {
+				t.Errorf("moves with less motion asked: %v", seen)
+			}
 			noErrors(t, ctx)
 		})
 	}
