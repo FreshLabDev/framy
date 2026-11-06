@@ -25,8 +25,11 @@ CGO_ENABLED=0 go test -c -tags=integration -o "$bin/api.test" ./internal/api
 # written to and /tmp is a tmpfs, so a decoder, ffmpeg or the renderer that
 # wrote anywhere else would fail here and not first in production. The tmpfs
 # lets files run, since some tests run a script of their own from it.
+# Docker mounts a tmpfs noexec unless told: the ffmpeg spy of the media tests
+# (threads_test.go) is a script in a temporary directory, so /tmp takes exec
+# here. The stacks keep theirs noexec; framy runs nothing from it.
 for pkg in media storage anim api; do
-  docker run --rm --network host --read-only --tmpfs /tmp:rw,size=1g --entrypoint "/t/$pkg.test" \
+  docker run --rm --network host --read-only --tmpfs /tmp:rw,exec,size=1g --entrypoint "/t/$pkg.test" \
     -e FRAMY_MEDIA_TESTS=1 -e FRAMY_TEST_DATABASE_URL \
     -v "$bin:/t:ro" -v "$PWD:/src:ro" -w "/src/internal/$pkg" \
     "$image" -test.v -test.count=1
