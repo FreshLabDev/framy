@@ -4,6 +4,8 @@ import { anim, EASE, OUT } from "./motion.js";
 import { t } from "./i18n.js";
 
 let backHook = () => {};
+// A wide sheet stands at the end of the line, the right or, in Arabic, the left, and comes in from that side.
+const away = (wide) => (wide ? `translateX(${document.dir === "rtl" ? -64 : 64}px)` : "translateY(100%)");
 export const onSheets = (fn) => { backHook = fn; };
 const open = [];
 export const sheetOpen = () => open.length > 0;
@@ -20,7 +22,7 @@ export function openSheet(sel, o = {}) {
   el._back = o.back || null;
   open.push(el);
   const wide = isWide();
-  anim(el, [{ transform: wide ? "translateX(64px)" : "translateY(100%)", opacity: wide ? 0 : 1 }, { transform: "none", opacity: 1 }], { duration: 420, easing: EASE });
+  anim(el, [{ transform: away(wide), opacity: wide ? 0 : 1 }, { transform: "none", opacity: 1 }], { duration: 420, easing: EASE });
   if (!had) anim(scrim, [{ opacity: 0 }, { opacity: 1 }], { duration: 260 });
   el._focus = document.activeElement;
   // Focus after the first frame: now it would lay the sheet out in the middle
@@ -40,7 +42,7 @@ export function closeSheets(quick) {
   if (!els.length) return;
   const wide = isWide();
   for (const el of els) {
-    const a = quick ? null : anim(el, [{ transform: "none", opacity: 1 }, { transform: wide ? "translateX(64px)" : "translateY(100%)", opacity: wide ? 0 : 1 }], { duration: 260, easing: OUT, fill: "forwards" });
+    const a = quick ? null : anim(el, [{ transform: "none", opacity: 1 }, { transform: away(wide), opacity: wide ? 0 : 1 }], { duration: 260, easing: OUT, fill: "forwards" });
     const done = () => { el.hidden = true; a?.cancel(); el.dispatchEvent(new Event("closed")); };
     if (a) a.finished.then(done, done); else done();
     el._focus?.focus?.({ preventScroll: true });

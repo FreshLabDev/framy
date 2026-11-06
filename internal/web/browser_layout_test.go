@@ -128,6 +128,102 @@ func TestBrowserStepsRTL(t *testing.T) {
 	}
 }
 
+// TestBrowserArabicSides checks that in Arabic the whole page reads from the
+// right: the picker stands at the left, the end of the line, and comes in from
+// there; its heading stands at the start; the chevron of the model points
+// onward, to the left; a version's name and a price keep their own order
+// ("2.6 Flash", "من $0.282"); and in the settings the mark of a dead key is at
+// the start of its row and a switch that is on has its knob at the end.
+func TestBrowserArabicSides(t *testing.T) {
+	ts := fakeAPI(t)
+	for _, c := range []struct {
+		lang string
+		w, h int64
+	}{{"en", 1440, 900}, {"ar", 1440, 900}, {"ar", 390, 844}} {
+		ctx := browserAs(t, ts.URL, c.w, c.h, opened{lang: c.lang, phone: c.w < 960})
+		got := js[map[string]any](t, ctx, pageHelpers+`
+		const head = [...document.querySelectorAll("#how .mhead, #dtools .chipbtn:not(.set)")].find(vis), chev = head.querySelector(".ic.chev");
+		const flip = chev ? new DOMMatrix(getComputedStyle(chev).transform).a : 0;
+		head.click();
+		const pk = document.querySelector("#picker");
+		await wait(30);
+		const from = pk.getAnimations().map((a) => a.effect.getKeyframes()[0].transform).find((x) => x && x !== "none") || "";
+		await wait(900);
+		const r = pk.getBoundingClientRect(), h3 = pk.querySelector("h3").getBoundingClientRect(), done = pk.querySelector("header .x").getBoundingClientRect();
+		// Where a letter of a text stands on the screen.
+		const at = (node, i) => { const g = document.createRange(); g.setStart(node, i); g.setEnd(node, i + 1); return g.getBoundingClientRect().left; };
+		const texts = (sel, re) => [...pk.querySelectorAll(sel)].flatMap((el) => { const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); const out = []; while (w.nextNode()) if (re.test(w.currentNode.data)) out.push(w.currentNode); return out; });
+		const names = texts(".pill", /^\d[\d.]* [A-Za-z]/).map((n) => ({ text: n.data, ok: at(n, 0) < at(n, n.data.indexOf(" ") + 1) }));
+		const prices = texts(".usd", /\$\d/).map((n) => { const i = n.data.indexOf("$"); return { text: n.data, ok: at(n, i) < at(n, i + 1) }; });
+		return { dir: document.dir, flip, from, left: Math.round(r.left), right: Math.round(innerWidth - r.right), headAtStart: (document.dir === "rtl" ? r.right - h3.right : h3.left - r.left) < 40 && Math.abs(h3.left - done.left) > 100,
+		  names, prices, worded: prices.filter((p) => /[؀-ۿ]/.test(p.text)).length };`)
+		rtl := c.lang == "ar"
+		if want := map[bool]string{false: "ltr", true: "rtl"}[rtl]; got["dir"] != want {
+			t.Fatalf("%s: the page is %v, want %s", c.lang, got["dir"], want)
+		}
+		if c.w >= 960 {
+			// A phone's model button opens downwards, and its chevron points down in every language.
+			if want := map[bool]float64{false: 1, true: -1}[rtl]; got["flip"] != want {
+				t.Errorf("%s: the chevron of the model is scaled %v, want %v", c.lang, got["flip"], want)
+			}
+			side, other, from := "right", "left", "translateX(64px)"
+			if rtl {
+				side, other, from = "left", "right", "translateX(-64px)"
+			}
+			if got[side].(float64) != 0 || got[other].(float64) < 300 {
+				t.Errorf("%s: the picker does not stand at the %s: %v", c.lang, side, got)
+			}
+			if got["from"] != from {
+				t.Errorf("%s: the picker comes in from %v, want %s", c.lang, got["from"], from)
+			}
+		}
+		if got["headAtStart"] != true {
+			t.Errorf("%s %d: the heading of the picker is not at the start of its line: %v", c.lang, c.w, got)
+		}
+		for _, k := range []string{"names", "prices"} {
+			list, _ := got[k].([]any)
+			if len(list) == 0 {
+				t.Errorf("%s %d: the picker shows no %s to check", c.lang, c.w, k)
+			}
+			for _, x := range list {
+				if x.(map[string]any)["ok"] != true {
+					t.Errorf("%s %d: %q does not keep its order", c.lang, c.w, x.(map[string]any)["text"])
+				}
+			}
+		}
+		if rtl && got["worded"].(float64) == 0 {
+			t.Errorf("%s %d: no price stands after an Arabic word: %v", c.lang, c.w, got["prices"])
+		}
+		noErrors(t, ctx)
+
+		f := &fakePrefs{}
+		ps := fakeSite(t, func(srv *Server) {
+			f.mount(srv)
+			f.language = c.lang
+			f.connect("openai", "dead", "invalid")
+		})
+		ctx = browserAs(t, ps.URL, c.w, c.h, opened{lang: c.lang, phone: c.w < 960})
+		s := js[map[string]any](t, ctx, pageHelpers+`
+		document.querySelector("#meBtn").click();
+		for (let i = 0; i < 40 && !document.querySelector("#prefsBody .srow.bad"); i++) await wait(100);
+		await wait(600);
+		const bad = document.querySelector("#prefsBody .srow.bad"), tog = document.querySelector("#prefsBody .tog[aria-checked=true] .knob");
+		const k = tog && getComputedStyle(tog, "::after");
+		return { stripe: bad ? getComputedStyle(bad).boxShadow : "", knob: k ? new DOMMatrix(k.transform).e : 0 };`)
+		stripe, knob := "3px 0px 0px 0px", 16.0
+		if rtl {
+			stripe, knob = "-3px 0px 0px 0px", -16
+		}
+		if !strings.Contains(fmt.Sprint(s["stripe"]), stripe) {
+			t.Errorf("%s %d: the mark of a dead key is %v, want an inset %s", c.lang, c.w, s["stripe"], stripe)
+		}
+		if s["knob"] != knob {
+			t.Errorf("%s %d: the knob of a switch that is on is moved %v px, want %v", c.lang, c.w, s["knob"], knob)
+		}
+		noErrors(t, ctx)
+	}
+}
+
 // barWhole is how the bar of a phone stands: the line under the price is
 // whole, inside the dock, and the price and the button do not cover each other.
 const barWhole = `

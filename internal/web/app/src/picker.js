@@ -142,8 +142,8 @@ function famRow(f, wide) {
   const sub = why ? [ic("warn"), why] : facts(vs.map((v) => v.m), 3).filter((x) => x[0] !== "ticket").map((x) => x[1]).join(" · ");
   const olds = S.sort === "price" || query.trim() ? oldShown(f) : [];
   const vars = vs.length > 1 || olds.length ? h("div", { class: "fvars" },
-    vs.length > 1 ? vs.map((v) => h("button", { type: "button", class: "pill", "aria-pressed": String(v.id === cur), onclick: () => choose(v, $(`#pkrows [data-k="fam-${f.idx}"]`)), onpointermove: hoverFam(f, wide, v.id) }, v.label)) : null,
-    olds.map((v) => h("button", { type: "button", class: "pill old", "aria-pressed": String(v.id === cur), title: t("pick.outdated", { v: v.by.label }), onclick: () => choose(v, $(`#pkrows [data-k="fam-${f.idx}"]`)) }, v.label))) : null;
+    vs.length > 1 ? vs.map((v) => h("button", { type: "button", class: "pill", "aria-pressed": String(v.id === cur), onclick: () => choose(v, $(`#pkrows [data-k="fam-${f.idx}"]`)), onpointermove: hoverFam(f, wide, v.id) }, h("bdi", {}, v.label))) : null,
+    olds.map((v) => h("button", { type: "button", class: "pill old", "aria-pressed": String(v.id === cur), title: t("pick.outdated", { v: v.by.label }), onclick: () => choose(v, $(`#pkrows [data-k="fam-${f.idx}"]`)) }, h("bdi", {}, v.label)))) : null;
   return h("div", { class: "frow" + (why ? " dim" : ""), "aria-current": String(mine), "data-k": "fam-" + f.idx, onpointermove: hoverFam(f, wide) },
     h("button", { type: "button", class: "fhit", "aria-label": t("pick.choose_name", { name: f.title }), onclick: (e) => choose(pick, e.currentTarget.parentNode) }),
     lg(famLogo(f), f.maker), h("span", { class: "fbody" }, h("span", { class: "nm" }, f.title), sub && sub.length ? h("span", { class: "fsub" + (why ? " why" : "") }, sub) : null),
@@ -180,8 +180,8 @@ function choose(v, from) {
 function vlist(f, sel, pickIt) {
   const key = "dl-" + f.idx;
   return h("div", { class: "vlist", role: "radiogroup", "aria-label": t("var.label"), "data-seg": key, "data-dur": 380 }, shown(f).map((v) =>
-    opt({ key, v: v.id, on: v.id === sel.id, cls: "vl", pick: () => pickIt(v) }, h("b", {}, v.label),
-      h("span", { class: "p" }, freePlan(v.m) ? t("pay.free") : minEl(bestItems(v.m))), v.note ? h("span", { class: "n" }, v.note) : null)));
+    opt({ key, v: v.id, on: v.id === sel.id, cls: "vl", pick: () => pickIt(v) }, h("b", {}, h("bdi", {}, v.label)),
+      h("span", { class: "p" }, freePlan(v.m) ? t("pay.free") : minEl(bestItems(v.m))), v.note ? h("span", { class: "n" }, h("bdi", {}, v.note)) : null)));
 }
 function detail(f) {
   const want = S.detVar[f.idx], cur = focusId();
@@ -219,9 +219,9 @@ function detail(f) {
     vs.length > 1 ? vlist(f, sel, pickIt) : null,
     dep ? h("p", { class: "dwarn" }, ic("clock"), h("span", {}, dep.text + "."))
       : sel.by ? h("p", { class: "dwarn" }, ic("clock"), h("span", {}, t("var.outdated", { v: sel.by.label }) + " ", h("button", { type: "button", class: "link-t", onclick: () => pickIt(sel.by) }, t("pick.see", { v: sel.by.label })))) : null,
-    m.description ? h("p", { class: "ddesc" }, m.description) : null,
+    m.description ? h("p", { class: "ddesc", dir: "auto" }, m.description) : null,
     h("div", { class: "dl" }, rows.map(([i, k, v]) => h("div", {}, h("span", {}, ic(i), k), h("span", {}, v)))),
-    f.old.length ? h("p", { class: "dold" }, t("pick.old") + " ", f.old.map((v, i) => [i ? ", " : "", h("button", { type: "button", "aria-pressed": String(v.id === sel.id), title: t("pick.newer", { v: v.by.label }), onclick: () => pickIt(v) }, v.label)])) : null,
+    f.old.length ? h("p", { class: "dold" }, t("pick.old") + " ", f.old.map((v, i) => [i ? ", " : "", h("button", { type: "button", "aria-pressed": String(v.id === sel.id), title: t("pick.newer", { v: v.by.label }), onclick: () => pickIt(v) }, h("bdi", {}, v.label))])) : null,
     h("button", { type: "button", class: "choose", disabled: isCur, onclick: (e) => choose(sel, e.currentTarget.closest(".det")) },
       isCur ? t("pick.chosen") : (many ? t("pick.choose_v", { v: sel.label }) : t("pick.choose")) + (why ? ` (${why})` : "")));
 }

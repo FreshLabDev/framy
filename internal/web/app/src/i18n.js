@@ -3,13 +3,18 @@
 
 let lines = {};
 export let lang = "en";
+let rtl = false;
 
-export function setTexts(code, texts) { lang = code; lines = texts || {}; document.documentElement.lang = code; document.documentElement.dir = code === "ar" ? "rtl" : "ltr"; }
+export function setTexts(code, texts) { lang = code; lines = texts || {}; rtl = code === "ar"; document.documentElement.lang = code; document.documentElement.dir = rtl ? "rtl" : "ltr"; }
 
+// In Arabic a name, a number or a price put into a line keeps its own order:
+// "من $0.282", not "0.282$ من", and "اختر 2.6 Flash", not "Flash 2.6". Each one
+// is isolated (U+2068 ... U+2069), which shows nothing and reads nothing.
+const put = (v) => (rtl ? "\u2068" + v + "\u2069" : String(v));
 export function t(key, vars) {
   let s = lines[key];
   if (s == null) return key;
-  if (vars) s = s.replace(/\{(\w+)\}/g, (m, k) => (vars[k] != null ? String(vars[k]) : m));
+  if (vars) s = s.replace(/\{(\w+)\}/g, (m, k) => (vars[k] != null ? put(vars[k]) : m));
   return s;
 }
 
