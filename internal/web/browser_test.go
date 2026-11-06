@@ -522,9 +522,11 @@ return best;`
 //
 // The CPU is slowed until cpuWork takes four times cpuRef. A machine that is
 // slower than that already, like a CI runner, is not slowed, and its times
-// are brought down to the laptop's by the same ratio. The steps run twice and
-// each step counts its better run, so one hiccup of a shared runner does not
-// fail it.
+// are brought down to the laptop's by the same ratio. The steps run twice,
+// each time on the page loaded afresh, so the first, cold opening of the
+// picker (its rows built, its marks drawn for the first time) counts as a
+// person meets it; each step counts its better run, so one hiccup of a shared
+// runner does not fail it.
 func TestBrowserSmooth(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -553,7 +555,15 @@ func TestBrowserSmooth(t *testing.T) {
 				MS   float64 `json:"ms"`
 			}
 			// For each step, the longest task of each run.
-			runs := js[[]map[string]float64](t, ctx, pageHelpers+`
+			var runs []map[string]float64
+			for n := range 2 {
+				if n > 0 {
+					if _, err := chromedp.Run(ctx, chromedp.Reload()); err != nil {
+						t.Fatal(err)
+					}
+					ready(t, ctx)
+				}
+				runs = append(runs, js[map[string]float64](t, ctx, pageHelpers+`
 	// Each step starts in a task of its own, so every task that begins after
 	// its mark and before the next one is that step's.
 	let marks = [];
@@ -569,31 +579,31 @@ func TestBrowserSmooth(t *testing.T) {
 	  if (v) await step("variant", () => v.click());
 	};
 	await wait(2500); // the idle prefetch of the picker's prices
-	const runs = [];
-	for (let n = 0; n < 2; n++) {
-	  marks = [];
-	  window.__long = [];
-	  const kind = [...document.querySelectorAll("#kind > button")];
-	  await step("video", () => kind[1].click());
-	  await step("image", () => kind[0].click());
-	  `+tc.steps+`
-	  marks.push(["end", performance.now()]);
-	  const run = {};
-	  for (const [name] of marks.slice(0, -1)) run[name] = 0;
-	  // A task from before the first step can be reported late.
-	  for (const [at, ms] of window.__long) {
-	    const m = marks.filter((x) => x[1] <= at).pop();
-	    if (m && m[0] !== "end") run[m[0]] = Math.max(run[m[0]], ms);
-	  }
-	  runs.push(run);
-	}
-	// A task known to be long, to show the observer works here.
 	window.__long = [];
+	const kind = [...document.querySelectorAll("#kind > button")];
+	await step("video", () => kind[1].click());
+	await step("image", () => kind[0].click());
+	`+tc.steps+`
+	marks.push(["end", performance.now()]);
+	const run = {};
+	for (const [name] of marks.slice(0, -1)) run[name] = 0;
+	// A task from before the first step can be reported late.
+	for (const [at, ms] of window.__long) {
+	  const m = marks.filter((x) => x[1] <= at).pop();
+	  if (m && m[0] !== "end") run[m[0]] = Math.max(run[m[0]], ms);
+	}
+	return run;`))
+			}
+			// A task known to be long, to show the observer works here, and
+			// that the page loaded again is as slow as the first.
+			if !js[bool](t, ctx, pageHelpers+`window.__long = [];
 	await new Promise((r) => setTimeout(() => { const t = performance.now(); while (performance.now() - t < 120); r(); }));
 	await wait(300);
-	return window.__long.some(([, ms]) => ms >= 100) ? runs : null;`)
-			if runs == nil {
+	return window.__long.some(([, ms]) => ms >= 100);`) {
 				t.Fatal("the browser reports no long tasks, so the check cannot work")
+			}
+			if slow := js[float64](t, ctx, cpuWork); slow*scale < 2*cpuRef {
+				t.Fatalf("the page loaded again is not slowed: %.1f ms", slow)
 			}
 			var worst []task
 			for name, ms := range runs[0] {
@@ -614,6 +624,108 @@ func TestBrowserSmooth(t *testing.T) {
 				}
 			}
 			t.Logf("long tasks, laptop ms: %v", worst)
+			noErrors(t, ctx)
+		})
+	}
+}
+
+// moves records, from the first line of every document, what moves on the
+// page: each call of animate(), each CSS animation and each transition of
+// where or how big a thing is, and each smooth scroll. A change of colour or
+// of opacity is no move.
+const moves = `
+window.__moves = [];
+const who = (el) => el ? (el.id ? "#" + el.id : el.tagName.toLowerCase() + (typeof el.className === "string" && el.className ? "." + el.className.split(" ")[0] : "")) : "";
+const anim0 = Element.prototype.animate;
+Element.prototype.animate = function (kf, o) { __moves.push("animate " + who(this)); return anim0.call(this, kf, o); };
+addEventListener("animationstart", (e) => __moves.push("css " + e.animationName + " " + who(e.target)), true);
+addEventListener("transitionrun", (e) => { if (!/color|opacity|shadow|outline/.test(e.propertyName)) __moves.push("transition " + e.propertyName + " " + who(e.target)); }, true);
+for (const o of [Element.prototype, window]) for (const k of ["scrollTo", "scrollBy", "scrollIntoView"]) {
+  const f0 = o[k];
+  if (f0) o[k] = function (a, ...r) { if (a && a.behavior === "smooth") __moves.push(k + " smooth " + who(this === window ? null : this)); return f0.call(this, a, ...r); };
+}
+`
+
+// TestBrowserReducedMotion walks the site with "reduce motion" asked, on a
+// phone and on a desktop: the kind, a variant, the sheets, the picker, the
+// person's settings, a run that comes back done, the library, the viewer and
+// the whole screen. Nothing may move on the way, as design.md says of the
+// motion kit: every animation goes through motion(), off when less motion is
+// asked.
+func TestBrowserReducedMotion(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		w, h  int64
+		phone bool
+		// sheets opens and closes what this size has.
+		sheets string
+	}{
+		{"phone", 390, 844, true, `
+	await step("settings", () => document.querySelector("#dtools .chipbtn.set").click());
+	await step("settings closed", esc);
+	await step("picker", () => document.querySelector("#dtools .chipbtn").click(), 1200);
+	await step("picker closed", esc);`},
+		{"desktop", 1440, 900, false, `
+	await step("picker", () => document.querySelector("#how .mhead").click(), 1200);
+	await step("picker closed", esc);`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakeLibrary()
+			ts := fakeSite(t, f.mount)
+			ctx := browser(t, ts.URL, tc.w, tc.h, tc.phone)
+			// Asked before the page loads again, so its first frame is counted too.
+			err := chromedp.Do(ctx, chromedp.Func(func(ctx context.Context, tg *chromedp.Target) error {
+				if _, err := cdp.Call(ctx, tg, emulation.SetEmulatedMedia, emulation.SetEmulatedMediaParams{Features: []*emulation.MediaFeature{{Name: "prefers-reduced-motion", Value: "reduce"}}}); err != nil {
+					return err
+				}
+				_, err := cdp.Call(ctx, tg, page.AddScriptToEvaluateOnNewDocument, page.AddScriptToEvaluateOnNewDocumentParams{Source: moves})
+				return err
+			}), chromedp.Reload())
+			if err != nil {
+				t.Fatal(err)
+			}
+			ready(t, ctx)
+			got := js[map[string]any](t, ctx, libHelpers+`
+	const seen = {};
+	const step = async (name, fn, ms = 700) => {
+	  const n = __moves.length;
+	  try { fn(); } catch (e) { seen[name] = ["failed: " + e.message]; }
+	  await wait(ms);
+	  if (__moves.length > n) seen[name] = [...new Set(__moves.slice(n))];
+	};
+	const esc = () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+	const key = (k) => () => document.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true }));
+	await wait(600);
+	if (__moves.length) seen.load = [...new Set(__moves)];
+	const kind = [...document.querySelectorAll("#kind > button")];
+	await step("video", () => kind[1].click());
+	await step("image", () => kind[0].click());
+	const v = [...document.querySelectorAll("#how [data-seg=var] > button")].find((b) => b.getAttribute("aria-checked") !== "true");
+	if (v) await step("variant", () => v.click());
+	`+tc.sheets+`
+	await step("account", () => document.querySelector("#meBtn").click(), 900);
+	await step("account closed", esc);
+	await step("create", () => { const p = document.querySelector("#prompt"); p.value = "a fox"; p.dispatchEvent(new Event("input")); setTimeout(() => document.querySelector("#go").click(), 300); }, 2000);
+	const done = !!document.querySelector("#stage .jbox.done img");
+	await step("library", () => document.querySelector("#top .tab[data-v=library]").click(), 1200);
+	await settled();
+	await step("videos", () => document.querySelector("#library [data-seg=lib] [data-v=video]").click(), 1000);
+	await step("all", () => document.querySelector("#library [data-seg=lib] [data-v=all]").click(), 1000);
+	await settled();
+	await step("viewer", () => tiles()[10].click(), 1000);
+	await step("next run", key("ArrowRight"));
+	await step("whole screen", () => document.querySelector("#viewer .vexp").click());
+	await step("next result", key("ArrowRight"));
+	await step("whole screen closed", key("Escape"));
+	await step("viewer closed", key("Escape"), 900);
+	await step("back to create", () => document.querySelector("#top .tab[data-v=create]").click(), 900);
+	return { reduced: matchMedia("(prefers-reduced-motion: reduce)").matches, done, seen };`)
+			if got["reduced"] != true || got["done"] != true {
+				t.Fatalf("the walk did not go as planned: %v", got)
+			}
+			if seen, _ := got["seen"].(map[string]any); len(seen) > 0 {
+				t.Errorf("moves with less motion asked: %v", seen)
+			}
 			noErrors(t, ctx)
 		})
 	}
