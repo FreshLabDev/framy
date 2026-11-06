@@ -715,7 +715,7 @@
     "sv": "En bildruta i den här videon är över {n} megapixlar. Sänk upplösningen och skicka den igen.",
     "be": "Кадр гэтага відэа большы за {n} Мп. Паменшы раздзяляльнасць і адпраў яшчэ раз.",
     "ca": "Un fotograma d’aquest vídeo supera els {n} megapíxels. Redueix la resolució i torna’l a enviar.",
-    "zh": "这个视频的画面超过 {n}00 万像素。请降低分辨率后重新发送。",
+    "zh": "这个视频有一帧超过 {n}00 万像素。请降低分辨率后重新发送。",
     "ja": "この動画のフレームが {n}00 万画素を超えています。解像度を下げて、もう一度送ってください。",
     "ar": "يتجاوز أحد إطارات هذا الفيديو {n} ميغابكسل. خفّض الدقة وأرسله مرة أخرى."
   },
@@ -4855,7 +4855,7 @@
     "sv": "Start- och slutbild",
     "be": "Фота пачатку і канца",
     "ca": "Fotogrames",
-    "zh": "帧",
+    "zh": "首尾帧",
     "ja": "フレーム",
     "ar": "صورتا البداية والنهاية"
   },
@@ -6745,7 +6745,7 @@
     "sv": "Lägg till bildruta",
     "be": "Дадаць кадр",
     "ca": "Afegeix un quadre",
-    "zh": "添加画框",
+    "zh": "添加版本",
     "ja": "枠を追加",
     "ar": "إضافة نتيجة"
   },
@@ -6763,7 +6763,7 @@
     "sv": "Bildruta",
     "be": "Кадр",
     "ca": "Quadre",
-    "zh": "画框",
+    "zh": "版本",
     "ja": "枠",
     "ar": "نتيجة"
   },
@@ -6799,7 +6799,7 @@
     "sv": "En bildruta till",
     "be": "Яшчэ кадр",
     "ca": "Un quadre més",
-    "zh": "再加一个画框",
+    "zh": "再加一个版本",
     "ja": "枠をもう一つ",
     "ar": "نتيجة أخرى"
   },
@@ -6835,7 +6835,7 @@
     "sv": "Alla bildrutor",
     "be": "Усе кадры",
     "ca": "Tots els quadres",
-    "zh": "全部画框",
+    "zh": "全部版本",
     "ja": "すべての枠",
     "ar": "كل النتائج"
   },
@@ -6889,7 +6889,7 @@
     "sv": "Bildruta {n}: {why}.",
     "be": "Кадр {n}: {why}.",
     "ca": "Quadre {n}: {why}.",
-    "zh": "画框 {n}：{why}。",
+    "zh": "版本 {n}：{why}。",
     "ja": "枠 {n}：{why}。",
     "ar": "النتيجة {n}: {why}."
   },
@@ -6907,7 +6907,7 @@
     "sv": "Bildrutor",
     "be": "Кадры",
     "ca": "Quadres",
-    "zh": "画框",
+    "zh": "版本",
     "ja": "枠",
     "ar": "النتائج"
   },
@@ -6997,7 +6997,7 @@
     "sv": "Bildruta {n}",
     "be": "Кадр {n}",
     "ca": "Quadre {n}",
-    "zh": "画框 {n}",
+    "zh": "版本 {n}",
     "ja": "枠 {n}",
     "ar": "النتيجة {n}"
   },
@@ -7015,7 +7015,7 @@
     "sv": "bara bildruta {n}",
     "be": "толькі кадр {n}",
     "ca": "només el quadre {n}",
-    "zh": "仅画框 {n}",
+    "zh": "仅版本 {n}",
     "ja": "枠 {n} のみ",
     "ar": "النتيجة {n} فقط"
   },
@@ -7051,7 +7051,7 @@
     "sv": "Det du ändrar nu gäller bara den här bildrutan.",
     "be": "Што зменіш зараз, будзе толькі ў гэтага кадра.",
     "ca": "El que canviïs ara només valdrà per a aquest quadre.",
-    "zh": "现在的修改只作用于这个画框。",
+    "zh": "现在的修改只作用于这个版本。",
     "ja": "ここでの変更はこの枠だけに適用されます。",
     "ar": "ما تغيّره الآن يخص هذه النتيجة وحدها."
   },
@@ -7069,7 +7069,7 @@
     "sv": "Bildrutor med egna inställningar: {list}. De gemensamma ändrar dem inte.",
     "be": "Кадры са сваімі наладамі: {list}. Агульныя іх не мяняюць.",
     "ca": "Quadres amb ajustos propis: {list}. Els comuns no els canvien.",
-    "zh": "有单独设置的画框：{list}。共同设置不会改动它们。",
+    "zh": "有单独设置的版本：{list}。共同设置不会改动它们。",
     "ja": "個別設定のある枠：{list}。共通の設定はこれらを変えません。",
     "ar": "نتائج بإعدادات خاصة: {list}. الإعدادات المشتركة لا تغيّرها."
   },
@@ -7087,7 +7087,7 @@
     "sv": "Ta bort bildrutan",
     "be": "Прыбраць кадр",
     "ca": "Treu el quadre",
-    "zh": "移除画框",
+    "zh": "移除版本",
     "ja": "枠を削除",
     "ar": "إزالة النتيجة"
   },
@@ -7105,7 +7105,7 @@
     "sv": "Ta bort bildruta {n}",
     "be": "Прыбраць кадр {n}",
     "ca": "Treu el quadre {n}",
-    "zh": "移除画框 {n}",
+    "zh": "移除版本 {n}",
     "ja": "枠 {n} を削除",
     "ar": "إزالة النتيجة {n}"
   },
@@ -7195,7 +7195,7 @@
     "sv": "Tillbaka till alla bildrutor",
     "be": "Да ўсіх кадраў",
     "ca": "Torna a tots els quadres",
-    "zh": "回到全部画框",
+    "zh": "回到全部版本",
     "ja": "すべての枠に戻る",
     "ar": "العودة إلى كل النتائج"
   },
@@ -7213,7 +7213,7 @@
     "sv": "Du ställer in bildruta {n}",
     "be": "Наладжваеш кадр {n}",
     "ca": "Ajustant el quadre {n}",
-    "zh": "正在设置画框 {n}",
+    "zh": "正在设置版本 {n}",
     "ja": "枠 {n} を設定中",
     "ar": "ضبط النتيجة {n}"
   },
@@ -7231,7 +7231,7 @@
     "sv": "Bildruta {n}: {text}",
     "be": "Кадр {n}: {text}",
     "ca": "Quadre {n}: {text}",
-    "zh": "画框 {n}：{text}",
+    "zh": "版本 {n}：{text}",
     "ja": "枠 {n}：{text}",
     "ar": "النتيجة {n}: {text}"
   },
@@ -11659,7 +11659,7 @@
     "sv": "Delen blev {len}, och modellen accepterar upp till {max}. Välj en del som är lite kortare.",
     "be": "Фрагмент атрымаўся {len}, а мадэль прымае да {max}. Абяры трохі карацейшы.",
     "ca": "El tram dura {len} i el model accepta fins a {max}. Tria un tram una mica més curt.",
-    "zh": "片段时长 {len}，模型最多接受 {max}。请选一段稍短一点的。",
+    "zh": "所选区间时长为 {len}，模型最多接受 {max}。请选一段稍短一点的。",
     "ja": "区間は {len} で、モデルが受け付けるのは {max} までです。もう少し短い区間を選んでください。",
     "ar": "مدة الجزء {len}، لكن النموذج يقبل حتى {max}. اختر جزءًا أقصر قليلًا."
   },
@@ -11677,7 +11677,7 @@
     "sv": "Delen är för lång",
     "be": "Фрагмент занадта доўгі",
     "ca": "Tram massa llarg",
-    "zh": "片段太长",
+    "zh": "区间太长",
     "ja": "区間が長すぎます",
     "ar": "الجزء أطول من اللازم"
   },
