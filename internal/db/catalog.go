@@ -23,7 +23,9 @@ const catalogLockKey int64 = 0x6672616d7963 // "framyc"
 var ErrCatalogShrank = errors.New("catalog sync would disable more than half of the OpenRouter offers")
 
 // SaveCatalog writes a snapshot in one transaction: models and offers are
-// upserted, and an offer the snapshot no longer has is disabled, unless the
+// upserted, a row only when something in it differs (the hourly sync used to
+// rewrite every offer, with its large jsonb, for the sake of a timestamp; the
+// time of the sync is runtime_state.catalog_synced_at), and an offer the snapshot no longer has is disabled, unless the
 // snapshot asks to keep it. A model whose offers are all disabled is disabled
 // too. Nothing is deleted: jobs will point at these rows.
 func (s *Store) SaveCatalog(ctx context.Context, snap catalog.Snapshot, now time.Time) (catalog.Saved, error) {
@@ -133,14 +135,13 @@ func (s *Store) SaveCatalog(ctx context.Context, snap catalog.Snapshot, now time
 			ON CONFLICT (id) DO UPDATE SET
 				model_id = EXCLUDED.model_id, name = EXCLUDED.name, input_modalities = EXCLUDED.input_modalities,
 				params = EXCLUDED.params, routes = EXCLUDED.routes, expires_on = EXCLUDED.expires_on,
-				hidden = EXCLUDED.hidden, fetched_at = EXCLUDED.fetched_at, disabled_at = NULL,
-				updated_at = CASE
-					WHEN (catalog_offer.model_id, catalog_offer.name, catalog_offer.input_modalities,
-					      catalog_offer.params, catalog_offer.routes, catalog_offer.expires_on,
-					      catalog_offer.hidden, catalog_offer.disabled_at)
-					  IS DISTINCT FROM (EXCLUDED.model_id, EXCLUDED.name, EXCLUDED.input_modalities,
-					      EXCLUDED.params, EXCLUDED.routes, EXCLUDED.expires_on, EXCLUDED.hidden, NULL::timestamptz)
-					THEN EXCLUDED.updated_at ELSE catalog_offer.updated_at END`,
+				hidden = EXCLUDED.hidden, fetched_at = EXCLUDED.fetched_at, updated_at = EXCLUDED.updated_at,
+				disabled_at = NULL
+			WHERE (catalog_offer.model_id, catalog_offer.name, catalog_offer.input_modalities,
+			       catalog_offer.params, catalog_offer.routes, catalog_offer.expires_on,
+			       catalog_offer.hidden, catalog_offer.disabled_at)
+			  IS DISTINCT FROM (EXCLUDED.model_id, EXCLUDED.name, EXCLUDED.input_modalities,
+			       EXCLUDED.params, EXCLUDED.routes, EXCLUDED.expires_on, EXCLUDED.hidden, NULL::timestamptz)`,
 			of.ID, of.ModelID, of.Provider, of.ProviderModelID, of.Name, nonNilSlice(of.InputModalities),
 			params, routes, expires, nullString(of.Hidden), now)
 	}
