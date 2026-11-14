@@ -4,7 +4,7 @@
 # not pinned: its repository keeps only the newest of each, and a pin would
 # break the build on the day a fix lands. The release tests and scans the
 # image it publishes instead (docs/releases.md).
-FROM golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS build
+FROM golang:1.27.4-alpine@sha256:0a5f7fe796599ff487605987432e7619ae45beeb2fba4c2ce0b907879932aebf AS build
 
 WORKDIR /src
 

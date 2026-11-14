@@ -2,7 +2,7 @@
 
 module github.com/FreshLabDev/framy
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/FreshLabDev/tg v0.2.0-alpha.3.0.20261031203103-b5a82887d903
