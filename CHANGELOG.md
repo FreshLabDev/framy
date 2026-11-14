@@ -11,6 +11,22 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+## v0.1.0-alpha.7 - 2026-11-14
+
+A Go security update and a quieter catalog. No migrations and no changes on
+the host.
+
+### Security
+
+- Go moves from 1.27.3 to 1.27.4: a crafted HTTP/1 request could crash the
+  server through a race on the `MaxBytesReader` header (GO-2026-6859).
+
+### Removed
+
+- Seedance 1.5 Pro is gone from the overlay. OpenRouter stopped serving it on
+  11 November and the catalog disabled it that day, but the leftover overlay
+  entry made every hourly sync log `catalog overlay mismatch`.
+
 ## v0.1.0-alpha.6 - 2026-11-06
 
 Animated GIFs from GPT Image 2.6 on the site, the Mini App and Telegram,
