@@ -53,8 +53,8 @@ func TestThePickerArrangesTheCatalog(t *testing.T) {
 		"alibaba/wan-2.6":         "alibaba/wan-3.0",
 		"minimax/hailuo-2.3":      "minimax/hailuo-3",
 		// A deprecated variant gives way to the successor its maker names.
-		"microsoft/mai-image-2.5-pro": "microsoft/mai-image-2.6",
-		"bytedance/seedance-1-5-pro":  "bytedance/seedance-2.0-mini",
+		"microsoft/mai-image-2.5-pro":  "microsoft/mai-image-2.6",
+		"google/gemini-omni-1.1-flash": "google/gemini-omni-1.2-flash",
 	} {
 		if got := family(id).OutdatedBy; got != by {
 			t.Errorf("%s outdated by %q, want %s", id, got, by)

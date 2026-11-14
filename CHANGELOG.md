@@ -11,6 +11,10 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+- Seedance 1.5 Pro is gone from the overlay. OpenRouter stopped serving it on
+  11 November and the catalog disabled it that day, but the leftover overlay
+  entry made every hourly sync log `catalog overlay mismatch`.
+
 ## v0.1.0-alpha.6 - 2026-11-06
 
 Animated GIFs from GPT Image 2.6 on the site, the Mini App and Telegram,

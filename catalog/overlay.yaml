@@ -765,9 +765,6 @@ models:
   minimax/hailuo-2.3:
     family: {id: hailuo, gen: "2.3", tier: std, label: "2.3"}
     exclude: {duration: [10]}
-  bytedance/seedance-1-5-pro:
-    family: {id: seedance, gen: "1.5", tier: pro, label: 1.5 Pro}
-    deprecated: {shuts_down: "2026-11-11", successor: bytedance/seedance-2.0-mini}
   alibaba/happyhorse-1.1:
     family: {id: happyhorse, gen: "1.1", tier: std, label: "1.1"}
     references: {image: 9}

@@ -138,12 +138,12 @@ func TestBuildHides(t *testing.T) {
 	}
 	// A model is hidden once the maker's shutdown day is within
 	// hide_expiring_within_days, and not before.
-	if m := modelByID(t, snap, "bytedance/seedance-1-5-pro"); m.Hidden != "" {
-		t.Errorf("seedance 1.5 pro hidden = %q fifteen days before its shutdown", m.Hidden)
+	if m := modelByID(t, snap, "google/gemini-omni-1.1-flash"); m.Hidden != "" {
+		t.Errorf("omni 1.1 hidden = %q 37 days before its shutdown", m.Hidden)
 	}
-	later := Build(fixtureUpstream(t), embeddedFiles(t), time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC))
-	if m := modelByID(t, later, "bytedance/seedance-1-5-pro"); !strings.Contains(m.Hidden, "shuts down 2026-11-11") {
-		t.Errorf("seedance 1.5 pro hidden = %q ten days before its shutdown", m.Hidden)
+	later := Build(fixtureUpstream(t), embeddedFiles(t), time.Date(2026, 11, 23, 9, 0, 0, 0, time.UTC))
+	if m := modelByID(t, later, "google/gemini-omni-1.1-flash"); !strings.Contains(m.Hidden, "shuts down 2026-12-03") {
+		t.Errorf("omni 1.1 hidden = %q ten days before its shutdown", m.Hidden)
 	}
 	// A Tencent preview is a model of its own; only Google's previews are
 	// duplicates.
@@ -167,8 +167,17 @@ func TestBuildHides(t *testing.T) {
 		t.Error("an offer with no route is shown")
 	}
 
-	// Seedance 1.5 Pro leaves on 11 November: shown 15 and 14 days before,
-	// hidden from 13.
+	// Omni 1.1 leaves on 3 December: shown 15 and 14 days before, hidden
+	// from 13.
+	for day, hidden := range map[int]bool{18: false, 19: false, 20: true} {
+		snap := Build(fixtureUpstream(t), embeddedFiles(t), time.Date(2026, 11, day, 23, 0, 0, 0, time.UTC))
+		if m := modelByID(t, snap, "google/gemini-omni-1.1-flash"); (m.Hidden != "") != hidden {
+			t.Errorf("on 11-%d omni 1.1 hidden = %q, want hidden %v", day, m.Hidden, hidden)
+		}
+	}
+	// OpenRouter's own expiration date hides an offer the same way: the
+	// fixture of 27 October still lists Seedance 1.5 Pro, which left on 11
+	// November. Shown 15 and 14 days before, hidden from 13.
 	for day, hidden := range map[int]bool{27: false, 28: false, 29: true} {
 		snap := Build(fixtureUpstream(t), embeddedFiles(t), time.Date(2026, 10, day, 23, 0, 0, 0, time.UTC))
 		of := modelByID(t, snap, "bytedance/seedance-1-5-pro").Offers[0]
