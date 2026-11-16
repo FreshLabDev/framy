@@ -185,6 +185,11 @@ type freePlanJSON struct {
 	Settings         map[string]any `json:"settings"`
 	StartFrame       bool           `json:"start_frame,omitempty"`
 	MaxSourceSeconds float64        `json:"max_source_seconds,omitempty"`
+	// Unmetered: the plan runs on the model's free variant and takes no
+	// slot of the person's (free.Plan.Unmetered). It is listed only while
+	// it runs. Open are the settings the person may set on it.
+	Unmetered bool     `json:"unmetered,omitempty"`
+	Open      []string `json:"open,omitempty"`
 }
 
 // catalogRoute is GET /api/catalog: every model the picker may show, for
@@ -200,7 +205,7 @@ func (a *API) catalogRoute(w http.ResponseWriter, r *http.Request) {
 	typical := a.catalog.typicalSeconds()
 	lang := a.language(ctx, r, a.anyone(r))
 	out := catalogJSON{
-		Models: make([]catalogModelJSON, 0, len(models)), Recommend: recommendJSON(models), Free: freeAllowanceJSON(),
+		Models: make([]catalogModelJSON, 0, len(models)), Recommend: recommendJSON(models), Free: freeAllowanceJSON(models, a.wordsOpen(), a.now()),
 	}
 	if !synced.IsZero() {
 		at := synced.UTC()
@@ -290,18 +295,55 @@ func sharedDiscount(routes []catalog.Route) float64 {
 	return d
 }
 
-func freeAllowanceJSON() freeJSON {
+// freeAllowanceJSON is the allowance as the site reads it. An unmetered
+// plan is listed only while its free variant takes a run of its plan and
+// framy's account has free requests left (words), so the site falls back to
+// the metered plans by itself.
+func freeAllowanceJSON(models []catalog.Model, words bool, now time.Time) freeJSON {
 	out := freeJSON{
 		Images: windowJSON{Limit: free.ImagesPerWindow, WindowSeconds: int64(free.ImageWindow.Seconds())},
 		Videos: windowJSON{Limit: free.VideosPerWindow, WindowSeconds: int64(free.VideoWindow.Seconds())},
 	}
 	for _, p := range free.Plans() {
-		out.Plans = append(out.Plans, freePlanJSON{
+		if p.Unmetered && !(words && unmeteredRuns(models, p, now)) {
+			continue
+		}
+		pj := freePlanJSON{
 			Offer: p.Offer, Kind: string(p.Kind), MinInputs: p.MinInputs, MaxInputs: p.MaxInputs,
 			Settings: p.Settings(), StartFrame: p.StartFrame(), MaxSourceSeconds: p.MaxSourceSeconds,
-		})
+			Unmetered: p.Unmetered,
+		}
+		for _, name := range []string{"aspect_ratio", "resolution"} {
+			if p.Open(name) {
+				pj.Open = append(pj.Open, name)
+			}
+		}
+		out.Plans = append(out.Plans, pj)
 	}
 	return out
+}
+
+// unmeteredRuns reports whether the catalog lists the plan's offer with a
+// free variant that takes the plan's run.
+func unmeteredRuns(models []catalog.Model, p free.Plan, now time.Time) bool {
+	for _, m := range models {
+		for _, of := range m.Offers {
+			if of.ID == p.Offer {
+				_, ok := of.FreeRoute(now, p.MaxInputs, 1)
+				return ok
+			}
+		}
+	}
+	return false
+}
+
+// wordsOpen reports whether framy's account still has free requests today
+// (free.Allowance.Words); true without an allowance that says.
+func (a *API) wordsOpen() bool {
+	if w, ok := a.cfg.Allowance.(interface{ Words() bool }); ok {
+		return w.Words()
+	}
+	return true
 }
 
 func nonNilStrings(s []string) []string {

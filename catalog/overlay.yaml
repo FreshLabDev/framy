@@ -35,6 +35,7 @@ families:
   mai: {name: MAI-Image}
   nano-banana: {name: Nano Banana}
   recraft: {name: Recraft, default: recraft/recraft-v4.1}
+  h3-image: {name: H3 Image}
   riverflow: {name: Riverflow}
   seedream: {name: Seedream}
   grok-image: {name: Grok Imagine Image}
@@ -79,6 +80,8 @@ hide:
     why: listed on the Images API with no endpoint; runs only through chat completions
   - match: openrouter/auto*
     why: a router, not a model
+  - match: tencent/hy-world-2.1-panorama
+    why: bills output tokens and nobody publishes how many a panorama takes, so it has no price before the run (16 November 2026); the site is to list it once it has one
 
 # Values left out of every model whose id matches, so a new version comes
 # without them too.
@@ -390,6 +393,13 @@ models:
     family: {id: recraft, gen: "4.1", tier: pro, label: V4.1 Pro, line: base, format: raster}
   recraft/recraft-v4.1-flash:
     family: {id: recraft, gen: "4.1", tier: flash, label: V4.1 Flash, line: base, format: raster}
+  # An image from words on the free tier (owner, 16 November 2026): its
+  # ":free" variant at OpenRouter costs nothing and takes no slot of the
+  # person's, until 28 November 2026 by OpenRouter's expiration_date
+  # (free.ImageWords). Words alone: neither variant takes a photo.
+  recraft/recraft-v4.1-flash-v2:
+    family: {id: recraft, gen: "4.1", tier: flash, label: V4.1 Flash V2, line: base, format: raster, keep: "an update of V4.1 Flash that Recraft lists beside it"}
+    free: true
   recraft/recraft-v4.1-pro-vector:
     family: {id: recraft, gen: "4.1", tier: pro, label: V4.1 Pro Vector, line: base, format: vector}
   recraft/recraft-v4.1-utility:
@@ -414,6 +424,14 @@ models:
     family: {id: recraft, gen: "4", tier: pro, label: V4 Pro Vector, line: base, format: vector}
   recraft/recraft-v3:
     family: {id: recraft, gen: "3", tier: std, label: V3, line: base, format: raster}
+  # 12 November 2026: 1K, 1.5K and 2K, up to 10 references at $0.008 each,
+  # a transparent background. Its high_resolution line is taken as 5.0
+  # Pro's, above 2,360,000 output pixels, which only 2K passes.
+  bytedance-seed/seedream-5-5:
+    family: {id: seedream, gen: "5.5", tier: std, label: "5.5"}
+    featured: true
+    price:
+      variants: {high_resolution: {resolution: 2K}}
   bytedance-seed/seedream-5-0-flash:
     family: {id: seedream, gen: "5", tier: flash, label: 5.0 Flash}
     references: {image: 10}
@@ -429,6 +447,28 @@ models:
     family: {id: qwen-image, gen: "3", tier: std, label: "3"}
   qwen/qwen-image-2.1-turbo:
     family: {id: qwen-image, gen: "2.1", tier: turbo, label: 2.1 Turbo}
+  # MiniMax's image model of 10 November 2026: up to 16 references, 1K to
+  # 4K. Highspeed is the same model, faster at twice the rates (OpenRouter:
+  # "the faster version of MiniMax's H3 Image", with "the same inputs and
+  # limits"), so it is a switch, as Wan 3.0 Prime is. The token counts are
+  # MiniMax's own example costs at $3.80 a million output tokens (pricing
+  # overview, 16 November 2026): $0.02179 at 1K, $0.02333 at 2K, $0.06879
+  # at 4K, the prompt's few tokens inside them; a 1K reference adds $0.00475
+  # at $1.50 a million, about 3,000 tokens a megapixel.
+  minimax/minimax-h3-image:
+    name: H3 Image
+    family: {id: h3-image, gen: "3", tier: std, label: H3 Image}
+    featured: true
+    price:
+      tokens: {output_image: {1K: 5734, 2K: 6139, 4K: 18103}}
+      input_tokens_per_mp: 3020
+  minimax/minimax-h3-image-highspeed:
+    name: H3 Image Highspeed
+    fast_of: minimax/minimax-h3-image
+    price:
+      tokens: {output_image: {1K: 5734, 2K: 6139, 4K: 18103}}
+      input_tokens_per_mp: 3020
+
   qwen/qwen-image-2.1-pro:
     family: {id: qwen-image, gen: "2.1", tier: pro, label: 2.1 Pro, keep: "came out after Qwen Image 3, and Alibaba sells both lines"}
 

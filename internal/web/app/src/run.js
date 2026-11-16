@@ -338,7 +338,9 @@ function ended(run) {
 }
 function afterRefusal(run, err) {
   const b = err.body || {};
-  if (err.code === "free_closed") S.closed[run.kind] = Date.parse(b.until) || 0;
+  // OpenRouter's free requests closing closes the free variant alone, not the allowance.
+  if (err.code === "free_closed" && b.fuse === "free_requests") S.closedWords = Date.parse(b.until) || 0;
+  else if (err.code === "free_closed") S.closed[run.kind] = Date.parse(b.until) || 0;
   if (err.code === "price_changed") clearPrices();
   if (err.code === "free_limit" || err.code === "free_closed" || err.code === "connection_invalid") refreshMe();
   if (err.code === "sign_in" || launchGone(err)) { S.signed = false; S.me = null; window.dispatchEvent(new Event("framy:me")); }
@@ -400,6 +402,8 @@ function restore(run, pay = run.pay) {
   S.scope[run.kind] = null;
   if (C.byId[run.model] && !run.multi) {
     S.model[run.kind] = run.model;
+    // A run brought back keeps its model, photos or not.
+    if (run.kind === "image") S.pickedImage = true;
     S.pay[run.model] = pay;
     if (run.pay !== "free") Object.assign(S.wanted, run.settings);
   }
@@ -419,6 +423,7 @@ function restoreFrames(run) {
   const fms = run.frames.filter((fm) => C.byId[fm.model]), first = fms[0];
   if (!first) { S.frames[run.kind] = [newFrame()]; return; }
   S.model[run.kind] = first.model;
+  if (run.kind === "image") S.pickedImage = true;
   S.pay[first.model] = first.pay;
   if (first.pay !== "free") Object.assign(S.wanted, first.settings);
   S.frames[run.kind] = fms.map((fm) => newFrame({ model: fm.model, pay: fm.pay, wanted: fm.pay === "free" ? {} : { ...fm.settings } }));

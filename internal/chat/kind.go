@@ -3,8 +3,10 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/FreshLabDev/tg"
 
@@ -56,14 +58,14 @@ func (f *Flow) toImage(ctx context.Context, cq *tg.CallbackQuery, run db.ChatRun
 			return answer("")
 		}
 	}
-	plan, err := free.ForImages(len(inputs))
-	if err != nil {
-		return answer("")
-	}
-	model, offer, err := f.cfg.Store.Offer(ctx, plan.Offer)
+	plan, model, offer, err := f.imagePlan(ctx, len(inputs))
 	if err != nil {
 		_ = answer("")
-		return fmt.Errorf("the free model %s: %w", plan.Offer, err)
+		var nf *free.NotFreeError
+		if errors.As(err, &nf) {
+			return nil
+		}
+		return err
 	}
 	return f.reviseOwn(ctx, cq, run, on, model, offer, plan.SettingsFor(len(inputs)))
 }
@@ -81,4 +83,46 @@ func (f *Flow) reviseOwn(ctx context.Context, cq *tg.CallbackQuery, run db.ChatR
 		return f.revise(ctx, cq, run, on, e.model, e.offer, e.settings, e.free, true, viewMain)
 	}
 	return f.revise(ctx, cq, run, on, model, offer, settings, true, true, viewMain)
+}
+
+// imagePlan is the free plan of an image from this many photos, with its
+// model and offer: words alone go on free.ImageWords while the catalog lists
+// its free variant and framy's account has free requests left today, and
+// everything else, or words when it cannot, on free.ForImages. More photos
+// than the free models take come back as a *free.NotFreeError.
+func (f *Flow) imagePlan(ctx context.Context, photos int) (free.Plan, catalog.Model, catalog.Offer, error) {
+	if photos == 0 && f.wordsOpen() {
+		model, offer, err := f.cfg.Store.Offer(ctx, free.ImageWords.Offer)
+		switch {
+		case err != nil:
+			f.log.Warn("the free variant's model is not in the catalog", "offer", free.ImageWords.Offer, "error", err)
+		case unmeteredTakes(offer, photos):
+			return free.ImageWords, model, offer, nil
+		}
+	}
+	plan, err := free.ForImages(photos)
+	if err != nil {
+		return free.Plan{}, catalog.Model{}, catalog.Offer{}, err
+	}
+	model, offer, err := f.cfg.Store.Offer(ctx, plan.Offer)
+	if err != nil {
+		return free.Plan{}, catalog.Model{}, catalog.Offer{}, fmt.Errorf("the free model %s: %w", plan.Offer, err)
+	}
+	return plan, model, offer, nil
+}
+
+// unmeteredTakes reports whether the offer's free variant takes a run of
+// this many photos and one result now.
+func unmeteredTakes(offer catalog.Offer, photos int) bool {
+	_, ok := offer.FreeRoute(time.Now(), photos, 1)
+	return ok
+}
+
+// wordsOpen reports whether framy's account still has requests to free
+// models today (free.Allowance.Words); yes when the allowance does not say.
+func (f *Flow) wordsOpen() bool {
+	if w, ok := f.cfg.Allowance.(interface{ Words() bool }); ok {
+		return w.Words()
+	}
+	return true
 }

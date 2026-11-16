@@ -22,7 +22,7 @@ export const S = {
   cut: null, cont: null,
   more: false, allRatios: false,
   sort: "maker", info: null, hover: null, detVar: {}, lastVar: {},
-  run: null, showJob: false, busy: false, closed: { image: 0, video: 0 },
+  run: null, showJob: false, busy: false, closed: { image: 0, video: 0 }, closedWords: 0, pickedImage: false,
   // The view the page shows: "create" (the composer) or "library".
   view: "create",
 };
@@ -47,7 +47,7 @@ export const wanted = () => { const fr = scopeFr(); return fr ? frWanted(fr) : S
 export const M = () => { const fr = scopeFr(); return fr ? frModel(fr) : common(); };
 export function setModelHere(id) {
   const fr = scopeFr();
-  if (fr) { fr.own.model = id; delete fr.own.pay; } else S.model[S.kind] = id;
+  if (fr) { fr.own.model = id; delete fr.own.pay; } else { S.model[S.kind] = id; if (S.kind === "image") S.pickedImage = true; }
   const f = C.famOf[id];
   if (f) S.lastVar[f.idx] = id;
 }
@@ -97,7 +97,7 @@ export function plan() {
   let free = S.signed ? freeLeft(S.kind) : Infinity;
   return FR().map((fr, i) => {
     const m = frModel(fr), pay = frPay(fr), set = settings(m, pay, frWanted(fr));
-    return { fr, i, m, pay, set, short: pay === "free" && free-- <= 0 };
+    return { fr, i, m, pay, set, short: pay === "free" && !unmetered(m) && free-- <= 0 };
   });
 }
 // The runs a press pays for: its frames that are not free, as POST /api/quote prices them.
@@ -131,6 +131,7 @@ export function placeFiles() {
 // An end frame with no start frame becomes the start.
 export function settleSlots() {
   if (!inSlot("start").length) for (const f of inSlot("end").slice(0, 1)) f.slot = "start";
+  followPhotos();
 }
 // A video model that cannot take what is in the slots is not offered.
 export function refuses(m) {
@@ -145,10 +146,28 @@ export function refuses(m) {
   return sources().length > 0 && !takesVideo(m);
 }
 
-// framy's own choice for a kind: the first recommended model the picker shows.
+// The model of an image from words while its free variant is open
+// (docs/design.md, Free tier): the catalog lists the plan only then.
+const wordsModel = () => C.models.find((m) => m.kind === "image" && C.famOf[m.id] && freePlan(m)?.unmetered)?.id || "";
+// framy's own choice for a kind: for an image without photos the free model
+// from words, else the first recommended model the picker shows.
 export function autoModel(k) {
+  if (k === "image" && !images().length) { const w = wordsModel(); if (w) return w; }
+  return recModel(k);
+}
+function recModel(k) {
   const rec = (C.recommend[k] || []).find((id) => C.byId[id] && C.famOf[id]);
   return rec || C.models.find((m) => m.kind === k && C.famOf[m.id])?.id || "";
+}
+// The image model the page chose follows the photos: the free model from
+// words goes to framy's choice when a photo comes, and back when the last
+// one leaves. A model the person picked, or made their default, stays.
+function followPhotos() {
+  if (S.pickedImage || ownDefault("image")) return;
+  const w = wordsModel(), cur = S.model.image;
+  if (!w) return;
+  if (images().length && cur === w) S.model.image = recModel("image");
+  else if (!images().length && cur === recModel("image")) S.model.image = w;
 }
 export function initModels() {
   for (const k of ["image", "video"]) S.model[k] = autoModel(k);
@@ -170,6 +189,8 @@ export function freeLeft(kind) {
 }
 export const freeLimit = (kind) => meter(kind)?.limit ?? allowance(kind)?.limit ?? 0;
 export const freesAt = (kind) => { const at = meter(kind)?.frees_at; return at ? Date.parse(at) : 0; };
+// What free is for a model: so many runs a day, or not counted.
+export const freeTerms = (m) => (freePlan(m)?.unmetered ? t("pay.unmetered") : freePer(m.kind));
 export function freePer(kind) {
   const w = (meter(kind) || allowance(kind))?.window_seconds || 86400, n = freeLimit(kind);
   return t(w >= 604800 ? "free.per_week" : "free.per_day", { n });
@@ -196,12 +217,17 @@ export const fitsFree = (m) => {
 // The free allowance can pay now: for anyone signed out, and for a person
 // while runs are left and the tier is open.
 export const freeNow = (kind) => !S.signed || freeLeft(kind) > 0;
+// A plan without a count (a free variant of the model, docs/design.md, Free
+// tier) takes no run of the allowance: it pays while OpenRouter's daily
+// requests for free models last, whatever the allowance has left.
+export const unmetered = (m) => !!freePlan(m)?.unmetered && !(S.closedWords > Date.now());
+const freeCan = (m) => (freePlan(m)?.unmetered ? unmetered(m) : freeNow(m.kind));
 // The key to connect for a model when none of its keys works: the one its free
 // runs go through (framy's OpenRouter key pays for them), else its first.
 export const keyToConnect = (m) => freePlan(m)?.offer.provider || m.offers[0].provider;
 // A payment chosen for a model still holds: free only while it can pay, since
 // a choice made then (or a run brought back) must not leave the button dead.
-const holds = (m, p) => !!p && pays(m).includes(p) && (p !== "free" || freeNow(m.kind));
+const holds = (m, p) => !!p && pays(m).includes(p) && (p !== "free" || freeCan(m));
 // The payment of a model: the frame's own, else the one chosen, else free while it lasts, else a working key, else what the model has.
 export function payOf(m) {
   const fr = scopeFr();
@@ -212,13 +238,13 @@ function basePay(m) {
   if (!m) return "";
   const want = S.pay[m.id];
   if (holds(m, want)) return want;
-  if (freePlan(m) && fitsFree(m) && freeNow(m.kind)) return "free";
+  if (freePlan(m) && fitsFree(m) && freeCan(m)) return "free";
   const keyed = m.offers.map((o) => o.provider).filter(keyOk);
   if (keyed.length) return keyed[0];
   // Free that cannot pay now leaves the run on the key the button connects, at its price there.
-  return freePlan(m) && freeNow(m.kind) ? "free" : keyToConnect(m);
+  return freePlan(m) && freeCan(m) ? "free" : keyToConnect(m);
 }
-export const usable = (m, pay) => (pay === "free" ? freeNow(m.kind) : !S.signed || keyOk(pay));
+export const usable = (m, pay) => (pay === "free" ? freeCan(m) : !S.signed || keyOk(pay));
 
 export function sourceRatio() { const i = images()[0] || clip(); return i && i.w && i.h ? i.w / i.h : null; }
 export const settings = (m, pay, w = wanted()) => withRefLengths(m, pay, withFrames(m, pay, settingsOf(m, pay, w, sourceRatio())));
@@ -490,8 +516,9 @@ export const reopenText = () => t(S.expired === "init_data_expired" ? "auth.mini
 // says when free is back.
 const keyStep = (p, m) => ({ label: t(connection(p) ? "go.rekey" : "go.connect", { provider: PNAME[p] || p }), icon: "key", act: "key", provider: p, on: true, why: freeBack(m) });
 function freeBack(m) {
-  if (!S.signed || !m || !freePlan(m) || !fitsFree(m) || freeNow(m.kind)) return "";
+  if (!S.signed || !m || !freePlan(m) || !fitsFree(m) || freeCan(m)) return "";
   const k = m.kind;
+  if (freePlan(m).unmetered) return S.closedWords > Date.now() ? t("go.free_closed", { time: fmtTime(S.closedWords) }) : "";
   if (S.closed[k] > Date.now()) return t("go.free_closed", { time: fmtTime(S.closed[k]) });
   return freesAt(k) ? t("bar.free_back", { at: fmtAt(freesAt(k)) }) : "";
 }

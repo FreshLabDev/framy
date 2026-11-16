@@ -61,6 +61,14 @@ type Plan struct {
 	// the photo as a reference, which OpenRouter prices apart (HeyGen at
 	// $0.10 a second against $0.036) and the budget was not counted with.
 	startFrame bool
+	// Unmetered: the run goes to the model's free variant at OpenRouter
+	// (catalog.FreeVariant), which costs framy nothing. It takes no slot of
+	// the person's and nothing of the day's budget; OpenRouter's own count
+	// of free requests on framy's account is its only limit.
+	Unmetered bool
+	// open are settings the person may set to any value the model takes,
+	// beside the fixed ones.
+	open []string
 }
 
 // Settings returns the settings the run goes with when it takes no file, to
@@ -91,6 +99,11 @@ func openRouterPlan(model string, kind catalog.Kind, minInputs, maxInputs int, f
 }
 
 var (
+	// ImageWords is an image from words alone on Recraft V4.1 Flash V2's
+	// free variant (owner, 16 November 2026): no slot, no budget, any shape.
+	// It runs while OpenRouter lists the variant and framy's account has
+	// free requests left today; otherwise an image from words goes to MAI.
+	ImageWords = unmeteredOf(openRouterPlan("recraft/recraft-v4.1-flash-v2", catalog.Image, 0, 0, map[string]any{"n": 1}), "aspect_ratio")
 	// ImageMAI is the owner's free image model (26 October): about 1K, which
 	// MAI has no setting for, and one result. It takes 5 photos.
 	ImageMAI = openRouterPlan("microsoft/mai-image-2.6-flash", catalog.Image, 0, 5, map[string]any{"n": 1})
@@ -107,7 +120,7 @@ var (
 	// its length.
 	VideoEdit = sourceOf(openRouterPlan("black-forest-labs/flux-video-edit", catalog.Video, 1, 1, map[string]any{}), 5)
 
-	plans = []Plan{ImageMAI, ImageKlein, VideoHeyGen, VideoGrok, VideoEdit}
+	plans = []Plan{ImageWords, ImageMAI, ImageKlein, VideoHeyGen, VideoGrok, VideoEdit}
 )
 
 func sourceOf(p Plan, seconds float64) Plan {
@@ -119,6 +132,14 @@ func sourceOf(p Plan, seconds float64) Plan {
 // part cut to 5 s comes out up to a frame longer, as the container counts
 // it from the first frame's offset.
 const sourceSlack = 0.1
+
+func unmeteredOf(p Plan, open ...string) Plan {
+	p.Unmetered, p.open = true, open
+	return p
+}
+
+// Open reports whether the person may set the setting to any value.
+func (p Plan) Open(name string) bool { return slices.Contains(p.open, name) }
 
 func startFrameOf(p Plan) Plan {
 	p.startFrame = true
@@ -143,8 +164,10 @@ func Models() []string {
 }
 
 // ForImages is the plan of an image run that takes the given number of
-// photos: MAI up to 5, Klein for more. More than Klein takes comes back as a
-// *NotFreeError, and the person's own key can run it.
+// photos and is not unmetered: MAI up to 5, Klein for more. More than Klein
+// takes comes back as a *NotFreeError, and the person's own key can run it.
+// An image from words goes on ImageWords first where it runs
+// (Allowance.Words).
 func ForImages(photos int) (Plan, error) {
 	switch {
 	case photos <= ImageMAI.MaxInputs:
@@ -193,9 +216,12 @@ func (p Plan) check(a jobs.Admission) error {
 			}
 		}
 	}
+	if p.Unmetered && !a.FreeVariant {
+		return &NotFreeError{Reason: a.Offer + " has no free variant that takes this run now"}
+	}
 	set := map[string]any{}
 	for name, v := range a.Settings {
-		if v != nil {
+		if v != nil && !p.Open(name) {
 			set[name] = v
 		}
 	}
@@ -213,6 +239,9 @@ func (p Plan) check(a jobs.Admission) error {
 		if _, ok := set[name]; !ok {
 			return &NotFreeError{Reason: fmt.Sprintf("%s must be %v on the free allowance", name, want)}
 		}
+	}
+	if p.Unmetered {
+		return nil
 	}
 	if math.IsNaN(a.EstimateUSD) || a.EstimateUSD <= 0 {
 		return &NotFreeError{Reason: "the run has no price estimate, and the budget is counted from it"}

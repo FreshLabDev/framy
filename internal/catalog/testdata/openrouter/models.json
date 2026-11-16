@@ -1,6 +1,67 @@
 {
  "data": [
   {
+   "id": "recraft/recraft-v4.1-flash-v2:free",
+   "architecture": {
+    "input_modalities": [
+     "text"
+    ]
+   },
+   "expiration_date": "2026-11-28",
+   "pricing": {
+    "prompt": "0",
+    "completion": "0"
+   }
+  },
+  {
+   "id": "tencent/hy-world-2.1-panorama",
+   "architecture": {
+    "input_modalities": [
+     "text"
+    ]
+   },
+   "expiration_date": null
+  },
+  {
+   "id": "minimax/minimax-h3-image-highspeed",
+   "architecture": {
+    "input_modalities": [
+     "text",
+     "image"
+    ]
+   },
+   "expiration_date": null
+  },
+  {
+   "id": "minimax/minimax-h3-image",
+   "architecture": {
+    "input_modalities": [
+     "text",
+     "image"
+    ]
+   },
+   "expiration_date": null
+  },
+  {
+   "id": "bytedance-seed/seedream-5-5",
+   "architecture": {
+    "input_modalities": [
+     "text",
+     "image"
+    ]
+   },
+   "expiration_date": null
+  },
+  {
+   "id": "recraft/recraft-v4.1-flash-v2",
+   "architecture": {
+    "input_modalities": [
+     "text"
+    ]
+   },
+   "expiration_date": null
+  },
+  {
    "id": "qwen/qwen-image-2.1-turbo",
    "architecture": {
     "input_modalities": [

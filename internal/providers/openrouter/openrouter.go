@@ -18,6 +18,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/jobs"
@@ -119,6 +120,26 @@ func (p *Provider) Submit(ctx context.Context, j jobs.Job) (jobs.Submission, err
 	}
 	if j.Kind != catalog.Image {
 		return jobs.Submission{}, &jobs.Error{Class: jobs.NoAdapter, Err: fmt.Errorf("framy cannot run OpenRouter %s", j.Kind)}
+	}
+	if r, ok := freeRoute(j, time.Now()); ok {
+		body, err := freeRequest(j, r)
+		if err != nil {
+			return jobs.Submission{}, err
+		}
+		key, err := p.key(ctx, j)
+		if err != nil {
+			return jobs.Submission{}, err
+		}
+		out, err := p.freeImages(ctx, key, body)
+		if err != nil {
+			return jobs.Submission{}, err
+		}
+		return jobs.Submission{Outcome: &out}, nil
+	}
+	if j.Free && j.EstimateUSD != nil && *j.EstimateUSD <= 0 {
+		// A free run priced at nothing was meant for a free variant that is
+		// gone now; on the paid route framy would pay for it unseen.
+		return jobs.Submission{}, &jobs.Error{Class: jobs.Invalid, Err: fmt.Errorf("the free variant of %s does not take this run any more", j.OfferID)}
 	}
 	body, err := imageRequest(j)
 	if err != nil {

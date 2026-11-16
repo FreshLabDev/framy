@@ -25,6 +25,10 @@ type KeyInfo struct {
 	// Usage and UsageDaily are what the key spent in all and today (UTC), in
 	// USD.
 	Usage, UsageDaily float64
+	// FreeRemaining is how many requests to ":free" models the account has
+	// left today (UTC), free_model_daily_requests.remaining; nil when the
+	// answer does not say.
+	FreeRemaining *int
 }
 
 // KeyInfo asks OpenRouter about key. It costs nothing. The key goes in the
@@ -58,6 +62,9 @@ func (p *Provider) KeyInfo(ctx context.Context, key string) (KeyInfo, error) {
 			LimitReset     *string  `json:"limit_reset"`
 			Usage          float64  `json:"usage"`
 			UsageDaily     float64  `json:"usage_daily"`
+			FreeRequests   *struct {
+				Remaining *int `json:"remaining"`
+			} `json:"free_model_daily_requests"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(data, &env); err != nil || env.Data == nil {
@@ -65,6 +72,9 @@ func (p *Provider) KeyInfo(ctx context.Context, key string) (KeyInfo, error) {
 	}
 	d := env.Data
 	info := KeyInfo{Limit: d.Limit, Remaining: d.LimitRemaining, Usage: d.Usage, UsageDaily: d.UsageDaily}
+	if d.FreeRequests != nil {
+		info.FreeRemaining = d.FreeRequests.Remaining
+	}
 	if d.LimitReset != nil {
 		info.Reset = strings.ToLower(strings.TrimSpace(*d.LimitReset))
 	}

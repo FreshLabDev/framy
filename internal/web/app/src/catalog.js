@@ -187,12 +187,13 @@ export function defOf(o, name, src) {
   if (p.type === "range") return typeof p.default === "number" && p.default >= p.min && p.default <= p.max ? p.default : p.min;
 }
 // The settings a run goes with: what the person chose where the offer has it, else the default.
-// Free runs go as the plan fixes them, the rest at the default.
+// Free runs go as the plan fixes them, the rest at the default; a setting the
+// plan leaves open (the shape of a free variant's image) is the person's.
 export function settings(m, pay, wanted, src) {
   const o = offerOf(m, pay), plan = pay === "free" ? freePlan(m) : null, out = {};
   if (!o) return out;
   for (const name of fieldsOf(o)) {
-    if (plan) { if (name in (plan.settings || {})) out[name] = plan.settings[name]; continue; }
+    if (plan && !(plan.open || []).includes(name)) { if (name in (plan.settings || {})) out[name] = plan.settings[name]; continue; }
     if (OPEN.has(name)) { const v = openVal(name, wanted[name]); if (v !== undefined) out[name] = v; continue; }
     const w = pickVal(o.params[name], wanted[name]);
     out[name] = w !== undefined ? w : defOf(o, name, src);

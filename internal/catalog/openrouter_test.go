@@ -37,6 +37,18 @@ func fixtureServer(t *testing.T, override map[string]http.HandlerFunc) *httptest
 			http.ServeFile(w, r, filepath.Join(fixtures, name))
 			return
 		}
+		if rest, ok := strings.CutPrefix(r.URL.Path, "/api/v1/models/"); ok {
+			// /models/{id}/endpoints, kept only for the free variants: a
+			// model with no file has no discount read.
+			id, ok := strings.CutSuffix(rest, "/endpoints")
+			name := filepath.Join(fixtures, "model-endpoints", strings.NewReplacer("/", "_", ":", "_").Replace(id)+".json")
+			if _, err := os.Stat(name); !ok || err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			http.ServeFile(w, r, name)
+			return
+		}
 		id, ok := strings.CutSuffix(strings.TrimPrefix(r.URL.Path, "/api/v1/images/models/"), "/endpoints")
 		if !ok {
 			http.NotFound(w, r)
@@ -86,8 +98,8 @@ func TestFetchReadsEveryCatalog(t *testing.T) {
 	for _, of := range up.Offers {
 		kinds[of.Kind]++
 	}
-	if kinds[Image] != 64 || kinds[Video] != 33 {
-		t.Fatalf("offers by kind = %v, want 64 images and 33 videos", kinds)
+	if kinds[Image] != 69 || kinds[Video] != 33 {
+		t.Fatalf("offers by kind = %v, want 69 images and 33 videos", kinds)
 	}
 
 	nb := offerByID(t, up.Offers, "openrouter:google/gemini-nano-banana-2.1")
@@ -230,8 +242,8 @@ func TestFetchKeepsAModelWhoseEntryDoesNotDecode(t *testing.T) {
 					t.Fatal("an offer that did not decode was passed on")
 				}
 			}
-			if len(up.Offers) != 96 {
-				t.Errorf("%d offers, want the other 96", len(up.Offers))
+			if len(up.Offers) != 101 {
+				t.Errorf("%d offers, want the other 101", len(up.Offers))
 			}
 		})
 	}
@@ -359,5 +371,67 @@ func TestFetchReadsDiscounts(t *testing.T) {
 				t.Fatalf("%s has a discount of %v from nowhere", of.ID, r.Discount)
 			}
 		}
+	}
+}
+
+// An image model OpenRouter also lists as "<id>:free" at no price gets the
+// variant on the route of the upstream that serves it, until the day
+// OpenRouter gives. Nothing else gets one.
+func TestFetchFindsTheFreeVariant(t *testing.T) {
+	src := source(fixtureServer(t, nil))
+	src.Now = func() time.Time { return time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC) }
+	up, err := src.Fetch(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	of := offerByID(t, up.Offers, "openrouter:recraft/recraft-v4.1-flash-v2")
+	if len(of.Routes) != 1 || of.Routes[0].Free == nil {
+		t.Fatalf("routes = %+v", of.Routes)
+	}
+	want := FreeVariant{Model: "recraft/recraft-v4.1-flash-v2:free", Until: "2026-11-28"}
+	if got := *of.Routes[0].Free; got.Model != want.Model || got.Until != want.Until || len(got.Inputs) != 0 {
+		t.Errorf("free variant = %+v, want %+v", got, want)
+	}
+	for _, o := range up.Offers {
+		for _, r := range o.Routes {
+			if r.Free != nil && o.ID != of.ID {
+				t.Errorf("%s has a free variant: %+v", o.ID, r.Free)
+			}
+		}
+	}
+
+	// From its last day on, the variant is gone.
+	src.Now = func() time.Time { return time.Date(2026, 11, 28, 0, 0, 0, 0, time.UTC) }
+	up, err = src.Fetch(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := offerByID(t, up.Offers, of.ID).Routes[0]; r.Free != nil {
+		t.Errorf("an expired free variant is kept: %+v", r.Free)
+	}
+}
+
+func TestAFreeVariantTakesOneImageFromWords(t *testing.T) {
+	day := time.Date(2026, 11, 16, 0, 0, 0, 0, time.UTC)
+	of := Offer{Routes: []Route{{Provider: "paid"}, {Provider: "recraft", Free: &FreeVariant{Model: "m:free", Until: "2026-11-28"}}}}
+	if r, ok := of.FreeRoute(day, 0, 1); !ok || r.Provider != "recraft" {
+		t.Errorf("words: %v %v", r.Provider, ok)
+	}
+	for _, c := range []struct {
+		name           string
+		now            time.Time
+		images, result int
+	}{
+		{"two results", day, 0, 2},
+		{"a photo it does not take", day, 1, 1},
+		{"on its last day", time.Date(2026, 11, 28, 0, 0, 0, 0, time.UTC), 0, 1},
+	} {
+		if _, ok := of.FreeRoute(c.now, c.images, c.result); ok {
+			t.Errorf("%s goes to the free variant", c.name)
+		}
+	}
+	of.Routes[1].Free.Inputs = []string{"image"}
+	if _, ok := of.FreeRoute(day, 3, 1); !ok {
+		t.Error("a variant that takes photos refuses three")
 	}
 }

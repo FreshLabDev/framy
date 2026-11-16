@@ -180,6 +180,14 @@ func (a *Allowance) decide(ctx context.Context, c conn, adm jobs.Admission, lock
 		}
 	}
 	now := a.now()
+	if plan.Unmetered {
+		if lock {
+			if err := advisory(ctx, c, "framy.free.requests"); err != nil {
+				return err
+			}
+		}
+		return a.requests(ctx, c, now)
+	}
 	lim := limitOf(plan.Kind)
 	taken, err := a.taken(ctx, c, adm.UserID, plan.Kind, now)
 	if err != nil {
@@ -213,12 +221,55 @@ func advisory(ctx context.Context, c conn, name string) error {
 // counts are the runs that take a slot of the person's.
 const counts = `(status IN ('queued', 'running', 'done') OR (status = 'failed' AND error_class = 'moderation'))`
 
+// metered leaves out the runs on a free variant (Plan.Unmetered), which
+// take no slot and cost nothing.
+const metered = `NOT COALESCE((estimate->>'free')::boolean, false)`
+
+// requests closes ImageWords when framy's OpenRouter account has no
+// requests to free models left today, less the runs on their way. Without a
+// reading OpenRouter's own 429 is the limit, and the run waits for the time
+// it gives.
+func (a *Allowance) requests(ctx context.Context, c conn, now time.Time) error {
+	if a.key == nil {
+		return nil
+	}
+	st, ok := a.key.State()
+	if !ok || !st.FreeKnown {
+		return nil
+	}
+	var inFlight int
+	if err := c.QueryRow(ctx, `
+		SELECT count(*) FROM job
+		WHERE free AND NOT `+metered+` AND status IN ('queued', 'running')`).Scan(&inFlight); err != nil {
+		return err
+	}
+	if st.FreeRemaining-inFlight > 0 {
+		return nil
+	}
+	now = now.UTC()
+	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	return &ClosedError{Fuse: FuseFreeRequests, Until: day.Add(24 * time.Hour), Why: fmt.Sprintf(
+		"framy's OpenRouter account has %d requests to free models left today and %d runs on their way", st.FreeRemaining, inFlight)}
+}
+
+// Words reports whether an image from words can go on ImageWords now, by
+// the last reading of framy's account: a surface picks it, or MAI when it
+// cannot. The catalog decides apart whether the free variant is listed
+// (catalog.Offer.FreeRoute); only Admit decides.
+func (a *Allowance) Words() bool {
+	if a == nil || a.key == nil {
+		return true
+	}
+	st, ok := a.key.State()
+	return !ok || !st.FreeKnown || st.FreeRemaining > 0
+}
+
 // taken lists, oldest first, when the person's runs of a kind that count
 // were queued, within the kind's window.
 func (a *Allowance) taken(ctx context.Context, c conn, userID int64, kind catalog.Kind, now time.Time) ([]time.Time, error) {
 	rows, err := c.Query(ctx, `
 		SELECT queued_at FROM job
-		WHERE free AND user_id = $1 AND kind = $2 AND queued_at > $3 AND `+counts+`
+		WHERE free AND user_id = $1 AND kind = $2 AND queued_at > $3 AND `+counts+` AND `+metered+`
 		ORDER BY queued_at`, userID, kind, now.Add(-limitOf(kind).window))
 	if err != nil {
 		return nil, err
@@ -346,6 +397,9 @@ func (a *Allowance) refused(err error) {
 		metrics.FreeRefused.Inc(string(limit.Kind) + "_limit")
 	case errors.As(err, &closed):
 		metrics.FreeRefused.Inc(string(closed.Fuse))
+		if _, told := alertDay[closed.Fuse]; !told {
+			return
+		}
 		// The transaction is about to end, and it holds the locks: the notice
 		// goes on its own, after.
 		if a.claimNotice(closed.Fuse) {

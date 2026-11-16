@@ -172,6 +172,58 @@ type Route struct {
 	// route, 0.15 for 15%: the rates above stay as listed, and the estimate
 	// takes it off their total.
 	Discount float64 `json:"discount,omitempty"`
+	// Free is the same model on the same upstream at no price, where
+	// OpenRouter lists one: its ":free" id. A run it can take goes there.
+	Free *FreeVariant `json:"free,omitempty"`
+}
+
+// FreeVariant is an image model's ":free" id at OpenRouter: the same model,
+// served by the same upstream, at a price of zero and under OpenRouter's
+// limits on free models, counted per account (docs/design.md, Free tier).
+// It is not on the Images API, so it runs through chat completions, and it
+// takes one image a request.
+type FreeVariant struct {
+	// Model is the id to send, such as "recraft/recraft-v4.1-flash-v2:free".
+	Model string `json:"model"`
+	// Inputs are what it takes besides the prompt, as OpenRouter's
+	// input_modalities: "image" when it edits photos.
+	Inputs []string `json:"inputs,omitempty"`
+	// Until is OpenRouter's expiration_date, YYYY-MM-DD: from that day the
+	// id is gone. Empty when OpenRouter gave none.
+	Until string `json:"until,omitempty"`
+}
+
+// Live reports whether the variant still runs at now.
+func (f *FreeVariant) Live(now time.Time) bool {
+	if f == nil || f.Model == "" {
+		return false
+	}
+	if f.Until == "" {
+		return true
+	}
+	until, err := time.Parse(time.DateOnly, f.Until)
+	return err == nil && now.Before(until)
+}
+
+// Takes reports whether a run with this many images among its files, and
+// this many results, can go to the variant: one result, and photos only
+// when it takes them.
+func (f *FreeVariant) Takes(images, results int) bool {
+	if results > 1 {
+		return false
+	}
+	return images == 0 || slices.Contains(f.Inputs, "image")
+}
+
+// FreeRoute is the route whose free variant takes a run of this many images
+// and results at now, if one does.
+func (of Offer) FreeRoute(now time.Time, images, results int) (Route, bool) {
+	for _, r := range of.Routes {
+		if r.Free.Live(now) && r.Free.Takes(images, results) {
+			return r, true
+		}
+	}
+	return Route{}, false
 }
 
 // Discounted reports whether d is a discount framy believes: above zero and

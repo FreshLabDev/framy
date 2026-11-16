@@ -307,7 +307,7 @@ func (a *API) refusal(err error) *apiError {
 		return e.with("kind", string(limit.Kind)).with("limit", limit.Limit).
 			with("window_seconds", int64(limit.Window.Seconds())).with("frees_at", limit.FreesAt.UTC())
 	case errors.As(err, &closed):
-		e := newError(http.StatusServiceUnavailable, codeFreeClosed, "the free tier is closed for now")
+		e := newError(http.StatusServiceUnavailable, codeFreeClosed, "the free tier is closed for now").with("fuse", string(closed.Fuse))
 		if !closed.Until.IsZero() {
 			e.retryAfter = closed.Until.Sub(a.now())
 			e.with("until", closed.Until.UTC())
