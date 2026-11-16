@@ -1691,6 +1691,24 @@
     "ja": "精密な編集、リアルなシーン",
     "ar": "تحرير دقيق، مشاهد واقعية"
   },
+  "note.bytedance-seed/seedream-5-5": {
+    "en": "Edits up to 10 photos, up to 2K, transparent background",
+    "ru": "Правка до 10 фото, до 2K, прозрачный фон",
+    "uk": "Редагування до 10 фото, до 2K, прозоре тло",
+    "es": "Edita hasta 10 fotos, hasta 2K, fondo transparente",
+    "fr": "Retouche jusqu’à 10 photos, jusqu’à 2K, fond transparent",
+    "de": "Bearbeitet bis zu 10 Fotos, bis 2K, transparenter Hintergrund",
+    "it": "Modifica fino a 10 foto, fino a 2K, sfondo trasparente",
+    "pl": "Edycja do 10 zdjęć, do 2K, przezroczyste tło",
+    "cs": "Úpravy až 10 fotek, až 2K, průhledné pozadí",
+    "tr": "10 fotoğrafa kadar düzenleme, 2K’ya kadar, saydam arka plan",
+    "sv": "Redigerar upp till 10 foton, upp till 2K, transparent bakgrund",
+    "be": "Праўка да 10 фота, да 2K, празрысты фон",
+    "ca": "Edita fins a 10 fotos, fins a 2K, fons transparent",
+    "zh": "最多编辑 10 张照片，最高 2K，透明背景",
+    "ja": "写真10枚まで編集、最大2K、透明背景",
+    "ar": "تحرير حتى 10 صور، حتى 2K، خلفية شفافة"
+  },
   "note.bytedance/seedance-2.0": {
     "en": "Up to 4K",
     "ru": "До 4K",
@@ -2303,6 +2321,24 @@
     "ja": "~1.5 秒、テキストのみ、~1K",
     "ar": "~1.5 ثانية، نص فقط، ~1K"
   },
+  "note.recraft/recraft-v4.1-flash-v2": {
+    "en": "Updated Flash, text only, ~1K",
+    "ru": "Обновлённый Flash, только текст, ~1K",
+    "uk": "Оновлений Flash, лише текст, ~1K",
+    "es": "Flash actualizado, solo texto, ~1K",
+    "fr": "Flash mis à jour, texte seul, ~1K",
+    "de": "Neuer Flash, nur Text, ~1K",
+    "it": "Flash aggiornato, solo testo, ~1K",
+    "pl": "Nowy Flash, tylko tekst, ~1K",
+    "cs": "Nový Flash, jen text, ~1K",
+    "tr": "Güncel Flash, yalnızca metin, ~1K",
+    "sv": "Uppdaterad Flash, endast text, ~1K",
+    "be": "Абноўлены Flash, толькі тэкст, ~1K",
+    "ca": "Flash actualitzat, només text, ~1K",
+    "zh": "新版 Flash，仅文本，~1K",
+    "ja": "新しい Flash、テキストのみ、~1K",
+    "ar": "Flash محدَّث، نص فقط، ~1K"
+  },
   "note.recraft/recraft-v4.1-pro": {
     "en": "Tuned for aesthetics, ~2K",
     "ru": "Упор на эстетику, ~2K",
@@ -2824,6 +2860,24 @@
     "zh": "免费 · 还剩 {left} / {limit}",
     "ja": "無料 · 残り {left} / {limit}",
     "ar": "مجاني · المتبقي {left} من {limit}"
+  },
+  "run.free_unmetered": {
+    "en": "free · not counted",
+    "ru": "бесплатно · не в счёт",
+    "uk": "безкоштовно · не в рахунок",
+    "es": "gratis · no cuenta",
+    "fr": "gratuit · non décompté",
+    "de": "kostenlos · zählt nicht",
+    "it": "gratis · non conta",
+    "pl": "za darmo · nie wlicza się",
+    "cs": "zdarma · nepočítá se",
+    "tr": "ücretsiz · sayılmaz",
+    "sv": "gratis · räknas inte",
+    "be": "бясплатна · не ў лік",
+    "ca": "de franc · no compta",
+    "zh": "免费 · 不计入次数",
+    "ja": "無料 · 回数に含まれません",
+    "ar": "مجاني · لا يُحتسب"
   },
   "run.from": {
     "en": "from {price}",
@@ -4300,6 +4354,24 @@
     "zh": "剩余免费：{left} / {limit}",
     "ja": "無料の残り：{left} / {limit}",
     "ar": "المتبقي مجانًا: {left} من {limit}"
+  },
+  "web.bar.free_unmetered": {
+    "en": "Free, not counted in your free runs",
+    "ru": "Бесплатно, не из ваших бесплатных",
+    "uk": "Безкоштовно, не з ваших безкоштовних",
+    "es": "Gratis, no descuenta de tus gratuitos",
+    "fr": "Gratuit, non décompté de vos essais gratuits",
+    "de": "Kostenlos, zählt nicht zu deinen Gratis-Läufen",
+    "it": "Gratis, non conta tra i tuoi gratuiti",
+    "pl": "Za darmo, nie wlicza się do darmowych",
+    "cs": "Zdarma, nepočítá se do bezplatných",
+    "tr": "Ücretsiz, ücretsiz hakkından düşmez",
+    "sv": "Gratis, räknas inte mot dina gratis",
+    "be": "Бясплатна, не з вашых бясплатных",
+    "ca": "De franc, no compta en els teus gratuïts",
+    "zh": "免费，不占用免费次数",
+    "ja": "無料・無料回数に含まれません",
+    "ar": "مجاني، لا يُحتسب من مرّاتك المجانية"
   },
   "web.bar.unknown": {
     "en": "The price is known after the run",
@@ -9520,6 +9592,24 @@
     "zh": "已用完",
     "ja": "使い切り",
     "ar": "نفدت"
+  },
+  "web.pay.unmetered": {
+    "en": "Not counted",
+    "ru": "Не в счёт",
+    "uk": "Не в рахунок",
+    "es": "No cuenta",
+    "fr": "Non décompté",
+    "de": "Zählt nicht",
+    "it": "Non conta",
+    "pl": "Nie wlicza się",
+    "cs": "Nepočítá se",
+    "tr": "Sayılmaz",
+    "sv": "Räknas inte",
+    "be": "Не ў лік",
+    "ca": "No compta",
+    "zh": "不计入次数",
+    "ja": "回数に含まれません",
+    "ar": "لا يُحتسب"
   },
   "web.pay.your_key": {
     "en": "Your key …{last4}",

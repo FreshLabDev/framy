@@ -155,7 +155,7 @@ func (f *Flow) listing(ctx context.Context, user int64, lang, prompt string, d d
 		if !listed(m, d.offer.Kind, byID) {
 			continue
 		}
-		p := pickOf(lang, prompt, d, m, have, providers, left)
+		p := pickOf(lang, prompt, d, m, have, providers, left, f.wordsOpen())
 		p.name = name(m)
 		i, ok := byMaker[m.Maker]
 		if !ok {
@@ -177,27 +177,37 @@ func (f *Flow) listing(ctx context.Context, user int64, lang, prompt string, d d
 }
 
 // pickOf is how the run would go on m: the run as it is for its own model;
-// on the free tier when m is free, the person has a free run of the kind
-// left and its plan takes the run's photos; else on the person's key, the
+// on the free tier when m is free, its plan takes the run's photos and the
+// person has a free run of the kind left, or the plan is unmetered and its
+// free variant runs the run while framy's account has free requests left
+// (words); else on the person's key, the
 // offers ranked by providers. The settings that go to another model are
 // framy's defaults with what the run set and the model takes, and a video's
 // photo is its first frame where the model has frames.
-func pickOf(lang, prompt string, d draft, m catalog.Model, have map[string]bool, providers []string, freeLeft bool) entry {
+func pickOf(lang, prompt string, d draft, m catalog.Model, have map[string]bool, providers []string, freeLeft, words bool) entry {
 	if m.ID == d.model.ID {
 		return entry{
 			choice:   choice{model: m, offer: d.offer, free: d.pay == payFree, key: d.pay != payFree},
 			settings: d.settings, estimate: d.estimate,
 		}
 	}
-	if m.Free && freeLeft {
+	if m.Free {
 		for _, o := range m.Offers {
 			plan, ok := free.PlanOf(o.ID)
-			if ok && d.taken >= plan.MinInputs && d.taken <= plan.MaxInputs && misfit(lang, m, o, d.taken) == "" {
-				s := plan.SettingsFor(d.taken)
-				return entry{
-					choice:   choice{model: m, offer: o, free: true, key: have[o.Provider]},
-					settings: s, estimate: price.Of(m, o, priceRequest(prompt, s, d.images, nil)),
-				}
+			if !ok || d.taken < plan.MinInputs || d.taken > plan.MaxInputs || misfit(lang, m, o, d.taken) != "" {
+				continue
+			}
+			if !plan.Unmetered && !freeLeft {
+				continue
+			}
+			s := plan.SettingsFor(d.taken)
+			e := price.Of(m, o, priceRequest(prompt, s, d.images, nil))
+			if plan.Unmetered && !(words && e.Free) {
+				continue
+			}
+			return entry{
+				choice:   choice{model: m, offer: o, free: true, unmetered: plan.Unmetered, key: have[o.Provider]},
+				settings: s, estimate: e,
 			}
 		}
 	}

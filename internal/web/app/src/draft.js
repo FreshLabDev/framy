@@ -7,7 +7,7 @@
 // file framy keeps goes by its id; one the browser has waits in IndexedDB for
 // the load, up to KEEP in all. What could not be kept is said, so nobody
 // presses Create on less than they put together.
-import { S, MAXFR, newFrame, autoModel, ownDefault, holdLinks } from "./state.js";
+import { S, MAXFR, newFrame, autoModel, ownDefault, holdLinks, settleSlots } from "./state.js";
 import { C } from "./catalog.js";
 
 const KEY = "framy.compose", MARK = "framy.held", DB = "framy-draft", STORE = "files";
@@ -74,7 +74,7 @@ export async function takeDraft() {
   if (!d || d.v !== 1 || !(Date.now() - d.at < FOR)) { sweep(); return -1; }
   if (d.kind === "image" || d.kind === "video") S.kind = d.kind;
   // A model that left the catalog leaves the page's own choice.
-  for (const k of ["image", "video"]) { const id = d.model?.[k]; if (id && C.byId[id] && C.famOf[id]) S.model[k] = id; }
+  for (const k of ["image", "video"]) { const id = d.model?.[k]; if (id && C.byId[id] && C.famOf[id]) { S.model[k] = id; if (k === "image") S.pickedImage = true; } }
   if (d.pay && typeof d.pay === "object") Object.assign(S.pay, d.pay);
   if (d.wanted && typeof d.wanted === "object") Object.assign(S.wanted, d.wanted);
   for (const k of ["image", "video"]) {
@@ -110,6 +110,8 @@ export async function takeDraft() {
     S.files.push(f);
   }
   holdLinks(S.files);
+  // The page's own image model follows the photos that came back.
+  settleSlots();
   // The part was of the first clip: with no clip there is no part.
   if (d.cut && S.files.some((f) => f.kind === "video")) S.cut = d.cut;
   sweep();

@@ -88,6 +88,9 @@ type choice struct {
 	offer catalog.Offer
 	// free: framy's key runs it on the free tier; key: the person's does.
 	free, key bool
+	// unmetered: the free run goes to the model's free variant and takes
+	// no slot of the person's (free.Plan.Unmetered).
+	unmetered bool
 }
 
 // modelHash names a model in a button's data, which is at most 64 bytes.
@@ -223,7 +226,7 @@ func (f *Flow) choices(ctx context.Context, run db.ChatRun, current catalog.Offe
 		if !listed(m, catalog.Image, byID) || (!m.Free && !m.Featured) {
 			continue
 		}
-		if c, ok := freeChoice(m, run.Taken, have); ok && left {
+		if c, ok := f.freeChoice(m, run.Taken, have); ok && (left || c.unmetered) {
 			out = append(out, c)
 			continue
 		}
@@ -271,14 +274,20 @@ func (f *Flow) freeLeft(ctx context.Context, user int64, kind catalog.Kind) bool
 }
 
 // freeChoice is a free model on its plan, when the plan takes the photos.
-func freeChoice(m catalog.Model, taken int, have map[string]bool) (choice, bool) {
+// An unmetered plan is one only while its free variant runs.
+func (f *Flow) freeChoice(m catalog.Model, taken int, have map[string]bool) (choice, bool) {
 	if !m.Free {
 		return choice{}, false
 	}
 	for _, o := range m.Offers {
-		if plan, ok := free.PlanOf(o.ID); ok && taken >= plan.MinInputs && taken <= plan.MaxInputs {
-			return choice{model: m, offer: o, free: true, key: have[o.Provider]}, true
+		plan, ok := free.PlanOf(o.ID)
+		if !ok || taken < plan.MinInputs || taken > plan.MaxInputs {
+			continue
 		}
+		if plan.Unmetered && !(f.wordsOpen() && unmeteredTakes(o, taken)) {
+			continue
+		}
+		return choice{model: m, offer: o, free: true, unmetered: plan.Unmetered, key: have[o.Provider]}, true
 	}
 	return choice{}, false
 }

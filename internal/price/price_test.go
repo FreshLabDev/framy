@@ -697,3 +697,32 @@ func TestAGIFIsItsFramesInStills(t *testing.T) {
 		t.Errorf("two GIFs of 4 frames = $%.5f (%s), want about 8 stills of $%.5f", gif.USD, gif.Kind, still.USD)
 	}
 }
+
+// A run the model's free variant takes costs nothing on any OpenRouter key;
+// anything else is priced on the paid route.
+func TestAFreeVariantIsFree(t *testing.T) {
+	day := time.Date(2026, 11, 16, 0, 0, 0, 0, time.UTC)
+	of := catalog.Offer{
+		ID: "openrouter:recraft/recraft-v4.1-flash-v2", Kind: catalog.Image,
+		Routes: []catalog.Route{{
+			Provider: "recraft",
+			Prices:   []catalog.Price{{Billable: "output_image", Unit: "image", CostUSD: 0.007}},
+			Free:     &catalog.FreeVariant{Model: "recraft/recraft-v4.1-flash-v2:free", Until: "2026-11-28"},
+		}},
+	}
+	m := catalog.Model{ID: "recraft/recraft-v4.1-flash-v2", Kind: catalog.Image}
+	e := Of(m, of, Request{Settings: map[string]any{"n": 1, "aspect_ratio": "16:9"}, Now: day})
+	if !e.Free || e.USD != 0 || e.MaxUSD != 0 || e.Kind != Exact || e.Route != "recraft" {
+		t.Errorf("words: %+v", e)
+	}
+	for name, req := range map[string]Request{
+		"two results":     {Settings: map[string]any{"n": 2}, Now: day},
+		"a photo":         {Images: []Image{{Width: 1024, Height: 1024}}, Now: day},
+		"on its last day": {Now: time.Date(2026, 11, 28, 0, 0, 0, 0, time.UTC)},
+	} {
+		e := Of(m, of, req)
+		if e.Free || e.USD == 0 {
+			t.Errorf("%s: %+v, want the paid route", name, e)
+		}
+	}
+}

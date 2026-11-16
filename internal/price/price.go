@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/FreshLabDev/framy/internal/catalog"
 )
@@ -72,6 +73,8 @@ type Request struct {
 	// Sounds is how many reference sounds the run takes. No rate names
 	// them and no bill with one has been seen, so they make it "about".
 	Sounds int
+	// Now decides whether a free variant still runs; time.Now when zero.
+	Now time.Time
 }
 
 // Line is one priced part of a run: the billable or the SKU, its rate and
@@ -111,6 +114,9 @@ type Estimate struct {
 	ListMaxUSD float64 `json:"list_max_usd,omitempty"`
 	// Lines are at the listed rates, before the discount.
 	Lines []Line `json:"lines,omitempty"`
+	// Free: the run goes to the model's free variant at OpenRouter
+	// (catalog.FreeVariant), on any OpenRouter key, and costs nothing.
+	Free bool `json:"free,omitempty"`
 }
 
 // Most is the most the run can cost: MaxUSD, or USD where nothing is open.
@@ -120,6 +126,9 @@ func (e Estimate) Most() float64 { return math.Max(e.USD, e.MaxUSD) }
 func Of(m catalog.Model, of catalog.Offer, req Request) Estimate {
 	if len(of.Routes) == 0 {
 		return Estimate{Offer: of.ID, Kind: Unknown, Unknown: []string{"no route runs the offer"}}
+	}
+	if r, ok := FreeRoute(of, req); ok {
+		return Estimate{Offer: of.ID, Route: r.Provider, Kind: Exact, Free: true}
 	}
 	var best Estimate
 	for i, r := range of.Routes {
@@ -147,6 +156,24 @@ func Of(m catalog.Model, of catalog.Offer, req Request) Estimate {
 		best.ListMaxUSD = math.Max(best.ListMaxUSD, best.MaxUSD)
 	}
 	return best
+}
+
+// FreeRoute is the route whose free variant runs the request, if one does:
+// an image from words, or from photos where the variant takes them, with one
+// result. The OpenRouter adapter sends the run there by the same rule.
+func FreeRoute(of catalog.Offer, req Request) (catalog.Route, bool) {
+	if of.Kind != catalog.Image || req.Video != nil || len(req.Clips) > 0 || req.Sounds > 0 {
+		return catalog.Route{}, false
+	}
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
+	c := &calc{of: of, req: req}
+	if c.frames() > 1 {
+		return catalog.Route{}, false
+	}
+	return of.FreeRoute(now, len(req.Images)+req.Frames, int(c.count()))
 }
 
 // calc is one route's estimate in progress: lo is the likely total, hi the

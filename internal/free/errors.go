@@ -43,6 +43,11 @@ const (
 	// FuseKey: framy's OpenRouter key cannot pay for a run: near its limit,
 	// or a run just failed for lack of money.
 	FuseKey Fuse = "key"
+	// FuseFreeRequests: framy's OpenRouter account has no requests to free
+	// models left today. It closes ImageWords alone, until 00:00 UTC: an
+	// image from words goes to MAI meanwhile, and the operator chat is not
+	// told, since nothing is spent.
+	FuseFreeRequests Fuse = "free_requests"
 )
 
 // ClosedError: the free tier is closed for everyone.

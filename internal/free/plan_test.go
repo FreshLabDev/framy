@@ -42,6 +42,13 @@ func TestAFreeRunIsTheFixedOne(t *testing.T) {
 		adm  jobs.Admission
 		want string // part of the reason; empty for allowed
 	}{
+		{"words on the free variant", with(ok(ImageWords, 0), func(a *jobs.Admission) { a.EstimateUSD, a.FreeVariant = 0, true }), ""},
+		{"words on the free variant in any shape", with(ok(ImageWords, 0), func(a *jobs.Admission) {
+			a.EstimateUSD, a.FreeVariant, a.Settings["aspect_ratio"] = 0, true, "9:16"
+		}), ""},
+		{"words when the free variant does not take the run", ok(ImageWords, 0), "no free variant"},
+		{"the free variant with a photo", with(ok(ImageWords, 1), func(a *jobs.Admission) { a.FreeVariant = true }), "takes 0 files"},
+		{"the free variant making two", with(ok(ImageWords, 0), func(a *jobs.Admission) { a.FreeVariant, a.Settings["n"] = true, 2 }), "n is locked to 1"},
 		{"MAI with its settings", ok(ImageMAI, 0), ""},
 		{"MAI with five photos", ok(ImageMAI, 5), ""},
 		{"MAI with six photos", ok(ImageMAI, 6), "at most 5 files"},

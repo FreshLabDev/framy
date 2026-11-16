@@ -177,6 +177,9 @@ type Admission struct {
 	// an "up to" price; zero when there is none. The budget keeps room for
 	// all of it until the run ends.
 	EstimateUSD float64
+	// FreeVariant: the estimate sends the run to the model's free variant
+	// at OpenRouter (price.Estimate.Free), so it costs nothing.
+	FreeVariant bool
 }
 
 // Admitter decides whether a free job may start: the free allowance

@@ -114,7 +114,11 @@ func (d draft) seconds() float64 {
 // priceLine is what the run costs the person: the free tier left, or the
 // price on their own key.
 func priceLine(lang, pay, provider string, usage free.Meter, e price.Estimate, q fx.Quote) string {
-	if pay == payFree {
+	switch {
+	case pay == payFree && e.Free:
+		// The free variant: no slot of the person's is taken.
+		return t(lang, "run.free_unmetered")
+	case pay == payFree:
 		return t(lang, "run.free", "left", strconv.Itoa(usage.Left()), "limit", strconv.Itoa(usage.Limit))
 	}
 	return t(lang, "run.on_key", "price", priceLabel(lang, e, q), "provider", catalog.ProviderName(provider))
@@ -170,6 +174,10 @@ func previewCard(lang string, d draft) anim.Preview {
 	p.Aspect, p.Chips = settingChips(d.settings)
 	if secs := d.seconds(); d.video() && secs > 0 {
 		p.Chips = append([]string{playTime(secs)}, p.Chips...)
+	}
+	if d.pay == payFree && d.estimate.Free {
+		p.Label, p.Price = t(lang, "run.free_unmetered"), fx.Format(0, fx.USD, lang)
+		return p
 	}
 	if d.pay == payFree {
 		p.Free, p.Left, p.Limit = true, d.usage.Left(), d.usage.Limit

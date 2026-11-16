@@ -1,0 +1,39 @@
+{
+ "id": "recraft/recraft-v4.1-flash-v2",
+ "endpoints": [
+  {
+   "provider_name": "Recraft",
+   "provider_slug": "recraft",
+   "provider_tag": "recraft",
+   "supported_parameters": {
+    "aspect_ratio": {
+     "type": "enum",
+     "values": [
+      "1:1",
+      "4:3",
+      "3:4",
+      "16:9",
+      "9:16",
+      "auto"
+     ]
+    },
+    "n": {
+     "type": "range",
+     "min": 1,
+     "max": 6
+    }
+   },
+   "allowed_passthrough_parameters": [
+    "controls"
+   ],
+   "supports_streaming": false,
+   "pricing": [
+    {
+     "billable": "output_image",
+     "unit": "image",
+     "cost_usd": 0.007
+    }
+   ]
+  }
+ ]
+}

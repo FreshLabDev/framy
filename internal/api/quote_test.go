@@ -306,7 +306,15 @@ func TestTheCatalogIsForAnyone(t *testing.T) {
 		t.Errorf("free = %v", fr)
 	}
 	plans := fr["plans"].([]any)
-	if len(plans) != len(free.Plans()) {
+	// The catalog here lists no free variant, so the unmetered plan is left
+	// out and the site goes on the metered ones.
+	metered := 0
+	for _, p := range free.Plans() {
+		if !p.Unmetered {
+			metered++
+		}
+	}
+	if len(plans) != metered {
 		t.Fatalf("plans = %v", plans)
 	}
 	edits := 0

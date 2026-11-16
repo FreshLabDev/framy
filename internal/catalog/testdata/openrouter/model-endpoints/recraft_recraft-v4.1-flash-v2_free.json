@@ -1,0 +1,57 @@
+{
+ "data": {
+  "id": "recraft/recraft-v4.1-flash-v2:free",
+  "name": "Recraft: Recraft V4.1 Flash V2 (free)",
+  "created": 1794608385,
+  "description": "Recraft V4.1 Flash V2 is a text-to-image model from Recraft, an updated version of [Recraft V4.1 Flash](/recraft/recraft-v4.1-flash) in the speed tier of the V4.1 family. It is suited for rapid...",
+  "architecture": {
+   "tokenizer": "Other",
+   "instruct_type": null,
+   "modality": "text->image",
+   "input_modalities": [
+    "text"
+   ],
+   "output_modalities": [
+    "image"
+   ]
+  },
+  "endpoints": [
+   {
+    "name": "Recraft | recraft/recraft-v4.1-flash-v2-20261113:free",
+    "model_id": "recraft/recraft-v4.1-flash-v2:free",
+    "model_name": "Recraft: Recraft V4.1 Flash V2",
+    "context_length": 65536,
+    "pricing": {
+     "prompt": "0",
+     "completion": "0",
+     "discount": 0
+    },
+    "provider_name": "Recraft",
+    "tag": "recraft",
+    "service_tier": null,
+    "quantization": "unknown",
+    "max_completion_tokens": 58982,
+    "max_prompt_tokens": null,
+    "supported_parameters": [],
+    "supports_tool_choice": {
+     "none": true,
+     "auto": true,
+     "required": true,
+     "function": true
+    },
+    "status": 0,
+    "uptime_last_30m": 100,
+    "uptime_last_5m": 100,
+    "uptime_last_1d": 100,
+    "supports_implicit_caching": false,
+    "native_tools": {},
+    "supports_voice_cloning": false,
+    "supports_multiple_audio_references": false,
+    "supports_image_reference": false,
+    "supports_diarization": false,
+    "latency_last_30m": null,
+    "throughput_last_30m": null
+   }
+  ]
+ }
+}

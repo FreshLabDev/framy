@@ -848,11 +848,18 @@ func openAllowance(cfg config.Config, store *db.Store, notify func(context.Conte
 		reader := openrouter.New(openrouter.Config{Base: cfg.OpenRouterAPIBase, UserAgent: userAgent})
 		watch = free.NewKeyWatch(func(ctx context.Context) (free.KeyState, error) {
 			info, err := reader.KeyInfo(ctx, cfg.OpenRouterKey)
-			if err != nil || info.Remaining == nil {
-				// A key without a limit has none to run out of.
+			if err != nil {
 				return free.KeyState{}, err
 			}
-			return free.KeyState{Limited: true, RemainingUSD: *info.Remaining, Daily: info.Reset == "daily"}, nil
+			var st free.KeyState
+			if info.FreeRemaining != nil {
+				st.FreeKnown, st.FreeRemaining = true, *info.FreeRemaining
+			}
+			if info.Remaining != nil {
+				// A key without a limit has none to run out of.
+				st.Limited, st.RemainingUSD, st.Daily = true, *info.Remaining, info.Reset == "daily"
+			}
+			return st, nil
 		}, free.DefaultKeyEvery, log)
 		fc.Key = watch
 	}

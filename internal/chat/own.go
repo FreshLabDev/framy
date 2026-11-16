@@ -65,7 +65,7 @@ func (f *Flow) ownModel(ctx context.Context, user int64, lang, prompt string, d 
 		return entry{}, false
 	}
 	providers := append([]string{d.offer.Provider}, providerOrder...)
-	p := pickOf(lang, prompt, d, models[i], have, providers, f.freeLeft(ctx, user, d.offer.Kind))
+	p := pickOf(lang, prompt, d, models[i], have, providers, f.freeLeft(ctx, user, d.offer.Kind), f.wordsOpen())
 	if p.why != "" || (!p.free && !p.key) {
 		return entry{}, false
 	}

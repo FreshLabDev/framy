@@ -5,7 +5,7 @@ import { $, $$, h, ic, isWide, keepFocus } from "./dom.js";
 import { anim, rise, morph, opt, placeSegs, placeSeg, fly, ticker, EASE, OUT, SPRING, DUR } from "./motion.js";
 import { t, fmtNum, fmtList, byName, lang, spaced } from "./i18n.js";
 import { C, PNAME, vname, famText, famLogo, lg, provMark, freePlan, facts, refsOf, framesOf, needsImage, needsVideo, resRangeOf, durRangeOf, union, hasAudio, deprecation, fieldsOf, label } from "./catalog.js";
-import { S, M, images, payOf, keyOk, settings, altItem, misfit, famMisfit, freePer, refuses } from "./state.js";
+import { S, M, images, payOf, keyOk, settings, altItem, misfit, famMisfit, freeTerms, refuses } from "./state.js";
 import { minEl, lowest, need } from "./price.js";
 import { openSheet, closeSheets } from "./ui.js";
 import { act, render, setModel } from "./composer.js";
@@ -141,7 +141,7 @@ const priceTextShort = (e) => (e.kind === "from" ? t("price.from", { p: e.label 
 const factLine = (xs) => xs.flatMap((x, i) => [i ? " · " : "", h("span", { class: "fact" }, x)]);
 function recCard(m, wide) {
   const f = C.famOf[m.id], why = fit(m), plan = freePlan(m);
-  const reason = why || factLine([plan ? freePer(m.kind) : "", ...facts(m, 4).filter((x) => x[0] !== "ticket").map((x) => x[1])].filter(Boolean).slice(0, 2));
+  const reason = why || factLine([plan ? freeTerms(m) : "", ...facts(m, 4).filter((x) => x[0] !== "ticket").map((x) => x[1])].filter(Boolean).slice(0, 2));
   return h("button", { type: "button", class: "rcard" + (why ? " dim" : ""), "aria-current": String(focusId() === m.id), onclick: (e) => choose(C.varOf[m.id], e.currentTarget), onpointermove: hoverFam(f, wide, m.id), onfocus: focusFam(f, m.id) },
     lg(famLogo(f), f.maker), h("span", { class: "nm" }, vname(m)), h("span", { class: "why" }, reason), h("span", { class: "pr" }, plan ? t("pay.free") : minEl(bestItems(m))));
 }
@@ -213,7 +213,7 @@ function detail(f) {
   const pickIt = (v) => { S.detVar[f.idx] = v.id; if (S.info == null) S.hover = f.idx; renderDetail(); rise($("#pkd .dl")?.children || [], { y: 4, step: 18, dur: DUR.s }); };
   const rows = [], plan = freePlan(m), dep = deprecation(m);
   if (vs.length < 2) rows.push(["coin", t("det.price_now"), plan && payOf(m) === "free" ? t("pay.free") : minEl(bestItems(m))]);
-  if (plan) rows.push(["ticket", t("det.free"), freePer(m.kind)]);
+  if (plan) rows.push(["ticket", t("det.free"), freeTerms(m)]);
   if (m.kind === "image") { const refs = refsOf(m); rows.push(["photos", t("det.photos_in"), needsImage(m) ? t("det.photos_need", { n: refs }) : refs ? t("det.up_to", { n: refs }) : t("det.none")]); }
   else {
     const fr = framesOf(m), refs = refsOf(m);

@@ -355,13 +355,9 @@ func (f *Flow) draft(ctx context.Context, m *tg.Message, src found, prompt, key,
 		photos = photos[:max]
 		d.note = noteCut
 	}
-	plan, err := free.ForImages(len(photos))
+	plan, model, offer, err := f.imagePlan(ctx, len(photos))
 	if err != nil {
 		return d, refusal{}, err
-	}
-	model, offer, err := f.cfg.Store.Offer(ctx, plan.Offer)
-	if err != nil {
-		return d, refusal{}, fmt.Errorf("the free model %s: %w", plan.Offer, err)
 	}
 	inputs, sizes, paths, err := f.keep(ctx, user, dir, photos)
 	if err != nil {

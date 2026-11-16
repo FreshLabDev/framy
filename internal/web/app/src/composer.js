@@ -480,6 +480,7 @@ function pickVar(x) {
 function paySec(m, pay) {
   const ps = pays(m), kind = m.kind;
   const sub = (p) => {
+    if (p === "free" && freePlan(m).unmetered) return t("pay.unmetered");
     if (p === "free") return S.signed ? (freeLeft(kind) > 0 ? t("pay.left", { n: freeLeft(kind) }) : t("pay.ran_out")) : freePer(kind);
     if (S.signed && !keyOk(p)) return connection(p) ? t("pay.key_bad") : t("pay.key_needed");
     return priceEl(altItem(m, p, settings(m, p)));
@@ -491,7 +492,7 @@ function paySec(m, pay) {
   return h("div", { class: "paysec", "data-k": "h-pay" }, h("div", { class: "sec row" }, lab,
     h("div", { class: "seg", role: "radiogroup", "aria-label": t("pay.label"), "data-seg": "pay", "data-dur": DUR.m }, ps.map((p) =>
       // Free that cannot pay now is not a choice: a run on it could not go.
-      opt({ key: "pay", v: p, on: pay === p, cls: usable(m, p) ? "" : "off", disabled: p === "free" && !usable(m, p), title: p === "free" ? freePer(kind) : connection(p) ? t("pay.your_key", { last4: connection(p).last4 }) : null,
+      opt({ key: "pay", v: p, on: pay === p, cls: usable(m, p) ? "" : "off", disabled: p === "free" && !usable(m, p), title: p === "free" ? (freePlan(m).unmetered ? t("pay.unmetered") : freePer(kind)) : connection(p) ? t("pay.your_key", { last4: connection(p).last4 }) : null,
         pick: () => act(() => { setPayHere(m, p); render(); }) }, h("span", { class: "row" }, name(p)), h("small", {}, sub(p)))))));
 }
 
@@ -501,18 +502,20 @@ const PRICED = new Set(["resolution", "quality", "duration", "size", "generate_a
 const unpriced = new Map(); // offer id -> Set of names found not to change the price
 function settingsBlock(m, pay) {
   const o = offerOf(m, pay), s = settings(m, pay), box = h("div", { class: "sets", "data-k": "h-sets" });
-  if (pay === "free") {
+  // A free variant's image takes its shape from the person; the rest is the plan's.
+  const open = pay === "free" ? freePlan(m).open || [] : null;
+  if (pay === "free" && !open.length) {
     const plan = freePlan(m), fixed = plan.settings || {};
     const parts = Object.entries(fixed).filter(([k]) => k !== "n").map(([k, v]) => (k === "duration" ? t("free.clip", { len: show(k, v) }) : show(k, v)));
-    const open = fieldsOf(o).filter((x) => !(x in fixed));
-    if (open.includes("aspect_ratio") || open.includes("size")) parts.push(t("free.model_picks"));
+    const rest = fieldsOf(o).filter((x) => !(x in fixed));
+    if (rest.includes("aspect_ratio") || rest.includes("size")) parts.push(t("free.model_picks"));
     const keyed = m.offers.find((x) => keyOk(x.provider)) || m.offers[0];
     box.append(h("p", { class: "fixedline", "data-k": "h-fixed" }, t("free.line", { what: parts.length ? fmtList(parts) : t("free.defaults") }) + " ",
-      open.length && pays(m).length > 1 ? h("button", { type: "button", class: "link-t", onclick: () => act(() => { setPayHere(m, keyed.provider); render(); }) }, t("free.tune")) : null));
+      rest.length && pays(m).length > 1 ? h("button", { type: "button", class: "link-t", onclick: () => act(() => { setPayHere(m, keyed.provider); render(); }) }, t("free.tune")) : null));
     return box;
   }
   // A setting that goes only with another shows while it does: a GIF's frames, a picture's background.
-  const names = [...fieldsOf(o).filter((x) => applies(o, x, s)), ...("fast" in s ? ["fast"] : [])];
+  const names = open ? fieldsOf(o).filter((x) => open.includes(x)) : [...fieldsOf(o).filter((x) => applies(o, x, s)), ...("fast" in s ? ["fast"] : [])];
   const prim = names.filter((x) => !SECONDARY.has(x)), sec = names.filter((x) => SECONDARY.has(x));
   // A model that picks the length itself (Omni) says so where the length would be.
   let picks = m.kind === "video" && !o.params.duration ? m.traits?.picks_length : null;
@@ -811,6 +814,7 @@ export function renderBar() {
   const cap = $("#pcap"), was = cap.textContent;
   let parts;
   if (nx.why) parts = [nx.why];
+  else if (free && P.every((it) => it.pay !== "free" || freePlan(it.m).unmetered)) parts = [t("bar.free_unmetered")];
   else if (free) parts = [S.signed ? t("bar.free_left", { left: freeLeft(kind), limit: freeLimit(kind) }) : freePer(kind)];
   else if (unknown && ready) parts = [t("bar.unknown")];
   else if (e && e.discount && e.list_label) parts = [h("s", { class: "was" }, priceText({ ...e, label: e.list_label })), " ", h("b", { class: "off" }, "−" + fmtNum(Math.round(e.discount * 100)) + "%")];

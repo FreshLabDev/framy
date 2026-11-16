@@ -35,6 +35,9 @@ type OpenRouterSource struct {
 	UserAgent string
 	// Parallel bounds the endpoint requests in flight.
 	Parallel int
+	// Now is the clock that says whether a free variant has left; time.Now
+	// when nil.
+	Now func() time.Time
 }
 
 // Upstream is what one fetch saw.
@@ -119,6 +122,26 @@ type orModel struct {
 		InputModalities []string `json:"input_modalities"`
 	} `json:"architecture"`
 	ExpirationDate *string `json:"expiration_date"`
+	// Pricing is what /models lists, as decimal strings; read only for a
+	// ":free" id, whose price must be zero.
+	Pricing map[string]string `json:"pricing"`
+}
+
+// freeSuffix ends the id of a model's free variant at OpenRouter.
+const freeSuffix = ":free"
+
+// zeroPriced reports whether every price /models lists is zero, and it
+// lists at least one.
+func (m orModel) zeroPriced() bool {
+	if len(m.Pricing) == 0 {
+		return false
+	}
+	for _, v := range m.Pricing {
+		if strings.TrimRight(strings.TrimRight(strings.TrimSpace(v), "0"), ".") != "" {
+			return false
+		}
+	}
+	return true
 }
 
 // Fetch reads every catalog. A listing that fails fails the fetch, so a bad
@@ -191,6 +214,11 @@ func (s *OpenRouterSource) Fetch(ctx context.Context) (Upstream, error) {
 		ids = append(ids, m.ID)
 	}
 	discounts := s.discounts(ctx, ids)
+	now := time.Now
+	if s.Now != nil {
+		now = s.Now
+	}
+	frees := s.freeVariants(ctx, images, meta, now())
 
 	for _, m := range images {
 		id := OfferID(OpenRouter, m.ID)
@@ -211,7 +239,7 @@ func (s *OpenRouterSource) Fetch(ctx context.Context) (Upstream, error) {
 			Description:     m.Description,
 			InputModalities: m.Architecture.InputModalities,
 			Params:          m.SupportedParameters,
-			Routes:          d.apply(routes[m.ID]),
+			Routes:          frees[m.ID].apply(d.apply(routes[m.ID])),
 			ExpiresOn:       expiration(meta[m.ID].ExpirationDate),
 		})
 	}
@@ -410,6 +438,65 @@ func (s *OpenRouterSource) discounts(ctx context.Context, ids []string) map[stri
 		})
 	}
 	wg.Wait()
+	return out
+}
+
+// freeAt is an image model's free variant and the upstreams that serve it,
+// by the tag that is an image route's provider slug.
+type freeAt struct {
+	variant FreeVariant
+	tags    []string
+}
+
+// apply puts the variant on the routes of the upstreams that serve it.
+func (f freeAt) apply(routes []Route) []Route {
+	if f.variant.Model == "" {
+		return routes
+	}
+	out := slices.Clone(routes)
+	for i := range out {
+		if out[i].Provider != "" && slices.Contains(f.tags, out[i].Provider) {
+			v := f.variant
+			out[i].Free = &v
+		}
+	}
+	return out
+}
+
+// freeVariants finds the image models OpenRouter also lists at no price, as
+// "<id>:free" on /models, and which upstreams serve them. The Images API does
+// not list a free variant, so /models/<id>:free/endpoints names the
+// upstream. One whose price is not zero, that has left by now, or whose
+// endpoints cannot be read is left out: a run then goes to the paid route,
+// at the price the estimate showed.
+func (s *OpenRouterSource) freeVariants(ctx context.Context, images []orImageModel, meta map[string]orModel, now time.Time) map[string]freeAt {
+	out := map[string]freeAt{}
+	for _, m := range images {
+		fm, ok := meta[m.ID+freeSuffix]
+		if !ok || !fm.zeroPriced() {
+			continue
+		}
+		v := FreeVariant{Model: fm.ID, Inputs: slices.DeleteFunc(slices.Clone(fm.Architecture.InputModalities), func(k string) bool { return k == "text" })}
+		if until := expiration(fm.ExpirationDate); until != nil {
+			v.Until = until.Format(time.DateOnly)
+		}
+		if !v.Live(now) {
+			continue
+		}
+		var e orModelEndpoints
+		if err := s.get(ctx, "/models/"+escapeID(fm.ID)+"/endpoints", &e); err != nil {
+			continue
+		}
+		var tags []string
+		for _, ep := range e.Data.Endpoints {
+			if ep.Tag != "" && !slices.Contains(tags, ep.Tag) {
+				tags = append(tags, ep.Tag)
+			}
+		}
+		if len(tags) > 0 {
+			out[m.ID] = freeAt{variant: v, tags: tags}
+		}
+	}
 	return out
 }
 

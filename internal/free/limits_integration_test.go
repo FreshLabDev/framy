@@ -14,6 +14,7 @@ import (
 
 	"github.com/FreshLabDev/framy/internal/catalog"
 	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/FreshLabDev/framy/internal/price"
 )
 
 func TestTheSixthImageInADayIsRefusedWithTheTimeItFrees(t *testing.T) {
@@ -506,5 +507,64 @@ func TestTheFreeEditAndTheFreeVideoShareTheWeek(t *testing.T) {
 	_, created, err = h.q.Enqueue(ctx, clip(bob))
 	if limit := asLimit(t, err); created || limit.Kind != catalog.Video || !limit.FreesAt.Equal(weekAfter(made)) {
 		t.Fatalf("an edit after the video: %+v, created %v; want it free %s", limit, created, weekAfter(made))
+	}
+}
+
+// wordsJob is an image from words on the free variant, as the estimate
+// prices it: nothing, and free.
+func wordsJob(user int64) jobs.New {
+	n := newJob(user, ImageWords, 0)
+	n.Estimate = &price.Estimate{Free: true, Kind: price.Exact}
+	return n
+}
+
+// Images from words on the free variant take no slot and nothing of the
+// budget, so the five images a day stay whole; framy's account running out
+// of free requests closes them alone, until 00:00 UTC.
+func TestImagesFromWordsTakeNoSlot(t *testing.T) {
+	h := newHarness(t, 0.02)
+	ctx := context.Background()
+	for range 8 {
+		if _, created, err := h.q.Enqueue(ctx, wordsJob(alice)); err != nil || !created {
+			t.Fatalf("an image from words: %v %v", created, err)
+		}
+	}
+	u, err := h.a.Usage(ctx, alice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Images.Used != 0 {
+		t.Fatalf("%d images used after 8 from words, want 0", u.Images.Used)
+	}
+	// The budget of $0.02 still pays for one MAI image.
+	h.mustEnqueue(alice, ImageMAI, 0.0195)
+
+	// An estimate that does not go to the free variant is not admitted on
+	// its plan.
+	paid := newJob(alice, ImageWords, 0.007)
+	if _, _, err := h.q.Enqueue(ctx, paid); !errors.As(err, new(*NotFreeError)) {
+		t.Fatalf("a paid run of the free variant's model: %v, want NotFreeError", err)
+	}
+
+	// framy's account has 9 free requests left today and 8 are on their way:
+	// one more goes, the next does not.
+	h.key.set(KeyState{FreeKnown: true, FreeRemaining: 9}, true)
+	if _, _, err := h.q.Enqueue(ctx, wordsJob(bob)); err != nil {
+		t.Fatalf("the last free request: %v", err)
+	}
+	if h.a.Words() != true {
+		t.Fatal("Words says closed while the reading has requests left")
+	}
+	_, _, err = h.q.Enqueue(ctx, wordsJob(bob))
+	var closed *ClosedError
+	if !errors.As(err, &closed) || closed.Fuse != FuseFreeRequests || !closed.Until.Equal(h.day().Add(24*time.Hour)) {
+		t.Fatalf("past the free requests: %v, want closed until 00:00 UTC", err)
+	}
+	if told, _ := h.notices(); len(told) != 0 {
+		t.Fatalf("the operator chat heard %q; nothing was spent", told)
+	}
+	h.key.set(KeyState{FreeKnown: true, FreeRemaining: 0}, true)
+	if h.a.Words() {
+		t.Fatal("Words says open with no free requests left")
 	}
 }

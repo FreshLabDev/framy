@@ -11,6 +11,44 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+## v0.1.0-alpha.8 - 2026-11-16
+
+Images from words are free and do not count against the 5 a day. New models
+from OpenRouter: Recraft V4.1 Flash V2, Seedream 5.5 and MiniMax H3 Image.
+No migrations and no changes on the host.
+
+### Added
+
+- An image from words alone goes to `recraft/recraft-v4.1-flash-v2:free`,
+  which OpenRouter serves at $0. It takes no run of the free allowance and no
+  cent of the day's budget, and there is no cap per person. Telegram uses it
+  for `/img` and plain prompts without a photo; the site opens on it while no
+  photo is attached and moves to MAI 2.6 Flash when one is, unless you picked
+  a model yourself. The aspect ratio is yours to choose. A photo, two results
+  or a video go to the paid models as before.
+- On your own OpenRouter key the same run goes to the same free variant at $0,
+  so free images from words keep working when framy's free requests are used
+  up.
+- Seedream 5.5 from ByteDance, with a 2K variant.
+- MiniMax H3 Image as one model with a Fast switch for H3 Image Highspeed, as
+  Wan 3.0 has. Its price before the run is worked out from MiniMax's own
+  token examples.
+
+### Changed
+
+- The price line, the preview card in Telegram and the site say
+  "free · not counted" for these runs.
+- A new fuse, `free_requests`, closes only the free variant when OpenRouter's
+  daily requests for free models run out (50 a day below $10 of credits
+  bought, 1,000 above), until 00:00 UTC. Images from words then go to MAI and
+  count as before. The operator chat is not told about it, and the
+  `free_closed` refusal now carries the fuse that closed it.
+
+### Known Limitations
+
+- Tencent HY World 2.1 Panorama stays hidden: OpenRouter gives no price for
+  it before the run, and every model framy shows has one.
+
 ## v0.1.0-alpha.7 - 2026-11-14
 
 A Go security update and a quieter catalog. No migrations and no changes on

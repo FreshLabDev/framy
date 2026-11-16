@@ -18,6 +18,10 @@ type KeyState struct {
 	RemainingUSD float64
 	// Daily: the limit resets at 00:00 UTC.
 	Daily bool
+	// FreeKnown: OpenRouter said how many requests to ":free" models the
+	// account has left today, FreeRemaining. They reset at 00:00 UTC.
+	FreeKnown     bool
+	FreeRemaining int
 }
 
 // KeySource reads the state of the key: GET /api/v1/key.
