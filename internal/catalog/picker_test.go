@@ -46,6 +46,7 @@ func TestThePickerArrangesTheCatalog(t *testing.T) {
 		"black-forest-labs/flux.2-klein-4b": "black-forest-labs/flux-3-image-klein",
 		"google/gemini-3.1-flash-image":     "google/gemini-nano-banana-2.1",
 		"recraft/recraft-v4-pro-vector":     "recraft/recraft-v4.1-pro-vector",
+		"recraft/recraft-v4.1-flash":        "recraft/recraft-v4.1-flash-v2",
 		// A plain variant gives way to the newest of any tier.
 		"openai/gpt-image-2":      "openai/gpt-image-2.6-sunburst",
 		"recraft/recraft-v3":      "recraft/recraft-v4.1",

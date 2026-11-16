@@ -246,7 +246,9 @@ func checkFrames(runs []prepared) *apiError {
 // atOnce is how many frames of the same run one job of it makes: one on the
 // free allowance, whose plan sets n, else what the offer makes at once.
 func atOnce(n jobs.New) int {
-	if n.Free {
+	// A free variant makes one image a run (catalog.FreeVariant.Takes): two
+	// frames on it as one job of n=2 would go to the paid route instead.
+	if n.Free || (n.Estimate != nil && n.Estimate.Free) {
 		return 1
 	}
 	return catalog.AtOnce(n.Offer)
