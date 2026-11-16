@@ -2303,24 +2303,6 @@
     "ja": "美しさ重視、~1K",
     "ar": "يركز على الجمالية، ~1K"
   },
-  "note.recraft/recraft-v4.1-flash": {
-    "en": "~1.5 s, text only, ~1K",
-    "ru": "~1,5 секунды, только текст, ~1K",
-    "uk": "~1,5 секунди, лише текст, ~1K",
-    "es": "~1,5 s, solo texto, ~1K",
-    "fr": "~1,5 s, texte seul, ~1K",
-    "de": "~1,5 s, nur Text, ~1K",
-    "it": "~1,5 s, solo testo, ~1K",
-    "pl": "~1,5 s, tylko tekst, ~1K",
-    "cs": "~1,5 s, jen text, ~1K",
-    "tr": "~1,5 sn, yalnızca metin, ~1K",
-    "sv": "~1,5 s, endast text, ~1K",
-    "be": "~1,5 секунды, толькі тэкст, ~1K",
-    "ca": "~1,5 s, només text, ~1K",
-    "zh": "~1.5 秒，仅文本，~1K",
-    "ja": "~1.5 秒、テキストのみ、~1K",
-    "ar": "~1.5 ثانية، نص فقط، ~1K"
-  },
   "note.recraft/recraft-v4.1-flash-v2": {
     "en": "Updated Flash, text only, ~1K",
     "ru": "Обновлённый Flash, только текст, ~1K",

@@ -245,6 +245,10 @@ func (a *API) quoteRoute(w http.ResponseWriter, r *http.Request) {
 			} else {
 				paid = append(paid, est)
 				most[i] = catalog.AtOnce(offer)
+				if est.Free {
+					// As createBatch does (atOnce): one image a run.
+					most[i] = 1
+				}
 			}
 			runKeys[i] = sameRun(offer.ID, pay, settings, it.Prompt, it.Inputs, it.Files, it.Continues)
 		}

@@ -141,6 +141,34 @@ func TestFreeFramesGoOneByOne(t *testing.T) {
 	}
 }
 
+// Frames on a model whose free variant takes them go one by one, each at $0
+// on the key, as the quote showed them: two of them as one job of n=2 would
+// be a paid run.
+func TestFramesOnAFreeVariantGoOneByOne(t *testing.T) {
+	r := batchRig(t)
+	m := r.store.offers[testOffer]
+	m.Offers[0].Routes = []catalog.Route{{Prices: m.Offers[0].Routes[0].Prices, Free: &catalog.FreeVariant{Model: "test/image:free"}}}
+	r.store.offers[testOffer] = m
+	same := frame(testOffer, "key")
+	q := jsonOf(t, r.post(alice, "/api/quote", "", `{"batch":true,"items":[{"offer":"`+testOffer+`","pay":"key","prompt":"a fox"},{"offer":"`+testOffer+`","pay":"key","prompt":"a fox"}]}`))
+	if fmt.Sprint(q["jobs"]) != "[[0] [1]]" {
+		t.Errorf("quote jobs %v", q["jobs"])
+	}
+	resp := r.post(alice, "/api/batches", nextKey(), pressWith(`"shown_usd":0`, same, same))
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("%d %v", resp.StatusCode, jsonOf(t, resp))
+	}
+	got := r.queue.batches[len(r.queue.batches)-1]
+	if len(got) != 2 {
+		t.Fatalf("%d jobs", len(got))
+	}
+	for i, n := range got {
+		if !n.Estimate.Free || n.Estimate.USD != 0 || (n.Settings["n"] != nil && n.Settings["n"] != 1.0) {
+			t.Errorf("job %d: n=%v %+v", i, n.Settings["n"], *n.Estimate)
+		}
+	}
+}
+
 func TestARepeatedPressIsTheSameBatch(t *testing.T) {
 	r := batchRig(t)
 	key := nextKey()

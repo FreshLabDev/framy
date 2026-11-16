@@ -388,7 +388,7 @@ models:
   black-forest-labs/flux.2-klein-4b:
     family: {id: flux, gen: "2", tier: klein, label: 2 Klein 4B}
   recraft/recraft-v4.1:
-    family: {id: recraft, gen: "4.1", tier: std, label: V4.1, line: base, format: raster}
+    family: {id: recraft, gen: "4.1", tier: std, label: V4.1, line: base, format: raster, keep: "the full model; V4.1 Flash V2 is an update of its fast tier only"}
   recraft/recraft-v4.1-pro:
     family: {id: recraft, gen: "4.1", tier: pro, label: V4.1 Pro, line: base, format: raster}
   recraft/recraft-v4.1-flash:
@@ -398,7 +398,8 @@ models:
   # person's, until 28 November 2026 by OpenRouter's expiration_date
   # (free.ImageWords). Words alone: neither variant takes a photo.
   recraft/recraft-v4.1-flash-v2:
-    family: {id: recraft, gen: "4.1", tier: flash, label: V4.1 Flash V2, line: base, format: raster, keep: "an update of V4.1 Flash that Recraft lists beside it"}
+    # 4.1.1: an update of V4.1 Flash, which it outdates.
+    family: {id: recraft, gen: "4.1.1", tier: flash, label: V4.1 Flash V2, line: base, format: raster}
     free: true
   recraft/recraft-v4.1-pro-vector:
     family: {id: recraft, gen: "4.1", tier: pro, label: V4.1 Pro Vector, line: base, format: vector}
