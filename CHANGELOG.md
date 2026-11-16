@@ -11,6 +11,26 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+## v0.1.0-alpha.9 - 2026-11-16
+
+A fix for several frames on the free Recraft model, and the older Recraft
+Flash marked outdated. No migrations and no changes on the host.
+
+### Fixed
+
+- Several frames on Recraft V4.1 Flash V2 paid with your own key were shown
+  at $0 each, but on Create framy joined them into one run of n images,
+  which the free variant does not take. The run went to the paid route, and
+  the site stopped it with "the price is now $0.028 instead of $0" before
+  anything was charged. Each frame on a free variant is now a run of its
+  own at $0, in the quote and on Create alike.
+
+### Changed
+
+- Recraft V4.1 Flash is outdated by V4.1 Flash V2, its update, and the
+  picker shows it among the older variants. Recraft V4.1 stays the model the
+  family opens on.
+
 ## v0.1.0-alpha.8 - 2026-11-16
 
 Images from words are free and do not count against the 5 a day. New models
