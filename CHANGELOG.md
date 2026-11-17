@@ -11,6 +11,24 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+## v0.1.0-alpha.10 - 2026-11-17
+
+The GitHub organization FreshLabDev is now asterfield-dev, and the bot moves
+with it. Nothing a person sees in Telegram changes.
+
+### Changed
+
+- **Images are published as `ghcr.io/asterfield-dev/framy`.** The organization
+  was renamed, and GitHub Container Registry does not redirect the old name:
+  `ghcr.io/freshlabdev/framy` answers 403. Point the deployment's image at the
+  new path; every earlier digest is there under it too.
+- tg moves from `v0.2.0-alpha.3.0.20261031203103-b5a82887d903` to
+  `v0.4.0-alpha.2`, whose module path is `github.com/asterfield-dev/tg`.
+  `SendMediaGroup` takes `tg.MediaGroupOptions` instead of a thread id; albums
+  are sent as before.
+- Links, the module path and the docs point at `github.com/asterfield-dev`.
+  Old links still redirect.
+
 ## v0.1.0-alpha.9 - 2026-11-16
 
 A fix for several frames on the free Recraft model, and the older Recraft
