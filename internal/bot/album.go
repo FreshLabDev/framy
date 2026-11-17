@@ -7,11 +7,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/framy/internal/db"
-	"github.com/FreshLabDev/framy/internal/keys"
-	"github.com/FreshLabDev/framy/internal/metrics"
+	"github.com/asterfield-dev/framy/internal/db"
+	"github.com/asterfield-dev/framy/internal/keys"
+	"github.com/asterfield-dev/framy/internal/metrics"
 )
 
 // Telegram sends every photo of an album as a message of its own, and a

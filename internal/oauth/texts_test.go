@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/i18n"
+	"github.com/asterfield-dev/framy/internal/i18n"
 )
 
 // An expired connection says how long one lasts, as a number in every

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/asterfield-dev/framy/internal/jobs"
 )
 
 const wait = 2 * time.Second

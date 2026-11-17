@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/catalog"
 )
 
 func catalogStore(t *testing.T) *Store {

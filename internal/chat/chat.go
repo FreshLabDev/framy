@@ -26,19 +26,19 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/framy/internal/anim"
-	"github.com/FreshLabDev/framy/internal/catalog"
-	"github.com/FreshLabDev/framy/internal/db"
-	"github.com/FreshLabDev/framy/internal/free"
-	"github.com/FreshLabDev/framy/internal/fx"
-	"github.com/FreshLabDev/framy/internal/i18n"
-	"github.com/FreshLabDev/framy/internal/jobs"
-	"github.com/FreshLabDev/framy/internal/keys"
-	"github.com/FreshLabDev/framy/internal/media"
-	"github.com/FreshLabDev/framy/internal/price"
-	"github.com/FreshLabDev/framy/internal/storage"
+	"github.com/asterfield-dev/framy/internal/anim"
+	"github.com/asterfield-dev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/db"
+	"github.com/asterfield-dev/framy/internal/free"
+	"github.com/asterfield-dev/framy/internal/fx"
+	"github.com/asterfield-dev/framy/internal/i18n"
+	"github.com/asterfield-dev/framy/internal/jobs"
+	"github.com/asterfield-dev/framy/internal/keys"
+	"github.com/asterfield-dev/framy/internal/media"
+	"github.com/asterfield-dev/framy/internal/price"
+	"github.com/asterfield-dev/framy/internal/storage"
 )
 
 // Telegram is what the flow calls: *tg.Client.
@@ -49,7 +49,7 @@ type Telegram interface {
 	SendAnimation(ctx context.Context, chatID int64, animation tg.InputFile, opts tg.AnimationOptions) (tg.Message, error)
 	SendDocument(ctx context.Context, chatID int64, document tg.InputFile, opts tg.DocumentOptions) (tg.Message, error)
 	SendVideo(ctx context.Context, chatID int64, video tg.InputFile, opts tg.VideoOptions) (tg.Message, error)
-	SendMediaGroup(ctx context.Context, chatID int64, media []tg.InputMedia, threadID int) ([]tg.Message, error)
+	SendMediaGroup(ctx context.Context, chatID int64, media []tg.InputMedia, opts tg.MediaGroupOptions) ([]tg.Message, error)
 	EditMessageMediaMessage(ctx context.Context, chatID, messageID int64, media tg.InputMedia, markup *tg.InlineKeyboardMarkup) (tg.Message, error)
 	EditMessageCaption(ctx context.Context, chatID, messageID int64, caption string, opts tg.EditCaptionOptions) (tg.Message, error)
 	EditMessageReplyMarkup(ctx context.Context, chatID, messageID int64, markup *tg.InlineKeyboardMarkup) error

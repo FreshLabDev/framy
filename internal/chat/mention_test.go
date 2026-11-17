@@ -5,8 +5,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/FreshLabDev/framy/internal/free"
-	"github.com/FreshLabDev/framy/internal/i18n"
+	"github.com/asterfield-dev/framy/internal/free"
+	"github.com/asterfield-dev/framy/internal/i18n"
 )
 
 // "@framyin_bot a fox" in a group is /img a fox; in reply to a video it is

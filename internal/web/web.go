@@ -45,7 +45,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/metrics"
+	"github.com/asterfield-dev/framy/internal/metrics"
 )
 
 // Server settings. A route that needs longer asks for it with Deadlines,

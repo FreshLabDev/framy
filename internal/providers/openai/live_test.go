@@ -40,8 +40,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/jobs"
-	"github.com/FreshLabDev/framy/internal/price"
+	"github.com/asterfield-dev/framy/internal/jobs"
+	"github.com/asterfield-dev/framy/internal/price"
 )
 
 // OpenAI's prices of 26 October 2026 for the GPT image models, in dollars per
@@ -126,7 +126,7 @@ func liveProvider(key string) (*Provider, *recorder) {
 		// that speaks OpenAI's shapes; empty is OpenAI itself.
 		Base:      os.Getenv("OPENAI_TEST_BASE"),
 		HTTP:      &http.Client{Transport: rec},
-		UserAgent: "framy-live-test (+https://github.com/FreshLabDev/framy)",
+		UserAgent: "framy-live-test (+https://github.com/asterfield-dev/framy)",
 		Key:       func(context.Context, jobs.Job) (string, error) { return key, nil },
 	}), rec
 }

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/FreshLabDev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/catalog"
 )
 
 // Billables and units of the price lines framy reads. OpenRouter publishes

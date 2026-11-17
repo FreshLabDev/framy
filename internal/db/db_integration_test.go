@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/framy/migrations"
+	"github.com/asterfield-dev/framy/migrations"
 )
 
 func testStore(t *testing.T) *Store {

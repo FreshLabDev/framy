@@ -25,7 +25,7 @@
 # workflow published after CI, by digest, before production takes it
 # (docs/releases.md):
 #
-#   FRAMY_IMAGE=ghcr.io/freshlabdev/framy@sha256:<digest>
+#   FRAMY_IMAGE=ghcr.io/asterfield-dev/framy@sha256:<digest>
 #
 # ws04 deploy framy-test pulls it. Its sessions are its own: a cookie or a
 # token of the test bot signs nobody in on production.

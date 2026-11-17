@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 )
 
 // A reply to a result in a group (docs/design.md, `/img` and `/edit` in a

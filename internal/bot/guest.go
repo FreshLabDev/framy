@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 )
 
 // onGuest passes a guest message to the flow (docs/design.md, Guest mode).

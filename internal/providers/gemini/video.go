@@ -14,8 +14,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/FreshLabDev/framy/internal/catalog"
-	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/asterfield-dev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/jobs"
 )
 
 // A video is Gemini Omni's, a job at Google (docs/design.md, Jobs): POST

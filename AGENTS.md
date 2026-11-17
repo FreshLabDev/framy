@@ -35,7 +35,7 @@ careful with people's keys, and production-minded.
   Continue, the settings with the keys of each provider, the default models
   and the DM switch, and the library with the viewer of a run at `/r/<id>`.
   The editor of a result is still to come.
-- The service is one Go binary (module `github.com/FreshLabDev/framy`):
+- The service is one Go binary (module `github.com/asterfield-dev/framy`):
   the HTTP server (site, Mini App, API, SSE, OAuth callbacks, provider
   webhooks), the bot, the job workers, the hourly catalog sync and the
   renderer of loops and cards, all from one process behind a Cloudflare Tunnel
@@ -46,7 +46,7 @@ careful with people's keys, and production-minded.
   `core.effective_language`, never by writing `core.*` tables directly.
 - Files, inputs and results alike, live in the private R2 bucket `framy` and
   are served through presigned links. The host keeps only working files.
-- Telegram goes through `github.com/FreshLabDev/tg` against the family's own
+- Telegram goes through `github.com/asterfield-dev/tg` against the family's own
   `telegram-bot-api` in `--local` mode. What `tg` lacks is listed in the
   design under "Changes to tg" and tracked as `tg` issues; call it through
   `Client.Call` until typed methods land. A `tg` release needs separate
@@ -267,12 +267,12 @@ screen, a command or a table, check how the siblings do it.
 ## Planning
 
 - Tasks and their status live in GitHub issues of this repository, not in
-  files. The family's [Asterfield board](https://github.com/orgs/FreshLabDev/projects/4)
+  files. The family's [Asterfield board](https://github.com/orgs/asterfield-dev/projects/4)
   gathers them, with framy on its
-  [framy tab](https://github.com/orgs/FreshLabDev/projects/4/views/3); the
+  [framy tab](https://github.com/orgs/asterfield-dev/projects/4/views/3); the
   framy board (projects/3) is closed. An issue opened from a template by someone
   who can write to the board lands on it, and any other is added with
-  `gh project item-add 4 --owner FreshLabDev --url <issue>`. On the board it
+  `gh project item-add 4 --owner asterfield-dev --url <issue>`. On the board it
   gets Status, Area (which part of the service it touches) and Size.
 - The stage of a task is its milestone, and the milestones follow the stages
   of the design (`docs/design.md`, Stages): MVP is Images, Video is Video, and

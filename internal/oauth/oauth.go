@@ -79,9 +79,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/catalog"
-	"github.com/FreshLabDev/framy/internal/keys"
-	"github.com/FreshLabDev/framy/internal/metrics"
+	"github.com/asterfield-dev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/keys"
+	"github.com/asterfield-dev/framy/internal/metrics"
 )
 
 // Provider is the one provider that connects by OAuth: its name in keys and

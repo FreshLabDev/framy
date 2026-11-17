@@ -45,8 +45,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/catalog"
-	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/asterfield-dev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/jobs"
 )
 
 const liveVideoModel = "x-ai/grok-imagine-video-1.5-lite"
@@ -75,7 +75,7 @@ func liveVideoJob(id int64) jobs.Job {
 
 func liveVideoProvider(key string, cb Callbacks) *Provider {
 	return New(Config{
-		UserAgent:  "framy-live-test (+https://github.com/FreshLabDev/framy)",
+		UserAgent:  "framy-live-test (+https://github.com/asterfield-dev/framy)",
 		Referer:    AppURL,
 		Title:      AppTitle,
 		Categories: AppCategories,

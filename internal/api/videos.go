@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/media"
-	"github.com/FreshLabDev/framy/internal/storage"
+	"github.com/asterfield-dev/framy/internal/media"
+	"github.com/asterfield-dev/framy/internal/storage"
 )
 
 // Clips (docs/design.md, Storage and retention). The browser puts a clip

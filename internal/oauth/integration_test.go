@@ -23,10 +23,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/FreshLabDev/framy/internal/db"
-	"github.com/FreshLabDev/framy/internal/jobs"
-	"github.com/FreshLabDev/framy/internal/keys"
-	"github.com/FreshLabDev/framy/migrations"
+	"github.com/asterfield-dev/framy/internal/db"
+	"github.com/asterfield-dev/framy/internal/jobs"
+	"github.com/asterfield-dev/framy/internal/keys"
+	"github.com/asterfield-dev/framy/migrations"
 )
 
 func testPool(t *testing.T) *pgxpool.Pool {

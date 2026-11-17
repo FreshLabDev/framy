@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/metrics"
+	"github.com/asterfield-dev/framy/internal/metrics"
 )
 
 // What was full when a request was answered 503 busy: the label of

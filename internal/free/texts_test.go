@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/i18n"
+	"github.com/asterfield-dev/framy/internal/i18n"
 )
 
 // The windows of the free allowance are written into the lines that name

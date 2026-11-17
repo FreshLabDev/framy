@@ -14,8 +14,8 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
-	"github.com/FreshLabDev/framy/internal/catalog"
-	"github.com/FreshLabDev/framy/internal/metrics"
+	"github.com/asterfield-dev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/metrics"
 )
 
 type generateArgs struct {

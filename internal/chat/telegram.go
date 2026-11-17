@@ -12,7 +12,7 @@ import (
 	"time"
 	"unicode/utf16"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 )
 
 // maxAnswer is the longest answer to a press Telegram takes, an alert or a
@@ -269,8 +269,8 @@ func (g guarded) SendVideo(ctx context.Context, chatID int64, video tg.InputFile
 	return paced(g, ctx, chatID, func() (tg.Message, error) { return g.Telegram.SendVideo(ctx, chatID, video, opts) })
 }
 
-func (g guarded) SendMediaGroup(ctx context.Context, chatID int64, media []tg.InputMedia, threadID int) ([]tg.Message, error) {
-	return paced(g, ctx, chatID, func() ([]tg.Message, error) { return g.Telegram.SendMediaGroup(ctx, chatID, media, threadID) })
+func (g guarded) SendMediaGroup(ctx context.Context, chatID int64, media []tg.InputMedia, opts tg.MediaGroupOptions) ([]tg.Message, error) {
+	return paced(g, ctx, chatID, func() ([]tg.Message, error) { return g.Telegram.SendMediaGroup(ctx, chatID, media, opts) })
 }
 
 func (g guarded) EditMessageMediaMessage(ctx context.Context, chatID, messageID int64, media tg.InputMedia, markup *tg.InlineKeyboardMarkup) (tg.Message, error) {

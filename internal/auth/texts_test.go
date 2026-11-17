@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/i18n"
+	"github.com/asterfield-dev/framy/internal/i18n"
 )
 
 // The settings say how long a sign-in lasts, as a number in every language:

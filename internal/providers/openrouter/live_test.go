@@ -28,8 +28,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/catalog"
-	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/asterfield-dev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/jobs"
 )
 
 func liveKey(t *testing.T) string {
@@ -105,7 +105,7 @@ func liveJob(of catalog.Offer, prompt string, inputs ...jobs.Input) jobs.Job {
 
 func liveProvider(key string) *Provider {
 	return New(Config{
-		UserAgent:  "framy-live-test (+https://github.com/FreshLabDev/framy)",
+		UserAgent:  "framy-live-test (+https://github.com/asterfield-dev/framy)",
 		Referer:    AppURL,
 		Title:      AppTitle,
 		Categories: AppCategories,

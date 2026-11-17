@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/free"
-	"github.com/FreshLabDev/framy/internal/media"
+	"github.com/asterfield-dev/framy/internal/free"
+	"github.com/asterfield-dev/framy/internal/media"
 )
 
 // The site says how long the free tier pauses after framy's key ran out, and

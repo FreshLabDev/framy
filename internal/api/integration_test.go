@@ -33,16 +33,16 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/FreshLabDev/framy/internal/auth"
-	"github.com/FreshLabDev/framy/internal/catalog"
-	"github.com/FreshLabDev/framy/internal/db"
-	"github.com/FreshLabDev/framy/internal/free"
-	"github.com/FreshLabDev/framy/internal/jobs"
-	"github.com/FreshLabDev/framy/internal/keys"
-	"github.com/FreshLabDev/framy/internal/media"
-	"github.com/FreshLabDev/framy/internal/r2/r2test"
-	"github.com/FreshLabDev/framy/internal/storage"
-	"github.com/FreshLabDev/framy/migrations"
+	"github.com/asterfield-dev/framy/internal/auth"
+	"github.com/asterfield-dev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/db"
+	"github.com/asterfield-dev/framy/internal/free"
+	"github.com/asterfield-dev/framy/internal/jobs"
+	"github.com/asterfield-dev/framy/internal/keys"
+	"github.com/asterfield-dev/framy/internal/media"
+	"github.com/asterfield-dev/framy/internal/r2/r2test"
+	"github.com/asterfield-dev/framy/internal/storage"
+	"github.com/asterfield-dev/framy/migrations"
 )
 
 const (

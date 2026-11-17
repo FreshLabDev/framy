@@ -465,4 +465,4 @@
 - Stars: https://core.telegram.org/bots/payments-stars
 - OIDC discovery: https://oauth.telegram.org/.well-known/openid-configuration
 - Исходник сервера на нашем пине: https://github.com/tdlib/telegram-bot-api/blob/e3e9dd8e5b3d7ab8537cd5a10dc31d5ffa8f82d1/telegram-bot-api/Client.cpp
-- Репозитории FreshLabDev: `tg` (README, docs/limitations.md, docs/local-server.md, rich.go, ephemeral.go, capability.go, media.go, inline.go, types.go), `telegram-bot-api` (README, CHANGELOG), `maply/internal/auth`, `maply/internal/telegram/telegram.go`, `maply/internal/anim`
+- Репозитории asterfield-dev: `tg` (README, docs/limitations.md, docs/local-server.md, rich.go, ephemeral.go, capability.go, media.go, inline.go, types.go), `telegram-bot-api` (README, CHANGELOG), `maply/internal/auth`, `maply/internal/telegram/telegram.go`, `maply/internal/anim`

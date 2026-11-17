@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 )
 
 // guestMessage is a guest message from person 7 in a chat framy is not in.

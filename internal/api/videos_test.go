@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/media"
-	"github.com/FreshLabDev/framy/internal/storage"
+	"github.com/asterfield-dev/framy/internal/media"
+	"github.com/asterfield-dev/framy/internal/storage"
 )
 
 // fakeVideos keeps clips in memory. A test sets err for what the next

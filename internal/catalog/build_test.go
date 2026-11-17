@@ -11,7 +11,7 @@ import (
 	"testing/fstest"
 	"time"
 
-	catalogfiles "github.com/FreshLabDev/framy/catalog"
+	catalogfiles "github.com/asterfield-dev/framy/catalog"
 )
 
 // fixtureDay is when the fixtures were taken.

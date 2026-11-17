@@ -10,7 +10,7 @@ import (
 
 	"github.com/riverqueue/river"
 
-	"github.com/FreshLabDev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/catalog"
 )
 
 func TestRedactTakesPresignedLinksOut(t *testing.T) {

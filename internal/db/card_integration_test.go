@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/framy/internal/fx"
+	"github.com/asterfield-dev/framy/internal/fx"
 )
 
 // The card holds the last sign-in's name and photo, keeps the person's other

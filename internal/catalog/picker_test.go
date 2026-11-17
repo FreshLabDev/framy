@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FreshLabDev/framy/internal/i18n"
+	"github.com/asterfield-dev/framy/internal/i18n"
 )
 
 // The picker's families of the real catalog: the order inside a row, the

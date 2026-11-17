@@ -4,8 +4,8 @@ package keys
 import (
 	"errors"
 
-	"github.com/FreshLabDev/framy/internal/catalog"
-	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/asterfield-dev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/jobs"
 )
 
 // Status is what framy can back up about a connection (docs/design.md,

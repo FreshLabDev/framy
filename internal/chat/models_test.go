@@ -5,11 +5,11 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/framy/internal/catalog"
-	"github.com/FreshLabDev/framy/internal/i18n"
-	"github.com/FreshLabDev/framy/internal/keys"
+	"github.com/asterfield-dev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/i18n"
+	"github.com/asterfield-dev/framy/internal/keys"
 )
 
 // pricedOffer is an offer that costs usd an image.

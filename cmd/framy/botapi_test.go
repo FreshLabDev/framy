@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 )
 
 const testToken = "123456789:AAH-the-bot-token-itself_0123456789ab"

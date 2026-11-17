@@ -14,7 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/FreshLabDev/framy/internal/price"
+	"github.com/asterfield-dev/framy/internal/price"
 )
 
 // spyAdmitter records what it is asked and answers as told.

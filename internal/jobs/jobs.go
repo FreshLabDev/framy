@@ -25,9 +25,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/FreshLabDev/framy/internal/catalog"
-	"github.com/FreshLabDev/framy/internal/fx"
-	"github.com/FreshLabDev/framy/internal/price"
+	"github.com/asterfield-dev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/fx"
+	"github.com/asterfield-dev/framy/internal/price"
 )
 
 // Status is where a job is:

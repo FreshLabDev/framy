@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/catalog"
 )
 
 const checkedKey = "sk-proj-Zq81nT3vLw5RkE7yUo2Pd9Hs4Bj6Xc0MaGfIt"

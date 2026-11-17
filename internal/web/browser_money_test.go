@@ -11,7 +11,7 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/FreshLabDev/framy/internal/fx"
+	"github.com/asterfield-dev/framy/internal/fx"
 )
 
 // The site writes a few amounts itself: the dollars of the hint, and the sum of

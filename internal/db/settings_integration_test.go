@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/catalog"
 )
 
 func TestTheSettingsAreKept(t *testing.T) {

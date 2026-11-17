@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/metrics"
+	"github.com/asterfield-dev/framy/internal/metrics"
 )
 
 // MiniApp exchanges a Mini App's initData for a bearer token. The body is

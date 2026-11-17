@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	catalogfiles "github.com/FreshLabDev/framy/catalog"
-	"github.com/FreshLabDev/framy/internal/catalog"
+	catalogfiles "github.com/asterfield-dev/framy/catalog"
+	"github.com/asterfield-dev/framy/internal/catalog"
 )
 
 // The catalog's fixtures: OpenRouter's answers of 27 October 2026.

@@ -11,8 +11,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/FreshLabDev/framy/internal/catalog"
-	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/asterfield-dev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/jobs"
 )
 
 // hinted is an adapter's error that knows what it shows about the key.

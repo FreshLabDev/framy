@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FreshLabDev/framy/internal/catalog"
-	"github.com/FreshLabDev/framy/internal/fx"
-	"github.com/FreshLabDev/framy/internal/i18n"
-	"github.com/FreshLabDev/framy/internal/keys"
-	"github.com/FreshLabDev/framy/internal/price"
+	"github.com/asterfield-dev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/fx"
+	"github.com/asterfield-dev/framy/internal/i18n"
+	"github.com/asterfield-dev/framy/internal/keys"
+	"github.com/asterfield-dev/framy/internal/price"
 )
 
 func inFamily(id, name, label string, rank int) catalog.Traits {

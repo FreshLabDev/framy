@@ -4,9 +4,9 @@ package chat
 import (
 	"testing"
 
-	"github.com/FreshLabDev/framy/internal/catalog"
-	"github.com/FreshLabDev/framy/internal/i18n"
-	"github.com/FreshLabDev/framy/internal/price"
+	"github.com/asterfield-dev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/i18n"
+	"github.com/asterfield-dev/framy/internal/price"
 )
 
 // Google's connection has the site's name in the chat: on the card, on the

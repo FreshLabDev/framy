@@ -20,9 +20,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/catalog"
-	"github.com/FreshLabDev/framy/internal/jobs"
-	"github.com/FreshLabDev/framy/internal/providers/answer"
+	"github.com/asterfield-dev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/jobs"
+	"github.com/asterfield-dev/framy/internal/providers/answer"
 )
 
 // DefaultBase is OpenRouter's API.

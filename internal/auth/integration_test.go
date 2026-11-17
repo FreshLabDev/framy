@@ -19,10 +19,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/framy/internal/db"
-	"github.com/FreshLabDev/framy/migrations"
+	"github.com/asterfield-dev/framy/internal/db"
+	"github.com/asterfield-dev/framy/migrations"
 )
 
 // These tests own the ids 8000 to 8999.

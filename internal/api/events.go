@@ -12,8 +12,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/FreshLabDev/framy/internal/auth"
-	"github.com/FreshLabDev/framy/internal/metrics"
+	"github.com/asterfield-dev/framy/internal/auth"
+	"github.com/asterfield-dev/framy/internal/metrics"
 )
 
 // channel is the PostgreSQL channel migration 009 notifies on.

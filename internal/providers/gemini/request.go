@@ -12,8 +12,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/FreshLabDev/framy/internal/catalog"
-	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/asterfield-dev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/jobs"
 )
 
 // referencesParam is how the catalog says how many reference images a model

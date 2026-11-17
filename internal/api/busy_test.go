@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/metrics"
-	"github.com/FreshLabDev/framy/internal/storage"
+	"github.com/asterfield-dev/framy/internal/metrics"
+	"github.com/asterfield-dev/framy/internal/storage"
 )
 
 // busyCount reads framy_busy_total{what}.

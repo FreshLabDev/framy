@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/framy/internal/free"
+	"github.com/asterfield-dev/framy/internal/free"
 )
 
 // A plain message in a DM (docs/design.md, DM): no command is needed. Words,

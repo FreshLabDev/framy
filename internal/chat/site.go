@@ -16,12 +16,12 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/framy/internal/db"
-	"github.com/FreshLabDev/framy/internal/i18n"
-	"github.com/FreshLabDev/framy/internal/media"
-	"github.com/FreshLabDev/framy/internal/storage"
+	"github.com/asterfield-dev/framy/internal/db"
+	"github.com/asterfield-dev/framy/internal/i18n"
+	"github.com/asterfield-dev/framy/internal/media"
+	"github.com/asterfield-dev/framy/internal/storage"
 )
 
 // Results made on the site come to the person's DM (docs/design.md, DM).
@@ -602,7 +602,7 @@ func (f *Flow) postEach(ctx context.Context, chatID int64, assets []storage.Asse
 
 // sendGroup sends an album and returns its messages.
 func (f *Flow) sendGroup(ctx context.Context, chatID int64, items []tg.InputMedia) ([]tg.Message, error) {
-	msgs, err := f.cfg.Telegram.SendMediaGroup(ctx, chatID, items, 0)
+	msgs, err := f.cfg.Telegram.SendMediaGroup(ctx, chatID, items, tg.MediaGroupOptions{})
 	if err != nil {
 		return nil, err
 	}

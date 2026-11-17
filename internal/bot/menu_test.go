@@ -14,11 +14,11 @@ import (
 	"unicode"
 	"unicode/utf16"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/framy/internal/free"
-	"github.com/FreshLabDev/framy/internal/i18n"
-	"github.com/FreshLabDev/framy/internal/keys"
+	"github.com/asterfield-dev/framy/internal/free"
+	"github.com/asterfield-dev/framy/internal/i18n"
+	"github.com/asterfield-dev/framy/internal/keys"
 )
 
 // A Telegram user id is up to 52 bits; the longest owner keeps every callback
@@ -238,7 +238,7 @@ func TestAboutCardIsExactly(t *testing.T) {
 	want := "<b>framy</b> · <i>v0.1.0-alpha.1</i>\n" +
 		"<i>Images and videos from OpenRouter, OpenAI and Google models.</i>\n\n" +
 		"<blockquote>Models · OpenRouter · OpenAI · Google\n" +
-		"Source · <a href=\"https://github.com/FreshLabDev/framy\">FreshLabDev/framy</a> · Apache-2.0\n" +
+		"Source · <a href=\"https://github.com/asterfield-dev/framy\">asterfield-dev/framy</a> · Apache-2.0\n" +
 		"Admin · <a href=\"https://t.me/amtiyo\">@amtiyo</a></blockquote>"
 	if text != want {
 		t.Fatalf("about =\n%s\nwant\n%s", text, want)

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/asterfield-dev/framy/internal/jobs"
 )
 
 func TestResultType(t *testing.T) {

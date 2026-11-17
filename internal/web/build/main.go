@@ -28,8 +28,8 @@ import (
 
 	"github.com/evanw/esbuild/pkg/api"
 
-	"github.com/FreshLabDev/framy/internal/fx"
-	"github.com/FreshLabDev/framy/internal/i18n"
+	"github.com/asterfield-dev/framy/internal/fx"
+	"github.com/asterfield-dev/framy/internal/i18n"
 )
 
 const (

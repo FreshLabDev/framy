@@ -12,8 +12,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/FreshLabDev/framy/internal/catalog"
-	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/asterfield-dev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/jobs"
 )
 
 // mp4 is the smallest file storage calls a video: an ISO BMFF box.

@@ -52,8 +52,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/catalog"
-	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/asterfield-dev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/jobs"
 )
 
 func keyFrom(t *testing.T, env string) string {
@@ -116,7 +116,7 @@ func liveProvider(key string) *Provider {
 		// own API when empty.
 		Base:      os.Getenv("GEMINI_TEST_BASE"),
 		HTTP:      &http.Client{Transport: &recorder{next: http.DefaultTransport, dir: os.Getenv("GEMINI_TEST_OUT")}},
-		UserAgent: "framy-live-test (+https://github.com/FreshLabDev/framy)",
+		UserAgent: "framy-live-test (+https://github.com/asterfield-dev/framy)",
 		Key:       func(context.Context, jobs.Job) (string, error) { return key, nil },
 	})
 }

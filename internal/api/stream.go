@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/metrics"
+	"github.com/asterfield-dev/framy/internal/metrics"
 )
 
 // pathID reads the job id of a /api/jobs/{id} route. A malformed one is a

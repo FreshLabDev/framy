@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FreshLabDev/framy/internal/metrics"
+	"github.com/asterfield-dev/framy/internal/metrics"
 )
 
 // sample is the value of one series of the metrics, 0 when it has none.

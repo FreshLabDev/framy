@@ -5,9 +5,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/framy/internal/i18n"
+	"github.com/asterfield-dev/framy/internal/i18n"
 )
 
 // /img from an anonymous admin makes no run, which would be nobody's: the

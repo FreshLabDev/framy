@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/catalog"
 )
 
 // modelWatch reads what OpenAI's own list of models says, at the moments

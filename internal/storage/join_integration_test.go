@@ -8,8 +8,8 @@ import (
 	"math"
 	"testing"
 
-	"github.com/FreshLabDev/framy/internal/jobs"
-	"github.com/FreshLabDev/framy/internal/storage"
+	"github.com/asterfield-dev/framy/internal/jobs"
+	"github.com/asterfield-dev/framy/internal/storage"
 )
 
 // videoJob is a done video job of user's that takes the files ids, in order.

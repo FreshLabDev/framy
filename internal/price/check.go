@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/FreshLabDev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/catalog"
 )
 
 // Check lists what the estimate cannot read in a catalog, so the sync logs

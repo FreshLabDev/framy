@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/framy/internal/i18n"
+	"github.com/asterfield-dev/framy/internal/i18n"
 )
 
 // The menu follows the family's panel contract (core/docs/panels.md):
@@ -23,8 +23,8 @@ const (
 
 const (
 	productName = "framy"
-	repoURL     = "https://github.com/FreshLabDev/framy"
-	repoName    = "FreshLabDev/framy"
+	repoURL     = "https://github.com/asterfield-dev/framy"
+	repoName    = "asterfield-dev/framy"
 	licenseName = "Apache-2.0"
 	adminURL    = "https://t.me/amtiyo"
 	adminName   = "@amtiyo"

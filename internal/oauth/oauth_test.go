@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/keys"
-	"github.com/FreshLabDev/framy/internal/metrics"
+	"github.com/asterfield-dev/framy/internal/keys"
+	"github.com/asterfield-dev/framy/internal/metrics"
 )
 
 var tokenShape = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)

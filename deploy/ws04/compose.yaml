@@ -7,7 +7,7 @@
 # The image is pulled, never built here: FRAMY_IMAGE names what the release
 # workflow published, by digest (docs/releases.md):
 #
-#   FRAMY_IMAGE=ghcr.io/freshlabdev/framy@sha256:<digest>
+#   FRAMY_IMAGE=ghcr.io/asterfield-dev/framy@sha256:<digest>
 #
 # .env holds FRAMY_IMAGE, R2_ACCOUNT_ID, TRUSTED_PROXIES, BOT_API_TOKEN (see
 # the Bot API mount below)

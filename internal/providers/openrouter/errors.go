@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/asterfield-dev/framy/internal/jobs"
 )
 
 // errorBody is OpenRouter's error object: {"error": {"code", "message",

@@ -3,10 +3,10 @@
 <p align="center"><strong>Images and videos from OpenRouter, OpenAI and Google models, at the provider's price.</strong><br/>A website, a Telegram bot and a Mini App, built as one Go service.<br/><a href="https://framy.ws04.cc">framy.ws04.cc</a></p>
 
 <p align="center">
-  <a href="https://github.com/FreshLabDev/framy/releases"><img src="https://img.shields.io/github/v/release/FreshLabDev/framy?include_prereleases&sort=semver&label=release&color=00606E&style=for-the-badge&labelColor=0f172a" alt="release"></a>
+  <a href="https://github.com/asterfield-dev/framy/releases"><img src="https://img.shields.io/github/v/release/asterfield-dev/framy?include_prereleases&sort=semver&label=release&color=00606E&style=for-the-badge&labelColor=0f172a" alt="release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-334155?style=for-the-badge&labelColor=0f172a" alt="license"></a>
   <a href="https://t.me/framyin_bot"><img src="https://img.shields.io/badge/telegram-%40framyin__bot-26A5E4?style=for-the-badge&logo=telegram&logoColor=white&labelColor=0f172a" alt="telegram bot"></a>
-  <a href="https://github.com/orgs/FreshLabDev/projects/4/views/3"><img src="https://img.shields.io/badge/plan-project%20board-00606E?style=for-the-badge&logo=github&logoColor=white&labelColor=0f172a" alt="project board"></a>
+  <a href="https://github.com/orgs/asterfield-dev/projects/4/views/3"><img src="https://img.shields.io/badge/plan-project%20board-00606E?style=for-the-badge&logo=github&logoColor=white&labelColor=0f172a" alt="project board"></a>
 </p>
 
 <p align="center">
@@ -47,7 +47,7 @@ framy is in alpha and in use: the site at
 [framy.ws04.cc](https://framy.ws04.cc) and
 [@framyin_bot](https://t.me/framyin_bot) run the newest pre-release, the one
 on the badge above and on
-[Releases](https://github.com/FreshLabDev/framy/releases). There is no stable
+[Releases](https://github.com/asterfield-dev/framy/releases). There is no stable
 version yet.
 
 What it does today:
@@ -65,7 +65,7 @@ What it does today:
 
 Still to come: the editor of a result, a mask for OpenAI edits and public links
 to results. Work is tracked on the
-[project board](https://github.com/orgs/FreshLabDev/projects/4/views/3).
+[project board](https://github.com/orgs/asterfield-dev/projects/4/views/3).
 
 ---
 
@@ -103,7 +103,7 @@ after that does the message turn into a progress loop and then into the result.
 framy is one Go service on the family's home server. PostgreSQL holds the
 state in a `framy` schema of the shared `core-postgres`; files live in
 Cloudflare R2. Telegram goes through
-[`FreshLabDev/tg`](https://github.com/FreshLabDev/tg) and the family's own Bot
+[`asterfield-dev/tg`](https://github.com/asterfield-dev/tg) and the family's own Bot
 API server.
 
 ```text
@@ -145,12 +145,12 @@ the database, media and browser checks.
 | [Release process](docs/releases.md) | Changelog, GitHub Release, deploying |
 | [Changelog](CHANGELOG.md) | What each release changed |
 | [Security](SECURITY.md) | How to report a vulnerability privately |
-| [Project board](https://github.com/orgs/FreshLabDev/projects/4/views/3) | Every task and its status, on the Asterfield board's framy tab |
+| [Project board](https://github.com/orgs/asterfield-dev/projects/4/views/3) | Every task and its status, on the Asterfield board's framy tab |
 
 ---
 
 <p align="center">
-  <a href="https://github.com/orgs/FreshLabDev/projects/4/views/3">Project board</a> ·
+  <a href="https://github.com/orgs/asterfield-dev/projects/4/views/3">Project board</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="LICENSE">Apache-2.0</a> ·
   <a href="NOTICE">NOTICE</a>

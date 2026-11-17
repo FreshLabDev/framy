@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/catalog"
-	"github.com/FreshLabDev/framy/internal/jobs"
-	"github.com/FreshLabDev/framy/internal/price"
-	"github.com/FreshLabDev/framy/internal/providers/answer"
+	"github.com/asterfield-dev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/jobs"
+	"github.com/asterfield-dev/framy/internal/price"
+	"github.com/asterfield-dev/framy/internal/providers/answer"
 )
 
 // freeRoute is the route whose free variant takes the job, by the rule the

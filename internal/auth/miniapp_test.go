@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 )
 
 // signInitData builds initData the way Telegram does, for a bot token. It is

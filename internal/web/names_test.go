@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/FreshLabDev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/catalog"
 )
 
 // TestProviderNames keeps the site's names of the providers (PNAME in

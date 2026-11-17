@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FreshLabDev/framy/internal/metrics"
+	"github.com/asterfield-dev/framy/internal/metrics"
 )
 
 func cspCount(t *testing.T, directive string) int {

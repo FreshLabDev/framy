@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/framy/internal/chat"
+	"github.com/asterfield-dev/framy/internal/chat"
 )
 
 // fakeFlow records what the bot passes to the flow of /img.

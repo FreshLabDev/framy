@@ -13,7 +13,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/FreshLabDev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/catalog"
 )
 
 // The ways a check ends without a key that passed. Each wraps nothing from

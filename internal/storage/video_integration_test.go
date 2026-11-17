@@ -16,10 +16,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/jobs"
-	"github.com/FreshLabDev/framy/internal/media"
-	"github.com/FreshLabDev/framy/internal/r2/r2test"
-	"github.com/FreshLabDev/framy/internal/storage"
+	"github.com/asterfield-dev/framy/internal/jobs"
+	"github.com/asterfield-dev/framy/internal/media"
+	"github.com/asterfield-dev/framy/internal/r2/r2test"
+	"github.com/asterfield-dev/framy/internal/storage"
 )
 
 // videoConverter is the real ffmpeg with its encoders, or a skip, unless

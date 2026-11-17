@@ -7,7 +7,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/metrics"
+	"github.com/asterfield-dev/framy/internal/metrics"
 )
 
 // Source is where the synced offers come from: OpenRouter, or a fake in

@@ -176,7 +176,7 @@ The image is chosen by one variable in the stack's env file on the host, not by
 anything in this repository:
 
 ```sh
-FRAMY_IMAGE=ghcr.io/freshlabdev/framy@sha256:<digest>
+FRAMY_IMAGE=ghcr.io/asterfield-dev/framy@sha256:<digest>
 ```
 
 Pin the **digest**, not the tag. A tag can be moved; a digest names one build
@@ -186,11 +186,11 @@ digest of a release is in its GitHub Release notes. To read it off the host that
 will run it, pull the tag once and ask the daemon:
 
 ```sh
-docker pull ghcr.io/freshlabdev/framy:<tag>
-docker inspect --format '{{index .RepoDigests 0}}' ghcr.io/freshlabdev/framy:<tag>
+docker pull ghcr.io/asterfield-dev/framy:<tag>
+docker inspect --format '{{index .RepoDigests 0}}' ghcr.io/asterfield-dev/framy:<tag>
 ```
 
-The package `ghcr.io/freshlabdev/framy` is public, so any account on the
+The package `ghcr.io/asterfield-dev/framy` is public, so any account on the
 host pulls a digest without logging in, and `ws04 deploy` pulls the one
 `FRAMY_IMAGE` names; pulling the tag first only warms the layers. Should the
 package ever be private again, a deploy straight to a digest answers `403` on
@@ -201,7 +201,7 @@ package: an access problem that looks like a missing blob, fixed with
 Without a shell on the host, the API answers the same question:
 
 ```sh
-gh api /orgs/FreshLabDev/packages/container/framy/versions \
+gh api /orgs/asterfield-dev/packages/container/framy/versions \
   --jq '.[] | select(.metadata.container.tags[]? == "<tag>") | .name'
 ```
 

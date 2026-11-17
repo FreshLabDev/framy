@@ -18,18 +18,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/framy/internal/anim"
-	"github.com/FreshLabDev/framy/internal/catalog"
-	"github.com/FreshLabDev/framy/internal/db"
-	"github.com/FreshLabDev/framy/internal/free"
-	"github.com/FreshLabDev/framy/internal/fx"
-	"github.com/FreshLabDev/framy/internal/jobs"
-	"github.com/FreshLabDev/framy/internal/keys"
-	"github.com/FreshLabDev/framy/internal/media"
-	"github.com/FreshLabDev/framy/internal/price"
-	"github.com/FreshLabDev/framy/internal/storage"
+	"github.com/asterfield-dev/framy/internal/anim"
+	"github.com/asterfield-dev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/db"
+	"github.com/asterfield-dev/framy/internal/free"
+	"github.com/asterfield-dev/framy/internal/fx"
+	"github.com/asterfield-dev/framy/internal/jobs"
+	"github.com/asterfield-dev/framy/internal/keys"
+	"github.com/asterfield-dev/framy/internal/media"
+	"github.com/asterfield-dev/framy/internal/price"
+	"github.com/asterfield-dev/framy/internal/storage"
 )
 
 // call is one Telegram call the flow made.
@@ -307,7 +307,7 @@ func (f *fakeTelegram) DeleteEphemeralMessage(_ context.Context, chatID, receive
 // SendMediaGroup records an album as one call: file lists its items as
 // "<type>:<file>", and text is the first item's caption. Each item comes
 // back as a message of its own.
-func (f *fakeTelegram) SendMediaGroup(_ context.Context, chatID int64, items []tg.InputMedia, threadID int) ([]tg.Message, error) {
+func (f *fakeTelegram) SendMediaGroup(_ context.Context, chatID int64, items []tg.InputMedia, opts tg.MediaGroupOptions) ([]tg.Message, error) {
 	var files []string
 	var caption string
 	for i, item := range items {
@@ -340,7 +340,7 @@ func (f *fakeTelegram) SendMediaGroup(_ context.Context, chatID int64, items []t
 	if strings.Contains(strings.Join(files, ","), "+cover:") {
 		cover = "album"
 	}
-	m, err := f.record(call{method: "sendMediaGroup", chatID: chatID, thread: threadID, text: caption, file: strings.Join(files, ","), cover: cover})
+	m, err := f.record(call{method: "sendMediaGroup", chatID: chatID, thread: opts.ThreadID, text: caption, file: strings.Join(files, ","), cover: cover})
 	if err != nil {
 		return nil, err
 	}

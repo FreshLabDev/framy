@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 )
 
 // chatJob makes a draft job of person id with the dedupe key key.

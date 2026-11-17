@@ -21,8 +21,8 @@ these counts as a vulnerability:
   the free allowance.
 
 Report it privately through GitHub:
-[Security → Report a vulnerability](https://github.com/FreshLabDev/framy/security/advisories/new)
-on `FreshLabDev/framy`. Only you and the maintainers see the report. If the
+[Security → Report a vulnerability](https://github.com/asterfield-dev/framy/security/advisories/new)
+on `asterfield-dev/framy`. Only you and the maintainers see the report. If the
 form does not open for you, open an issue titled "Security contact" with no
 details in it, and a maintainer will reach you privately. Include only the
 minimum reproduction details needed to investigate.

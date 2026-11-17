@@ -49,7 +49,7 @@ ARG VERSION=dev
 ARG COMMIT=none
 LABEL org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${COMMIT}" \
-      org.opencontainers.image.source="https://github.com/FreshLabDev/framy"
+      org.opencontainers.image.source="https://github.com/asterfield-dev/framy"
 USER framy
 
 EXPOSE 8080

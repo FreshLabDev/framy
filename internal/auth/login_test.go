@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 )
 
 func mustJSON(t *testing.T, s string, v any) {

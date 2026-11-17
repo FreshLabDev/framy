@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/asterfield-dev/framy/internal/jobs"
 )
 
 // Track wraps an adapter so that what a run shows about the person's key is

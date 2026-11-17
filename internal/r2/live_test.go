@@ -30,7 +30,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/r2"
+	"github.com/asterfield-dev/framy/internal/r2"
 )
 
 const (

@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FreshLabDev/framy/internal/catalog"
-	"github.com/FreshLabDev/framy/internal/free"
-	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/asterfield-dev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/free"
+	"github.com/asterfield-dev/framy/internal/jobs"
 )
 
 // The catalog's own fixtures: OpenRouter's listings of 27 October 2026.

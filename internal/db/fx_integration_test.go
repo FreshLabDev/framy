@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/framy/internal/fx"
+	"github.com/asterfield-dev/framy/internal/fx"
 )
 
 func fxStore(t *testing.T) *Store {

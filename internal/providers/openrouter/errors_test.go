@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/asterfield-dev/framy/internal/jobs"
 )
 
 // passed is OpenRouter's 400 that passes on the answer of the provider

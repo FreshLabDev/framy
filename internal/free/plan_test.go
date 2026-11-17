@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	catalogfiles "github.com/FreshLabDev/framy/catalog"
-	"github.com/FreshLabDev/framy/internal/catalog"
-	"github.com/FreshLabDev/framy/internal/jobs"
+	catalogfiles "github.com/asterfield-dev/framy/catalog"
+	"github.com/asterfield-dev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/jobs"
 )
 
 func TestImagesGoToMAIUntilMoreThanFivePhotosComeIn(t *testing.T) {

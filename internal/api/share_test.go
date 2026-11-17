@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/chat"
-	"github.com/FreshLabDev/framy/internal/db"
+	"github.com/asterfield-dev/framy/internal/chat"
+	"github.com/asterfield-dev/framy/internal/db"
 )
 
 // fakeSharing prepares alice's result 70; 71 is a video too big for

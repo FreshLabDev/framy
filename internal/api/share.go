@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/chat"
-	"github.com/FreshLabDev/framy/internal/db"
+	"github.com/asterfield-dev/framy/internal/chat"
+	"github.com/asterfield-dev/framy/internal/db"
 )
 
 // shareJSON is a prepared message: the id the Mini App passes to

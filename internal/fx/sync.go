@@ -8,7 +8,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/metrics"
+	"github.com/asterfield-dev/framy/internal/metrics"
 )
 
 // Source is where a sync reads the rates: Client, or a fake in tests.

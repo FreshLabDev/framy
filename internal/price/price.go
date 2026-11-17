@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/catalog"
 )
 
 // Kind is how much an estimate can be trusted.

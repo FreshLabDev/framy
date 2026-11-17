@@ -6,10 +6,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/FreshLabDev/framy/internal/config"
-	"github.com/FreshLabDev/framy/internal/jobs"
-	"github.com/FreshLabDev/framy/internal/providers/openrouter"
-	"github.com/FreshLabDev/framy/internal/web"
+	"github.com/asterfield-dev/framy/internal/config"
+	"github.com/asterfield-dev/framy/internal/jobs"
+	"github.com/asterfield-dev/framy/internal/providers/openrouter"
+	"github.com/asterfield-dev/framy/internal/web"
 )
 
 // openRouterCallbacks is what the adapter puts on a video request: the

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/FreshLabDev/framy/migrations"
+	"github.com/asterfield-dev/framy/migrations"
 )
 
 func TestListMigrationsOrdersByVersion(t *testing.T) {

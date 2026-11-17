@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 )
 
 // MaxInitDataAge is how old a Mini App's auth_date may be. Telegram signs

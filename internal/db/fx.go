@@ -9,7 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/FreshLabDev/framy/internal/fx"
+	"github.com/asterfield-dev/framy/internal/fx"
 )
 
 // SaveRates writes rates, one row per day and code. A currency-api row never

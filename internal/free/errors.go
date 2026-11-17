@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/catalog"
 )
 
 // The errors below are what the surfaces word for the person (#24 for the

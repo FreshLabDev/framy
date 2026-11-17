@@ -9,8 +9,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/FreshLabDev/framy/internal/catalog"
-	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/asterfield-dev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/jobs"
 )
 
 // reserved are the fields framy fills itself; no setting may set them.

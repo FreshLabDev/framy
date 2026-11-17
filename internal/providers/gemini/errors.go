@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/asterfield-dev/framy/internal/jobs"
 )
 
 // Key statuses a Gemini answer proves (docs/design.md, Providers and keys).

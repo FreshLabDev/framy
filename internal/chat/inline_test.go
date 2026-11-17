@@ -9,10 +9,10 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/framy/internal/db"
-	"github.com/FreshLabDev/framy/internal/i18n"
+	"github.com/asterfield-dev/framy/internal/db"
+	"github.com/asterfield-dev/framy/internal/i18n"
 )
 
 // inlineAnswer asks the flow what q asks and waits for the one answer.

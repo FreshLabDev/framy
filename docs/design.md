@@ -837,7 +837,7 @@ In groups and in guest mode one run makes one result, and the card offers no cou
 
 ## Mini App
 
-The same frontend as the site, on the site's origin ([#21](https://github.com/FreshLabDev/framy/issues/21)). It opens from:
+The same frontend as the site, on the site's origin ([#21](https://github.com/asterfield-dev/framy/issues/21)). It opens from:
 - the menu button beside the input field of every direct chat, set at start (`setChatMenuButton`, `internal/bot/commands.go`);
 - **Open framy** on the DM's `/start` panel, which is also where the button above inline results leads (Inline mode);
 - the Main Mini App in the bot's profile, where it is turned on in BotFather (Telegram setup).
@@ -1003,9 +1003,9 @@ The site has three addresses (`internal/web/app.go`); the rest opens over them.
 
 ## Changes to tg
 
-`tg` keeps the protocol and leaves the product to the bot (`tg/AGENTS.md`). A method moves into `methods.go` when a second bot needs it. framy is that second bot for several things maply does on its own today (`maply/internal/telegram`): the `web_app` button, `sendAnimation` through an upload, prepared inline messages, the menu button, profile descriptions, `editMessageCaption`. They move into `tg`, and maply drops its copies: maply issues [#80](https://github.com/FreshLabDev/maply/issues/80) (the `web_app` button), [#81](https://github.com/FreshLabDev/maply/issues/81) (animations and the second HTTP client), [#82](https://github.com/FreshLabDev/maply/issues/82) (captions, menu button, profile texts), [#83](https://github.com/FreshLabDev/maply/issues/83) (prepared inline messages).
+`tg` keeps the protocol and leaves the product to the bot (`tg/AGENTS.md`). A method moves into `methods.go` when a second bot needs it. framy is that second bot for several things maply does on its own today (`maply/internal/telegram`): the `web_app` button, `sendAnimation` through an upload, prepared inline messages, the menu button, profile descriptions, `editMessageCaption`. They move into `tg`, and maply drops its copies: maply issues [#80](https://github.com/asterfield-dev/maply/issues/80) (the `web_app` button), [#81](https://github.com/asterfield-dev/maply/issues/81) (animations and the second HTTP client), [#82](https://github.com/asterfield-dev/maply/issues/82) (captions, menu button, profile texts), [#83](https://github.com/asterfield-dev/maply/issues/83) (prepared inline messages).
 
-Every change below is an issue in FreshLabDev/tg, [#2](https://github.com/FreshLabDev/tg/issues/2) to [#18](https://github.com/FreshLabDev/tg/issues/18), on the Asterfield board ([projects/4](https://github.com/orgs/FreshLabDev/projects/4), the tg tab). The maply and framy issues that wait for them are marked as blocked by them.
+Every change below is an issue in asterfield-dev/tg, [#2](https://github.com/asterfield-dev/tg/issues/2) to [#18](https://github.com/asterfield-dev/tg/issues/18), on the Asterfield board ([projects/4](https://github.com/orgs/asterfield-dev/projects/4), the tg tab). The maply and framy issues that wait for them are marked as blocked by them.
 
 **Where framy stands.** `go.mod` names tg `v0.2.0-alpha.3.0.20261031203103-b5a82887d903`: commit b5a8288 on tg's `dev`, five commits past v0.2.0-alpha.3 and `dev`'s head on 5 November 2026. They are prepared inline messages (fe692f2), guest mode (bd169f3), an inline message's text with a link preview (5e0a6c2), rich messages with their own pictures (0e76c2b) and a video's cover in an album (b5a8288), all in tg's `## Unreleased`. framy uses each of them, so it cannot go back to the tag. This is a known limit: every framy release so far, v0.1.0-alpha.1 to alpha.4, builds on a tg commit no tg release names (alpha.1 and alpha.2 on 0e76c2b, alpha.3 and alpha.4 on b5a8288). Go's module proxy keeps the commit and `go.sum` pins its hash, so a build stays reproducible; what is missing is a tg release whose notes say what framy runs. When tg tags one with these changes, framy moves to the tag, and the commits named below are only where each change landed.
 

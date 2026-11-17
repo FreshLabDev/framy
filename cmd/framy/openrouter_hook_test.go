@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FreshLabDev/framy/internal/config"
-	"github.com/FreshLabDev/framy/internal/web"
+	"github.com/asterfield-dev/framy/internal/config"
+	"github.com/asterfield-dev/framy/internal/web"
 )
 
 var hooksOn = config.Hooks{

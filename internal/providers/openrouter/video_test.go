@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/asterfield-dev/framy/internal/jobs"
 )
 
 func inImage(link string) jobs.Input { return jobs.Input{ContentType: "image/png", URL: link} }

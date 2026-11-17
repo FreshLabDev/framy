@@ -10,7 +10,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/FreshLabDev/framy/internal/metrics"
+	"github.com/asterfield-dev/framy/internal/metrics"
 )
 
 // cspReportPath takes the browsers' reports of what the policy refused on a

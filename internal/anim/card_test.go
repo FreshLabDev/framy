@@ -13,7 +13,7 @@ import (
 	"testing"
 	"unicode"
 
-	"github.com/FreshLabDev/framy/internal/i18n"
+	"github.com/asterfield-dev/framy/internal/i18n"
 )
 
 // textBox is where the card's line may stand: right of the viewfinder, in

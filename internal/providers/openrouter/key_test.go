@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/asterfield-dev/framy/internal/jobs"
 )
 
 func keyServer(t *testing.T, answer func(http.ResponseWriter)) (*Provider, *http.Header) {

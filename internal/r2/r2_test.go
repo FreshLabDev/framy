@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/framy/internal/r2"
-	"github.com/FreshLabDev/framy/internal/r2/r2test"
+	"github.com/asterfield-dev/framy/internal/r2"
+	"github.com/asterfield-dev/framy/internal/r2/r2test"
 )
 
 func sum(b []byte) string {

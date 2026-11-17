@@ -46,10 +46,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/framy/internal/config"
-	"github.com/FreshLabDev/framy/internal/web"
+	"github.com/asterfield-dev/framy/internal/config"
+	"github.com/asterfield-dev/framy/internal/web"
 )
 
 const (

@@ -18,10 +18,10 @@ import (
 
 	"golang.org/x/image/webp"
 
-	"github.com/FreshLabDev/framy/internal/jobs"
-	"github.com/FreshLabDev/framy/internal/media"
-	"github.com/FreshLabDev/framy/internal/r2/r2test"
-	"github.com/FreshLabDev/framy/internal/storage"
+	"github.com/asterfield-dev/framy/internal/jobs"
+	"github.com/asterfield-dev/framy/internal/media"
+	"github.com/asterfield-dev/framy/internal/r2/r2test"
+	"github.com/asterfield-dev/framy/internal/storage"
 )
 
 // thumbConverter is the real ffmpeg with WebP and the video encoders, or a

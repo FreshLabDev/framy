@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/FreshLabDev/framy/internal/catalog"
+	"github.com/asterfield-dev/framy/internal/catalog"
 )
 
 // keyLike finds a token shaped like a provider key: OpenAI's sk-proj-…,

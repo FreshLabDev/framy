@@ -8,7 +8,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/FreshLabDev/framy/internal/jobs"
+	"github.com/asterfield-dev/framy/internal/jobs"
 )
 
 func TestAJobToContinueIsReadFromTheDatabase(t *testing.T) {
